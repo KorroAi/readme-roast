@@ -61,71 +61,90 @@ Read the README. Check the project manifest. Count the claims. Find 3-5 REAL thi
 
 ## 3. THE OUTPUT — ROAST IS THE HERO
 
-The roast lines are the STAR. Everything else is framing. If people screenshot ONE thing, it's the roast bullets. Give them breathing room.
+The roast dominates 80% of the screen. Everything else is micro. Every pixel of whitespace is intentional. The layout IS the product.
 
-### LAYOUT (mandatory order)
+### LAYOUT (mandatory — do not deviate)
 
 ```
-🔥 README-ROAST  /  🍳 Gordon Ramsay  /  mue-x
+🔥 README-ROAST  ·  🧊 The Ex  ·  mue-x
+HONESTY 34/100 🟠
 
-  HONESTY: 43/100 🟠
+    ①  "git clone YOUR_USERNAME. You shipped
+        a README with a placeholder clone URL.
+        Step one fails. Everything after that
+        is fan fiction."
 
-  ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+    ②  "'MUE is not a tool. It's a living agent.'
+        It's Python files + SQLite. I checked.
+        You always call your scripts 'living'
+        when they're well-organized."
 
-  "Your install section says 'just clone and run.'
-   You forgot to mention the database, 3 API keys,
-   and the Docker container that only works on Tuesdays."
+    ③  "'Adapts to ANY domain.' Trading? Fine.
+        Cooking? Maybe. Astrophysics? Your PAD
+        emotional model doesn't know what a
+        quasar is. Pick a lane."
 
-  "You claim 8 features. I found 3. One of them
-   is 'dark mode.' That's not a feature. That's a
-   CSS variable. Come on."
+    ▸ "MUE takes over from there" — from WHERE?
+      The clone command literally doesn't work.
 
-  "'Production-ready' appears 4 times. Your test
-   coverage is 12%. The math doesn't math. I checked."
-
-  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
-
-  🎯 "Blazing fast" — benchmark run once, in 2024,
-     on a machine that no longer exists.
-
-  ⚡ Fix: Add "requires Docker + Node 18" to install.
-
-  🛡️ [HONESTY CERTIFIED 43/100] (badge below)
+    ⚡ replace YOUR_USERNAME with your GitHub
+    🛡️ HONESTY CERTIFIED 34/100
 ```
 
 ### RULES FOR EACH ELEMENT
 
-**Header (1 line max):** `🔥 README-ROAST  /  [persona emoji] [Persona Name]  /  [project]`
+**Header (2 lines):**
+```
+🔥 README-ROAST  ·  [emoji] [Persona]  ·  [project]
+HONESTY [N]/100 [color emoji]
+```
+- Use `·` (middle dot) as separator, not `/`
+- No colon after HONESTY. Clean. Minimal.
+- Score line is standalone. No tagline. No quote. The roast explains the score.
 
-**Score (1 line):** `HONESTY: [N]/100 [emoji]` — no tagline, no quote. Just the number. The roast speaks for itself.
+**THE ROAST (3-5 numbered blocks — THE HERO):**
+- Each roast block starts with `    ①  "` (4 spaces, circled number, 2 spaces, quote)
+- First line of each block: the roast observation, wrapped in quotes
+- Continuation lines indented to align with the quote text (8 spaces from margin)
+- **Blank line between EVERY roast block.** The whitespace IS the design. Never skip it.
+- Max 140 chars per roast line.
+- The roast occupies ~80% of the screenshot. It IS the content.
 
-**THE ROAST (3-5 quotes, EACH on its own block with blank lines between):**
-- Each roast line is wrapped in quotes: `"roast text here"`
-- Each roast line is 1-2 sentences. Max 140 chars.
-- **Blank line between every roast block.** This is critical. The spacing IS the design.
-- The roast IS the screenshot. If someone screenshots nothing else, they screenshot the roast.
-- Use `▔▔▔` separator above and `▁▁▁` separator below to visually frame the roast section.
+**One-Liner (1-2 lines):**
+```
+    ▸ "quote" — punchline
+```
+- 4-space indent. `▸` as marker. Not 🎯. Cleaner.
 
-**One-Liner (1-2 lines):** `🎯 [tweetable sentence]` — under 280 chars.
-
-**Quick Fix (1 line):** `⚡ Fix: [one action, under 15 words]` — tiny, secondary, barely noticed.
-
-**Badge (1 line):** `🛡️ [HONESTY CERTIFIED N/100]` then the actual markdown badge on the next line.
+**Quick Fix + Badge (2 lines, compact footer):**
+```
+    ⚡ [one action, under 12 words]
+    🛡️ HONESTY CERTIFIED [N]/100
+```
+- 4-space indent. Both lines terse. Secondary. They exist but don't compete.
 
 ### VISUAL HIERARCHY
 
 ```
-  Line 1:  Header     (5% of visual weight)
-  Line 2:  Score      (5%)
-  Line 3:  ▔▔▔▔▔     (separator)
-  Lines 4-12: ROAST   (70% of visual weight — THE HERO)
-  Line 13: ▁▁▁▁▁     (separator)
-  Line 14: One-liner  (10%)
-  Line 15: Quick fix  (5%)
-  Line 16: Badge      (5%)
+  Line 1:  Header     (3% — barely noticed)
+  Line 2:  Score      (3%)
+  Line 3:  (blank)    (breathing room)
+  Lines 4-18: ROAST   (80% — THE SCREENSHOT)
+  Line 19: (blank)    (breathing room)
+  Line 20: One-liner  (7%)
+  Line 21: (blank)    (breathing room)
+  Line 22: Quick fix  (3%)
+  Line 23: Badge      (3%)
 ```
 
-The roast dominates. Everything else exists to frame it.
+### WHY THIS LAYOUT WORKS
+
+1. **Circled numbers** (①②③) are visual anchors. The eye jumps to them instantly.
+2. **Indentation creates rhythm.** 4-space → quote → 8-space continuation. The pattern is predictable and satisfying.
+3. **No separator bars.** They're noise. Whitespace separates. Cleaner.
+4. **Quote marks make each roast feel like testimony.** "Evidence" presented one by one.
+5. **The one-liner uses ▸ not 🎯.** Less emoji clutter. More refined.
+6. **Header is 2 lines, not a box.** Boxes waste 4+ lines of precious screenshot space.
 
 ---
 
