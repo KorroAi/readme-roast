@@ -14,6 +14,10 @@
 
 **README-ROAST** is a [Claude Code](https://claude.ai/code) skill that reads your project's README, figures out what your project ACTUALLY does, and generates a brutally honest alternate version. Delivered by a rotating cast of 5 unhinged personas. Equal parts comedy roast, therapy session, and genuine project audit.
 
+<p align="center">
+  <img src="assets/demo-screenshot.png" alt="README-ROAST demo" width="800">
+</p>
+
 ---
 
 ## Quick Start
@@ -74,6 +78,14 @@ Every roast produces:
 | **Honesty Certified Badge** | Embeddable shields.io badge for your real README |
 | **ASCII Honesty Card** | A beautiful, shareable card for terminal screenshots |
 | **Quick Wins** | 1-3 specific, actionable fixes the author can do right now |
+
+---
+
+## Demo
+
+<p align="center">
+  <video src="assets/demo.mp4" controls width="800" poster="assets/demo-screenshot.png"></video>
+</p>
 
 ---
 
