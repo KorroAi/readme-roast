@@ -59,53 +59,73 @@ Read the README. Check the project manifest. Count the claims. Find 3-5 REAL thi
 
 ---
 
-## 3. THE OUTPUT (6 short sections, fits one screenshot)
+## 3. THE OUTPUT — ROAST IS THE HERO
 
-### 3A. Persona Header
-```
-┌────────────────────────────────────────┐
-│     🍳 GORDON RAMSAY — KITCHEN INSPECTION │
-│          Subject: repo-name/README.md     │
-└────────────────────────────────────────┘
-```
+The roast lines are the STAR. Everything else is framing. If people screenshot ONE thing, it's the roast bullets. Give them breathing room.
 
-### 3B. Score + Tagline
-```
-HONESTY SCORE: 43/100 🟠 — "You said 'lightweight.' node_modules is 2.1GB."
+### LAYOUT (mandatory order)
 
-Scale: 🟢 80+ (honest) | 🟡 50-79 (puffery) | 🟠 20-49 (lying) | 🔴 0-19 (fiction)
 ```
+🔥 README-ROAST  /  🍳 Gordon Ramsay  /  mue-x
 
-### 3C. THE ROAST (3-5 bullets, 1-2 sentences each)
-```
-→ Your install section says "just clone and run." You forgot to mention the
-  database, 3 API keys, and the Docker container that only works on Tuesdays.
+  HONESTY: 43/100 🟠
 
-→ You claim 8 features. I found 3. One of them is "dark mode." That's not
-  a feature. That's a CSS variable.
+  ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
 
-→ "Production-ready" appears 4 times. Your test coverage is 12%. The math
-  doesn't math.
-```
+  "Your install section says 'just clone and run.'
+   You forgot to mention the database, 3 API keys,
+   and the Docker container that only works on Tuesdays."
 
-### 3D. ONE-LINER
-```
-🎯 "Blazing fast" — said the README whose benchmark was run once, on a
-   machine that no longer exists, in 2024, with no competitors in the room.
-```
-Must be: under 280 chars, standalone, screenshot-worthy.
+  "You claim 8 features. I found 3. One of them
+   is 'dark mode.' That's not a feature. That's a
+   CSS variable. Come on."
 
-### 3E. BADGE
-```
-[![Honesty Certified](https://img.shields.io/badge/HONESTY%20CERTIFIED-43%2F100-orange)](https://github.com/KorroAi/readme-roast)
+  "'Production-ready' appears 4 times. Your test
+   coverage is 12%. The math doesn't math. I checked."
+
+  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+
+  🎯 "Blazing fast" — benchmark run once, in 2024,
+     on a machine that no longer exists.
+
+  ⚡ Fix: Add "requires Docker + Node 18" to install.
+
+  🛡️ [HONESTY CERTIFIED 43/100] (badge below)
 ```
 
-### 3F. QUICK WIN
+### RULES FOR EACH ELEMENT
+
+**Header (1 line max):** `🔥 README-ROAST  /  [persona emoji] [Persona Name]  /  [project]`
+
+**Score (1 line):** `HONESTY: [N]/100 [emoji]` — no tagline, no quote. Just the number. The roast speaks for itself.
+
+**THE ROAST (3-5 quotes, EACH on its own block with blank lines between):**
+- Each roast line is wrapped in quotes: `"roast text here"`
+- Each roast line is 1-2 sentences. Max 140 chars.
+- **Blank line between every roast block.** This is critical. The spacing IS the design.
+- The roast IS the screenshot. If someone screenshots nothing else, they screenshot the roast.
+- Use `▔▔▔` separator above and `▁▁▁` separator below to visually frame the roast section.
+
+**One-Liner (1-2 lines):** `🎯 [tweetable sentence]` — under 280 chars.
+
+**Quick Fix (1 line):** `⚡ Fix: [one action, under 15 words]` — tiny, secondary, barely noticed.
+
+**Badge (1 line):** `🛡️ [HONESTY CERTIFIED N/100]` then the actual markdown badge on the next line.
+
+### VISUAL HIERARCHY
+
 ```
-⚡ Fix this now: Add "requires Docker and Node 18+" to your install section.
-   It's one sentence. It'll save someone 45 minutes.
+  Line 1:  Header     (5% of visual weight)
+  Line 2:  Score      (5%)
+  Line 3:  ▔▔▔▔▔     (separator)
+  Lines 4-12: ROAST   (70% of visual weight — THE HERO)
+  Line 13: ▁▁▁▁▁     (separator)
+  Line 14: One-liner  (10%)
+  Line 15: Quick fix  (5%)
+  Line 16: Badge      (5%)
 ```
-One thing. Actionable. Under 15 words.
+
+The roast dominates. Everything else exists to frame it.
 
 ---
 
