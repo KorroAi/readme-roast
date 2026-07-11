@@ -161,7 +161,7 @@ The roast is funny but the audit is real. Here's what it checks:
 ### Setup
 ```bash
 # Clone into your Claude Code skills directory
-git clone https://github.com/korrocorp/readme-roast.git ~/.claude/skills/readme-roast
+git clone https://github.com/KorroAi/readme-roast.git ~/.claude/skills/readme-roast
 
 # Or just copy the files
 cp -r path/to/readme-roast ~/.claude/skills/readme-roast/
@@ -211,7 +211,7 @@ If you contribute, be prepared: your PR will be roasted. That's the rules.
 
 ## License
 
-MIT © [KORROCORP](https://github.com/korrocorp)
+MIT © [KorroAi](https://github.com/KorroAi)
 
 ---
 

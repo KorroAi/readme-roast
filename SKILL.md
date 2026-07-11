@@ -258,7 +258,7 @@ A single sentence, optimized for social media screenshots. Must be:
 ### 3F. The Shareable Badge
 
 ```
-[![Honesty Certified](https://img.shields.io/badge/HONESTY%20CERTIFIED-[N]%2F100-[color])](https://github.com/user/repo)
+[![Honesty Certified](https://img.shields.io/badge/HONESTY%20CERTIFIED-[N]%2F100-[color])](https://github.com/KorroAi/readme-roast)
 ```
 
 - Replace `[N]` with the score. Use `%2F` for the slash.

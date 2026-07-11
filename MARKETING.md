@@ -18,7 +18,7 @@
 
 | Action | Channel | Notes |
 |--------|---------|-------|
-| Polish GitHub repo | github.com/korrocorp/readme-roast | README, LICENSE, CODE_OF_CONDUCT, example output all perfect |
+| Polish GitHub repo | github.com/KorroAi/readme-roast | README, LICENSE, CODE_OF_CONDUCT, example output all perfect |
 | Create demo roasts | Local | Roast 3-5 well-known repos (React, TensorFlow, VS Code, curl, htop) and save screenshots |
 | Select the funniest roast | — | One roast that made YOU laugh out loud. That's the lead. |
 | Prepare launch post draft | X, Reddit | Two versions: short (X) and long (Reddit). Both with screenshot. |
