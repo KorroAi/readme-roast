@@ -1,32 +1,38 @@
 # Changelog
 
-## 1.0.1 (2026-07-11)
+## 2.0.0 (2026-07-11)
+
+### Complete Rewrite — Shorter, Funnier, More Personas
+
+**Philosophy shift:** Roasts now fit in ONE screenshot. No more 8-section academic paper format.
 
 ### Added
-- `--help` flag for displaying all available options
-- `--version` flag for version display
-- Detailed `--compare` mode subsection with head-to-head verdict format
-- Detailed `--output` mode subsection with file saving behavior
-- Invalid flag handling rules with priority resolution
-- "Established project" tier (100–1000 stars) in platform-aware intensity
+- 3 new personas: 🧊 The Ex, 👶 The Toddler, 🎤 Stand-Up Comedian, 🔥 The Hypebeast
+- 8 total personas (up from 5)
+- `--ex`, `--toddler`, `--comedian`, `--hypebeast` flags
+- `--full` flag for complete honest README rewrite
+- `--detective` flag (renamed from `--noir`)
 
-### Fixed
-- Badge color mapping now aligns exactly with scoring rubric
-- Platform-aware intensity now covers all repo sizes (no gap between 100–1000 stars)
-- Reworded "Twitter" references to "social media" for broader relevance
-- Fixed ASCII card generation wording ("offer to generate" → "generate")
-- Improved parallel structure in humor philosophy paragraph
+### Changed
+- Output format: 6 short sections instead of 8 long ones
+- Roasts are 3-5 punchy bullets, not full alternate READMEs
+- Humor quality gate simplified: specific, fair, surprising, short
+- Execution protocol: 5 steps, under 2 minutes
+- Persona guide: 1 paragraph per persona, not 1 page
+- README drastically simplified
+
+### Removed
+- 📊 McKinsey Consultant persona (too verbose, not funny enough)
+- `--mckinsey` flag
+- `--noir` flag (replaced by `--detective`)
+- `--compare` flag (reintroduce in v2.1)
+- `--output` flag (use `--full` instead)
+- Report Card with GPA (too formal)
+- 8-section mandatory alternate README
+- Platform-aware intensity table (simplified to 4 tiers)
+
+## 1.0.1 (2026-07-11)
+- Bug fixes: badge colors, missing star tier, --help/--version, invalid flags
 
 ## 1.0.0 (2026-07-11)
-
-- Initial release
-- 5 roast personas: Gordon Ramsay, David Attenborough, Noir Detective, McKinsey Consultant, The Brutalist
-- Honesty Score (0-100) with color-coded scale
-- Full alternate README generation with 8 required sections
-- Shareable one-liner optimized for social media screenshots
-- Embeddable Honesty Certified badge (shields.io)
-- Self-roast mode (`--self`)
-- Badge-only mode for CI pipelines (`--badge-only`)
-- Platform-aware intensity (solo dev vs corporate)
-- Mandatory humor quality gate
-- Edge case handling: missing README, empty README, non-English README, monorepos
+- Initial release: 5 personas, 24 audit dimensions, CI integration

@@ -5,14 +5,14 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-brightgreen" alt="Version">
+  <img src="https://img.shields.io/badge/version-2.0.0-brightgreen" alt="Version">
   <img src="https://img.shields.io/badge/license-MIT-blue" alt="License">
   <a href="https://discord.gg/RSBHHjxnYt"><img src="https://img.shields.io/badge/discord-KORROCORP-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
 </p>
 
 ---
 
-**README-ROAST** is a [Claude Code](https://claude.ai/code) skill that reads your project's README, figures out what your project ACTUALLY does, and generates a brutally honest alternate version. Delivered by a rotating cast of 5 unhinged personas. Equal parts comedy roast, therapy session, and genuine project audit.
+**README-ROAST** is a [Claude Code](https://claude.ai/code) skill that roasts your README. 8 personas. Honesty Score. One-liner. Badge. Fits in one screenshot. Equal parts savage and useful.
 
 <p align="center">
   <img src="assets/demo-screenshot.png" alt="README-ROAST demo" width="800">
@@ -35,32 +35,20 @@
 
 ---
 
-## The Personas
+## 8 Personas
 
-Every roast is delivered by one of these characters. You never know which one you'll get.
+You never know who's showing up.
 
-<table>
-<tr>
-<td width="20%"><b>🍳 Gordon Ramsay</b></td>
-<td width="80%"><em>"Your installation section is RAW. Thirty-seven dependencies and NOT ONE of them justified."</em></td>
-</tr>
-<tr>
-<td><b>🌿 David Attenborough</b></td>
-<td><em>"Here we see the junior developer's README in its natural habitat — overstuffed with badges, desperate for validation."</em></td>
-</tr>
-<tr>
-<td><b>🕵️ Noir Detective</b></td>
-<td><em>"The README said 'blazing fast.' But the benchmarks folder was empty. Someone had cleaned up."</em></td>
-</tr>
-<tr>
-<td><b>📊 McKinsey Consultant</b></td>
-<td><em>"Your README falls squarely in the High Buzzwords, Low Substance quadrant of my 2x2."</em></td>
-</tr>
-<tr>
-<td><b>🗿 The Brutalist</b></td>
-<td><em>"This paragraph serves no purpose. Delete it. The next one too."</em></td>
-</tr>
-</table>
+| Persona | Vibe | Signature |
+|---------|------|-----------|
+| 🍳 **Gordon Ramsay** | Chef rage | "Your install section is RAW." |
+| 🌿 **David Attenborough** | Nature doc | "Here we see the junior dev, puffing up its README..." |
+| 🕵️ **The Detective** | Noir PI | "The benchmarks folder was empty. Someone cleaned up." |
+| 🧊 **The Ex** | Toxic ex | "'Production-ready.' That's what you said about your last project." |
+| 👶 **The Toddler** | Asks why endlessly | "You said it's lightweight. Why? 847 deps. Why?" |
+| 🎤 **Stand-Up Comedian** | Netflix special | "'Synergistic.' [pause] In a TODO app." |
+| 🗿 **The Brutalist** | 5 words max | "This paragraph serves no purpose." |
+| 🔥 **The Hypebeast** | Gen Z slang | "Your install steps? Mid. Feature list? Goated. fr fr." |
 
 ---
 
@@ -150,16 +138,17 @@ The roast is funny but the audit is real. Here's what it checks:
 ```
 /readme-roast --ramsay          # Gordon Ramsay
 /readme-roast --attenborough    # David Attenborough
-/readme-roast --noir            # Noir Detective
-/readme-roast --mckinsey        # McKinsey Consultant
-/readme-roast --brutalist       # The Brutalist
+/readme-roast --detective       # Noir Detective
+/readme-roast --ex              # The Ex (toxic, petty)
+/readme-roast --toddler         # The Toddler (why? why?)
+/readme-roast --comedian        # Stand-Up Comedian
+/readme-roast --brutalist       # The Brutalist (5 words)
+/readme-roast --hypebeast       # The Hypebeast (Gen Z)
 /readme-roast --self            # Roast this skill itself
-/readme-roast --badge-only      # Badge markdown only (CI pipelines)
-/readme-roast --json            # JSON output (CI/CD integration)
-/readme-roast --output file.md  # Save honest README to file
-/readme-roast --compare <url>   # Roast two repos, declare winner
-/readme-roast --help            # Show all available flags
-/readme-roast --version         # Show current version
+/readme-roast --full            # Full honest README rewrite
+/readme-roast --badge-only      # Badge markdown only (CI)
+/readme-roast --json            # JSON output (CI/CD)
+/readme-roast --help            # All flags
 ```
 
 ---
