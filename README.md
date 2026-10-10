@@ -218,6 +218,6 @@ MIT © [KorroAi](https://github.com/KorroAi)
 
 <p align="center">
   <a href="https://discord.gg/RSBHHjxnYt"><b>💬 Join KORROCORP on Discord</b></a> — 
-  <a href="https://github.com/korrocorp">GitHub</a> · 
+  <a href="https://github.com/KorroAi">GitHub</a> · 
   <a href="https://x.com/korrocorp">X</a>
 </p>
