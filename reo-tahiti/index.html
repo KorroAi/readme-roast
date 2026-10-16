@@ -42,8 +42,9 @@ button{cursor:pointer}
 header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;flex-direction:column;gap:14px;padding-block:6px 4px}
 h1{margin:0;font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.1}
 h1 span{color:var(--muted);font-family:var(--sans);font-size:15px;font-weight:700;margin-left:6px}
-.switch{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:999px;background:var(--line)}
-.switch button{min-height:44px;border:0;border-radius:999px;background:transparent;font-weight:800;font-size:16px;color:var(--muted)}
+.switch{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;padding:4px;border-radius:999px;background:var(--line)}
+.switch button{min-height:44px;border:0;border-radius:999px;background:transparent;font-weight:800;font-size:15px;color:var(--muted);padding:0 4px;white-space:nowrap}
+@media (max-width:370px){.switch button{font-size:13.5px}}
 .switch button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
 
 .ty{font-family:var(--serif);font-weight:400}
@@ -89,6 +90,18 @@ h1 span{color:var(--muted);font-family:var(--sans);font-size:15px;font-weight:70
 .result .score{font-family:var(--serif);font-size:84px;line-height:1}
 .result p{color:var(--muted);font-weight:700;margin:0}
 
+/* Convertir */
+.money{background:var(--card);border-radius:28px;box-shadow:var(--shadow);padding:22px;display:flex;flex-direction:column;gap:6px}
+.money label{font-weight:800;font-size:14px;color:var(--muted);letter-spacing:.04em;text-transform:uppercase}
+.amount{display:flex;align-items:center;gap:10px;border-bottom:2px solid var(--line);padding:4px 0 8px}
+.amount:focus-within{border-color:var(--accent)}
+.amount input{flex:1;min-width:0;border:0;background:transparent;font-family:var(--serif);font-size:clamp(38px,11vw,50px);line-height:1.15;padding:0;font-variant-numeric:tabular-nums}
+.amount input:focus{outline:none}
+.amount span{font-family:var(--serif);font-size:28px;color:var(--muted)}
+.swap{align-self:center;color:var(--muted);font-size:22px;line-height:1;padding:6px 0}
+.quick{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
+.quick button{min-height:44px;padding:0 16px;border-radius:999px;border:1.5px solid var(--line);background:transparent;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
+
 /* Chercher */
 .field{width:100%;min-height:58px;border-radius:18px;border:1.5px solid var(--line);background:var(--card);padding:0 18px;font-size:18px}
 .field:focus{outline:none;border-color:var(--accent)}
@@ -119,6 +132,7 @@ h1 span{color:var(--muted);font-family:var(--sans);font-size:15px;font-weight:70
       <button data-mode="learn" aria-pressed="true">Apprendre</button>
       <button data-mode="play" aria-pressed="false">Jouer</button>
       <button data-mode="find" aria-pressed="false">Chercher</button>
+      <button data-mode="money" aria-pressed="false" aria-label="Convertir euros et francs">€ ⇄ F</button>
     </nav>
   </header>
   <main id="view"></main>
@@ -346,7 +360,7 @@ const voice = {
 };
 const speakBtn = (w, cls) => voice.ok ? `<button class="${cls || 'round'}" data-act="say" data-id="${esc(w.id)}" aria-label="Écouter ${esc(w.ty)}">${ico('speak')}</button>` : '';
 
-const S = { mode: 'learn', theme: 'bonjour', i: 0, game: null, q: '', claude: null, sample: null };
+const S = { xpf: '1 000', eur: '8,38', mode: 'learn', theme: 'bonjour', i: 0, game: null, q: '', claude: null, sample: null };
 
 /* ---------- Apprendre */
 function deck() { return WORDS.filter(w => w.th === S.theme); }
@@ -459,10 +473,33 @@ async function translate() {
   if (S.mode === 'find') $('#results').innerHTML = resultsHTML();
 }
 
+/* ---------- Convertir : 1 000 F CFP = 8,38 € (parité fixe avec l'euro) */
+const EUR_PER_XPF = 8.38 / 1000;
+const parseNum = v => { const t = String(v || '').replace(/[\s  ]/g, '').replace(',', '.'); const n = parseFloat(t); return isFinite(n) && n >= 0 ? n : null; };
+const fmtXpf = n => Math.round(n).toLocaleString('fr-FR');
+const fmtEur = n => n.toLocaleString('fr-FR', { minimumFractionDigits: n < 100 ? 2 : 0, maximumFractionDigits: 2 });
+function viewMoney() {
+  return `<div class="money">
+      <label for="xpf">Francs Pacifique</label>
+      <div class="amount"><input id="xpf" inputmode="decimal" autocomplete="off" value="${esc(S.xpf)}" placeholder="0"><span>F</span></div>
+      <div class="swap" aria-hidden="true">⇅</div>
+      <label for="eur">Euros</label>
+      <div class="amount"><input id="eur" inputmode="decimal" autocomplete="off" value="${esc(S.eur)}" placeholder="0"><span>€</span></div>
+    </div>
+    <div style="height:18px"></div>
+    <div class="quick" role="group" aria-label="Montants courants">${[500, 1000, 2000, 5000, 10000].map(n => `<button data-act="amount" data-n="${n}">${fmtXpf(n)} F</button>`).join('')}</div>
+    <p class="hint" style="margin-top:22px">Taux fixe : <b>1 000 F = 8,38 €</b> · <b>1 € ≈ 119 F</b><br>Astuce : divisez les francs par 120.</p>`;
+}
+function convert(from) {
+  const xi = $('#xpf'), ei = $('#eur'); if (!xi || !ei) return;
+  if (from === 'xpf') { const n = parseNum(xi.value); S.xpf = xi.value; S.eur = n === null ? '' : fmtEur(n * EUR_PER_XPF); ei.value = S.eur; }
+  else { const n = parseNum(ei.value); S.eur = ei.value; S.xpf = n === null ? '' : fmtXpf(n / EUR_PER_XPF); xi.value = S.xpf; }
+}
+
 /* ---------- Rendu et gestes */
 function render() {
   document.querySelectorAll('.switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
-  $('#view').innerHTML = S.mode === 'learn' ? viewLearn() : S.mode === 'play' ? viewPlay() : viewFind();
+  $('#view').innerHTML = S.mode === 'learn' ? viewLearn() : S.mode === 'play' ? viewPlay() : S.mode === 'money' ? viewMoney() : viewFind();
 }
 function step(d) { const n = deck().length; S.i = (S.i + d + n) % n; render(); }
 const byId = id => WORDS.find(w => w.id === id);
@@ -481,8 +518,12 @@ document.addEventListener('click', e => {
   else if (a === 'nextq') { const g = S.game; g.n++; g.picked = null; if (g.n < g.list.length) g.choices = makeChoices(g.list[g.n]); render(); window.scrollTo(0, 0); }
   else if (a === 'replay') { newGame(); render(); }
   else if (a === 'translate') translate();
+  else if (a === 'amount') { const xi = $('#xpf'); if (xi) { xi.value = fmtXpf(Number(el.dataset.n)); convert('xpf'); } }
 });
-document.addEventListener('input', e => { if (e.target.id === 'q') { S.q = e.target.value; $('#results').innerHTML = resultsHTML(); } });
+document.addEventListener('input', e => {
+  if (e.target.id === 'q') { S.q = e.target.value; $('#results').innerHTML = resultsHTML(); }
+  else if (e.target.id === 'xpf' || e.target.id === 'eur') convert(e.target.id);
+});
 document.addEventListener('keydown', e => {
   if (S.mode !== 'learn' || e.target.tagName === 'INPUT') return;
   if (e.key === 'ArrowRight') step(1); else if (e.key === 'ArrowLeft') step(-1);
