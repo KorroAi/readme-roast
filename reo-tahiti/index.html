@@ -1,423 +1,131 @@
 <title>Reo Tahiti en famille</title>
 <meta name="claude:viewport-fit-sides" content="cover">
-<meta name="description" content="Apprendre le tahitien en famille : un lagon qui se remplit de poissons à chaque mot appris, des jeux coopératifs, un traducteur et des missions à vivre sur place.">
+<meta name="description" content="Les mots tahitiens essentiels, à apprendre et à jouer en famille.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,400..900;1,600..800&family=Young+Serif&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:ital,wght@0,500..900;1,600&family=Young+Serif&display=swap">
 <style>
 :root{
-  /* Layout: a pocket app. A living lagoon band on top, one 560px column, a frosted tab bar at the bottom; cards only for things you tap. */
-  --bg:#EAF5F2; --bg-2:#DCEEE9; --surface:#FFFFFF; --surface-2:#F3FAF8;
-  --ink:#0B2B33; --ink-2:#4B676D; --line:#CBE1DC;
-  --lagoon:#0E9A95; --lagoon-2:#0A7680; --on-lagoon:#FFFFFF;
-  --hibiscus:#D63A52; --on-hibiscus:#FFFFFF; --mango:#EC9F2B; --sand:#F6E8CC; --sand-ink:#6B4E1C;
-  --good:#118A52; --bad:#C5303B; --on-sea:#FFFFFF;
-  --sea-1:#9BEDE2; --sea-2:#2DB9B3; --sea-3:#0A6A84; --floor-1:#F2DDB0; --floor-2:#D6B97F;
-  --sky-1:#BDEFF2; --sky-2:#FDE7C8; --isle:#2F6E5C; --isle-2:#3F8A6F; --hull:#6B3E22;
-  --is-dark:0;
-  --shadow:0 1px 2px rgba(11,43,51,.06),0 8px 24px rgba(11,43,51,.08);
-  --f-display:"Young Serif",Georgia,"Times New Roman",serif;
-  --f-body:"Nunito",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
-  --r-lg:22px; --r-md:16px; --r-sm:12px;
+  /* Layout: one quiet column, one big word at a time. Three modes in a single switch at the top. */
+  --bg:#F6F9F8; --card:#FFFFFF; --ink:#10282E; --muted:#61777C; --line:#E2EBE9;
+  --accent:#0C8C86; --on-accent:#FFFFFF; --soft:#E4F3F1;
+  --eta:#D4475E; --good:#18865A; --good-soft:#E3F4EB; --bad:#C3443E; --bad-soft:#FBE9E7;
+  --shadow:0 1px 2px rgba(16,40,46,.05),0 12px 32px rgba(16,40,46,.07);
+  --serif:"Young Serif",Georgia,"Times New Roman",serif;
+  --sans:"Nunito",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
-    --bg:#04161C; --bg-2:#06202A; --surface:#0A2630; --surface-2:#0D2E39;
-    --ink:#E2F3F0; --ink-2:#98B8BB; --line:#1A4350;
-    --lagoon:#2BC6BB; --lagoon-2:#62DCD2; --on-lagoon:#03282C;
-    --hibiscus:#FF6F80; --on-hibiscus:#2A0710; --mango:#FFBF5E; --sand:#2B281C; --sand-ink:#EBD5A5;
-    --good:#46CF89; --bad:#FF7C82; --on-sea:#FFFFFF;
-    --sea-1:#0F4D5D; --sea-2:#093343; --sea-3:#031A24; --floor-1:#2A3B3A; --floor-2:#1A292B;
-    --sky-1:#0B2440; --sky-2:#2A4766; --isle:#0E2C28; --isle-2:#15403A; --hull:#8A5A38;
-    --is-dark:1;
-    --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px rgba(0,0,0,.4);
+    --bg:#0A1618; --card:#112227; --ink:#E8F3F1; --muted:#93ACAF; --line:#203539;
+    --accent:#3CC4B9; --on-accent:#05282A; --soft:#14343A;
+    --eta:#FF7D8E; --good:#4CCB8C; --good-soft:#123528; --bad:#FF8079; --bad-soft:#3A1C1C;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.35);
     color-scheme:dark;
   }
 }
 :root[data-theme="dark"]{
-  --bg:#04161C; --bg-2:#06202A; --surface:#0A2630; --surface-2:#0D2E39;
-  --ink:#E2F3F0; --ink-2:#98B8BB; --line:#1A4350;
-  --lagoon:#2BC6BB; --lagoon-2:#62DCD2; --on-lagoon:#03282C;
-  --hibiscus:#FF6F80; --on-hibiscus:#2A0710; --mango:#FFBF5E; --sand:#2B281C; --sand-ink:#EBD5A5;
-  --good:#46CF89; --bad:#FF7C82; --on-sea:#FFFFFF;
-  --sea-1:#0F4D5D; --sea-2:#093343; --sea-3:#031A24; --floor-1:#2A3B3A; --floor-2:#1A292B;
-  --sky-1:#0B2440; --sky-2:#2A4766; --isle:#0E2C28; --isle-2:#15403A; --hull:#8A5A38;
-  --is-dark:1;
-  --shadow:0 1px 2px rgba(0,0,0,.35),0 10px 28px rgba(0,0,0,.4);
+  --bg:#0A1618; --card:#112227; --ink:#E8F3F1; --muted:#93ACAF; --line:#203539;
+  --accent:#3CC4B9; --on-accent:#05282A; --soft:#14343A;
+  --eta:#FF7D8E; --good:#4CCB8C; --good-soft:#123528; --bad:#FF8079; --bad-soft:#3A1C1C;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 12px 32px rgba(0,0,0,.35);
   color-scheme:dark;
 }
-
 *{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%}
-body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
-body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:30;background:var(--bg)}
-button,input,textarea,select{font:inherit;color:inherit}
+body{background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:17px;line-height:1.5;-webkit-font-smoothing:antialiased;-webkit-tap-highlight-color:transparent}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:10}
+button,input{font:inherit;color:inherit}
 button{cursor:pointer}
-:focus-visible{outline:3px solid var(--lagoon);outline-offset:2px}
-h1,h2,h3{text-wrap:balance}
-p{margin:0}
-.vh{position:absolute!important;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-.ty{font-family:var(--f-display);font-weight:400;letter-spacing:.005em}
-.eta{color:var(--hibiscus)}
-.pron{font-style:italic;font-weight:700;color:var(--ink-2)}
-.eyebrow{font-size:12px;font-weight:900;letter-spacing:.09em;text-transform:uppercase;color:var(--lagoon-2)}
-.muted{color:var(--ink-2)}
-.tip{font-size:14.5px;color:var(--ink-2);line-height:1.45}
+:focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:12px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 
-/* app frame */
-.app{max-width:560px;margin:0 auto;padding-bottom:calc(92px + env(safe-area-inset-bottom,0px))}
-.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;padding-block:10px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--bg)}
-.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
-.brand b{font-family:var(--f-display);font-weight:400;font-size:28px;line-height:1}
-.brand b i{font-style:normal;color:var(--hibiscus)}
-.brand small{font-size:11.5px;font-weight:900;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-2);white-space:nowrap}
-.top-r{display:flex;align-items:center;gap:8px}
-.streak{display:inline-flex;align-items:center;gap:4px;font-weight:900;font-size:14px;color:var(--sand-ink);background:var(--sand);padding:6px 10px;border-radius:999px}
-.streak svg{width:16px;height:16px}
-.tribe-btn{display:inline-flex;align-items:center;gap:6px;min-height:44px;padding:4px 10px 4px 6px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-weight:800;font-size:14px}
-.tribe-btn .avstack{display:inline-flex;flex-direction:row}
-.tribe-btn .avstack .av{margin-left:-8px}
-.tribe-btn .avstack .av:first-child{margin-left:0}
-.tribe-btn svg{width:18px;height:18px}
-.av{--c:#11A39B;width:36px;height:36px;border-radius:50%;display:inline-grid;place-items:center;font-size:19px;line-height:1;background:var(--surface);border:2.5px solid var(--c);flex:none}
-.av.xs{width:30px;height:30px;font-size:16px;border-width:2px}
-.av.lg{width:56px;height:56px;font-size:30px;border-width:3px}
+.wrap{max-width:520px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;gap:22px;padding-block:18px calc(32px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);display:flex;flex-direction:column;gap:14px;padding-block:6px 4px}
+h1{margin:0;font-family:var(--serif);font-weight:400;font-size:26px;line-height:1.1}
+h1 span{color:var(--muted);font-family:var(--sans);font-size:15px;font-weight:700;margin-left:6px}
+.switch{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;padding:4px;border-radius:999px;background:var(--line)}
+.switch button{min-height:44px;border:0;border-radius:999px;background:transparent;font-weight:800;font-size:16px;color:var(--muted)}
+.switch button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
 
-/* hero lagoon */
-.hero{position:relative;height:clamp(270px,46vh,380px);overflow:hidden;border-radius:0 0 30px 30px;background:linear-gradient(var(--sea-1),var(--sea-3))}
-@media (min-width:600px){.hero{border-radius:30px;margin-inline:16px}}
-.hero canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:manipulation;cursor:pointer}
-.hero-ui{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;gap:12px;padding-block:16px 14px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));color:var(--on-sea);background:linear-gradient(rgba(2,26,34,.34),rgba(2,26,34,0) 40%,rgba(2,26,34,0) 58%,rgba(2,26,34,.38))}
-.hero-ui .eyebrow{color:var(--on-sea);opacity:.85}
-.h-title{font-family:var(--f-display);font-weight:400;font-size:34px;line-height:1.05;margin:2px 0 4px;text-shadow:0 2px 14px rgba(0,30,40,.35)}
-.h-sub{font-weight:700;font-size:14.5px;max-width:30ch;text-shadow:0 1px 8px rgba(0,30,40,.45)}
-.h-bot{display:flex;flex-direction:column;gap:8px}
-.h-next{font-weight:800;font-size:14px;text-shadow:0 1px 8px rgba(0,30,40,.5)}
-.h-stats{display:flex;gap:6px;flex-wrap:wrap}
-.h-stats span{display:inline-flex;align-items:center;gap:5px;font-weight:900;font-size:13.5px;padding:6px 11px;border-radius:999px;background:rgba(255,255,255,.18);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.28)}
-.h-stats svg{width:15px;height:15px}
-.h-cta{pointer-events:auto;align-self:flex-start}
-.fish-tip{position:absolute;z-index:3;pointer-events:none;max-width:240px;background:var(--surface);color:var(--ink);border-radius:16px;padding:9px 13px;box-shadow:var(--shadow);font-size:13.5px;line-height:1.3;animation:pop .2s ease}
-.fish-tip .ty{font-size:19px;display:block}
-@keyframes pop{from{transform:scale(.85);opacity:0}to{transform:none;opacity:1}}
+.ty{font-family:var(--serif);font-weight:400}
+.eta{color:var(--eta)}
+.pron{font-style:italic;font-weight:600;color:var(--muted)}
 
-/* views */
-.view{padding-block:20px 8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:26px}
-.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 12px}
-.sec-h h2{font-family:var(--f-display);font-weight:400;font-size:23px;line-height:1.15;margin:0}
-.link{border:0;background:none;padding:6px 0;color:var(--lagoon-2);font-weight:900;font-size:14px;white-space:nowrap}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:18px;box-shadow:var(--shadow)}
-.note{font-size:13.5px;color:var(--ink-2);line-height:1.45}
-.banner{display:flex;gap:10px;align-items:flex-start;font-size:14px;font-weight:700;color:var(--sand-ink);background:var(--sand);border-radius:16px;padding:12px 14px}
-.banner svg{flex:none;width:20px;height:20px;margin-top:1px}
+/* Apprendre */
+.themes{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;margin-inline:-16px;padding:2px 16px 4px}
+.themes::-webkit-scrollbar{display:none}
+.themes button{flex:none;min-height:40px;padding:0 16px;border-radius:999px;border:1.5px solid var(--line);background:transparent;font-weight:800;font-size:15px;color:var(--muted);white-space:nowrap}
+.themes button[aria-pressed="true"]{background:var(--ink);border-color:var(--ink);color:var(--bg)}
+.card{background:var(--card);border-radius:28px;box-shadow:var(--shadow);padding:34px 22px 26px;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;min-height:340px;justify-content:center;touch-action:pan-y;user-select:none;-webkit-user-select:none}
+.card .em{font-size:60px;line-height:1.1;margin-bottom:6px}
+.card .word{font-size:clamp(40px,12vw,58px);line-height:1.05;overflow-wrap:anywhere}
+.card .pron{font-size:18px}
+.card .fr{font-size:22px;font-weight:800;margin-top:8px}
+.card .tip{font-size:15px;color:var(--muted);max-width:32ch;margin-top:10px;line-height:1.45}
+.nav{display:grid;grid-template-columns:56px 1fr 56px;gap:12px;align-items:center}
+.round{width:56px;height:56px;border-radius:50%;border:1.5px solid var(--line);background:var(--card);display:grid;place-items:center}
+.round svg,.btn svg{width:22px;height:22px}
+.btn{min-height:56px;border-radius:999px;border:0;background:var(--accent);color:var(--on-accent);font-weight:900;font-size:17px;display:inline-flex;align-items:center;justify-content:center;gap:10px;padding:0 22px}
+.btn.ghost{background:var(--soft);color:var(--ink)}
+.btn[disabled]{opacity:.5}
+.count{text-align:center;color:var(--muted);font-weight:700;font-size:15px;font-variant-numeric:tabular-nums}
+.hint{text-align:center;color:var(--muted);font-size:14.5px;line-height:1.6}
+.hint b{font-family:var(--serif);font-weight:400;color:var(--ink)}
 
-/* buttons */
-.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:48px;padding:0 20px;border-radius:999px;border:1.5px solid transparent;background:var(--lagoon);color:var(--on-lagoon);font-weight:900;font-size:16px;text-decoration:none;transition:transform .12s ease,filter .2s;user-select:none;-webkit-user-select:none}
-.btn:active{transform:scale(.97)}
-.btn svg{width:20px;height:20px;flex:none}
-.btn.alt{background:var(--surface);color:var(--ink);border-color:var(--line)}
-.btn.hib{background:var(--hibiscus);color:var(--on-hibiscus)}
-.btn.ghost{background:transparent;color:var(--lagoon-2)}
-.btn.sm{min-height:40px;padding:0 15px;font-size:14.5px}
-.btn.block{width:100%}
-.btn[disabled],.btn.is-off{opacity:.45;pointer-events:none}
-.icon-btn{width:44px;height:44px;border-radius:50%;display:inline-grid;place-items:center;border:1.5px solid var(--line);background:var(--surface);color:var(--ink);flex:none}
-.icon-btn svg{width:20px;height:20px}
-.icon-btn.sm{width:38px;height:38px}
-.icon-btn.sea{background:var(--lagoon);border-color:var(--lagoon);color:var(--on-lagoon)}
-.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
-.row.end{justify-content:flex-end}
-.row.between{justify-content:space-between}
-.stack-sm{display:flex;flex-direction:column;gap:8px}
-.stack{display:flex;flex-direction:column;gap:14px}
+/* Jouer */
+.progress{display:flex;align-items:center;gap:12px;color:var(--muted);font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
+.bar{flex:1;height:6px;border-radius:9px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--accent);border-radius:9px;transition:width .3s}
+.ask{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:18px 0 4px}
+.ask .q{color:var(--muted);font-weight:700}
+.ask .word{font-size:clamp(40px,12vw,56px);line-height:1.05;overflow-wrap:anywhere}
+.answers{display:flex;flex-direction:column;gap:10px}
+.answer{display:flex;align-items:center;gap:14px;min-height:68px;padding:10px 18px;border-radius:20px;border:2px solid var(--line);background:var(--card);text-align:left;font-weight:800;font-size:18px;line-height:1.25}
+.answer .em{font-size:32px;width:40px;text-align:center;flex:none}
+.answer.ok{border-color:var(--good);background:var(--good-soft)}
+.answer.ko{border-color:var(--bad);background:var(--bad-soft)}
+.answer[disabled]{cursor:default}
+.answer[disabled]:not(.ok):not(.ko){opacity:.45}
+.result{display:flex;flex-direction:column;align-items:center;text-align:center;gap:10px;padding:40px 0 10px}
+.result .score{font-family:var(--serif);font-size:84px;line-height:1}
+.result p{color:var(--muted);font-weight:700;margin:0}
 
-/* chips */
-.chips{display:flex;gap:8px;flex-wrap:wrap}
-.chips.scroll{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;padding-bottom:4px;margin-inline:-16px;padding-inline:16px;scroll-padding-inline:16px}
-.chips.scroll::-webkit-scrollbar{display:none}
-.chip{display:inline-flex;align-items:center;gap:6px;min-height:42px;padding:0 15px;border-radius:999px;border:1.5px solid var(--line);background:var(--surface);font-weight:800;font-size:14.5px;white-space:nowrap;color:var(--ink);flex:none}
-.chip small{font-weight:800;color:var(--ink-2)}
-.chip[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.chip[aria-pressed="true"] small{color:var(--bg);opacity:.75}
-.chip .av{width:28px;height:28px;font-size:15px;border-width:2px;margin-left:-8px}
-
-/* pearls (mastery) */
-.pearls{display:inline-flex;gap:4px;flex:none}
-.pearl{width:12px;height:12px;border-radius:50%;border:1.5px solid var(--line);display:block}
-.pearl.on{border-color:transparent;background:radial-gradient(circle at 34% 30%,#fff 0 9%,#cbb9ea 15%,#5b5b80 36%,#20263a 66%,#0b0e16 100%);box-shadow:inset -1px -1px 2px rgba(0,0,0,.45)}
-
-/* lists */
-.list{display:flex;flex-direction:column;background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);overflow:hidden}
-.li{display:flex;align-items:center;gap:12px;padding:11px 14px;border:0;border-top:1px solid var(--line);background:none;text-align:left;width:100%;color:inherit}
-.li:first-child{border-top:0}
-.li .txt{flex:1;min-width:0}
-.li .txt .ty{font-size:19px;line-height:1.25;display:block;overflow-wrap:anywhere}
-.li .txt .fr{font-size:14px;color:var(--ink-2);display:block;line-height:1.3}
-.glyph{width:44px;height:44px;flex:none;border-radius:14px;display:grid;place-items:center;font-size:24px;line-height:1;background:var(--surface-2);color:var(--lagoon-2);font-family:var(--f-display)}
-.glyph svg{width:28px;height:28px}
-.fishmark{color:var(--lagoon-2);display:inline-grid}
-.fishmark svg{width:18px;height:18px}
-
-/* tapa band */
-.tapa{height:12px;margin:-18px -18px 14px;border-radius:var(--r-lg) var(--r-lg) 0 0;background:conic-gradient(from 135deg at 50% 0,var(--hibiscus) 90deg,transparent 0) 0 0/18px 12px repeat-x,var(--sand)}
-
-/* word of the day */
-.wotd{position:relative;overflow:hidden}
-.wotd-word{font-size:clamp(38px,11vw,52px);line-height:1.05;margin:4px 0 6px;overflow-wrap:anywhere}
-.wotd-row{display:flex;align-items:center;gap:10px}
-.wotd-fr{font-size:20px;font-weight:900;margin:8px 0 6px}
-.wotd-act{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:14px;flex-wrap:wrap}
-
-/* game tiles */
-.games{display:grid;gap:12px}
-.gtile{display:grid;grid-template-columns:96px 1fr;gap:14px;align-items:center;text-align:left;width:100%;padding:12px;border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface);box-shadow:var(--shadow);color:inherit}
-.gtile .art{height:84px;border-radius:16px;overflow:hidden;background:var(--surface-2)}
-.gtile .art svg{width:100%;height:100%;display:block}
-.gtile h3{font-family:var(--f-display);font-weight:400;font-size:19px;line-height:1.15;margin:0 0 2px}
-.gtile p{font-size:14px;color:var(--ink-2);line-height:1.35}
-.gtile .rec{display:inline-block;margin-top:6px;font-size:12.5px;font-weight:900;color:var(--sand-ink);background:var(--sand);padding:3px 9px;border-radius:999px}
-
-/* setup cards in Jouer */
-.setup{display:flex;flex-direction:column;gap:12px}
-.setup h3{font-family:var(--f-display);font-weight:400;font-size:21px;margin:0}
-.setup .art-wide{height:110px;margin:-18px -18px 2px;border-radius:var(--r-lg) var(--r-lg) 0 0;overflow:hidden}
-.setup .art-wide svg{width:100%;height:100%;display:block}
-.opt-label{font-size:12.5px;font-weight:900;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-2)}
-
-/* progress bar */
-.bar{height:10px;border-radius:99px;background:var(--bg-2);overflow:hidden}
-.bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--lagoon),var(--mango))}
-
-/* translator */
-.seg{display:grid;grid-template-columns:1fr 1fr;padding:4px;border-radius:999px;background:var(--bg-2);gap:4px}
-.seg button{min-height:42px;border:0;border-radius:999px;background:transparent;font-weight:900;font-size:14px;color:var(--ink-2)}
-.seg button[aria-pressed="true"]{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
-.field{width:100%;border:1.5px solid var(--line);background:var(--surface);border-radius:18px;padding:13px 15px;font-size:17px;line-height:1.4;resize:vertical;min-height:56px}
-.field:focus{outline:none;border-color:var(--lagoon)}
-input.field{min-height:50px;resize:none}
-.tr-out{display:flex;flex-direction:column;gap:12px}
-.res{display:flex;flex-direction:column;gap:10px}
-.res .big{font-size:clamp(26px,7vw,34px);line-height:1.15;overflow-wrap:anywhere}
-.res .fr-big{font-size:22px;font-weight:900;line-height:1.3}
-.wchips{display:flex;flex-wrap:wrap;gap:6px}
-.wchip{display:inline-flex;flex-direction:column;padding:6px 10px;border-radius:12px;background:var(--surface-2);border:1px solid var(--line);line-height:1.2}
-.wchip b{font-family:var(--f-display);font-weight:400;font-size:16px}
-.wchip span{font-size:12.5px;color:var(--ink-2);font-weight:700}
-.badge{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:900;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);background:var(--surface-2)}
-.badge.good{color:var(--good);border-color:color-mix(in srgb,var(--good) 40%,var(--line))}
-.badge.warn{color:var(--sand-ink);background:var(--sand);border-color:transparent}
-.badge svg{width:14px;height:14px}
-.loader{display:flex;align-items:center;gap:12px;font-weight:800;color:var(--ink-2)}
-.loader i{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--lagoon);animation:spin .8s linear infinite;flex:none}
+/* Chercher */
+.field{width:100%;min-height:58px;border-radius:18px;border:1.5px solid var(--line);background:var(--card);padding:0 18px;font-size:18px}
+.field:focus{outline:none;border-color:var(--accent)}
+.list{display:flex;flex-direction:column;background:var(--card);border-radius:22px;box-shadow:var(--shadow);overflow:hidden}
+.row{display:flex;align-items:center;gap:14px;padding:14px 16px;border:0;border-top:1px solid var(--line);background:none;text-align:left;width:100%}
+.row:first-child{border-top:0}
+.row .em{font-size:28px;width:36px;text-align:center;flex:none}
+.row .t{flex:1;min-width:0}
+.row .t .ty{display:block;font-size:22px;line-height:1.2;overflow-wrap:anywhere}
+.row .t small{display:block;color:var(--muted);font-weight:700;font-size:15px}
+.row .sp{color:var(--accent);flex:none}
+.row .sp svg{width:22px;height:22px}
+.claude{background:var(--card);border-radius:22px;box-shadow:var(--shadow);padding:22px;display:flex;flex-direction:column;gap:6px}
+.claude .ty{font-size:30px;line-height:1.15;overflow-wrap:anywhere}
+.claude .fr{font-weight:800}
+.note{color:var(--muted);font-size:14px;line-height:1.45;text-align:center}
+.spin{width:22px;height:22px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--accent);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
-
-/* missions */
-.necklace{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;padding:6px 0 2px}
-.necklace svg{width:24px;height:24px}
-.shell-off{color:var(--line)}
-.shell-on{color:var(--mango)}
-.mission{display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:var(--r-lg);border:1px solid var(--line);background:var(--surface)}
-.mission.done{background:color-mix(in srgb,var(--mango) 10%,var(--surface));border-color:color-mix(in srgb,var(--mango) 45%,var(--line))}
-.mission h3{margin:0;font-size:17px;font-weight:900;line-height:1.3}
-.mission .say{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.mission .say .ty{font-size:21px}
-.mission .who{display:flex;align-items:center;gap:6px;font-size:13.5px;font-weight:800;color:var(--ink-2);flex-wrap:wrap}
-
-/* sheet */
-.scrim{position:fixed;inset:0;background:rgba(2,18,24,.48);z-index:40}
-.sheet{position:fixed;left:0;right:0;bottom:0;z-index:41;max-height:92vh;max-height:92dvh;overflow-y:auto;overscroll-behavior:contain;background:var(--bg);border-radius:28px 28px 0 0;padding-block:6px calc(24px + env(safe-area-inset-bottom,0px));padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));box-shadow:0 -12px 44px rgba(0,0,0,.28);animation:sheetIn .28s cubic-bezier(.2,.9,.3,1)}
-.sheet .in{max-width:560px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
-.grab{width:44px;height:5px;border-radius:9px;background:var(--line);margin:6px auto 0}
-.sheet-h{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.sheet-h h2{font-family:var(--f-display);font-weight:400;font-size:24px;margin:0}
-@keyframes sheetIn{from{transform:translateY(48px);opacity:.3}to{transform:none;opacity:1}}
-.ws{display:flex;flex-direction:column;gap:10px;align-items:flex-start}
-.ws-glyph{font-size:56px;line-height:1}
-.ws-glyph svg{width:64px;height:64px;color:var(--lagoon-2)}
-.ws-word{font-size:clamp(34px,10vw,46px);line-height:1.08;overflow-wrap:anywhere}
-.ws-fr{font-size:21px;font-weight:900}
-.ws-m{display:flex;align-items:center;gap:10px;font-size:14px;font-weight:700;color:var(--ink-2)}
-.ws-act{display:grid;grid-template-columns:1fr 1fr;gap:10px;width:100%;margin-top:4px}
-.emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:6px}
-.emoji-grid button{aspect-ratio:1;border-radius:14px;border:2px solid var(--line);background:var(--surface);font-size:22px;line-height:1;padding:0}
-.emoji-grid button[aria-pressed="true"]{border-color:var(--lagoon);background:color-mix(in srgb,var(--lagoon) 16%,var(--surface))}
-@media (max-width:380px){.emoji-grid{grid-template-columns:repeat(6,1fr)}}
-.member-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
-.member-row:first-child{border-top:0}
-.member-row .txt{flex:1;min-width:0}
-.member-row b{display:block;font-size:17px}
-.member-row small{color:var(--ink-2);font-weight:700}
-.danger-zone{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
-
-/* game overlay */
-.game{position:fixed;inset:0;z-index:50;background:var(--bg);overflow-y:auto;overscroll-behavior:contain;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
-.game .in{max-width:560px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;gap:14px;padding-block:8px 28px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
-.g-top{display:flex;align-items:center;gap:10px}
-.g-top h2{flex:1;margin:0;font-family:var(--f-display);font-weight:400;font-size:20px;line-height:1.15;min-width:0}
-.g-status{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;font-weight:900;padding:7px 12px;border-radius:999px;background:var(--surface);border:1px solid var(--line);color:var(--ink)}
-.pill svg{width:16px;height:16px}
-.pill.btn-pearl{min-height:38px}
-.pill.btn-pearl[disabled]{opacity:.45}
-.pill .pearl{width:14px;height:14px}
-.turn{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:18px;background:color-mix(in srgb,var(--c) 14%,var(--surface));border:1.5px solid color-mix(in srgb,var(--c) 45%,var(--line))}
-.turn b{font-size:18px}
-.turn small{font-weight:800;color:var(--ink-2)}
-.q{display:flex;flex-direction:column;gap:14px}
-.q-prompt{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:8px 0 2px}
-.q-emoji{font-size:64px;line-height:1.1}
-.q-label{font-size:16px;font-weight:800;color:var(--ink-2)}
-.q-fr{font-size:clamp(24px,7vw,30px);font-weight:900;line-height:1.2}
-.q-word{font-size:clamp(34px,10vw,46px);line-height:1.1;overflow-wrap:anywhere}
-.choices{display:grid;gap:10px}
-.choices.two{grid-template-columns:1fr 1fr}
-.choices.three{grid-template-columns:1fr 1fr 1fr}
-.choice{min-height:62px;border-radius:18px;border:2px solid var(--line);background:var(--surface);font-weight:900;font-size:18px;padding:10px 12px;color:var(--ink);text-align:center;line-height:1.25;transition:transform .1s,border-color .2s,background .2s;overflow-wrap:anywhere}
-.choice:active{transform:scale(.98)}
-.choice .ty{font-size:21px}
-.choice.emoji{font-size:46px;min-height:100px;line-height:1}
-.choice.ok{border-color:var(--good);background:color-mix(in srgb,var(--good) 15%,var(--surface))}
-.choice.ko{border-color:var(--bad);background:color-mix(in srgb,var(--bad) 13%,var(--surface))}
-.choice.gone{opacity:.2;pointer-events:none}
-.choice[disabled]{cursor:default}
-.build-slot{min-height:64px;border-radius:18px;border:2px dashed var(--line);display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:2px;padding:8px 12px;font-size:28px}
-.tiles{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
-.tile{min-width:54px;min-height:52px;padding:0 14px;border-radius:14px;border:2px solid var(--line);background:var(--surface);font-family:var(--f-display);font-size:22px;color:var(--ink)}
-.tile.used{opacity:.25;pointer-events:none}
-.fb{display:flex;flex-direction:column;gap:8px;padding:16px;border-radius:20px;animation:pop .22s ease}
-.fb.ok{background:color-mix(in srgb,var(--good) 13%,var(--surface));border:1.5px solid color-mix(in srgb,var(--good) 45%,var(--line))}
-.fb.ko{background:color-mix(in srgb,var(--mango) 14%,var(--surface));border:1.5px solid color-mix(in srgb,var(--mango) 45%,var(--line))}
-.fb-h{font-family:var(--f-display);font-size:24px;line-height:1.15}
-.fb-word{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-.fb-word .ty{font-size:26px}
-.newfish{display:flex;align-items:center;gap:8px;font-weight:900;color:var(--lagoon-2)}
-.newfish svg{width:22px;height:22px}
-
-/* va'a scene */
-.scene{position:relative;border-radius:22px;overflow:hidden;border:1px solid var(--line);aspect-ratio:12/5;width:100%}
-.scene svg{display:block;width:100%;height:100%}
-.canoe{transition:transform 1.1s cubic-bezier(.3,.8,.3,1)}
-.bob{animation:bob 2.6s ease-in-out infinite}
-@keyframes bob{50%{transform:translateY(1.6px) rotate(.6deg)}}
-.waves{animation:waves 5s linear infinite}
-@keyframes waves{to{transform:translateX(-40px)}}
-.paddle{transform-box:fill-box;transform-origin:50% 0}
-.rowing .paddle{animation:row .42s ease-in-out 3}
-@keyframes row{50%{transform:rotate(-34deg)}}
-.twinkle{animation:tw 2.4s ease-in-out infinite}
-@keyframes tw{50%{opacity:.25}}
-
-/* memory */
-.mem{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
-.mcard{aspect-ratio:3/4;perspective:800px;border:0;background:none;padding:0;color:inherit}
-.mcard .f{display:block;position:relative;width:100%;height:100%;transform-style:preserve-3d;transition:transform .42s ease}
-.mcard.up .f,.mcard.done .f{transform:rotateY(180deg)}
-.mcard .s{position:absolute;inset:0;border-radius:14px;backface-visibility:hidden;-webkit-backface-visibility:hidden;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:6px;gap:2px;overflow:hidden}
-.mcard .back{background:radial-gradient(circle at 50% 120%,rgba(255,255,255,.25) 0 30%,transparent 31%),repeating-radial-gradient(circle at 50% 110%,var(--lagoon) 0 7px,var(--lagoon-2) 7px 9px);color:var(--on-lagoon)}
-.mcard .back svg{width:46%;height:auto;opacity:.92}
-.mcard .face{transform:rotateY(180deg);background:var(--surface);border:2px solid var(--line)}
-.mcard .face .ty{font-size:clamp(14px,4.4vw,19px);line-height:1.1;overflow-wrap:anywhere}
-.mcard .face .em{font-size:clamp(26px,8vw,36px);line-height:1}
-.mcard .face small{font-size:11.5px;font-weight:800;color:var(--ink-2);line-height:1.15}
-.mcard.done .face{border-color:var(--c,var(--good));background:color-mix(in srgb,var(--c,var(--good)) 12%,var(--surface))}
-
-/* timer & big cards */
-.timer{display:flex;align-items:center;gap:14px;justify-content:center}
-.ring{width:96px;height:96px;position:relative;flex:none}
-.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
-.ring circle{fill:none;stroke-width:9}
-.ring .trk{stroke:var(--bg-2)}
-.ring .val{stroke:var(--lagoon);stroke-linecap:round;transition:stroke-dashoffset .2s linear}
-.ring.low .val{stroke:var(--hibiscus)}
-.ring b{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--f-display);font-size:30px;font-weight:400}
-.bigcard{display:flex;flex-direction:column;align-items:center;text-align:center;gap:8px;padding:26px 18px;border-radius:26px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow)}
-.bigcard .em{font-size:72px;line-height:1}
-.bigcard .ty{font-size:clamp(32px,10vw,44px);line-height:1.1;overflow-wrap:anywhere}
-.bigcard .fr{font-size:22px;font-weight:900}
-.fc{display:block;perspective:1200px;width:100%}
-.fc .f{display:block;position:relative;min-height:300px;transition:transform .5s ease;transform-style:preserve-3d}
-.fc.flipped .f{transform:rotateY(180deg)}
-.fc .s{position:absolute;inset:0;backface-visibility:hidden;-webkit-backface-visibility:hidden;border-radius:26px;background:var(--surface);border:1px solid var(--line);box-shadow:var(--shadow);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:10px;padding:22px}
-.fc .s.b{transform:rotateY(180deg)}
-.fc .em{font-size:60px;line-height:1}
-.fc .ty{font-size:clamp(32px,10vw,46px);line-height:1.1;overflow-wrap:anywhere}
-.fc .fr{font-size:23px;font-weight:900}
-.summary{display:flex;flex-direction:column;gap:14px;align-items:center;text-align:center;padding-top:10px}
-.summary h2{font-family:var(--f-display);font-weight:400;font-size:32px;line-height:1.1;margin:0}
-.summary .big-n{font-family:var(--f-display);font-size:64px;line-height:1;color:var(--lagoon-2)}
-.scores{display:flex;flex-direction:column;gap:8px;width:100%}
-.score-row{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:16px;background:var(--surface);border:1px solid var(--line);text-align:left}
-.score-row b{flex:1}
-.learned-list{display:flex;flex-wrap:wrap;gap:6px;justify-content:center}
-
-/* toast & fx */
-.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(96px + env(safe-area-inset-bottom,0px));z-index:80;width:max-content;max-width:calc(100% - 32px);background:var(--ink);color:var(--bg);padding:12px 18px;border-radius:18px;font-weight:800;font-size:14.5px;line-height:1.35;box-shadow:var(--shadow);text-align:center;animation:pop .22s ease}
-.fx{position:fixed;inset:0;pointer-events:none;z-index:90;overflow:hidden}
-.petal{position:absolute;top:-40px;width:28px;height:28px;animation:fall linear forwards}
-@keyframes fall{to{transform:translate(var(--dx),112vh) rotate(var(--rot))}}
-
-/* tab bar */
-.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:25;padding-bottom:env(safe-area-inset-bottom,0px);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:color-mix(in srgb,var(--surface) 90%,transparent);-webkit-backdrop-filter:blur(16px) saturate(1.3);backdrop-filter:blur(16px) saturate(1.3);border-top:1px solid var(--line)}
-.tabbar .in{max-width:560px;margin:0 auto;display:grid;grid-template-columns:repeat(5,1fr)}
-.tab{display:flex;flex-direction:column;align-items:center;gap:2px;padding:7px 0 9px;border:0;background:none;color:var(--ink-2);font-size:11.5px;font-weight:900;min-width:0}
-.tab .ic{width:48px;height:30px;display:grid;place-items:center;border-radius:999px;transition:background .2s,color .2s}
-.tab .ic svg{width:22px;height:22px}
-.tab[aria-current="page"]{color:var(--ink)}
-.tab[aria-current="page"] .ic{background:var(--lagoon);color:var(--on-lagoon)}
-
-details.pron-guide{border:1px solid var(--line);border-radius:var(--r-lg);background:var(--surface);padding:0 16px}
-details.pron-guide summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:56px;font-weight:900;font-size:16px}
-details.pron-guide summary::-webkit-details-marker{display:none}
-details.pron-guide summary svg{width:20px;height:20px;transition:transform .2s}
-details.pron-guide[open] summary svg{transform:rotate(90deg)}
-.rules{display:flex;flex-direction:column;gap:10px;padding:0 0 16px;margin:0;list-style:none}
-.rules li{display:grid;grid-template-columns:44px 1fr;gap:10px;align-items:center;font-size:15px}
-.rules li b{font-family:var(--f-display);font-weight:400;font-size:24px;text-align:center;color:var(--hibiscus)}
-
-@media (prefers-reduced-motion: reduce){
-  *,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}
-  .petal{display:none}
-}
+.fade{animation:fade .25s ease}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion: reduce){.fade,.spin{animation:none}.bar i{transition:none}}
 </style>
 
-<div class="app" id="app">
-  <header class="top" id="top"></header>
-  <section class="hero" id="hero" aria-label="Le lagon de la famille">
-    <canvas id="lagoon" role="img" aria-label="Le lagon de la famille"></canvas>
-    <div class="hero-ui" id="hero-ui"></div>
-    <div class="fish-tip" id="fish-tip" hidden></div>
-  </section>
-  <main id="view" class="view"></main>
+<div class="wrap">
+  <header>
+    <h1>Reo Tahiti <span>en famille</span></h1>
+    <nav class="switch" aria-label="Mode">
+      <button data-mode="learn" aria-pressed="true">Apprendre</button>
+      <button data-mode="play" aria-pressed="false">Jouer</button>
+      <button data-mode="find" aria-pressed="false">Chercher</button>
+    </nav>
+  </header>
+  <main id="view"></main>
 </div>
-<nav class="tabbar" id="tabbar" aria-label="Navigation principale"></nav>
-<div class="scrim" id="scrim" hidden></div>
-<section class="sheet" id="sheet" role="dialog" aria-modal="true" aria-label="Détails" hidden></section>
-<section class="game" id="game" role="dialog" aria-modal="true" aria-label="Jeu" hidden></section>
-<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-<div class="fx" id="fx" aria-hidden="true"></div>
 
 <script>
 'use strict';
-
-/* ================================================================
-   Lexique : reo Tahiti (orthographe de l'Académie tahitienne)
-   lv : 1 = petits (4-7 ans), 2 = 8-12 ans, 3 = ados et adultes
-   ================================================================ */
-const THEMES = [
-  { id: 'bonjour', name: 'Bonjour & merci', e: '👋' },
-  { id: 'famille', name: 'La famille', e: '👨‍👩‍👧' },
-  { id: 'lagon', name: 'Plage & lagon', e: '🏝️' },
-  { id: 'animaux', name: 'Les animaux', e: '🐢' },
-  { id: 'table', name: 'À table', e: '🥥' },
-  { id: 'nombres', name: 'Les nombres', e: '🔢' },
-  { id: 'couleurs', name: 'Les couleurs', e: '🎨' },
-  { id: 'ciel', name: 'Ciel & nature', e: '☀️' },
-  { id: 'emotions', name: 'Les émotions', e: '😄' },
-  { id: 'phrases', name: 'Phrases utiles', e: '💬' },
-  { id: 'culture', name: 'Culture', e: '🌺' },
-  { id: 'nos', name: 'Nos phrases', e: '⭐' }
-];
-
 const W = (id, ty, fr, pr, th, lv, e, tip) => ({ id, ty, fr, pr, th, lv, e: e || '', tip: tip || '' });
 const WORDS = [
   // Bonjour & merci
@@ -603,1799 +311,189 @@ const WORDS = [
   W('parauparau', 'Parauparau', 'Bavarder', 'pa-raou-pa-raou', 'culture', 3, '💬', '')
 ];
 
-const FACTS = [
-  ['Le ʻeta, petit mais costaud', 'Le signe ʻ marque un petit arrêt de la voix, comme au milieu de « oh-oh ! ». Il change le sens : « mai » veut dire « vers ici », « maʻi » veut dire « malade ».'],
-  ['Le trait qui allonge', 'Le trait sur une voyelle (ā, ē, ī, ō, ū) la rend plus longue : « māmā » se dit « maa-maa ».'],
-  ['Tatouage vient de « tatau »', 'Les marins de James Cook ont rapporté le mot en Europe au XVIIIᵉ siècle.'],
-  ['Le cochon qui court', 'Un cheval se dit « puaʻahorofenua » : mot à mot, « le cochon qui court sur la terre ».'],
-  ['Des cousins dans tout le Pacifique', 'Le tahitien est cousin du maori, de l’hawaïen et du samoan. « ʻIa ora na » ressemble au « Kia ora » des Maoris !'],
-  ['Pas de « s » au pluriel', 'Pour mettre au pluriel, on ajoute « mau » : « te fare » (la maison), « te mau fare » (les maisons).'],
-  ['Le fameux « fiu »', 'Quand on n’a plus envie de rien, on est « fiu ». Même les Français qui vivent à Tahiti le disent !'],
-  ['Le Mai Tai', 'Le cocktail a été baptisé d’après l’exclamation tahitienne « maitaʻi roa aʻe » : le meilleur, extraordinaire !'],
-  ['Pas de k à Tahiti', 'Le tahitien n’a pas de « k », mais d’autres langues polynésiennes en ont : aux Marquises on dit « tiki », à Tahiti « tiʻi ».'],
-  ['Frère ou sœur ?', 'Le mot change selon qui parle : une fille appelle son frère « tuane », un garçon appelle sa sœur « tuahine ».'],
-  ['Des mots venus de l’anglais', 'Les premiers marins et missionnaires ont laissé des mots : « moni » (money, l’argent), « faraoa » (flour, le pain), « hīmene » (hymn, le chant).'],
-  ['Nous tous', 'En tahitien, il existe un « nous » qui inclut celui à qui l’on parle : « tātou ». « Haere tātou ! » : on y va, tous ensemble !']
-];
-
-const PRON = [
-  ['u', 'Le u se dit « ou » : Māuruuru = maa-ou-rou-ou-rou.'],
-  ['e', 'Le e se dit « é » : Fare = fa-ré.'],
-  ['h', 'Le h se prononce, comme un petit souffle : Haere = ha-é-ré.'],
-  ['r', 'Le r est roulé, tout léger, comme en espagnol.'],
-  ['ʻ', 'Le ʻeta est un petit arrêt de la voix, comme au milieu de « oh-oh ».'],
-  ['ā', 'Le trait sur la voyelle la rend plus longue : māmā = maa-maa.'],
-  ['aï', 'Toutes les lettres se prononcent : rien n’est muet.']
-];
-
-const MISSIONS = [
-  { id: 'iaorana', t: 'Dire bonjour à 5 personnes', w: 'iaorana', how: 'Au chauffeur, au serveur, à la voisine de plage… Comptez-les ensemble !' },
-  { id: 'merci', t: 'Remercier en tahitien', w: 'mauruururoa', how: 'Au restaurant, à la pension ou au marché, avec un grand sourire.' },
-  { id: 'appetit', t: 'Souhaiter bon appétit', w: 'tamaamaitai', how: 'À table, juste avant de commencer le repas.' },
-  { id: 'sante', t: 'Trinquer à la polynésienne', w: 'manuia', how: 'Avec un jus de coco ou un cocktail sans alcool.' },
-  { id: 'aurevoir', t: 'Dire au revoir', w: 'nana', how: 'En quittant un magasin ou une roulotte.' },
-  { id: 'cava', t: 'Demander comment ça va', w: 'ehuru', how: 'Et comprendre la réponse : « Maitaʻi ! »' },
-  { id: 'prenom', t: 'Demander son prénom à un enfant', w: 'ioa', how: 'À la plage ou au marché. Pour répondre : « ʻO … tōʻu iʻoa ».' },
-  { id: 'prix', t: 'Demander un prix au marché', w: 'ehiamoni', how: 'Au marché de Papeete ou chez un vendeur de fruits au bord de la route.' },
-  { id: 'compter', t: 'Compter jusqu’à 10', w: 'ahuru', how: 'Devant un Polynésien, sans regarder l’écran !' },
-  { id: 'peapea', t: 'Dire « pas de souci »', w: 'aitapeapea', how: 'Quand il pleut, quand le bateau a du retard… ou quand on renverse son jus.' },
-  { id: 'courage', t: 'Encourager quelqu’un', w: 'faaitoito', how: 'Un rameur, un frère qui hésite à sauter du ponton, une maman en paddle.' },
-  { id: 'animaux', t: 'Nommer 3 animaux en les voyant', w: 'honu', how: 'Une tortue, un requin, un poisson… dites leur nom tahitien à voix haute.' },
-  { id: 'menu', t: 'Commander un plat en tahitien', w: 'iaota', how: 'Au restaurant ou à la roulotte : « iʻa ota », « poʻe », « firifiri »…' },
-  { id: 'panneau', t: 'Traduire un panneau', w: 'reo', how: 'Photographiez un panneau ou un menu en tahitien, puis traduisez-le dans l’onglet Traduire.', go: 'traduire' },
-  { id: 'local', t: 'Apprendre un mot d’un Polynésien', w: 'hoa', how: 'Demandez à quelqu’un de vous apprendre un mot, puis ajoutez-le à « Nos phrases ».', go: 'addPhrase' }
-];
-
-const ROUTES = {
-  moorea: { id: 'moorea', from: 'Tahiti', to: 'Moorea', steps: 6, desc: 'La traversée des débutants', start: 'tahiti', end: 'moorea' },
-  bora: { id: 'bora', from: 'Raiatea', to: 'Bora Bora', steps: 10, desc: 'Entre les îles Sous-le-Vent', start: 'raiatea', end: 'bora' },
-  hawaii: { id: 'hawaii', from: 'Taputapuatea', to: 'Hawaiʻi', steps: 16, desc: 'Le grand voyage des anciens navigateurs, guidés par les étoiles', start: 'marae', end: 'hawaii', night: true }
+const THEMES = [['bonjour', 'Bonjour'], ['famille', 'Famille'], ['lagon', 'Plage'], ['animaux', 'Animaux'], ['table', 'À table'], ['nombres', 'Nombres'], ['couleurs', 'Couleurs'], ['ciel', 'Nature'], ['emotions', 'Émotions'], ['phrases', 'Phrases'], ['culture', 'Culture']];
+const ICON = {
+  speak: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
+  prev: '<path d="M15 5l-7 7 7 7"/>', next: '<path d="M9 5l7 7-7 7"/>',
+  again: '<path d="M4 12a8 8 0 1 0 2.4-5.7M4 4v4h4"/>', spark: '<path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7L12 17.1l-1.7-5.1-5.1-1.7 5.1-1.7z"/>'
 };
-
-const LEVELS = {
-  petit: { name: 'Petit pagayeur', age: '4–7 ans', lv: 1 },
-  moyen: { name: 'Pagayeur', age: '8–12 ans', lv: 2 },
-  grand: { name: 'Navigateur', age: '13 ans et plus', lv: 3 }
-};
-const EMOJIS = ['🐢', '🦈', '🐬', '🐋', '🐙', '🐠', '🐡', '🦎', '🌺', '🥥', '🍍', '🌴', '🐚', '🐓', '⭐', '🌈'];
-const COLORS = ['#E8505B', '#11A39B', '#E9962A', '#7C5CFF', '#3FA34D', '#FF7F3F', '#2D9CDB', '#E85CB0'];
-const MILESTONES = [
-  { at: 1, name: 'votre premier poisson' },
-  { at: 10, name: 'Honu, la tortue' },
-  { at: 25, name: 'Fai, la raie manta' },
-  { at: 50, name: 'Tohorā, la baleine' },
-  { at: 80, name: 'une famille de dauphins' }
-];
-const SITUATIONS = [
-  { k: 'resto', label: 'Au restaurant', fr: 'au restaurant ou à la roulotte' },
-  { k: 'marche', label: 'Au marché', fr: 'au marché, pour acheter des fruits et des souvenirs' },
-  { k: 'plage', label: 'À la plage', fr: 'à la plage, au lagon, en snorkeling ou en pirogue' },
-  { k: 'enfants', label: 'Jouer avec des enfants', fr: 'pour jouer et se faire des copains avec des enfants polynésiens' },
-  { k: 'hotes', label: 'Remercier nos hôtes', fr: 'pour remercier chaleureusement les propriétaires de la pension où elle dort' }
-];
-const TABS = [['lagon', 'Lagon', 'fish'], ['jouer', 'Jouer', 'play'], ['mots', 'Mots', 'book'], ['traduire', 'Traduire', 'translate'], ['missions', 'Missions', 'shell']];
-const COLS = ['members', 'progress', 'phrases', 'missions', 'days', 'records'];
-const LS_KEY = 'reo-tahiti.data.v1';
-
-/* ================================================================ Icons */
-const ICONS = {
-  fish: '<path d="M3 12c3.2-5 9.4-6 13.6-2.6L21 6.5v11l-4.4-2.9C12.4 18 6.2 17 3 12z"/><circle cx="8.2" cy="11.2" r=".9" fill="currentColor"/>',
-  play: '<path d="M2.5 15.5c3 1.6 16 1.6 19 0"/><path d="M4.5 15.5 7 9h10l2.5 6.5"/><path d="M12 9V3.5l5 3.5-5 2"/>',
-  book: '<path d="M4 4.5h5.5A2.5 2.5 0 0 1 12 7v13a2 2 0 0 0-2-2H4z"/><path d="M20 4.5h-5.5A2.5 2.5 0 0 0 12 7v13a2 2 0 0 1 2-2h6z"/>',
-  translate: '<path d="M4 5h9M8.5 3v2M6.2 5c.4 3.4 2.6 6 5.8 7.4M10.8 5C10.4 8.6 8 11.4 4 13"/><path d="M13 21l4-9 4 9M14.4 18h5.2"/>',
-  shell: '<path d="M12 20.5c-4.4 0-8.3-3.3-9-8.4a9 9 0 0 1 18 0c-.7 5.1-4.6 8.4-9 8.4z"/><path d="M12 20.5V7.5M12 20.5 7.6 9M12 20.5 16.4 9M12 20.5 4.2 12.6M12 20.5l7.8-7.9"/>',
-  flower: '<path d="M12 12c-1.8-2-2-5.6 0-8 2 2.4 1.8 6 0 8zM12 12c2.6-.9 6-.1 7.6 2.6-3 .9-6.2-.2-7.6-2.6zM12 12c.6 2.7-.8 6-3.6 7.2-.6-3 .9-6 3.6-7.2zM12 12c-2.6-.9-6-.1-7.6 2.6 3 .9 6.2-.2 7.6-2.6z"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/>',
-  users: '<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><circle cx="17.2" cy="9" r="2.5"/><path d="M15.8 14.6c2.9.1 5.2 1.9 5.2 4.9"/>',
-  speaker: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>',
-  camera: '<path d="M4 7.5h3l1.8-2.8h6.4L17 7.5h3a1 1 0 0 1 1 1V19a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8.5a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.3" r="3.8"/>',
-  plus: '<path d="M12 5v14M5 12h14"/>',
-  check: '<path d="M5 12.5 10 17.5 19 7"/>',
-  x: '<path d="M6 6l12 12M18 6 6 18"/>',
-  chev: '<path d="M9 5l7 7-7 7"/>',
-  back: '<path d="M15 5l-7 7 7 7"/>',
-  trash: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>',
-  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/>',
-  sparkle: '<path d="M12 3.5l1.7 5.1 5.1 1.7-5.1 1.7L12 17.1l-1.7-5.1-5.1-1.7 5.1-1.7z"/><path d="M18.5 15.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z"/>',
-  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>',
-  copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
-  flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
-  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
-  star: '<path d="M12 3.5l2.6 5.4 5.9.8-4.3 4.1 1 5.8-5.2-2.8-5.2 2.8 1-5.8-4.3-4.1 5.9-.8z"/>',
-  sound: '<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M16 9l5 6M21 9l-5 6"/>',
-  wave: '<path d="M2 13c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/><path d="M2 18c2.5 0 2.5-2 5-2s2.5 2 5 2 2.5-2 5-2 2.5 2 5 2"/>'
-};
-function ico(n, extra) { return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"${extra || ''}>${ICONS[n] || ''}</svg>`; }
-const RAY_SVG = '<svg viewBox="0 0 48 48" aria-hidden="true"><path fill="currentColor" d="M24 9c3 0 5 3 6.5 6.5C35 16 41 19 45 25c-5.5-.5-10 .5-14 3-1.7 3-4 5-7 5s-5.3-2-7-5c-4-2.5-8.5-3.5-14-3 4-6 10-9 14.5-9.5C19 12 21 9 24 9z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M24 33c0 4 1 7 3 10"/></svg>';
-const SHELL_FILLED = '<svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 21c-4.6 0-8.6-3.4-9.4-8.7a9.4 9.4 0 0 1 18.8 0C20.6 17.6 16.6 21 12 21z"/><path fill="none" stroke="rgba(0,0,0,.18)" stroke-width="1.3" stroke-linecap="round" d="M12 21V7.2M12 21 7.4 8.6M12 21l4.6-12.4M12 21 4 12.4M12 21l8-8.6"/></svg>';
-
-/* ================================================================ Utils */
-const $ = s => document.querySelector(s);
+const ico = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[n]}</svg>`;
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ty = s => esc(s).replace(/ʻ/g, '<span class="eta">ʻ</span>');
-const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[ʻ'’‘`´]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
-function hash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
-function rng(seed) { let a = (seed >>> 0) || 1; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
-function shuffle(a) { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; }
-function pick(a) { return a[Math.floor(Math.random() * a.length)]; }
-function uid(p) { return (p || '') + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
-function lev(a, b) { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j); for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
-function todayKey(d) { d = d || new Date(); try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Pacific/Tahiti', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); } catch (e) { return d.toISOString().slice(0, 10); } }
-function fmtDate(ts) { try { return new Intl.DateTimeFormat('fr-FR', { day: 'numeric', month: 'long', timeZone: 'Pacific/Tahiti' }).format(new Date(ts)); } catch (e) { return ''; } }
-const plural = (n, one, many) => n + ' ' + (n > 1 ? (many || one + 's') : one);
-const Prefs = {
-  get(k, d) { try { const v = localStorage.getItem('reo.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
-  set(k, v) { try { localStorage.setItem('reo.' + k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } }
-};
+const norm = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[ʻ'’‘`]/g, '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+const shuffle = a => { const b = a.slice(); for (let i = b.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [b[i], b[j]] = [b[j], b[i]]; } return b; };
+const emoji = w => (w.e && !w.e.startsWith('svg:')) ? w.e : '';
+const $ = s => document.querySelector(s);
 
-/* ================================================================ State */
-const S = {
-  tab: 'lagon', mode: 'boot', canWrite: true,
-  members: {}, progress: {}, phrases: {}, missions: {}, days: {}, records: {},
-  loaded: {},
-  me: Prefs.get('me', null), players: Prefs.get('players', []), guestLevel: Prefs.get('guestLevel', 'moyen'),
-  sample: null, sampleImages: false,
-  ui: {
-    theme: 'tout', route: 'moorea', vaaTheme: 'tout', defiMode: 'dis', memSize: 8,
-    tr: { dir: 'fr', text: '', busy: false, res: null, err: '', pBusy: false, pRes: null, pErr: '', sit: null, sBusy: false, sRes: null, sErr: '' },
-    fact: null, sheet: null, edit: null, gameOpen: false
-  }
-};
-const THEME_BY = Object.fromEntries(THEMES.map(t => [t.id, t]));
-
-function memberList() { return Object.entries(S.members).map(([id, m]) => ({ id, ...m })).sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0)); }
-function memberById(id) { return id && S.members[id] ? { id, ...S.members[id] } : null; }
-function phraseWords() {
-  return Object.entries(S.phrases).map(([id, p]) => ({
-    id: 'p_' + id, pid: id, ty: String(p.ty || ''), fr: String(p.fr || ''), pr: String(p.pr || ''), th: 'nos',
-    lv: String(p.ty || '').trim().split(/\s+/).length <= 2 ? 2 : 3, e: '', tip: String(p.note || ''), custom: true,
-    src: p.src, from: p.from, who: p.who, verified: !!p.verified, at: p.at
-  })).filter(w => w.ty && w.fr).sort((a, b) => (a.at || 0) - (b.at || 0));
-}
-function allWords() { return WORDS.concat(phraseWords()); }
-function wordById(id) { return allWords().find(w => w.id === id) || null; }
-function learnedWords() { return allWords().filter(w => S.progress[w.id] && S.progress[w.id].learnedAt); }
-function learnedCount() { return learnedWords().length; }
-function missionsDone() { return MISSIONS.filter(m => S.missions[m.id]).length; }
-function streak() {
-  let n = 0; let d = new Date();
-  if (!S.days[todayKey(d)]) d = new Date(d.getTime() - 864e5);
-  while (S.days[todayKey(d)] && n < 400) { n++; d = new Date(d.getTime() - 864e5); }
-  return n;
-}
-function nextMilestone(n) { return MILESTONES.find(m => m.at > n) || null; }
-function wordOfDay() { const pool = WORDS.filter(w => w.lv <= 2); return pool[hash(todayKey()) % pool.length]; }
-function activePlayers() {
-  const ms = memberList();
-  let ids = (S.players || []).filter(id => S.members[id]);
-  if (!ids.length && ms.length) ids = ms.map(m => m.id);
-  const list = ids.map(id => ({ id, ...S.members[id] }));
-  if (!list.length) list.push({ id: 'guest', name: 'L’équipage', emoji: '🛶', level: S.guestLevel || 'moyen', color: '#11A39B' });
-  return list;
-}
-function meMember() { return memberById(S.me) || memberList()[0] || null; }
-
-/* ================================================================ Data layer: db (shared) or this device */
-const Data = {
-  db: null, ready: false, pending: [], q: new Map(), saveT: 0,
-  async init() {
-    let db = null, user = null;
-    const c = window.claude;
-    if (c && typeof c.use === 'function') {
-      try { const r = await Promise.all([c.use('db'), c.use('user')]); db = r[0]; user = r[1]; } catch (e) { db = null; }
-    }
-    if (db) {
-      this.db = db; S.mode = 'db';
-      if (user) { try { const w = await user.can('data.write'); if (w === false) S.canWrite = false; } catch (e) { /* le serveur tranchera */ } }
-      COLS.forEach(col => this.listen(col));
-    } else {
-      S.mode = 'local'; this.loadLocal(); COLS.forEach(col => { S.loaded[col] = true; });
-    }
-    this.ready = true; this.flush();
-    Lagoon.sync(); scheduleRender();
-  },
-  listen(col) {
-    try {
-      this.db.collection(col).limit(1000).onSnapshot(snap => {
-        const o = {};
-        snap.docs.forEach(d => { if (d.exists) o[d.id] = d.data(); });
-        S[col] = o; S.loaded[col] = true;
-        if (col === 'progress' || col === 'phrases') Lagoon.sync();
-        if (col === 'missions') Lagoon.dirtyDecor();
-        if (col === 'progress') checkRemoteFish(snap);
-        scheduleRender();
-      }, err => {
-        if (err && err.code === 'revoked') { S.canWrite = false; scheduleRender(); }
-      });
-    } catch (e) { S.loaded[col] = true; }
-  },
-  set(col, id, data) {
-    S[col] = Object.assign({}, S[col], { [id]: data });
-    if (!this.ready) { this.pending.push(['set', col, id, data]); return Promise.resolve(); }
-    return this.write('set', col, id, data);
-  },
-  del(col, id) {
-    const o = Object.assign({}, S[col]); delete o[id]; S[col] = o;
-    if (!this.ready) { this.pending.push(['del', col, id]); return Promise.resolve(); }
-    return this.write('del', col, id);
-  },
-  write(op, col, id, data) {
-    if (S.mode === 'local') { this.saveLocal(); return Promise.resolve(); }
-    if (!S.canWrite || !this.db) return Promise.resolve();
-    const path = col + '/' + id;
-    const prev = this.q.get(path) || Promise.resolve();
-    const next = prev.catch(() => {}).then(() => op === 'set' ? this.db.doc(path).set(data) : this.db.doc(path).delete()).catch(e => this.fail(e));
-    this.q.set(path, next);
-    return next;
-  },
-  flush() { const p = this.pending; this.pending = []; p.forEach(([op, col, id, data]) => this.write(op, col, id, data)); },
-  fail(e) {
-    const code = e && e.code;
-    if (code === 'invalid_argument' || code === 'not_granted' || code === 'revoked' || code === 'capability_disabled') {
-      if (S.canWrite) { S.canWrite = false; toast('Ce compte ne peut pas enregistrer la progression : vous pouvez jouer, mais rien ne sera gardé.'); scheduleRender(); }
-    } else if (code === 'quota_exceeded') toast('Le carnet est plein : supprimez quelques phrases pour faire de la place.');
-    else if (code === 'resource_exhausted') toast('Doucement, la tribu ! Trop d’enregistrements d’un coup.');
-    else toast('Connexion difficile : la progression sera réessayée au prochain geste.');
-  },
-  saveLocal() {
-    clearTimeout(this.saveT);
-    this.saveT = setTimeout(() => { try { const d = {}; COLS.forEach(c => { d[c] = S[c]; }); localStorage.setItem(LS_KEY, JSON.stringify(d)); } catch (e) { /* plein ou bloqué */ } }, 250);
-  },
-  loadLocal() {
-    try {
-      const raw = localStorage.getItem(LS_KEY); if (!raw) return;
-      const d = JSON.parse(raw);
-      COLS.forEach(c => { if (d && d[c] && typeof d[c] === 'object') S[c] = Object.assign({}, d[c], S[c]); });
-    } catch (e) { /* rien à charger */ }
-  }
-};
-
-let seenProgress = null;
-function checkRemoteFish(snap) {
-  // Montre un toast quand un poisson naît sur un autre téléphone de la tribu.
-  if (seenProgress === null) { seenProgress = new Set(Object.keys(S.progress).filter(k => S.progress[k].learnedAt)); return; }
-  if (snap.metadata && snap.metadata.hasPendingWrites) return;
-  Object.keys(S.progress).forEach(k => {
-    const p = S.progress[k];
-    if (p.learnedAt && !seenProgress.has(k)) {
-      seenProgress.add(k);
-      if (!localBorn.has(k)) { const w = wordById(k); if (w) toast('Nouveau poisson dans le lagon : « ' + w.ty + ' » !'); }
-    }
-  });
-}
-const localBorn = new Set();
-
-/* ================================================================ Progress */
-function bump(wid, ok, by, soft) {
-  const old = S.progress[wid] || { m: 0, ok: 0, ko: 0 };
-  const p = Object.assign({ m: 0, ok: 0, ko: 0 }, old);
-  let born = false;
-  if (ok) {
-    p.ok = (p.ok || 0) + 1; p.m = Math.min(3, (p.m || 0) + 1);
-    if (p.m >= 3 && !p.learnedAt) { p.learnedAt = Date.now(); p.learnedBy = by && by !== 'guest' ? by : null; born = true; localBorn.add(wid); if (seenProgress) seenProgress.add(wid); }
-  } else {
-    p.ko = (p.ko || 0) + 1; if (!soft) p.m = Math.max(0, (p.m || 0) - 1);
-  }
-  p.last = Date.now();
-  Data.set('progress', wid, p);
-  if (born) { Lagoon.sync(); Sound.pop(); }
-  return born;
-}
-function markPracticed() { const k = todayKey(); const d = S.days[k]; Data.set('days', k, { n: ((d && d.n) || 0) + 1 }); }
-function addStats(okBy, players) {
-  players.forEach(p => {
-    if (p.id === 'guest' || !S.members[p.id]) return;
-    const m = S.members[p.id];
-    Data.set('members', p.id, Object.assign({}, m, { ok: (m.ok || 0) + (okBy[p.id] || 0), games: (m.games || 0) + 1 }));
-  });
-}
-function setRecord(key, val, better, players) {
-  const r = S.records[key];
-  if (!r || better(val, r.best)) { Data.set('records', key, { best: val, at: Date.now(), by: players.filter(p => p.id !== 'guest').map(p => p.id) }); return true; }
-  return false;
-}
-
-/* ================================================================ Voice and sounds */
-const TTS = {
-  ok: false, voice: null,
+/* Voix du téléphone : une voix italienne ou espagnole lit bien le tahitien. */
+const voice = {
+  ok: typeof speechSynthesis !== 'undefined' && typeof SpeechSynthesisUtterance !== 'undefined', v: null,
   init() {
-    this.ok = typeof window.speechSynthesis !== 'undefined' && typeof window.SpeechSynthesisUtterance !== 'undefined';
     if (!this.ok) return;
-    const pickVoice = () => {
-      try {
-        const vs = speechSynthesis.getVoices() || [];
-        const pref = ['mi', 'haw', 'it', 'es', 'pt', 'fr'];
-        for (const p of pref) { const v = vs.find(x => (x.lang || '').toLowerCase().replace('_', '-').startsWith(p)); if (v) { this.voice = v; return; } }
-      } catch (e) { /* pas de voix */ }
-    };
-    pickVoice();
-    try { speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) { /* ancien navigateur */ }
+    const pick = () => { try { const vs = speechSynthesis.getVoices() || []; for (const p of ['mi', 'haw', 'it', 'es', 'pt', 'fr']) { const v = vs.find(x => (x.lang || '').toLowerCase().startsWith(p)); if (v) { this.v = v; return; } } } catch (e) { /* aucune voix */ } };
+    pick(); try { speechSynthesis.addEventListener('voiceschanged', pick); } catch (e) { /* ancien navigateur */ }
   },
-  speak(text, pron) {
+  say(text, pron) {
     if (!this.ok || !text) return;
     try {
       speechSynthesis.cancel();
-      const v = this.voice; const lang = ((v && v.lang) || 'it-IT').toLowerCase();
-      let say = String(text);
-      if (lang.startsWith('fr') && pron) say = String(pron).replace(/[-’']/g, ' ');
-      else say = say.replace(/ʻ/g, '').replace(/…/g, ', ').replace(/ā/g, 'aa').replace(/ē/g, 'ee').replace(/ī/g, 'ii').replace(/ō/g, 'oo').replace(/ū/g, 'uu').replace(/Ā/g, 'Aa').replace(/Ē/g, 'Ee').replace(/Ī/g, 'Ii').replace(/Ō/g, 'Oo').replace(/Ū/g, 'Uu');
-      const u = new SpeechSynthesisUtterance(say);
-      if (v) u.voice = v;
-      u.lang = (v && v.lang) || 'it-IT'; u.rate = 0.78; u.pitch = 1.05;
+      const lang = ((this.v && this.v.lang) || 'it-IT').toLowerCase();
+      const t = lang.startsWith('fr') && pron ? String(pron).replace(/[-’']/g, ' ') : String(text).replace(/ʻ/g, '').replace(/…/g, ', ').replace(/ā/gi, 'aa').replace(/ē/gi, 'ee').replace(/ī/gi, 'ii').replace(/ō/gi, 'oo').replace(/ū/gi, 'uu');
+      const u = new SpeechSynthesisUtterance(t); if (this.v) u.voice = this.v; u.lang = (this.v && this.v.lang) || 'it-IT'; u.rate = 0.8;
       speechSynthesis.speak(u);
     } catch (e) { /* lecture impossible */ }
   }
 };
-const Sound = {
-  on: Prefs.get('sound', true), ctx: null,
-  ensure() {
-    if (!this.ctx) { try { const AC = window.AudioContext || window.webkitAudioContext; this.ctx = AC ? new AC() : null; } catch (e) { this.ctx = null; } }
-    if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
-    return this.ctx;
-  },
-  tone(f, dur, type, vol, when) {
-    if (!this.on) return; const c = this.ensure(); if (!c) return;
-    try {
-      const t0 = c.currentTime + (when || 0);
-      const o = c.createOscillator(), g = c.createGain();
-      o.type = type || 'sine'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(vol || 0.08, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
-      o.connect(g); g.connect(c.destination); o.start(t0); o.stop(t0 + dur + 0.05);
-    } catch (e) { /* audio indisponible */ }
-  },
-  good() { this.tone(660, 0.18, 'sine', 0.09); this.tone(990, 0.3, 'sine', 0.08, 0.1); },
-  bad() { this.tone(240, 0.32, 'triangle', 0.07); },
-  pop() { this.tone(880, 0.09, 'sine', 0.07); this.tone(1320, 0.12, 'sine', 0.05, 0.06); },
-  win() { [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.32, 'sine', 0.08, i * 0.12)); },
-  tick() { this.tone(1200, 0.04, 'square', 0.025); },
-  splash() {
-    if (!this.on) return; const c = this.ensure(); if (!c) return;
-    try {
-      const len = Math.floor(c.sampleRate * 0.4); const buf = c.createBuffer(1, len, c.sampleRate); const d = buf.getChannelData(0);
-      for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.2);
-      const s = c.createBufferSource(); s.buffer = buf; const f = c.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 1100;
-      const g = c.createGain(); g.gain.value = 0.1; s.connect(f); f.connect(g); g.connect(c.destination); s.start();
-    } catch (e) { /* audio indisponible */ }
-  }
-};
+const speakBtn = (w, cls) => voice.ok ? `<button class="${cls || 'round'}" data-act="say" data-id="${esc(w.id)}" aria-label="Écouter ${esc(w.ty)}">${ico('speak')}</button>` : '';
 
-/* ================================================================ The living lagoon (canvas) */
-const KIND = {
-  bonjour: { c1: '#FFD43B', c2: '#F59F00', c3: '#1E2328', p: 'band', h: 1.25, size: [15, 21], speed: 1 },
-  famille: { c1: '#FF7A2F', c2: '#F2602A', c3: '#FFFFFF', p: 'clown', h: 1.0, size: [14, 19], speed: 0.9 },
-  lagon: { c1: '#1F6FE0', c2: '#FFD43B', c3: '#0B1F4A', p: 'tang', h: 1.05, size: [17, 23], speed: 1.1 },
-  animaux: { c1: '#2BD4A0', c2: '#FF6FA8', c3: '#159173', p: 'parrot', h: 0.95, size: [19, 26], speed: 0.85 },
-  table: { c1: '#FF5D5D', c2: '#FFB35C', c3: '#9E1F1A', p: 'spots', h: 0.95, size: [17, 23], speed: 0.9 },
-  nombres: { c1: '#D8EEFF', c2: '#A9D2F2', c3: '#6E9DC2', p: 'line', h: 0.8, size: [10, 13], speed: 1.4 },
-  couleurs: { c1: '#F8F9FA', c2: '#FFC300', c3: '#2B2D42', p: 'picasso', h: 1.0, size: [17, 22], speed: 1 },
-  ciel: { c1: '#9180FF', c2: '#FFD43B', c3: '#4B3BB5', p: 'angel', h: 1.35, size: [17, 23], speed: 0.95 },
-  emotions: { c1: '#FFE08A', c2: '#F4B942', c3: '#8D6E2B', p: 'puffer', h: 1.05, size: [15, 20], speed: 0.7 },
-  phrases: { c1: '#36B37E', c2: '#2F7FB8', c3: '#1E5A43', p: 'napoleon', h: 1.0, size: [24, 32], speed: 0.6 },
-  culture: { c1: '#FF8FAB', c2: '#7BDFF2', c3: '#B23A48', p: 'stripes', h: 1.0, size: [16, 21], speed: 1 },
-  nos: { c1: '#FFD166', c2: '#FFB703', c3: '#B5651D', p: 'gold', h: 1.05, size: [20, 26], speed: 0.8 }
-};
-const Lagoon = {
-  cv: null, ctx: null, W: 0, H: 0, dpr: 1, raf: 0, last: 0, t: 0, vis: true, reduce: false,
-  fish: [], bubbles: [], specks: [], ambient: [], decor: null, decorSig: '', pal: null, gWater: null, creatures: {},
-  init(cv) {
-    this.cv = cv; this.ctx = cv.getContext('2d');
-    this.reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
-    try { new ResizeObserver(() => this.resize()).observe(cv.parentElement); } catch (e) { window.addEventListener('resize', () => this.resize()); }
-    try { new IntersectionObserver(es => { this.vis = es[0].isIntersecting; this.toggle(); }).observe(cv); } catch (e) { /* toujours visible */ }
-    document.addEventListener('visibilitychange', () => this.toggle());
-    const reTheme = () => { this.pal = null; this.decorSig = ''; this.frame(); };
-    try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', reTheme); } catch (e) { /* ancien navigateur */ }
-    try { new MutationObserver(reTheme).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] }); } catch (e) { /* rien */ }
-    cv.addEventListener('pointerdown', e => this.tap(e));
-    const r = rng(7);
-    for (let i = 0; i < 16; i++) this.bubbles.push(this.newBubble(r, true));
-    for (let i = 0; i < 46; i++) this.specks.push({ x: r(), y: r() * 0.8, p: r() * 6.28, s: 0.6 + r() * 1.4 });
-    for (let i = 0; i < 7; i++) this.ambient.push({ x: r(), ry: 0.25 + r() * 0.35, dir: r() < 0.5 ? -1 : 1, sp: 0.012 + r() * 0.01, s: 5 + r() * 3, ph: r() * 6 });
-    this.resize();
-  },
-  readPal() {
-    const cs = getComputedStyle(document.documentElement); const g = n => cs.getPropertyValue(n).trim();
-    this.pal = { s1: g('--sea-1') || '#9BEDE2', s2: g('--sea-2') || '#2DB9B3', s3: g('--sea-3') || '#0A6A84', f1: g('--floor-1') || '#F2DDB0', f2: g('--floor-2') || '#D6B97F', dark: g('--is-dark') === '1' };
-    if (this.ctx && this.H) {
-      const gr = this.ctx.createLinearGradient(0, 0, 0, this.H);
-      gr.addColorStop(0, this.pal.s1); gr.addColorStop(0.45, this.pal.s2); gr.addColorStop(1, this.pal.s3);
-      this.gWater = gr;
-    }
-    return this.pal;
-  },
-  resize() {
-    const p = this.cv.parentElement; const w = p.clientWidth, h = p.clientHeight;
-    if (!w || !h) return;
-    this.dpr = Math.min(2, window.devicePixelRatio || 1); this.W = w; this.H = h;
-    this.cv.width = Math.round(w * this.dpr); this.cv.height = Math.round(h * this.dpr);
-    this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    this.pal = null; this.decorSig = ''; this.frame();
-  },
-  dirtyDecor() { this.decorSig = ''; if (this.reduce || !this.raf) this.frame(); },
-  toggle() {
-    const on = this.vis && !document.hidden && S.tab === 'lagon' && !S.ui.gameOpen && !this.reduce;
-    if (on && !this.raf) { this.last = performance.now(); this.raf = requestAnimationFrame(ts => this.loop(ts)); }
-    else if (!on && this.raf) { cancelAnimationFrame(this.raf); this.raf = 0; }
-    if (!on) this.frame();
-  },
-  loop(ts) {
-    const dt = Math.min(0.05, Math.max(0, (ts - this.last) / 1000)); this.last = ts; this.t += dt;
-    this.update(dt); this.draw();
-    this.raf = requestAnimationFrame(t2 => this.loop(t2));
-  },
-  frame() { if (!this.W) return; this.draw(); },
-  sync() {
-    const learned = learnedWords().sort((a, b) => S.progress[a.id].learnedAt - S.progress[b.id].learnedAt);
-    const ids = new Set(learned.map(w => w.id));
-    this.fish = this.fish.filter(f => ids.has(f.id));
-    const have = new Set(this.fish.map(f => f.id));
-    learned.forEach((w, i) => { if (!have.has(w.id)) this.fish.push(this.makeFish(w, i, Date.now() - S.progress[w.id].learnedAt < 120000)); });
-    this.fish.sort((a, b) => a.size - b.size);
-    const n = learned.length;
-    const c = this.creatures;
-    if (n >= 10 && !c.turtle) c.turtle = { x: -0.2, ry: 0.42, dir: 1, sp: 0.018, s: 34 };
-    if (n >= 25 && !c.manta) c.manta = { x: 1.2, ry: 0.3, dir: -1, sp: 0.024, s: 46 };
-    if (n >= 50 && !c.whale) c.whale = { x: -0.5, ry: 0.2, dir: 1, sp: 0.008, s: 140 };
-    if (n >= 80 && !c.dolphins) c.dolphins = { x: 1.3, ry: 0.14, dir: -1, sp: 0.06, s: 30 };
-    if (n < 10) delete c.turtle; if (n < 25) delete c.manta; if (n < 50) delete c.whale; if (n < 80) delete c.dolphins;
-    $('#lagoon').setAttribute('aria-label', n ? `Le lagon de la famille : ${plural(n, 'poisson')}, un par mot appris.` : 'Le lagon de la famille, encore vide.');
-    this.frame();
-  },
-  makeFish(w, i, born) {
-    const k = KIND[w.th] || KIND.bonjour; const r = rng(hash(w.id));
-    const crowd = i > 60 ? 0.7 : 1;
-    return { id: w.id, w, k, size: (k.size[0] + r() * (k.size[1] - k.size[0])) * crowd, x: r(), ry: 0.2 + r() * 0.5, dir: r() < 0.5 ? -1 : 1, sp: (0.02 + r() * 0.035) * k.speed, ph: r() * 6.28, amp: 4 + r() * 8, wf: 6 + r() * 5, born: born ? this.t : -99, hit: -99 };
-  },
-  newBubble(r, init) { r = r || Math.random; return { x: r(), y: init ? r() : 1.02, rad: 1.5 + r() * 3.5, sp: 0.04 + r() * 0.06, wob: r() * 6.28 }; },
-  update(dt) {
-    const W = this.W;
-    this.fish.forEach(f => {
-      f.x += f.dir * f.sp * dt * (380 / Math.max(W, 280));
-      if (f.dir > 0 && f.x > 1.1) { f.dir = -1; f.ry = 0.2 + Math.random() * 0.5; }
-      else if (f.dir < 0 && f.x < -0.1) { f.dir = 1; f.ry = 0.2 + Math.random() * 0.5; }
-    });
-    this.ambient.forEach(a => { a.x += a.dir * a.sp * dt; if (a.x > 1.15) a.x = -0.15; if (a.x < -0.15) a.x = 1.15; });
-    Object.values(this.creatures).forEach(c => {
-      c.x += c.dir * c.sp * dt;
-      if (c.dir > 0 && c.x > 1.4) { c.dir = -1; } else if (c.dir < 0 && c.x < -0.4) { c.dir = 1; }
-    });
-    this.bubbles.forEach((b, i) => { b.y -= b.sp * dt; if (b.y < 0.03) this.bubbles[i] = this.newBubble(); });
-  },
-  draw() {
-    const ctx = this.ctx, W = this.W, H = this.H; if (!W || !H) return;
-    if (!this.pal || !this.gWater) this.readPal();
-    const pal = this.pal, t = this.t;
-    ctx.fillStyle = this.gWater; ctx.fillRect(0, 0, W, H);
-    // light rays (day) or plankton (night)
-    if (!pal.dark) {
-      for (let i = 0; i < 5; i++) {
-        const x0 = W * (0.06 + i * 0.22) + Math.sin(t * 0.25 + i * 1.7) * 18;
-        const g = ctx.createLinearGradient(0, 0, 0, H * 0.85);
-        g.addColorStop(0, 'rgba(255,255,255,0.22)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-        ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x0 - 8, 0); ctx.lineTo(x0 + 26, 0); ctx.lineTo(x0 + 70 + i * 6, H * 0.85); ctx.lineTo(x0 + 18, H * 0.85); ctx.closePath(); ctx.fill();
-      }
-    } else {
-      this.specks.forEach(s => { const a = 0.25 + 0.65 * Math.abs(Math.sin(t * 0.7 + s.p)); ctx.fillStyle = `rgba(150,255,235,${a * 0.6})`; ctx.beginPath(); ctx.arc(s.x * W, 16 + s.y * H * 0.7, s.s, 0, 6.283); ctx.fill(); });
-    }
-    // far away creatures
-    const c = this.creatures;
-    if (c.whale) this.drawWhale(c.whale);
-    // tiny ambient silhouettes
-    ctx.fillStyle = pal.dark ? 'rgba(120,200,210,0.16)' : 'rgba(8,60,80,0.16)';
-    this.ambient.forEach(a => { const x = a.x * W, y = a.ry * H + Math.sin(t + a.ph) * 3; ctx.save(); ctx.translate(x, y); ctx.scale(a.dir, 1); ctx.beginPath(); ctx.ellipse(0, 0, a.s, a.s * 0.42, 0, 0, 6.283); ctx.moveTo(-a.s * 0.8, 0); ctx.lineTo(-a.s * 1.6, -a.s * 0.5); ctx.lineTo(-a.s * 1.6, a.s * 0.5); ctx.fill(); ctx.restore(); });
-    // floor and coral
-    this.ensureDecor(); if (this.decor) ctx.drawImage(this.decor, 0, 0, W, H);
-    this.drawSeaweed();
-    if (c.manta) this.drawManta(c.manta);
-    if (c.turtle) this.drawTurtle(c.turtle);
-    this.fish.forEach(f => this.drawFish(f));
-    if (c.dolphins) this.drawDolphins(c.dolphins);
-    // bubbles
-    ctx.lineWidth = 1.2;
-    this.bubbles.forEach(b => { const x = b.x * W + Math.sin(t * 2 + b.wob) * 4, y = b.y * H; ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.beginPath(); ctx.arc(x, y, b.rad, 0, 6.283); ctx.stroke(); ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.arc(x - b.rad * 0.35, y - b.rad * 0.35, b.rad * 0.3, 0, 6.283); ctx.fill(); });
-    // surface shimmer
-    ctx.strokeStyle = 'rgba(255,255,255,0.45)'; ctx.lineWidth = 2; ctx.beginPath();
-    for (let x = 0; x <= W; x += 8) { const y = 5 + Math.sin(x * 0.045 + t * 1.4) * 2.2; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
-    ctx.stroke();
-  },
-  ensureDecor() {
-    const sig = `${this.W}x${this.H}:${this.pal.dark}:${missionsDone()}`;
-    if (sig === this.decorSig && this.decor) return;
-    this.decorSig = sig;
-    const W = this.W, H = this.H, d = this.dpr;
-    const cv = this.decor || document.createElement('canvas'); this.decor = cv;
-    cv.width = Math.round(W * d); cv.height = Math.round(H * d);
-    const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, W, H);
-    const pal = this.pal, r = rng(4242);
-    const fy = x => H * 0.82 + Math.sin(x * 0.012) * 6 + Math.sin(x * 0.031 + 1) * 4;
-    // coral behind the sand line
-    const colors = pal.dark ? ['#C2547A', '#D07A3E', '#7D5BC2', '#3E9C8A', '#C9A13E'] : ['#FF7A8A', '#FF9E57', '#B48CFF', '#45C7A8', '#FFC94D'];
-    const n = Math.max(6, Math.round(W / 42));
-    for (let i = 0; i < n; i++) {
-      const x = (i + 0.2 + r() * 0.6) * (W / n), y = fy(x) + 4, col = colors[Math.floor(r() * colors.length)], kind = r();
-      g.globalAlpha = pal.dark ? 0.85 : 0.95;
-      if (kind < 0.4) { g.strokeStyle = col; g.lineCap = 'round'; this.branch(g, x, y, H * (0.06 + r() * 0.05), -Math.PI / 2 + (r() - 0.5) * 0.4, 5, 4, r); }
-      else if (kind < 0.62) { g.fillStyle = col; g.beginPath(); g.ellipse(x, y, 16 + r() * 10, 11 + r() * 6, 0, Math.PI, 0); g.fill(); g.strokeStyle = 'rgba(0,0,0,0.15)'; g.lineWidth = 1.4; for (let k = -2; k <= 2; k++) { g.beginPath(); g.ellipse(x, y, 4 + Math.abs(k) * 3, 3 + Math.abs(k) * 2, 0, Math.PI, 0); g.stroke(); } }
-      else if (kind < 0.82) { g.strokeStyle = col; g.lineWidth = 1.6; const len = H * (0.09 + r() * 0.05); for (let a = -1; a <= 1; a += 0.18) { g.beginPath(); g.moveTo(x, y); g.quadraticCurveTo(x + Math.sin(a) * len * 0.4, y - len * 0.6, x + Math.sin(a) * len * 0.7, y - Math.cos(a) * len); g.stroke(); } }
-      else { g.fillStyle = col; for (let k = 0; k < 3; k++) { const h = H * (0.05 + r() * 0.06), ww = 7 + r() * 4, xx = x + (k - 1) * 10; g.beginPath(); g.moveTo(xx - ww / 2, y); g.lineTo(xx - ww / 2, y - h); g.quadraticCurveTo(xx, y - h - 5, xx + ww / 2, y - h); g.lineTo(xx + ww / 2, y); g.fill(); g.fillStyle = 'rgba(0,0,0,0.22)'; g.beginPath(); g.ellipse(xx, y - h, ww / 2 - 1.5, 2, 0, 0, 6.283); g.fill(); g.fillStyle = col; } }
-    }
-    g.globalAlpha = 1;
-    // sand
-    const sg = g.createLinearGradient(0, H * 0.78, 0, H); sg.addColorStop(0, pal.f1); sg.addColorStop(1, pal.f2);
-    g.fillStyle = sg; g.beginPath(); g.moveTo(0, H);
-    for (let x = 0; x <= W; x += 6) g.lineTo(x, fy(x));
-    g.lineTo(W, H); g.closePath(); g.fill();
-    g.strokeStyle = pal.dark ? 'rgba(255,255,255,0.05)' : 'rgba(120,80,20,0.12)'; g.lineWidth = 1.2;
-    for (let k = 0; k < 4; k++) { g.beginPath(); for (let x = 0; x <= W; x += 10) { const y = fy(x) + 10 + k * 9 + Math.sin(x * 0.05 + k) * 2; if (x === 0) g.moveTo(x, y); else g.lineTo(x, y); } g.stroke(); }
-    g.fillStyle = pal.dark ? 'rgba(255,255,255,0.08)' : 'rgba(110,80,40,0.18)';
-    for (let k = 0; k < Math.round(W / 14); k++) { const x = r() * W, y = fy(x) + 8 + r() * (H * 0.14); g.beginPath(); g.ellipse(x, y, 1.5 + r() * 2.5, 1 + r() * 1.5, 0, 0, 6.283); g.fill(); }
-    // one shell or starfish per mission done
-    const done = MISSIONS.filter(m => S.missions[m.id]);
-    done.forEach((m, i) => {
-      const rr = rng(hash(m.id)); const x = ((i + 0.5) / Math.max(done.length, 1)) * W * 0.9 + W * 0.05 + (rr() - 0.5) * 14, y = fy(x) + 14 + rr() * (H * 0.08);
-      if (i % 2 === 0) this.shell(g, x, y, 9 + rr() * 3, rr); else this.star(g, x, y, 9 + rr() * 3, rr);
-    });
-  },
-  branch(g, x, y, len, ang, w, depth, r) {
-    if (depth <= 0 || len < 3) return;
-    const x2 = x + Math.cos(ang) * len, y2 = y + Math.sin(ang) * len;
-    g.lineWidth = w; g.beginPath(); g.moveTo(x, y); g.lineTo(x2, y2); g.stroke();
-    this.branch(g, x2, y2, len * (0.62 + r() * 0.2), ang - 0.35 - r() * 0.35, w * 0.72, depth - 1, r);
-    this.branch(g, x2, y2, len * (0.62 + r() * 0.2), ang + 0.35 + r() * 0.35, w * 0.72, depth - 1, r);
-  },
-  shell(g, x, y, s, r) {
-    g.save(); g.translate(x, y); g.rotate((r() - 0.5) * 0.8);
-    g.fillStyle = ['#FFD1B5', '#FFB3C1', '#FFE3A3'][Math.floor(r() * 3)];
-    g.beginPath(); g.moveTo(0, s * 0.6); g.lineTo(-s, -s * 0.2); g.quadraticCurveTo(0, -s * 1.4, s, -s * 0.2); g.closePath(); g.fill();
-    g.strokeStyle = 'rgba(120,60,30,0.35)'; g.lineWidth = 1;
-    for (let k = -2; k <= 2; k++) { g.beginPath(); g.moveTo(0, s * 0.6); g.lineTo(k * s * 0.42, -s * 0.75 + Math.abs(k) * s * 0.18); g.stroke(); }
-    g.restore();
-  },
-  star(g, x, y, s, r) {
-    g.save(); g.translate(x, y); g.rotate(r() * 6.28); g.fillStyle = ['#FF8C42', '#FF6B6B', '#F9C74F'][Math.floor(r() * 3)];
-    g.beginPath(); for (let i = 0; i < 10; i++) { const a = i * Math.PI / 5, rad = i % 2 ? s * 0.42 : s; g.lineTo(Math.cos(a) * rad, Math.sin(a) * rad); } g.closePath(); g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.5)'; for (let i = 0; i < 5; i++) { const a = i * Math.PI * 2 / 5; g.beginPath(); g.arc(Math.cos(a) * s * 0.5, Math.sin(a) * s * 0.5, 1, 0, 6.283); g.fill(); }
-    g.restore();
-  },
-  drawSeaweed() {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, r = rng(99), dark = this.pal.dark;
-    const n = Math.max(4, Math.round(W / 70));
-    ctx.lineCap = 'round';
-    for (let i = 0; i < n; i++) {
-      const x = (i + r()) * (W / n), base = H * 0.86 + r() * 8, h = H * (0.16 + r() * 0.14), ph = r() * 6;
-      ctx.strokeStyle = dark ? 'rgba(60,150,110,0.75)' : 'rgba(40,140,90,0.85)'; ctx.lineWidth = 4 + r() * 3;
-      ctx.beginPath(); ctx.moveTo(x, base);
-      const sway = Math.sin(t * 0.9 + ph) * 10;
-      ctx.bezierCurveTo(x + sway * 0.4, base - h * 0.35, x - sway * 0.6, base - h * 0.7, x + sway, base - h); ctx.stroke();
-    }
-  },
-  drawFish(f) {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, k = f.k;
-    const x = f.x * W, y = f.ry * H + Math.sin(t * 0.6 + f.ph) * f.amp;
-    f.px = x; f.py = y;
-    let s = f.size;
-    const age = t - f.born;
-    if (age >= 0 && age < 1.4) { const e = age / 1.4; s *= 0.25 + 0.75 * (1 + 2.70158 * Math.pow(e - 1, 3) + 1.70158 * Math.pow(e - 1, 2)); ctx.strokeStyle = `rgba(255,255,255,${0.7 * (1 - e)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, f.size * (0.8 + e * 2.2), 0, 6.283); ctx.stroke(); }
-    const hitAge = t - f.hit; if (hitAge >= 0 && hitAge < 0.5) s *= 1 + 0.25 * Math.sin(hitAge / 0.5 * Math.PI);
-    const wig = Math.sin(t * f.wf + f.ph);
-    ctx.save(); ctx.translate(x, y); ctx.scale(f.dir, 1);
-    ctx.fillStyle = k.c2;
-    ctx.beginPath(); ctx.moveTo(-s * 0.48, 0); ctx.quadraticCurveTo(-s * 0.78, -s * 0.06, -s * 1.02, -s * 0.42 + wig * s * 0.09); ctx.lineTo(-s * 0.88, wig * s * 0.04); ctx.lineTo(-s * 1.02, s * 0.42 + wig * s * 0.09); ctx.quadraticCurveTo(-s * 0.78, s * 0.06, -s * 0.48, 0); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-s * 0.28, -s * 0.26 * k.h); ctx.quadraticCurveTo(-s * 0.02, -s * 0.62 * k.h, s * 0.24, -s * 0.28 * k.h); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-s * 0.2, s * 0.26 * k.h); ctx.quadraticCurveTo(0, s * 0.5 * k.h, s * 0.12, s * 0.26 * k.h); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = k.c1; ctx.beginPath(); ctx.ellipse(0, 0, s * 0.62, s * 0.34 * k.h, 0, 0, 6.283); ctx.fill();
-    ctx.save(); ctx.clip(); this.pattern(k, s); ctx.restore();
-    ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.beginPath(); ctx.ellipse(s * 0.05, -s * 0.12 * k.h, s * 0.38, s * 0.1 * k.h, -0.1, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(s * 0.36, -s * 0.06, s * 0.085, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#0E1C22'; ctx.beginPath(); ctx.arc(s * 0.385, -s * 0.06, s * 0.045, 0, 6.283); ctx.fill();
-    ctx.restore();
-  },
-  pattern(k, s) {
-    const ctx = this.ctx; ctx.fillStyle = k.c3; ctx.strokeStyle = k.c3;
-    switch (k.p) {
-      case 'band': ctx.fillRect(s * 0.26, -s, s * 0.13, s * 2); ctx.globalAlpha = 0.5; ctx.fillRect(-s * 0.2, -s, s * 0.06, s * 2); ctx.globalAlpha = 1; break;
-      case 'clown': ctx.fillStyle = '#FFFFFF'; [[-0.25, 0.13], [0.16, 0.12]].forEach(([px, w]) => { ctx.fillRect(s * px, -s, s * w, s * 2); }); ctx.fillStyle = '#1B1B1B'; [[-0.27], [-0.12], [0.14], [0.28]].forEach(([px]) => ctx.fillRect(s * px, -s, s * 0.02, s * 2)); break;
-      case 'tang': ctx.lineWidth = s * 0.09; ctx.beginPath(); ctx.moveTo(-s * 0.5, -s * 0.05); ctx.quadraticCurveTo(-s * 0.1, -s * 0.32, s * 0.3, -s * 0.1); ctx.quadraticCurveTo(0, s * 0.1, -s * 0.45, s * 0.05); ctx.stroke(); break;
-      case 'parrot': ctx.fillStyle = 'rgba(255,111,168,0.55)'; for (let i = -3; i < 4; i++) { ctx.beginPath(); ctx.arc(i * s * 0.16, s * 0.05, s * 0.09, 0, Math.PI); ctx.fill(); } ctx.fillStyle = k.c3; ctx.beginPath(); ctx.ellipse(s * 0.45, s * 0.06, s * 0.16, s * 0.12, 0, 0, 6.283); ctx.fill(); break;
-      case 'spots': for (let i = 0; i < 9; i++) { ctx.beginPath(); ctx.arc((i % 3 - 1) * s * 0.25, (Math.floor(i / 3) - 1) * s * 0.12, s * 0.035, 0, 6.283); ctx.fill(); } break;
-      case 'line': ctx.globalAlpha = 0.6; ctx.fillRect(-s * 0.6, -s * 0.02, s * 1.2, s * 0.04); ctx.globalAlpha = 1; break;
-      case 'picasso': ctx.lineWidth = s * 0.05; for (let i = -2; i < 3; i++) { ctx.beginPath(); ctx.moveTo(i * s * 0.12 - s * 0.1, -s * 0.4); ctx.lineTo(i * s * 0.12 + s * 0.1, s * 0.4); ctx.stroke(); } ctx.fillStyle = k.c2; ctx.fillRect(-s * 0.55, s * 0.06, s * 0.35, s * 0.3); break;
-      case 'angel': ctx.lineWidth = s * 0.04; for (let i = -3; i < 4; i++) { ctx.beginPath(); ctx.moveTo(i * s * 0.12, -s); ctx.lineTo(i * s * 0.12, s); ctx.stroke(); } break;
-      case 'puffer': for (let i = 0; i < 12; i++) { ctx.beginPath(); ctx.arc((i % 4 - 1.5) * s * 0.2, (Math.floor(i / 4) - 1) * s * 0.14, s * 0.03, 0, 6.283); ctx.fill(); } break;
-      case 'napoleon': ctx.lineWidth = s * 0.025; ctx.globalAlpha = 0.6; for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(-s * 0.5, -s * 0.15 + i * s * 0.07); ctx.quadraticCurveTo(0, -s * 0.25 + i * s * 0.09, s * 0.45, -s * 0.12 + i * s * 0.06); ctx.stroke(); } ctx.globalAlpha = 1; break;
-      case 'stripes': ctx.lineWidth = s * 0.06; ctx.strokeStyle = k.c2; for (let i = -3; i < 4; i++) { ctx.beginPath(); ctx.moveTo(-s, i * s * 0.11); ctx.quadraticCurveTo(0, i * s * 0.11 - s * 0.08, s, i * s * 0.11); ctx.stroke(); } break;
-      case 'gold': ctx.fillStyle = 'rgba(255,255,255,0.45)'; ctx.beginPath(); ctx.ellipse(-s * 0.1, -s * 0.05, s * 0.35, s * 0.08, -0.3, 0, 6.283); ctx.fill(); break;
-      default: break;
-    }
-  },
-  drawTurtle(c) {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, s = c.s;
-    const x = c.x * W, y = c.ry * H + Math.sin(t * 0.5) * 6; c.px = x; c.py = y;
-    const fl = Math.sin(t * 2.1) * 0.5;
-    ctx.save(); ctx.translate(x, y); ctx.scale(c.dir, 1);
-    ctx.fillStyle = '#6E9E57';
-    ctx.save(); ctx.translate(s * 0.25, s * 0.18); ctx.rotate(0.6 + fl); ctx.beginPath(); ctx.ellipse(0, s * 0.28, s * 0.12, s * 0.34, 0, 0, 6.283); ctx.fill(); ctx.restore();
-    ctx.save(); ctx.translate(-s * 0.35, s * 0.18); ctx.rotate(0.9 - fl * 0.6); ctx.beginPath(); ctx.ellipse(0, s * 0.14, s * 0.08, s * 0.18, 0, 0, 6.283); ctx.fill(); ctx.restore();
-    ctx.beginPath(); ctx.ellipse(s * 0.72, -s * 0.02, s * 0.2, s * 0.14, 0, 0, 6.283); ctx.fill();
-    ctx.fillStyle = '#10221C'; ctx.beginPath(); ctx.arc(s * 0.8, -s * 0.06, s * 0.03, 0, 6.283); ctx.fill();
-    const g = ctx.createRadialGradient(-s * 0.1, -s * 0.2, s * 0.05, 0, 0, s * 0.7); g.addColorStop(0, '#A7C57A'); g.addColorStop(1, '#4B7334');
-    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, s * 0.6, s * 0.38, 0, Math.PI, 0); ctx.ellipse(0, 0, s * 0.6, s * 0.1, 0, 0, Math.PI); ctx.fill();
-    ctx.strokeStyle = 'rgba(30,50,20,0.5)'; ctx.lineWidth = 1.5;
-    [[-0.3, -0.16], [0, -0.24], [0.3, -0.16]].forEach(([px, py]) => { ctx.beginPath(); ctx.ellipse(px * s, py * s, s * 0.13, s * 0.09, 0, 0, 6.283); ctx.stroke(); });
-    ctx.restore();
-  },
-  drawManta(c) {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, s = c.s;
-    const x = c.x * W, y = c.ry * H + Math.sin(t * 0.4) * 8; c.px = x; c.py = y;
-    const flap = Math.sin(t * 1.5);
-    ctx.save(); ctx.translate(x, y); ctx.scale(c.dir, 1);
-    ctx.fillStyle = this.pal.dark ? '#16303C' : '#1E3B49';
-    ctx.beginPath(); ctx.moveTo(s * 0.5, 0);
-    ctx.quadraticCurveTo(s * 0.15, -s * (0.25 + 0.2 * flap), -s * 0.15, -s * (0.7 + 0.3 * flap));
-    ctx.quadraticCurveTo(-s * 0.2, -s * 0.2, -s * 0.45, 0);
-    ctx.quadraticCurveTo(-s * 0.2, s * 0.2, -s * 0.15, s * (0.7 + 0.3 * flap));
-    ctx.quadraticCurveTo(s * 0.15, s * (0.25 + 0.2 * flap), s * 0.5, 0); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(s * 0.48, -s * 0.06); ctx.lineTo(s * 0.62, -s * 0.12); ctx.lineTo(s * 0.5, -s * 0.01); ctx.moveTo(s * 0.48, s * 0.06); ctx.lineTo(s * 0.62, s * 0.12); ctx.lineTo(s * 0.5, s * 0.01); ctx.fill();
-    ctx.strokeStyle = ctx.fillStyle; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-s * 0.45, 0); ctx.lineTo(-s * 0.85, Math.sin(t * 2) * 3); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.beginPath(); ctx.ellipse(s * 0.1, 0, s * 0.18, s * 0.08, 0, 0, 6.283); ctx.fill();
-    ctx.restore();
-  },
-  drawWhale(c) {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, s = c.s;
-    const x = c.x * W, y = c.ry * H + Math.sin(t * 0.3) * 5; c.px = x; c.py = y;
-    ctx.save(); ctx.translate(x, y); ctx.scale(c.dir, 1); ctx.globalAlpha = this.pal.dark ? 0.32 : 0.22;
-    ctx.fillStyle = this.pal.dark ? '#7FB7C4' : '#0B3A4C';
-    ctx.beginPath(); ctx.moveTo(s * 0.6, 0); ctx.quadraticCurveTo(s * 0.5, -s * 0.2, 0, -s * 0.18); ctx.quadraticCurveTo(-s * 0.4, -s * 0.12, -s * 0.62, -s * 0.02); ctx.lineTo(-s * 0.82, -s * 0.16 + Math.sin(t) * 3); ctx.lineTo(-s * 0.76, 0); ctx.lineTo(-s * 0.82, s * 0.14 + Math.sin(t) * 3); ctx.lineTo(-s * 0.6, s * 0.04); ctx.quadraticCurveTo(0, s * 0.2, s * 0.6, 0); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(s * 0.18, s * 0.1); ctx.quadraticCurveTo(s * 0.05, s * 0.4, -s * 0.12, s * 0.42); ctx.quadraticCurveTo(0, s * 0.2, s * 0.1, s * 0.1); ctx.fill();
-    ctx.restore();
-  },
-  drawDolphins(c) {
-    const ctx = this.ctx, W = this.W, H = this.H, t = this.t, s = c.s;
-    for (let i = 0; i < 2; i++) {
-      const x = c.x * W + i * 46, y = c.ry * H + Math.sin(t * 3 + i * 1.3) * 8 + i * 14;
-      if (i === 0) { c.px = x; c.py = y; }
-      ctx.save(); ctx.translate(x, y); ctx.scale(c.dir, 1); ctx.rotate(Math.sin(t * 3 + i * 1.3) * 0.15);
-      ctx.fillStyle = '#7A8FA0';
-      ctx.beginPath(); ctx.moveTo(s * 0.8, 0); ctx.quadraticCurveTo(s * 0.4, -s * 0.28, -s * 0.5, -s * 0.06); ctx.lineTo(-s * 0.8, -s * 0.2); ctx.lineTo(-s * 0.7, 0); ctx.lineTo(-s * 0.8, s * 0.18); ctx.lineTo(-s * 0.5, s * 0.06); ctx.quadraticCurveTo(s * 0.4, s * 0.2, s * 0.8, 0); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(0, -s * 0.18); ctx.lineTo(-s * 0.15, -s * 0.42); ctx.lineTo(-s * 0.2, -s * 0.12); ctx.fill();
-      ctx.fillStyle = '#DCE6EC'; ctx.beginPath(); ctx.ellipse(s * 0.2, s * 0.07, s * 0.35, s * 0.06, 0, 0, 6.283); ctx.fill();
-      ctx.restore();
-    }
-  },
-  tap(e) {
-    const rect = this.cv.getBoundingClientRect(); const x = e.clientX - rect.left, y = e.clientY - rect.top;
-    let best = null, bd = 1e9;
-    this.fish.forEach(f => { if (f.px == null) return; const d = Math.hypot(f.px - x, f.py - y); if (d < f.size * 1.4 + 10 && d < bd) { bd = d; best = f; } });
-    if (best) {
-      best.hit = this.t; Sound.pop();
-      const p = S.progress[best.id] || {}; const by = memberById(p.learnedBy);
-      showFishTip(x, y, `<span class="ty">${ty(best.w.ty)}</span>${esc(best.w.fr)}${by ? `<br><small>Né grâce à ${esc(by.emoji)} ${esc(by.name)}</small>` : ''}`);
-      if (this.reduce || !this.raf) this.frame();
-      return;
-    }
-    const cr = this.creatures; const near = o => o && o.px != null && Math.hypot(o.px - x, o.py - y) < o.s * 0.9;
-    if (near(cr.turtle)) return showFishTip(x, y, '<span class="ty">Honu</span>La tortue est arrivée à 10 mots appris !');
-    if (near(cr.manta)) return showFishTip(x, y, '<span class="ty">Fai</span>La raie manta est venue pour vos 25 mots !');
-    if (near(cr.whale)) return showFishTip(x, y, '<span class="ty">Tohorā</span>Une baleine pour 50 mots : incroyable !');
-    if (near(cr.dolphins)) return showFishTip(x, y, '<span class="ty">ʻŌuʻa</span>Les dauphins fêtent vos 80 mots !');
-  }
-};
-let tipT = 0;
-function showFishTip(x, y, html) {
-  const el = $('#fish-tip'); el.innerHTML = html; el.hidden = false;
-  const hero = $('#hero'); const w = Math.min(240, hero.clientWidth - 24);
-  el.style.left = Math.max(12, Math.min(hero.clientWidth - w - 12, x - w / 2)) + 'px';
-  el.style.top = Math.max(10, y - 80) + 'px'; el.style.width = 'auto'; el.style.maxWidth = w + 'px';
-  clearTimeout(tipT); tipT = setTimeout(() => { el.hidden = true; }, 2800);
-}
+const S = { mode: 'learn', theme: 'bonjour', i: 0, game: null, q: '', claude: null, sample: null };
 
-/* ================================================================ Rendering */
-let renderQueued = false, viewPending = false, sheetPending = false;
-function scheduleRender() { if (renderQueued) return; renderQueued = true; requestAnimationFrame(() => { renderQueued = false; renderAll(); }); }
-function typingIn(el) { const a = document.activeElement; return !!(a && el && el.contains(a) && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA')); }
-function renderAll() {
-  renderTop(); renderTabbar(); renderHeroUI();
-  const view = $('#view');
-  if (typingIn(view)) viewPending = true; else { viewPending = false; renderView(); }
-  if (S.ui.sheet && S.ui.sheet.live) { if (typingIn($('#sheet'))) sheetPending = true; else { sheetPending = false; renderSheet(); } }
-}
-document.addEventListener('focusout', () => setTimeout(() => {
-  if (viewPending && !typingIn($('#view'))) { viewPending = false; renderView(); }
-  if (sheetPending && !typingIn($('#sheet'))) { sheetPending = false; renderSheet(); }
-}, 60));
-
-function renderTop() {
-  const ms = memberList(); const st = streak();
-  const av = ms.slice(0, 4).map(m => `<span class="av xs" style="--c:${esc(m.color)}">${esc(m.emoji)}</span>`).join('');
-  $('#top').innerHTML = `
-    <div class="brand"><b>Re<i>o</i></b><small>Tahiti en famille</small></div>
-    <div class="top-r">
-      ${st ? `<span class="streak" title="Jours d’affilée où la tribu a pratiqué">${ico('flower')} ${st} j</span>` : ''}
-      <button class="tribe-btn" data-act="openTribe" aria-label="La tribu : ${ms.length} membre(s)">${av ? `<span class="avstack">${av}</span>` : `${ico('users')}<span>Tribu</span>`}</button>
-    </div>`;
-}
-function renderTabbar() {
-  $('#tabbar').innerHTML = `<div class="in">${TABS.map(([id, label, ic]) => `<button class="tab" data-act="tab" data-tab="${id}" ${S.tab === id ? 'aria-current="page"' : ''}><span class="ic">${ico(ic)}</span>${label}</button>`).join('')}</div>`;
-}
-function renderHeroUI() {
-  const hero = $('#hero'); hero.hidden = S.tab !== 'lagon';
-  if (hero.hidden) return;
-  const n = learnedCount(), md = missionsDone(), st = streak(), next = nextMilestone(n);
-  const nextTxt = next ? (n === 0 ? 'Trois bonnes réponses sur un même mot font naître un poisson.' : `Encore ${plural(next.at - n, 'mot')} pour faire venir ${next.name} !`) : 'Votre lagon est complet. Māuruuru roa, la tribu !';
-  $('#hero-ui').innerHTML = `
-    <div>
-      <div class="eyebrow">Notre lagon</div>
-      <h1 class="h-title">${n ? plural(n, 'poisson') : 'Un lagon tout neuf'}</h1>
-      <p class="h-sub">${n ? 'Un poisson par mot appris en famille. Touchez-les pour les entendre !' : 'Chaque mot appris par la tribu y fera naître un poisson.'}</p>
-    </div>
-    <div class="h-bot">
-      <div class="h-next">${esc(nextTxt)}</div>
-      <div class="h-stats"><span>${ico('fish')} ${plural(n, 'mot')}</span><span>${ico('shell')} ${md}/${MISSIONS.length} missions</span><span>${ico('flower')} série ${st} j</span></div>
-      ${n === 0 ? `<button class="btn hib sm h-cta" data-act="quickVaa">${ico('play')} Première traversée</button>` : ''}
-    </div>`;
-}
-function renderView() {
-  const v = $('#view');
-  const map = { lagon: viewLagon, jouer: viewJouer, mots: viewMots, traduire: viewTraduire, missions: viewMissions };
-  v.innerHTML = (map[S.tab] || viewLagon)();
-}
-
-/* small components */
-function pearls(m) { m = m || 0; let h = `<span class="pearls" role="img" aria-label="Maîtrise ${m} sur 3">`; for (let i = 0; i < 3; i++) h += `<i class="pearl${i < m ? ' on' : ''}"></i>`; return h + '</span>'; }
-function glyphHTML(w, cls) {
-  if (w.e === 'svg:ray') return `<span class="glyph ${cls || ''}" aria-hidden="true">${RAY_SVG}</span>`;
-  if (w.e) return `<span class="glyph ${cls || ''}" aria-hidden="true">${w.e}</span>`;
-  if (w.custom) return `<span class="glyph ${cls || ''}" aria-hidden="true">${ico('star')}</span>`;
-  return `<span class="glyph ${cls || ''}" aria-hidden="true">${esc((norm(w.ty).charAt(0) || '•').toUpperCase())}</span>`;
-}
-function bigGlyph(w) { if (w.e === 'svg:ray') return RAY_SVG; if (w.e) return esc(w.e); return w.custom ? ico('star') : '🌊'; }
-function speakBtn(w, sea) { if (!TTS.ok) return ''; return `<button class="icon-btn${sea ? ' sea' : ''}" data-act="speak" data-id="${esc(w.id)}" aria-label="Écouter « ${esc(w.ty)} »">${ico('speaker')}</button>`; }
-function speakTextBtn(text, pron) { if (!TTS.ok || !text) return ''; return `<button class="icon-btn sm" data-act="speakText" data-text="${esc(text)}" data-pron="${esc(pron || '')}" aria-label="Écouter">${ico('speaker')}</button>`; }
-function wordRow(w) {
-  const p = S.progress[w.id] || {};
-  return `<button class="li" data-act="openWord" data-id="${esc(w.id)}">${glyphHTML(w)}<span class="txt"><span class="ty">${ty(w.ty)}</span><span class="fr">${esc(w.fr)}</span></span>${p.learnedAt ? `<span class="fishmark" title="Son poisson nage dans le lagon">${ico('fish')}</span>` : ''}${pearls(p.m)}</button>`;
-}
-function modeBanner() {
-  if (S.mode === 'local') return `<div class="banner">${ico('info')}<span>Progression enregistrée sur cet appareil uniquement. Ouvrez la page dans Claude, connecté, pour la partager avec la tribu.</span></div>`;
-  if (S.mode === 'db' && !S.canWrite) return `<div class="banner">${ico('info')}<span>Vous pouvez jouer, mais ce compte ne peut pas enregistrer la progression. Demandez au propriétaire de la page de vous inviter comme éditeur.</span></div>`;
-  return '';
-}
-function vaaArt(night) {
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <rect width="200" height="110" style="fill:${night ? '#0B1E3A' : 'var(--sky-1)'}"/>
-    ${night ? '<circle cx="40" cy="20" r="1.4" fill="#fff"/><circle cx="70" cy="34" r="1" fill="#fff"/><circle cx="120" cy="16" r="1.3" fill="#fff"/><circle cx="160" cy="30" r="1" fill="#fff"/><circle cx="182" cy="14" r="1.5" fill="#fff"/>' : '<circle cx="160" cy="30" r="14" style="fill:var(--mango)"/>'}
-    <path d="M120 74c10-18 20-30 30-26 8-14 18-10 22 2 6 6 12 14 20 24z" style="fill:var(--isle)"/>
-    <rect y="72" width="200" height="38" style="fill:var(--sea-2)"/>
-    <path d="M0 80q10-5 20 0t20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/>
-    <g transform="translate(64 0)"><path d="M-30 76q30 9 60 0l4-6q-34 8-68 0z" style="fill:var(--hull)"/><path d="M-22 64q22 3 44 0" stroke="#3a2412" stroke-width="2" fill="none"/><path d="M-16 66v6M14 66v6" stroke="#3a2412" stroke-width="2"/><text x="-14" y="70" font-size="12">🐢</text><text x="2" y="70" font-size="12">🐬</text></g>
-  </svg>`;
-}
-function defiArt() {
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <rect width="200" height="110" style="fill:var(--sand)"/>
-    <circle cx="100" cy="55" r="34" fill="none" style="stroke:var(--bg-2)" stroke-width="10"/>
-    <circle cx="100" cy="55" r="34" fill="none" style="stroke:var(--hibiscus)" stroke-width="10" stroke-dasharray="160 214" stroke-linecap="round" transform="rotate(-90 100 55)"/>
-    <text x="100" y="66" text-anchor="middle" font-family="Young Serif, Georgia, serif" font-size="30" style="fill:var(--sand-ink)">60</text>
-    <text x="30" y="40" font-size="20">🗣️</text><text x="150" y="88" font-size="20">🎭</text>
-  </svg>`;
-}
-function memArt() {
-  const card = (x, r, f) => `<g transform="translate(${x} 55) rotate(${r})"><rect x="-22" y="-30" width="44" height="60" rx="8" style="fill:${f ? 'var(--surface)' : 'var(--lagoon)'};stroke:var(--line)" stroke-width="2"/>${f ? `<text x="0" y="8" text-anchor="middle" font-size="22">${f}</text>` : '<path d="M0 14c-8 0-14-6-15-14a15 15 0 0 1 30 0c-1 8-7 14-15 14z" fill="rgba(255,255,255,.85)"/>'}</g>`;
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="110" style="fill:var(--surface-2)"/>${card(56, -10)}${card(100, 2, '🐢')}${card(144, 12)}</svg>`;
-}
-function fcArt() {
-  return `<svg viewBox="0 0 200 110" preserveAspectRatio="xMidYMid slice" aria-hidden="true"><rect width="200" height="110" style="fill:var(--bg-2)"/>
-    <rect x="58" y="22" width="90" height="64" rx="10" transform="rotate(-8 103 54)" style="fill:var(--surface);stroke:var(--line)" stroke-width="2"/>
-    <rect x="52" y="24" width="90" height="64" rx="10" style="fill:var(--surface);stroke:var(--line)" stroke-width="2"/>
-    <text x="97" y="62" text-anchor="middle" font-family="Young Serif, Georgia, serif" font-size="18" style="fill:var(--ink)">Honu</text></svg>`;
-}
-function gameTile(kind) {
-  const rec = S.records;
-  const info = {
-    vaa: ['La traversée en vaʻa', 'Toute la tribu rame dans la même pirogue : chaque bonne réponse la fait avancer.', vaaArt(false), rec['vaa-moorea'] ? `Record Tahiti → Moorea : ${rec['vaa-moorea'].best} coups de pagaie` : ''],
-    defi: ['Le défi 60 secondes', 'Chacun son tour : dire un maximum de mots tahitiens avant la fin du chrono.', defiArt(), rec['defi-dis'] ? `Record de la tribu : ${rec['defi-dis'].best} mots` : ''],
-    mem: ['Le memory des coquillages', 'Retrouvez les paires mot tahitien et image, ensemble, en un minimum de coups.', memArt(), rec['mem-8'] ? `Record : ${rec['mem-8'].best} coups` : ''],
-    fc: ['La révision express', '10 cartes à retourner pour réviser les mots qui résistent.', fcArt(), '']
-  }[kind];
-  return `<button class="gtile" data-act="setupGame" data-kind="${kind}"><span class="art">${info[2]}</span><span><h3>${info[0]}</h3><p>${info[1]}</p>${info[3] ? `<span class="rec">${esc(info[3])}</span>` : ''}</span></button>`;
-}
-
-/* ---------------- Lagon view */
-function viewLagon() {
-  const w = wordOfDay(); const p = S.progress[w.id] || {};
-  const saidToday = Prefs.get('wotd', '') === todayKey() + ':' + w.id;
-  if (S.ui.fact == null) S.ui.fact = hash(todayKey() + 'f') % FACTS.length;
-  const f = FACTS[S.ui.fact % FACTS.length];
-  const showOnboard = !memberList().length && (S.mode === 'local' || S.loaded.members);
-  return `
-    ${modeBanner()}
-    ${showOnboard ? `<section class="card stack">
-      <div class="eyebrow">Pour commencer</div>
-      <h2 class="ty" style="margin:0;font-size:24px;line-height:1.15">Qui fait partie de la tribu ?</h2>
-      <p class="tip">Ajoutez chaque membre de la famille avec son animal et son niveau : les questions s’adaptent à chacun, des petits pagayeurs aux navigateurs.</p>
-      <button class="btn block" data-act="newMember">${ico('plus')} Ajouter un membre</button>
-    </section>` : ''}
-    <section class="card wotd">
-      <div class="tapa" aria-hidden="true"></div>
-      <div class="eyebrow">Le mot du jour</div>
-      <div class="wotd-word ty">${ty(w.ty)}</div>
-      <div class="wotd-row">${speakBtn(w, true)}<span class="pron">${esc(w.pr)}</span></div>
-      <div class="wotd-fr">${esc(w.fr)}</div>
+/* ---------- Apprendre */
+function deck() { return WORDS.filter(w => w.th === S.theme); }
+function viewLearn() {
+  const list = deck(); const w = list[S.i % list.length];
+  return `<div class="themes" role="group" aria-label="Thèmes">${THEMES.map(([id, n]) => `<button data-act="theme" data-id="${id}" aria-pressed="${S.theme === id}">${n}</button>`).join('')}</div>
+    <div style="height:18px"></div>
+    <article class="card fade" id="card" aria-live="polite">
+      ${emoji(w) ? `<div class="em" aria-hidden="true">${emoji(w)}</div>` : ''}
+      <div class="word ty">${ty(w.ty)}</div>
+      <div class="pron">${esc(w.pr)}</div>
+      <div class="fr">${esc(w.fr)}</div>
       ${w.tip ? `<p class="tip">${esc(w.tip)}</p>` : ''}
-      <div class="wotd-act">${pearls(p.m)}<button class="btn sm ${saidToday ? 'alt is-off' : 'alt'}" data-act="wotdSaid" data-id="${w.id}">${saidToday ? `${ico('check')} Dit aujourd’hui` : 'On l’a dit à quelqu’un !'}</button></div>
-    </section>
-    <section>
-      <div class="sec-h"><h2>Jouer ensemble</h2><button class="link" data-act="tab" data-tab="jouer">Tous les jeux</button></div>
-      <div class="games">${gameTile('vaa')}${gameTile('defi')}${gameTile('mem')}</div>
-    </section>
-    <section class="card stack">
-      <div class="eyebrow">Le saviez-vous ?</div>
-      <h3 class="ty" style="margin:0;font-size:22px;line-height:1.2">${ty(f[0])}</h3>
-      <p>${ty(f[1])}</p>
-      <div class="row end"><button class="btn ghost sm" data-act="nextFact">Une autre ${ico('chev')}</button></div>
-    </section>
-    <details class="pron-guide">
-      <summary>Prononcer comme un Polynésien ${ico('chev')}</summary>
-      <ul class="rules">${PRON.map(([k, d]) => `<li><b>${ty(k)}</b><span>${ty(d)}</span></li>`).join('')}</ul>
-      <p class="note" style="padding-bottom:16px">La voix du téléphone n’est pas tahitienne : elle donne une idée, l’oreille des Polynésiens fera le reste !</p>
-    </details>`;
+    </article>
+    <div style="height:18px"></div>
+    <div class="nav">
+      <button class="round" data-act="prev" aria-label="Mot précédent">${ico('prev')}</button>
+      ${voice.ok ? `<button class="btn ghost" data-act="say" data-id="${esc(w.id)}">${ico('speak')} Écouter</button>` : `<div class="count">${(S.i % list.length) + 1} / ${list.length}</div>`}
+      <button class="round" data-act="next" aria-label="Mot suivant">${ico('next')}</button>
+    </div>
+    ${voice.ok ? `<div class="count" style="margin-top:12px">${(S.i % list.length) + 1} / ${list.length}</div>` : ''}
+    <p class="hint" style="margin-top:26px"><b>u</b> se dit « ou » · <b>e</b> se dit « é » · <b class="eta">ʻ</b> = petit arrêt de la voix</p>`;
 }
 
-/* ---------------- Jouer view */
-function playersPicker() {
-  const ms = memberList();
-  if (!ms.length) {
-    return `<div class="stack-sm"><span class="opt-label">Niveau de l’équipage</span>
-      <div class="chips">${Object.entries(LEVELS).map(([k, l]) => `<button class="chip" data-act="guestLevel" data-lv="${k}" aria-pressed="${S.guestLevel === k}">${l.name} <small>${l.age}</small></button>`).join('')}</div>
-      <button class="btn alt sm" data-act="newMember" style="align-self:flex-start">${ico('plus')} Créer les profils de la tribu</button></div>`;
-  }
-  const sel = new Set(activePlayers().map(p => p.id));
-  return `<div class="stack-sm"><span class="opt-label">Qui joue ?</span><div class="chips">${ms.map(m => `<button class="chip" data-act="togglePlayer" data-id="${m.id}" aria-pressed="${sel.has(m.id)}"><span class="av" style="--c:${esc(m.color)};margin-left:-8px">${esc(m.emoji)}</span>${esc(m.name)}</button>`).join('')}</div></div>`;
+/* ---------- Jouer : 10 questions, 3 réponses */
+function newGame() {
+  const pool = shuffle(WORDS.filter(w => w.lv <= 2));
+  const picked = [];
+  for (const w of pool) { if (picked.length >= 10) break; if (!picked.some(p => norm(p.fr) === norm(w.fr))) picked.push(w); }
+  S.game = { list: picked, n: 0, score: 0, choices: makeChoices(picked[0]), picked: null };
 }
-function themeChips(act, current) {
-  const used = THEMES.filter(t => t.id !== 'nos' || phraseWords().length >= 4);
-  return `<div class="chips scroll">${[{ id: 'tout', name: 'Tous les mots', e: '🌊' }].concat(used).map(t => `<button class="chip" data-act="${act}" data-th="${t.id}" aria-pressed="${current === t.id}">${t.e} ${esc(t.name)}</button>`).join('')}</div>`;
-}
-function viewJouer() {
-  const r = S.ui.route;
-  return `
-    ${modeBanner()}
-    <section class="card setup">${playersPicker()}</section>
-    <section class="card setup">
-      <div class="art-wide">${vaaArt(ROUTES[r].night)}</div>
-      <h3>La traversée en vaʻa</h3>
-      <p class="tip">Chacun son tour, avec des questions à son niveau. La pirogue avance à chaque bonne réponse : à vous de rejoindre l’île en un minimum de coups de pagaie.</p>
-      <span class="opt-label">Le voyage</span>
-      <div class="chips">${Object.values(ROUTES).map(x => `<button class="chip" data-act="setRoute" data-id="${x.id}" aria-pressed="${r === x.id}">${esc(x.from)} → ${esc(x.to)} <small>${x.steps} étapes</small></button>`).join('')}</div>
-      <p class="note">${esc(ROUTES[r].desc)}.${S.records['vaa-' + r] ? ` Record : ${S.records['vaa-' + r].best} coups de pagaie.` : ''}</p>
-      <span class="opt-label">Les mots</span>
-      ${themeChips('setVaaTheme', S.ui.vaaTheme)}
-      <button class="btn hib block" data-act="startVaa">${ico('play')} Embarquer !</button>
-    </section>
-    <section class="card setup">
-      <div class="art-wide">${defiArt()}</div>
-      <h3>Le défi 60 secondes</h3>
-      <p class="tip">Un joueur a une minute. « Dis-le » : il voit une image et dit le mot tahitien. « Mime-le » : il mime le mot, les autres doivent le dire en tahitien.</p>
-      <div class="chips"><button class="chip" data-act="setDefi" data-mode="dis" aria-pressed="${S.ui.defiMode === 'dis'}">Dis-le</button><button class="chip" data-act="setDefi" data-mode="mime" aria-pressed="${S.ui.defiMode === 'mime'}">Mime-le</button></div>
-      <button class="btn block" data-act="startDefi">${ico('timer')} C’est parti !</button>
-    </section>
-    <section class="card setup">
-      <div class="art-wide">${memArt()}</div>
-      <h3>Le memory des coquillages</h3>
-      <p class="tip">Retournez deux coquillages : un mot tahitien et son image. Une paire trouvée, on rejoue ! L’équipe compte ses coups ensemble.</p>
-      <div class="chips">${[6, 8, 10].map(n => `<button class="chip" data-act="setMem" data-n="${n}" aria-pressed="${S.ui.memSize === n}">${n} paires</button>`).join('')}</div>
-      <button class="btn block" data-act="startMem">${ico('shell')} Retourner les coquillages</button>
-    </section>
-    <section class="card setup">
-      <div class="art-wide">${fcArt()}</div>
-      <h3>La révision express</h3>
-      <p class="tip">10 cartes choisies parmi les mots qui résistent le plus. Retournez, dites si vous saviez : le lagon s’en souviendra.</p>
-      <button class="btn alt block" data-act="startFc">${ico('book')} Réviser 10 mots</button>
-    </section>`;
-}
-
-/* ---------------- Mots view */
-function viewMots() {
-  const all = allWords(); const learned = all.filter(w => S.progress[w.id] && S.progress[w.id].learnedAt).length;
-  const th = S.ui.theme;
-  let list = th === 'tout' ? all : all.filter(w => w.th === th);
-  const counts = {}; all.forEach(w => { counts[w.th] = (counts[w.th] || 0) + 1; });
-  const themes = [{ id: 'tout', name: 'Tous', e: '🌊' }].concat(THEMES.filter(t => counts[t.id]));
-  return `
-    <section class="stack-sm">
-      <div class="row between"><span class="eyebrow">Notre collection</span><b>${learned} / ${all.length} mots appris</b></div>
-      <div class="bar" role="img" aria-label="${learned} mots appris sur ${all.length}"><i style="width:${all.length ? Math.round(learned / all.length * 100) : 0}%"></i></div>
-      <p class="note">Chaque mot a trois perles noires. Trois bonnes réponses, et son poisson naît dans le lagon.</p>
-    </section>
-    <div class="chips scroll">${themes.map(t => { const l = (t.id === 'tout' ? all : all.filter(w => w.th === t.id)); const lc = l.filter(w => S.progress[w.id] && S.progress[w.id].learnedAt).length; return `<button class="chip" data-act="setTheme" data-th="${t.id}" aria-pressed="${th === t.id}">${t.e} ${esc(t.name)} <small>${lc}/${l.length}</small></button>`; }).join('')}</div>
-    ${list.length ? `<div class="list">${list.map(wordRow).join('')}</div>` : `<p class="note">Aucun mot ici pour l’instant.</p>`}
-    ${th === 'nos' || th === 'tout' ? `<button class="btn alt block" data-act="addPhrase">${ico('plus')} Ajouter un mot appris d’un Polynésien</button>` : ''}`;
-}
-
-/* ---------------- Traduire view */
-function viewTraduire() {
-  const tr = S.ui.tr; const fr = tr.dir === 'fr';
-  return `
-    <section class="stack">
-      <div class="seg" role="group" aria-label="Sens de traduction">
-        <button data-act="trDir" data-dir="fr" aria-pressed="${fr}">Français → Tahitien</button>
-        <button data-act="trDir" data-dir="ty" aria-pressed="${!fr}">Tahitien → Français</button>
-      </div>
-      <form data-form="translate" class="stack-sm" autocomplete="off">
-        <label class="vh" for="tr-in">Texte à traduire</label>
-        <textarea class="field" id="tr-in" rows="2" maxlength="400" data-input="tr" placeholder="${fr ? 'Ex. : Où est la plage ? On adore votre île !' : 'Ex. : Māuruuru roa, nehenehe roa !'}">${esc(tr.text)}</textarea>
-        <div class="row">
-          ${S.sample ? `<button class="btn" type="submit">${ico('sparkle')} Traduire</button>` : ''}
-          ${S.sample && S.sampleImages ? `<label class="btn alt" for="tr-photo">${ico('camera')} Une photo</label><input class="vh" id="tr-photo" type="file" accept="image/*" data-change="photo">` : ''}
-        </div>
-      </form>
-      <div id="tr-matches">${matchesHTML()}</div>
-      <div id="tr-out" class="tr-out">${trOutHTML()}</div>
-    </section>
-    ${S.sample ? `<section class="stack-sm">
-      <div class="sec-h"><h2>Des phrases pour…</h2></div>
-      <div class="chips">${SITUATIONS.map(s => `<button class="chip" data-act="situation" data-k="${s.k}" aria-pressed="${tr.sit === s.k}">${esc(s.label)}</button>`).join('')}</div>
-      <div id="sit-out" class="tr-out">${sitOutHTML()}</div>
-    </section>` : `<div class="banner">${ico('info')}<span>La traduction libre et la lecture de photos utilisent Claude : ouvrez cette page dans Claude, connecté, pour les activer. Le lexique ci-dessus marche partout.</span></div>`}
-    <section>
-      <div class="sec-h"><h2>Nos phrases</h2><button class="link" data-act="addPhrase">${ico('plus')} Ajouter</button></div>
-      ${phrasesHTML()}
-    </section>
-    <p class="note">Le tahitien est peu présent sur internet : les traductions de Claude peuvent contenir des erreurs. Faites-les valider par un Polynésien… c’est aussi une belle occasion d’échanger !</p>`;
-}
-function matchesHTML() {
-  const tr = S.ui.tr; const q = tr.text.trim();
-  if (!q) return '';
-  const res = searchLex(q, tr.dir);
-  if (!res.length) return S.sample ? '' : `<p class="note">Pas dans notre lexique. Essayez un mot plus simple.</p>`;
-  return `<div class="stack-sm"><span class="opt-label">Dans notre lexique</span><div class="list">${res.map(wordRow).join('')}</div></div>`;
-}
-function searchLex(q, dir) {
-  const nq = norm(q); if (!nq) return [];
+function makeChoices(w) {
+  const others = shuffle(WORDS.filter(x => x.id !== w.id && x.lv <= 2 && norm(x.fr) !== norm(w.fr) && !norm(x.ty).includes(norm(w.ty)) && !norm(w.ty).includes(norm(x.ty))));
+  const same = others.filter(x => x.th === w.th);
   const out = [];
-  allWords().forEach(w => {
-    const a = norm(dir === 'fr' ? w.fr : w.ty), b = norm(dir === 'fr' ? w.ty : w.fr);
-    let s = 0;
-    if (a === nq) s = 100; else if (a.startsWith(nq)) s = 70; else if (a.split(' ').some(t => t && t.startsWith(nq))) s = 55; else if (nq.length > 2 && a.includes(nq)) s = 40;
-    else if (b === nq) s = 35; else if (nq.length > 2 && b.includes(nq)) s = 20;
-    else if (nq.includes(' ') && a.length > 2 && nq.split(' ').some(t => t.length > 2 && a.split(' ').includes(t))) s = 15;
-    if (s) out.push([s, w]);
-  });
-  return out.sort((x, y) => y[0] - x[0]).slice(0, 5).map(x => x[1]);
+  for (const x of same.concat(others)) { if (out.length >= 2) break; if (!out.includes(x) && (!emoji(x) || emoji(x) !== emoji(w))) out.push(x); }
+  return shuffle([w].concat(out));
 }
-function certBadge(c) {
-  if (c === 'haute') return `<span class="badge good">${ico('check')} Traduction sûre</span>`;
-  if (c === 'faible') return `<span class="badge warn">${ico('info')} Incertaine : à faire vérifier</span>`;
-  return `<span class="badge warn">${ico('info')} À faire vérifier</span>`;
-}
-function trOutHTML() {
-  const tr = S.ui.tr; let h = '';
-  if (tr.busy) h += `<div class="card"><div class="loader"><i></i>Le guide cherche les bons mots…</div></div>`;
-  else if (tr.err) h += `<div class="banner">${ico('info')}<span>${esc(tr.err)}</span></div>`;
-  else if (tr.res) {
-    const r = tr.res;
-    if (r.dir === 'fr') {
-      if (!r.ty) h += `<div class="card"><p>${esc(r.note || 'Pas de traduction pour ce texte.')}</p></div>`;
-      else h += `<div class="card res">
-        <span class="opt-label">En tahitien</span>
-        <div class="big ty">${ty(r.ty)}</div>
-        <div class="row">${speakTextBtn(r.ty, r.pr)}<span class="pron">${esc(r.pr)}</span></div>
-        ${r.words.length ? `<div class="wchips">${r.words.map(x => `<span class="wchip"><b>${ty(x.ty)}</b><span>${esc(x.fr)}</span></span>`).join('')}</div>` : ''}
-        ${r.back ? `<p class="tip">Mot à mot : « ${esc(r.back)} »</p>` : ''}
-        ${r.note ? `<p class="tip">${esc(r.note)}</p>` : ''}
-        <div class="row between">${certBadge(r.cert)}<span class="row"><button class="btn ghost sm" data-act="copy" data-text="${esc(r.ty)}">${ico('copy')} Copier</button>${S.phraseSaved === r.key ? `<span class="badge good">${ico('check')} Ajoutée</span>` : `<button class="btn sm" data-act="saveTr">${ico('plus')} Nos phrases</button>`}</span></div>
-      </div>`;
-    } else {
-      h += `<div class="card res">
-        <span class="opt-label">En français</span>
-        <div class="fr-big">${esc(r.fr || '—')}</div>
-        ${r.pr ? `<div class="row">${speakTextBtn(r.src, r.pr)}<span class="pron">${esc(r.pr)}</span></div>` : ''}
-        ${r.words.length ? `<div class="wchips">${r.words.map(x => `<span class="wchip"><b>${ty(x.ty)}</b><span>${esc(x.fr)}</span></span>`).join('')}</div>` : ''}
-        ${r.note ? `<p class="tip">${esc(r.note)}</p>` : ''}
-        <div class="row between">${certBadge(r.cert)}${r.fr && S.phraseSaved !== r.key ? `<button class="btn sm" data-act="saveTr">${ico('plus')} Nos phrases</button>` : (S.phraseSaved === r.key ? `<span class="badge good">${ico('check')} Ajoutée</span>` : '')}</div>
-      </div>`;
-    }
+function viewPlay() {
+  if (!S.game) newGame();
+  const g = S.game;
+  if (g.n >= g.list.length) {
+    const msg = g.score >= 9 ? 'Maitaʻi roa ! Parfait.' : g.score >= 6 ? 'Maitaʻi ! Très bien joué.' : 'ʻAita peʻapeʻa : on rejoue ?';
+    return `<div class="result fade"><div class="score">${g.score}<span style="font-size:36px;color:var(--muted)">/${g.list.length}</span></div><p>${ty(msg)}</p></div>
+      <button class="btn" style="width:100%" data-act="replay">${ico('again')} Rejouer</button>`;
   }
-  if (tr.pBusy) h += `<div class="card"><div class="loader"><i></i>Le guide lit votre photo…</div></div>`;
-  else if (tr.pErr) h += `<div class="banner">${ico('info')}<span>${esc(tr.pErr)}</span></div>`;
-  else if (tr.pRes) {
-    const r = tr.pRes;
-    h += `<div class="card res">
-      <span class="opt-label">Sur la photo</span>
-      ${r.text ? `<div class="big ty" style="font-size:24px">${ty(r.text)}</div>` : ''}
-      ${r.fr ? `<div class="fr-big">${esc(r.fr)}</div>` : ''}
-      ${r.words.length ? `<div class="wchips">${r.words.map(x => `<span class="wchip"><b>${ty(x.ty)}</b><span>${esc(x.fr)}</span></span>`).join('')}</div>` : ''}
-      ${r.note ? `<p class="tip">${esc(r.note)}</p>` : ''}
-    </div>`;
+  const w = g.list[g.n]; const done = g.picked !== null;
+  return `<div class="progress"><span>${g.n + 1} / ${g.list.length}</span><div class="bar"><i style="width:${(g.n / g.list.length) * 100}%"></i></div><span>${g.score} ✓</span></div>
+    <div class="ask${done ? '' : ' fade'}"><div class="q">Que veut dire…</div><div class="word ty">${ty(w.ty)}</div>${speakBtn(w)}</div>
+    <div style="height:18px"></div>
+    <div class="answers">${g.choices.map((c, i) => {
+      const cls = done ? (c.id === w.id ? ' ok' : (i === g.picked ? ' ko' : '')) : '';
+      return `<button class="answer${cls}" data-act="answer" data-i="${i}" ${done ? 'disabled' : ''}><span class="em" aria-hidden="true">${emoji(c)}</span>${esc(c.fr)}</button>`;
+    }).join('')}</div>
+    ${done ? `<div style="height:16px"></div><button class="btn" style="width:100%" data-act="nextq">${g.n + 1 >= g.list.length ? 'Voir mon score' : 'Suivant'} ${ico('next')}</button>` : ''}`;
+}
+
+/* ---------- Chercher */
+function search(q) {
+  const n = norm(q); if (!n) return [];
+  const scored = [];
+  for (const w of WORDS) {
+    const a = norm(w.fr), b = norm(w.ty); let s = 0;
+    if (a === n || b === n) s = 100;
+    else if (a.startsWith(n) || b.startsWith(n)) s = 70;
+    else if (a.split(' ').some(t => t.startsWith(n)) || b.split(' ').some(t => t.startsWith(n))) s = 50;
+    else if (n.length > 2 && (a.includes(n) || b.includes(n))) s = 30;
+    if (s) scored.push([s, w]);
+  }
+  return scored.sort((x, y) => y[0] - x[0]).slice(0, 8).map(x => x[1]);
+}
+function viewFind() {
+  return `<label class="vh" for="q">Un mot en français ou en tahitien</label>
+    <input class="field" id="q" type="search" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Merci, plage, tortue…" value="${esc(S.q)}">
+    <div style="height:16px"></div>
+    <div id="results">${resultsHTML()}</div>`;
+}
+function resultsHTML() {
+  const q = S.q.trim();
+  if (!q) return `<p class="note">Tapez un mot en français ou en tahitien.</p>`;
+  const res = search(q);
+  let h = res.length ? `<div class="list">${res.map(w => `<button class="row" data-act="say" data-id="${esc(w.id)}"><span class="em" aria-hidden="true">${emoji(w)}</span><span class="t"><span class="ty">${ty(w.ty)}</span><small>${esc(w.fr)}</small></span>${voice.ok ? `<span class="sp">${ico('speak')}</span>` : ''}</button>`).join('')}</div>` : '';
+  const c = S.claude;
+  if (c && c.q === q) {
+    if (c.busy) h += `<div style="height:14px"></div><div class="claude" style="flex-direction:row;align-items:center;gap:12px"><div class="spin"></div><span class="pron">Je cherche la traduction…</span></div>`;
+    else if (c.err) h += `<div style="height:14px"></div><p class="note">${esc(c.err)}</p>`;
+    else if (c.ty) h += `<div style="height:14px"></div><div class="claude fade"><div class="ty">${ty(c.ty)}</div>${c.pr ? `<div class="pron">${esc(c.pr)}</div>` : ''}<div class="fr">${esc(c.fr)}</div>${voice.ok ? `<div style="height:6px"></div><button class="btn ghost" data-act="sayText" data-text="${esc(c.ty)}">${ico('speak')} Écouter</button>` : ''}</div><div style="height:10px"></div><p class="note">Traduction proposée par Claude : à faire confirmer sur place.</p>`;
+  } else if (S.sample && q.length >= 2) {
+    h += `<div style="height:14px"></div><button class="btn ${res.length ? 'ghost' : ''}" style="width:100%" data-act="translate">${ico('spark')} Traduire « ${esc(q.length > 28 ? q.slice(0, 28) + '…' : q)} »</button>`;
+  } else if (!res.length) {
+    h += `<p class="note">Pas dans le lexique. Essayez un mot plus simple.</p>`;
   }
   return h;
 }
-function sitOutHTML() {
-  const tr = S.ui.tr;
-  if (tr.sBusy) return `<div class="card"><div class="loader"><i></i>Le guide prépare des phrases…</div></div>`;
-  if (tr.sErr) return `<div class="banner">${ico('info')}<span>${esc(tr.sErr)}</span></div>`;
-  if (!tr.sRes) return '';
-  return `<div class="list">${tr.sRes.map((p, i) => `<div class="li" style="cursor:default"><span class="txt"><span class="ty">${ty(p.ty)}</span><span class="fr">${esc(p.fr)}${p.pr ? ` · <i>${esc(p.pr)}</i>` : ''}</span></span>${speakTextBtn(p.ty, p.pr)}${p.saved ? `<span class="badge good">${ico('check')}</span>` : `<button class="icon-btn sm" data-act="saveSit" data-i="${i}" aria-label="Ajouter à nos phrases">${ico('plus')}</button>`}</div>`).join('')}</div><p class="note">Proposées par Claude : faites-les vérifier sur place.</p>`;
-}
-function phrasesHTML() {
-  const list = phraseWords().slice().reverse();
-  if (!list.length) return `<div class="card stack-sm"><p class="tip">Ici s’afficheront les phrases que la tribu enregistre : traductions du guide et mots appris de Polynésiens. Elles rejoignent ensuite les jeux, et chacune fait naître un poisson doré.</p></div>`;
-  return `<div class="list">${list.map(w => { const by = memberById(w.who); return `<button class="li" data-act="openWord" data-id="${esc(w.id)}">${glyphHTML(w)}<span class="txt"><span class="ty">${ty(w.ty)}</span><span class="fr">${esc(w.fr)}${w.from ? ' · appris de ' + esc(w.from) : ''}${by ? ' · ' + esc(by.emoji) : ''}</span></span>${w.verified ? `<span class="badge good" title="Vérifiée par un Polynésien">${ico('check')}</span>` : (w.src === 'claude' ? '<span class="badge">à vérifier</span>' : '')}</button>`; }).join('')}</div>`;
-}
-
-/* ---------------- Missions view */
-function viewMissions() {
-  const done = missionsDone();
-  return `
-    ${modeBanner()}
-    <section class="card stack-sm" style="text-align:center">
-      <div class="eyebrow">Le collier de la tribu</div>
-      <h2 class="ty" style="margin:0;font-size:26px">${done} / ${MISSIONS.length} coquillages</h2>
-      <div class="necklace" aria-hidden="true">${MISSIONS.map(m => `<span class="${S.missions[m.id] ? 'shell-on' : 'shell-off'}">${SHELL_FILLED}</span>`).join('')}</div>
-      <p class="tip">Les vraies missions se vivent sur place, avec des Polynésiens. Chaque mission réussie dépose un coquillage au fond du lagon.</p>
-    </section>
-    ${MISSIONS.map(m => {
-      const w = wordById(m.w); const d = S.missions[m.id];
-      const who = d && Array.isArray(d.by) ? d.by.map(memberById).filter(Boolean) : [];
-      return `<article class="mission${d ? ' done' : ''}">
-        <h3>${esc(m.t)}</h3>
-        ${w ? `<div class="say"><span class="ty">${ty(w.ty)}</span>${speakBtn(w)}<span class="muted">${esc(w.fr)}</span></div>` : ''}
-        <p class="tip">${esc(m.how)}</p>
-        ${d ? `<div class="row between"><span class="who">${ico('check')} Réussie le ${esc(fmtDate(d.at))} ${who.map(x => `<span class="av xs" style="--c:${esc(x.color)}">${esc(x.emoji)}</span>`).join('')}</span><button class="btn ghost sm" data-act="undoMission" data-id="${m.id}">Annuler</button></div>`
-          : `<div class="row">${m.go === 'traduire' ? `<button class="btn alt sm" data-act="tab" data-tab="traduire">Aller traduire</button>` : ''}${m.go === 'addPhrase' ? `<button class="btn alt sm" data-act="addPhrase">Ajouter le mot</button>` : ''}<button class="btn sm" data-act="doneMission" data-id="${m.id}">${ico('check')} Mission réussie</button></div>`}
-      </article>`;
-    }).join('')}`;
-}
-
-/* ================================================================ Sheets */
-function openSheet(kind, params, live) {
-  S.ui.sheet = { kind, params: params || {}, live: !!live };
-  $('#scrim').hidden = false; $('#sheet').hidden = false;
-  renderSheet();
-  $('#sheet').scrollTop = 0;
-}
-function closeSheet() { S.ui.sheet = null; S.ui.edit = null; $('#sheet').hidden = true; $('#scrim').hidden = true; $('#sheet').innerHTML = ''; }
-function renderSheet() {
-  const sh = S.ui.sheet; if (!sh) return;
-  const fn = { tribe: sheetTribe, member: sheetMember, word: sheetWord, mission: sheetMission, phrase: sheetPhrase }[sh.kind];
-  if (!fn) return;
-  $('#sheet').innerHTML = `<div class="in"><div class="grab" aria-hidden="true"></div>${fn(sh.params)}</div>`;
-}
-function sheetHead(title) { return `<div class="sheet-h"><h2>${title}</h2><button class="icon-btn" data-act="closeSheet" aria-label="Fermer">${ico('x')}</button></div>`; }
-function sheetTribe() {
-  const ms = memberList(); const me = meMember();
-  return `${sheetHead('La tribu')}
-    ${ms.length ? `<div>${ms.map(m => `<div class="member-row"><span class="av lg" style="--c:${esc(m.color)}">${esc(m.emoji)}</span><span class="txt"><b>${esc(m.name)}</b><small>${esc((LEVELS[m.level] || LEVELS.moyen).name)} · ${plural(m.ok || 0, 'bonne réponse')}</small></span><button class="icon-btn" data-act="editMember" data-id="${m.id}" aria-label="Modifier ${esc(m.name)}">${ico('edit')}</button></div>`).join('')}</div>`
-      : `<p class="tip">Personne pour l’instant. Ajoutez chaque membre de la famille : les questions s’adaptent à son âge.</p>`}
-    <button class="btn block" data-act="newMember">${ico('plus')} Ajouter un membre</button>
-    ${ms.length ? `<div class="stack-sm"><span class="opt-label">Qui tient ce téléphone ?</span><div class="chips">${ms.map(m => `<button class="chip" data-act="setMe" data-id="${m.id}" aria-pressed="${me && me.id === m.id}"><span class="av" style="--c:${esc(m.color)}">${esc(m.emoji)}</span>${esc(m.name)}</button>`).join('')}</div><p class="note">Sert pour le mot du jour, les missions et les phrases ajoutées depuis cet appareil.</p></div>` : ''}
-    <div class="row between"><span class="opt-label">Sons du jeu</span><button class="chip" data-act="toggleSound" aria-pressed="${Sound.on}">${ico(Sound.on ? 'speaker' : 'sound')} ${Sound.on ? 'Activés' : 'Coupés'}</button></div>
-    ${modeBanner() || `<p class="note">La progression est partagée : tous ceux qui ouvrent cette page dans Claude avec les droits d’édition voient le même lagon.</p>`}`;
-}
-function sheetMember(p) {
-  const id = p.id; const m = id ? S.members[id] : null;
-  if (!S.ui.edit) S.ui.edit = { emoji: (m && m.emoji) || EMOJIS[memberList().length % EMOJIS.length], level: (m && m.level) || 'moyen', confirm: false };
-  const e = S.ui.edit;
-  return `${sheetHead(m ? 'Modifier le profil' : 'Nouveau membre')}
-    <form data-form="member" data-id="${id || ''}" class="stack" autocomplete="off">
-      <div class="stack-sm"><label class="opt-label" for="m-name">Prénom</label><input class="field" id="m-name" name="name" maxlength="24" required value="${esc(m ? m.name : '')}" placeholder="Ex. : Léa"></div>
-      <div class="stack-sm"><span class="opt-label">Son animal</span><div class="emoji-grid" id="emoji-grid">${EMOJIS.map(x => `<button type="button" data-act="pickEmoji" data-e="${x}" aria-pressed="${e.emoji === x}" aria-label="${x}">${x}</button>`).join('')}</div></div>
-      <div class="stack-sm"><span class="opt-label">Son niveau</span><div class="chips" id="level-chips">${Object.entries(LEVELS).map(([k, l]) => `<button type="button" class="chip" data-act="pickLevel" data-lv="${k}" aria-pressed="${e.level === k}">${l.name} <small>${l.age}</small></button>`).join('')}</div></div>
-      <button class="btn block" type="submit">${ico('check')} ${m ? 'Enregistrer' : 'Ajouter à la tribu'}</button>
-      ${m ? `<div class="danger-zone"><button type="button" class="btn ghost sm" data-act="closeSheet">Annuler</button><button type="button" class="btn ghost sm" data-act="delMember" data-id="${id}" id="del-member">${ico('trash')} Retirer de la tribu</button></div>` : ''}
-    </form>`;
-}
-function sheetWord(p) {
-  const w = wordById(p.id); if (!w) return sheetHead('Mot introuvable');
-  const pr = S.progress[w.id] || {}; const by = memberById(pr.learnedBy);
-  const status = pr.learnedAt ? `Son poisson est né le ${esc(fmtDate(pr.learnedAt))}${by ? ' grâce à ' + esc(by.emoji + ' ' + by.name) : ''}.` : (pr.m ? 'En cours d’apprentissage.' : 'Pas encore appris.');
-  return `${sheetHead(esc(THEME_BY[w.th] ? THEME_BY[w.th].name : 'Mot'))}
-    <div class="ws">
-      <div class="ws-glyph" aria-hidden="true">${bigGlyph(w)}</div>
-      <div class="ws-word ty">${ty(w.ty)}</div>
-      <div class="row">${speakBtn(w, true)}<span class="pron">${esc(w.pr || '')}</span></div>
-      <div class="ws-fr">${esc(w.fr)}</div>
-      ${w.tip ? `<p class="tip">${esc(w.tip)}</p>` : ''}
-      ${w.custom ? `<p class="note">${w.from ? 'Appris de ' + esc(w.from) + '. ' : ''}${w.src === 'claude' ? 'Proposé par Claude. ' : ''}${w.verified ? 'Vérifié par un Polynésien.' : ''}</p>` : ''}
-      <div class="ws-m">${pearls(pr.m)}<span>${status}</span></div>
-      <div class="ws-act"><button class="btn alt" data-act="wordMark" data-id="${esc(w.id)}" data-ok="0">Pas encore</button><button class="btn" data-act="wordMark" data-id="${esc(w.id)}" data-ok="1">${ico('check')} Je savais !</button></div>
-      ${w.custom ? `<div class="danger-zone" style="width:100%">${w.verified ? '' : `<button class="btn ghost sm" data-act="verifyPhrase" data-id="${esc(w.pid)}">${ico('check')} Un Polynésien l’a validée</button>`}<button class="btn ghost sm" data-act="delPhrase" data-id="${esc(w.pid)}" id="del-phrase">${ico('trash')} Supprimer</button></div>` : ''}
-    </div>`;
-}
-function sheetMission(p) {
-  const m = MISSIONS.find(x => x.id === p.id); if (!m) return '';
-  const ms = memberList();
-  if (!S.ui.edit) { const me = meMember(); S.ui.edit = { who: new Set(me ? [me.id] : []) }; }
-  const sel = S.ui.edit.who;
-  return `${sheetHead('Mission réussie !')}
-    <p class="tip">${esc(m.t)}. Qui l’a réussie ?</p>
-    ${ms.length ? `<div class="chips" id="who-chips">${ms.map(x => `<button class="chip" data-act="toggleWho" data-id="${x.id}" aria-pressed="${sel.has(x.id)}"><span class="av" style="--c:${esc(x.color)}">${esc(x.emoji)}</span>${esc(x.name)}</button>`).join('')}</div>` : `<p class="note">Astuce : créez les profils de la tribu pour savoir qui a réussi quoi.</p>`}
-    <button class="btn hib block" data-act="confirmMission" data-id="${m.id}">${SHELL_FILLED.replace('<svg ', '<svg width="20" height="20" ')} Déposer le coquillage</button>`;
-}
-function sheetPhrase() {
-  return `${sheetHead('Un mot appris sur place')}
-    <p class="tip">Un Polynésien vous a appris un mot ou une phrase ? Notez-le : il rejoint les jeux de la tribu et fera naître un poisson doré.</p>
-    <form data-form="phrase" class="stack" autocomplete="off">
-      <div class="stack-sm"><label class="opt-label" for="p-ty">En tahitien</label><input class="field" id="p-ty" name="ty" maxlength="80" required placeholder="Ex. : Nehenehe roa"></div>
-      <div class="stack-sm"><label class="opt-label" for="p-fr">En français</label><input class="field" id="p-fr" name="fr" maxlength="80" required placeholder="Ex. : Vraiment très beau"></div>
-      <div class="stack-sm"><label class="opt-label" for="p-pr">Comment ça se prononce (facultatif)</label><input class="field" id="p-pr" name="pr" maxlength="80" placeholder="Ex. : né-hé-né-hé ro-a"></div>
-      <div class="stack-sm"><label class="opt-label" for="p-from">Qui vous l’a appris (facultatif)</label><input class="field" id="p-from" name="from" maxlength="60" placeholder="Ex. : Teva, au marché de Papeete"></div>
-      <button class="btn block" type="submit">${ico('plus')} Ajouter à nos phrases</button>
-    </form>`;
-}
-
-/* ================================================================ Toast and flowers */
-let toastT = 0;
-function toast(msg) { const el = $('#toast'); el.textContent = msg; el.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { el.hidden = true; }, 3200); }
-const PETAL = '<svg viewBox="0 0 24 24"><g fill="#FFFFFF" stroke="rgba(0,0,0,.08)"><path d="M12 12c-1.8-2-2-5.6 0-8 2 2.4 1.8 6 0 8z"/><path d="M12 12c2.6-.9 6-.1 7.6 2.6-3 .9-6.2-.2-7.6-2.6z"/><path d="M12 12c.6 2.7-.8 6-3.6 7.2-.6-3 .9-6 3.6-7.2z"/><path d="M12 12c-2.6-.9-6-.1-7.6 2.6 3 .9 6.2-.2 7.6-2.6z"/><path d="M12 12c2.7-.6 5.6.9 6.2 3.4"/></g><circle cx="12" cy="12" r="1.6" fill="#F6C343"/></svg>';
-function flowers(n) {
-  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  const fx = $('#fx');
-  for (let i = 0; i < (n || 22); i++) {
-    const d = document.createElement('div'); d.className = 'petal'; d.innerHTML = PETAL;
-    d.style.left = (Math.random() * 100) + 'vw'; d.style.setProperty('--dx', ((Math.random() - 0.5) * 160) + 'px'); d.style.setProperty('--rot', ((Math.random() - 0.5) * 720) + 'deg');
-    d.style.animationDuration = (2.6 + Math.random() * 2.2) + 's'; d.style.animationDelay = (Math.random() * 0.8) + 's';
-    const sz = 20 + Math.random() * 18; d.style.width = sz + 'px'; d.style.height = sz + 'px';
-    fx.appendChild(d); setTimeout(() => d.remove(), 6000);
-  }
-}
-
-/* ================================================================ Questions */
-function poolFor(level, theme) {
-  const maxLv = (LEVELS[level] || LEVELS.moyen).lv;
-  const ok = w => w.lv <= maxLv && (level !== 'petit' || (w.e && !w.e.startsWith('svg:')));
-  let base = allWords();
-  let l = base.filter(w => (theme === 'tout' || !theme || w.th === theme) && ok(w));
-  if (l.length < 6) l = base.filter(ok);
-  return l;
-}
-function weightedPick(list, exclude) {
-  const now = Date.now();
-  let src = list.filter(w => !exclude.has(w.id)); if (!src.length) src = list;
-  let total = 0;
-  const ws = src.map(w => { const p = S.progress[w.id] || {}; const m = p.m || 0; const ageH = p.last ? (now - p.last) / 36e5 : 48; let wt = (4 - m) * (1 + Math.min(ageH, 48) / 24); if (p.learnedAt && m >= 3) wt *= 0.3; total += wt; return wt; });
-  let r = Math.random() * total;
-  for (let i = 0; i < src.length; i++) { r -= ws[i]; if (r <= 0) return src[i]; }
-  return src[src.length - 1];
-}
-function confusable(a, b) {
-  const x = norm(a.ty), y = norm(b.ty);
-  return x === y || x.includes(y) || y.includes(x) || norm(a.fr) === norm(b.fr) || (a.e && a.e === b.e);
-}
-function distractors(w, pool, n, key) {
-  const seen = new Set([key(w)]);
-  const same = shuffle(pool.filter(x => x.th === w.th && x.id !== w.id));
-  const other = shuffle(allWords().filter(x => x.id !== w.id && x.lv <= 3));
-  const out = [];
-  for (const x of same.concat(other)) {
-    if (out.length >= n) break;
-    const k = key(x); if (!k || seen.has(k) || confusable(w, x)) continue;
-    seen.add(k); out.push(x);
-  }
-  return out;
-}
-function syllables(word) {
-  const isV = c => /[aeiouāēīōūAEIOUĀĒĪŌŪ]/.test(c);
-  const out = []; let cur = '';
-  Array.from(word).forEach(c => { cur += c; if (isV(c)) { out.push(cur); cur = ''; } });
-  if (cur) { if (out.length) out[out.length - 1] += cur; else out.push(cur); }
-  return out;
-}
-function buildTiles(w) {
-  const clean = w.ty.replace(/[!?…]/g, '').trim();
-  if (/\s/.test(clean)) { const parts = clean.split(/\s+/); return parts.length >= 2 && parts.length <= 6 ? { parts, sep: ' ', target: parts.join(' ') } : null; }
-  const s = syllables(clean); return s.length >= 3 && s.length <= 8 ? { parts: s, sep: '', target: s.join('') } : null;
-}
-function makeQuestion(level, theme, exclude) {
-  const pool = poolFor(level, theme);
-  const w = weightedPick(pool, exclude);
-  const hasEmoji = !!(w.e && !w.e.startsWith('svg:'));
-  let types = level === 'petit' ? ['emoji2ty', 'ty2emoji'] : level === 'moyen' ? ['emoji2ty', 'fr2ty', 'ty2fr', 'build'] : ['fr2ty', 'ty2fr', 'build', 'type'];
-  types = types.filter(t => (t !== 'emoji2ty' && t !== 'ty2emoji') || hasEmoji);
-  const tiles = buildTiles(w);
-  if (!tiles) types = types.filter(t => t !== 'build');
-  if (!types.length) types = ['fr2ty'];
-  const type = pick(types);
-  const n = level === 'petit' ? 3 : 4;
-  const q = { type, w, n };
-  if (type === 'build') { q.tiles = shuffle(tiles.parts.map((p, i) => ({ p, i }))); q.target = tiles.target; q.sep = tiles.sep; return q; }
-  if (type === 'type') return q;
-  const key = type === 'ty2emoji' ? (x => (x.e && !x.e.startsWith('svg:')) ? x.e : '') : type === 'ty2fr' ? (x => norm(x.fr)) : (x => norm(x.ty));
-  const dpool = type === 'ty2emoji' ? pool.filter(x => x.e && !x.e.startsWith('svg:')) : pool;
-  const ds = distractors(w, dpool, n - 1, key);
-  const choices = shuffle([w].concat(ds));
-  q.choices = choices; q.answer = choices.indexOf(w);
-  return q;
-}
-function checkTyped(input, w) {
-  const a = norm(input), b = norm(w.ty.replace(/…/g, ''));
-  if (!a) return 'empty';
-  if (a === b) return 'ok';
-  if (lev(a, b) <= (b.length > 6 ? 2 : 1)) return 'almost';
-  return 'ko';
-}
-function questionHTML(q, st) {
-  const w = q.w; const done = st.phase === 'fb';
-  let prompt = '';
-  if (q.type === 'emoji2ty') prompt = `<div class="q-prompt"><div class="q-emoji">${esc(w.e)}</div><div class="q-label">Comment dit-on « ${esc(w.fr)} » ?</div></div>`;
-  else if (q.type === 'ty2emoji') prompt = `<div class="q-prompt"><div class="q-word ty">${ty(w.ty)}</div>${speakBtn(w, true)}<div class="q-label">Montre la bonne image !</div></div>`;
-  else if (q.type === 'fr2ty') prompt = `<div class="q-prompt"><div class="q-label">Comment dit-on en tahitien…</div><div class="q-fr">${esc(w.fr)}</div></div>`;
-  else if (q.type === 'ty2fr') prompt = `<div class="q-prompt"><div class="q-word ty">${ty(w.ty)}</div>${speakBtn(w, true)}<div class="q-label">Ça veut dire…</div></div>`;
-  else if (q.type === 'build') prompt = `<div class="q-prompt">${w.e && !w.e.startsWith('svg:') ? `<div class="q-emoji" style="font-size:44px">${esc(w.e)}</div>` : ''}<div class="q-label">Reconstitue en tahitien :</div><div class="q-fr">${esc(w.fr)}</div></div>`;
-  else if (q.type === 'type') prompt = `<div class="q-prompt"><div class="q-label">Écris en tahitien…</div><div class="q-fr">${esc(w.fr)}</div></div>`;
-  let body = '';
-  if (q.choices) {
-    const cls = q.type === 'ty2emoji' ? (q.n === 3 ? 'three' : 'two') : (q.n === 3 ? '' : 'two');
-    body = `<div class="choices ${cls}">${q.choices.map((c, i) => {
-      let k = '';
-      if (done) { if (i === q.answer) k = ' ok'; else if (i === st.picked) k = ' ko'; }
-      else if (st.removed && st.removed.has(i)) k = ' gone';
-      const label = q.type === 'ty2emoji' ? esc(c.e) : q.type === 'ty2fr' ? esc(c.fr) : `<span class="ty">${ty(c.ty)}</span>`;
-      return `<button class="choice${q.type === 'ty2emoji' ? ' emoji' : ''}${k}" data-act="answer" data-i="${i}" ${done ? 'disabled' : ''}>${label}</button>`;
-    }).join('')}</div>`;
-  } else if (q.type === 'build') {
-    const built = st.built || [];
-    body = `<div class="build-slot ty" aria-live="polite">${built.length ? built.map(i => esc(q.tiles[i].p)).join(q.sep ? '&nbsp;' : '') : '<span class="muted" style="font-family:var(--f-body);font-size:15px;font-weight:800">Touche les morceaux dans l’ordre</span>'}</div>
-      <div class="tiles">${q.tiles.map((t, i) => `<button class="tile${built.includes(i) ? ' used' : ''}" data-act="tile" data-i="${i}" ${done ? 'disabled' : ''}>${ty(t.p)}</button>`).join('')}</div>
-      ${done ? '' : `<div class="row" style="justify-content:center"><button class="btn ghost sm" data-act="tileUndo" ${built.length ? '' : 'disabled'}>Effacer</button></div>`}`;
-  } else if (q.type === 'type') {
-    body = done ? `<div class="build-slot ty">${esc(st.typed || '')}</div>` : `<form data-form="typed" class="stack-sm" autocomplete="off"><label class="vh" for="typed">Ta réponse en tahitien</label><input class="field" id="typed" name="typed" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Pas besoin des accents ni du ʻ"><button class="btn block" type="submit">Valider</button></form>`;
-  }
-  return `<div class="q">${prompt}${body}</div>`;
-}
-const CHEERS = ['Maitaʻi roa !', 'Nehenehe !', 'Bravo !', 'Ça glisse sur le lagon !', 'Faʻaitoito… ah non, c’est gagné !'];
-const OOPS = ['ʻAita peʻapeʻa !', 'Presque…', 'On apprend en ramant !', 'Faʻaitoito, la prochaine sera la bonne !'];
-function feedbackHTML(st, nextLabel) {
-  const w = st.q.w; const ok = st.lastOk;
-  return `<div class="fb ${ok ? 'ok' : 'ko'}">
-    <div class="fb-h">${esc(st.cheer)}</div>
-    <div class="fb-word"><span class="ty">${ty(w.ty)}</span>${speakBtn(w)}</div>
-    <div><span class="pron">${esc(w.pr || '')}</span> · <b>${esc(w.fr)}</b></div>
-    ${st.almost ? `<p class="tip">Presque parfait ! Ça s’écrit exactement comme ci-dessus.</p>` : ''}
-    ${w.tip ? `<p class="tip">${esc(w.tip)}</p>` : ''}
-    ${st.born ? `<div class="newfish">${ico('fish')} Un nouveau poisson est né dans votre lagon !</div>` : ''}
-    <button class="btn block" data-act="gNext">${nextLabel}</button>
-  </div>`;
-}
-
-/* ================================================================ Games */
-let G = null;
-function openGame() { S.ui.gameOpen = true; $('#game').hidden = false; $('#game').scrollTop = 0; document.body.style.overflow = 'hidden'; Lagoon.toggle(); }
-function closeGame() {
-  if (G && G.timer) clearInterval(G.timer);
-  if (G && G.kind === 'vaa' && G.phase !== 'done' && G.strokes > 0) markPracticed();
-  const born = G ? G.newFish.length : 0;
-  G = null; S.ui.gameOpen = false; $('#game').hidden = true; $('#game').innerHTML = ''; document.body.style.overflow = '';
-  try { speechSynthesis.cancel(); } catch (e) { /* rien */ }
-  Lagoon.toggle(); scheduleRender();
-  if (born && S.tab === 'lagon') setTimeout(() => toast(born > 1 ? `${born} nouveaux poissons nagent dans votre lagon !` : 'Un nouveau poisson nage dans votre lagon !'), 300);
-}
-function curPlayer() { return G.players[G.turn % G.players.length]; }
-function gameTop(title) { return `<div class="g-top"><button class="icon-btn" data-act="quitGame" aria-label="Quitter le jeu">${ico('x')}</button><h2>${title}</h2></div>`; }
-function turnHTML(p, label) { return `<div class="turn" style="--c:${esc(p.color || '#11A39B')}"><span class="av" style="--c:${esc(p.color || '#11A39B')}">${esc(p.emoji)}</span><div><div class="eyebrow">${label || 'Au tour de'}</div><b>${esc(p.name)}</b> <small>${esc((LEVELS[p.level] || LEVELS.moyen).name)}</small></div></div>`; }
-
-/* ----- Va'a */
-const ISLES = {
-  tahiti: 'M-24 106C-4 92 14 64 38 54c16-7 28 6 38 18 10 10 20 22 40 34z',
-  raiatea: 'M-24 106C6 86 22 72 44 68h30c14 8 24 22 44 38z',
-  marae: 'M-24 106c30-10 64-14 104-10l40 10z',
-  moorea: 'M232 106l12-20 6 8 9-30 6 14 8-26 8 20 8-12 8 22 10-8 12 20 14-4 22 16z',
-  bora: 'M228 106c10-8 22-10 30-18l8-34c3-10 17-11 20-1l6 26c9 6 22 12 34 20 8 4 16 6 24 7z',
-  hawaii: 'M210 106c34-26 84-34 170-16v16z'
-};
-function vaaScene(route, players) {
-  const night = !!route.night;
-  const stars = night ? Array.from({ length: 28 }, (_, i) => { const r = rng(i * 97 + 3); return `<circle class="${i % 3 ? '' : 'twinkle'}" cx="${(r() * 360).toFixed(1)}" cy="${(r() * 80).toFixed(1)}" r="${(0.6 + r() * 1.2).toFixed(2)}" fill="#fff" style="animation-delay:${(r() * 2).toFixed(2)}s"/>`; }).join('') : '';
-  const pad = players.slice(0, 5).map((p, i) => { const x = -20 + i * (40 / Math.max(1, Math.min(players.length, 5) - 1 || 1)); return `<g transform="translate(${players.length === 1 ? 0 : x.toFixed(1)} 0)"><line class="paddle" x1="0" y1="92" x2="7" y2="108" stroke="#3a2412" stroke-width="2.2" stroke-linecap="round"/><text x="-7" y="93" font-size="14">${esc(p.emoji)}</text></g>`; }).join('');
-  return `<svg viewBox="0 0 360 150" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-    <defs>
-      <linearGradient id="gsky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:${night ? '#06122A' : 'var(--sky-1)'}"/><stop offset="1" style="stop-color:${night ? '#1C3A62' : 'var(--sky-2)'}"/></linearGradient>
-      <linearGradient id="gsea" x1="0" y1="0" x2="0" y2="1"><stop offset="0" style="stop-color:var(--sea-2)"/><stop offset="1" style="stop-color:var(--sea-3)"/></linearGradient>
-    </defs>
-    <rect width="360" height="150" fill="url(#gsky)"/>
-    ${night ? stars + '<circle cx="300" cy="30" r="10" fill="#F4F1DE"/><circle cx="305" cy="27" r="9" fill="#06122A" opacity=".9"/>' : '<circle cx="290" cy="36" r="17" style="fill:var(--mango)"/>'}
-    <path d="${ISLES[route.start]}" style="fill:var(--isle)"/>
-    ${route.start === 'marae' ? '<g style="fill:var(--isle-2)"><rect x="30" y="88" width="34" height="6"/><rect x="34" y="83" width="26" height="5"/><rect x="38" y="79" width="18" height="4"/></g>' : ''}
-    <path d="${ISLES[route.end]}" style="fill:var(--isle-2)"/>
-    ${route.end === 'bora' ? '<g style="fill:var(--isle)"><rect x="190" y="103" width="170" height="4" rx="2"/></g>' : ''}
-    <rect y="104" width="360" height="46" fill="url(#gsea)"/>
-    <g class="waves"><path d="M-40 110q10-5 20 0t20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0" fill="none" stroke="rgba(255,255,255,.55)" stroke-width="2"/><path d="M-30 128q10-4 20 0t20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0 20 0" fill="none" stroke="rgba(255,255,255,.3)" stroke-width="2"/></g>
-    <g id="canoe" class="canoe" style="transform:translateX(${vaaX(route, 0)}px)"><g class="bob">
-      <path d="M-40 98q18 2 40 2t40-2" fill="none" stroke="#3a2412" stroke-width="2"/>
-      <path d="M-14 99v-9M14 99v-9" stroke="#3a2412" stroke-width="2"/>
-      <ellipse cx="0" cy="89" rx="26" ry="2.4" fill="#3a2412"/>
-      <path d="M-44 102q44 12 88 0l5-7q-49 9-98 0z" style="fill:var(--hull)"/>
-      ${pad}
-    </g></g>
-  </svg>`;
-}
-function vaaX(route, pos) { return 70 + (pos / route.steps) * 170; }
-function startVaa() {
-  const players = activePlayers();
-  G = { kind: 'vaa', route: ROUTES[S.ui.route] || ROUTES.moorea, theme: S.ui.vaaTheme, players, pos: 0, strokes: 0, turn: 0, pearls: 2, asked: new Set(), okBy: {}, newFish: [], phase: 'q' };
-  nextVaaQ(); openGame();
-  $('#game').innerHTML = `<div class="in">${gameTop(`${esc(G.route.from)} → ${esc(G.route.to)}`)}<div class="scene" id="scene">${vaaScene(G.route, players)}</div><div id="gbody" class="stack"></div></div>`;
-  renderVaa();
-}
-function nextVaaQ() {
-  const p = curPlayer();
-  G.q = makeQuestion(p.level, G.theme, G.asked); G.asked.add(G.q.w.id);
-  G.phase = 'q'; G.picked = null; G.removed = new Set(); G.built = []; G.typed = ''; G.almost = false; G.born = false;
-}
-function renderVaa() {
-  const body = $('#gbody'); if (!body) return;
-  if (G.phase === 'done') { body.innerHTML = vaaSummary(); return; }
-  const p = curPlayer();
-  const canJoker = G.phase === 'q' && G.pearls > 0 && G.q.choices && G.q.choices.length > 2;
-  body.innerHTML = `
-    <div class="g-status"><span class="pill">${ico('flag')} Étape ${G.pos}/${G.route.steps}</span><span class="pill">Coups de pagaie : ${G.strokes}</span>
-    <button class="pill btn-pearl" data-act="joker" ${canJoker ? '' : 'disabled'} aria-label="Perle joker : retire des mauvaises réponses">${'<i class="pearl on"></i>'.repeat(G.pearls) || '<i class="pearl"></i>'} Joker</button></div>
-    ${turnHTML(p)}
-    ${questionHTML(G.q, G)}
-    ${G.phase === 'fb' ? feedbackHTML(G, G.pos >= G.route.steps ? 'Accoster !' : 'Pagayer →') : ''}`;
-  if (G.phase === 'fb') { const fb = body.querySelector('.fb'); if (fb) fb.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }
-}
-function vaaResolve(ok, almost) {
-  const p = curPlayer();
-  G.strokes++; G.lastOk = ok; G.almost = !!almost;
-  G.born = bump(G.q.w.id, ok, p.id);
-  if (G.born) G.newFish.push(G.q.w);
-  if (ok) { G.pos = Math.min(G.route.steps, G.pos + 1); G.okBy[p.id] = (G.okBy[p.id] || 0) + 1; Sound.good(); Sound.splash(); G.cheer = pick(CHEERS); }
-  else { Sound.bad(); G.cheer = pick(OOPS); }
-  G.phase = 'fb';
-  const canoe = $('#canoe');
-  if (canoe) { canoe.style.transform = `translateX(${vaaX(G.route, G.pos)}px)`; if (ok) { canoe.classList.remove('rowing'); void canoe.getBoundingClientRect(); canoe.classList.add('rowing'); } }
-  renderVaa();
-}
-function vaaNext() {
-  if (G.pos >= G.route.steps) return finishVaa();
-  G.turn++; nextVaaQ(); renderVaa();
-  const sc = $('#scene'); if (sc) sc.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-}
-function finishVaa() {
-  G.phase = 'done';
-  G.record = setRecord('vaa-' + G.route.id, G.strokes, (a, b) => a < b, G.players);
-  addStats(G.okBy, G.players); markPracticed();
-  Sound.win(); flowers(26); renderVaa();
-}
-function vaaSummary() {
-  const names = { tahiti: 'Tahiti', moorea: 'Moorea', bora: 'Bora Bora', hawaii: 'Hawaiʻi' };
-  return `<div class="summary">
-    <div class="eyebrow">Terre en vue !</div>
-    <h2>ʻIa ora na ${ty(names[G.route.end] || G.route.to)} !</h2>
-    <div class="big-n">${G.strokes}</div>
-    <p>coups de pagaie pour ${G.route.steps} étapes${G.record ? ' : <b>nouveau record de la tribu !</b>' : ''}</p>
-    <div class="scores">${G.players.map(p => `<div class="score-row"><span class="av" style="--c:${esc(p.color || '#11A39B')}">${esc(p.emoji)}</span><b>${esc(p.name)}</b><span>${plural(G.okBy[p.id] || 0, 'bonne réponse')}</span></div>`).join('')}</div>
-    ${G.newFish.length ? `<div class="stack-sm"><div class="newfish" style="justify-content:center">${ico('fish')} ${G.newFish.length > 1 ? `${G.newFish.length} nouveaux poissons` : 'Un nouveau poisson'} dans le lagon</div><div class="learned-list">${G.newFish.map(w => `<span class="wchip"><b>${ty(w.ty)}</b><span>${esc(w.fr)}</span></span>`).join('')}</div></div>` : ''}
-    <div class="row" style="justify-content:center"><button class="btn" data-act="startVaa">${ico('play')} Rejouer</button><button class="btn alt" data-act="quitGame">Retour au lagon</button></div>
-  </div>`;
-}
-
-/* ----- Défi 60 s */
-function startDefi() {
-  const players = activePlayers();
-  G = { kind: 'defi', mode: S.ui.defiMode, players, turn: 0, phase: 'ready', left: 60, scoreBy: {}, asked: new Set(), newFish: [], card: null, reveal: false, timer: null };
-  openGame(); renderDefi();
-}
-function defiCard() { const p = curPlayer(); const pool = poolFor(p.level === 'petit' ? 'petit' : p.level, 'tout').filter(w => w.e && !w.e.startsWith('svg:')); G.card = weightedPick(pool.length ? pool : poolFor(p.level, 'tout'), G.asked); G.asked.add(G.card.id); G.reveal = G.mode === 'mime'; }
-function renderDefi() {
-  const p = G.phase === 'done' ? null : curPlayer();
-  const title = G.mode === 'mime' ? 'Mime-le !' : 'Dis-le en tahitien !';
-  let h = gameTop(title);
-  if (G.phase === 'ready') {
-    h += `<div class="summary">${turnHTML(p, 'À toi de jouer')}
-      <p class="tip">${G.mode === 'mime' ? 'Tu vois un mot tahitien : mime-le sans parler ! Les autres doivent le dire en tahitien. Touche « Trouvé » quand c’est gagné.' : 'Tu vois une image et un mot français : dis-le en tahitien, puis vérifie la réponse. Sois honnête !'}</p>
-      <p class="tip">Les autres : passez le téléphone à ${esc(p.name)} ${G.mode === 'mime' ? 'sans regarder l’écran' : ''} !</p>
-      <button class="btn hib block" data-act="defiGo">${ico('timer')} 60 secondes, partez !</button></div>`;
-  } else if (G.phase === 'play') {
-    const w = G.card; const c = 2 * Math.PI * 42;
-    h += `<div class="timer"><div class="ring ${G.left <= 10 ? 'low' : ''}" id="ring"><svg viewBox="0 0 96 96"><circle class="trk" cx="48" cy="48" r="42"/><circle class="val" id="ringval" cx="48" cy="48" r="42" stroke-dasharray="${c.toFixed(1)}" stroke-dashoffset="${(c * (1 - G.left / 60)).toFixed(1)}"/></svg><b id="ringn">${Math.ceil(G.left)}</b></div>
-      <div>${turnHTML(p, 'Score : ' + (G.scoreBy[p.id] || 0))}</div></div>
-      <div class="bigcard">
-        <div class="em">${esc(w.e)}</div>
-        ${G.mode === 'mime' || G.reveal ? `<div class="ty">${ty(w.ty)}</div><span class="pron">${esc(w.pr)}</span>` : ''}
-        <div class="fr">${esc(w.fr)}</div>
-      </div>
-      ${G.reveal ? `<div class="ws-act"><button class="btn alt" data-act="defiMark" data-ok="0">${ico('x')} ${G.mode === 'mime' ? 'Passer' : 'Raté'}</button><button class="btn" data-act="defiMark" data-ok="1">${ico('check')} ${G.mode === 'mime' ? 'Trouvé !' : 'Réussi !'}</button></div>`
-        : `<button class="btn block hib" data-act="defiReveal">Voir la réponse</button><button class="btn ghost block" data-act="defiMark" data-ok="0">Passer</button>`}`;
-  } else if (G.phase === 'between') {
-    const nextP = G.players[(G.turn + 1) % G.players.length];
-    h += `<div class="summary"><div class="eyebrow">Temps écoulé !</div><h2>${esc(p.emoji)} ${esc(p.name)} : ${plural(G.scoreBy[p.id] || 0, 'mot')}</h2>
-      <p class="tip">Au tour de ${esc(nextP.emoji)} ${esc(nextP.name)}.</p>
-      <button class="btn block" data-act="defiNextPlayer">Joueur suivant</button></div>`;
-  } else if (G.phase === 'done') {
-    const total = Object.values(G.scoreBy).reduce((a, b) => a + b, 0);
-    h += `<div class="summary"><div class="eyebrow">Fin du défi</div><h2>La tribu a trouvé</h2><div class="big-n">${total}</div><p>${total > 1 ? 'mots' : 'mot'} en tahitien${G.record ? ' : <b>nouveau record !</b>' : ''}</p>
-      <div class="scores">${G.players.map(x => `<div class="score-row"><span class="av" style="--c:${esc(x.color || '#11A39B')}">${esc(x.emoji)}</span><b>${esc(x.name)}</b><span>${plural(G.scoreBy[x.id] || 0, 'mot')}</span></div>`).join('')}</div>
-      ${G.newFish.length ? `<div class="newfish">${ico('fish')} ${G.newFish.length > 1 ? G.newFish.length + ' nouveaux poissons' : 'Un nouveau poisson'} dans le lagon</div>` : ''}
-      <div class="row" style="justify-content:center"><button class="btn" data-act="startDefi">${ico('timer')} Rejouer</button><button class="btn alt" data-act="quitGame">Retour au lagon</button></div></div>`;
-  }
-  $('#game').innerHTML = `<div class="in">${h}</div>`;
-}
-function defiGo() {
-  G.phase = 'play'; G.left = 60; defiCard(); renderDefi();
-  const t0 = Date.now(); clearInterval(G.timer);
-  G.timer = setInterval(() => {
-    if (!G || G.kind !== 'defi') return;
-    G.left = Math.max(0, 60 - (Date.now() - t0) / 1000);
-    const c = 2 * Math.PI * 42; const v = $('#ringval'), n = $('#ringn'), r = $('#ring');
-    if (v) v.setAttribute('stroke-dashoffset', (c * (1 - G.left / 60)).toFixed(1));
-    if (n) { const s = Math.ceil(G.left); if (n.textContent !== String(s)) { n.textContent = s; if (s <= 5 && s > 0) Sound.tick(); } }
-    if (r) r.classList.toggle('low', G.left <= 10);
-    if (G.left <= 0) { clearInterval(G.timer); G.timer = null; defiEndRound(); }
-  }, 200);
-}
-function defiEndRound() {
-  Sound.win();
-  if (G.turn >= G.players.length - 1) {
-    G.phase = 'done';
-    const total = Object.values(G.scoreBy).reduce((a, b) => a + b, 0);
-    G.record = setRecord('defi-' + G.mode, total, (a, b) => a > b, G.players);
-    addStats(G.scoreBy, G.players); markPracticed(); flowers(18);
-  } else G.phase = 'between';
-  renderDefi();
-}
-function defiMark(ok) {
-  const p = curPlayer();
-  if (ok) { G.scoreBy[p.id] = (G.scoreBy[p.id] || 0) + 1; Sound.good(); }
-  if (bump(G.card.id, ok, p.id, true)) G.newFish.push(G.card);
-  defiCard(); renderDefi();
-}
-
-/* ----- Memory */
-function startMem() {
-  const players = activePlayers(); const size = S.ui.memSize;
-  const lvl = players.some(p => p.level === 'petit') ? 'petit' : players.some(p => p.level === 'moyen') ? 'moyen' : 'grand';
-  const pool = poolFor(lvl, 'tout').filter(w => w.e && !w.e.startsWith('svg:'));
-  const chosen = []; const ex = new Set();
-  while (chosen.length < size && ex.size < pool.length) { const w = weightedPick(pool, ex); ex.add(w.id); if (!chosen.some(c => confusable(c, w))) chosen.push(w); }
-  const cards = shuffle(chosen.flatMap(w => [{ wid: w.id, face: 'ty' }, { wid: w.id, face: 'pic' }])).map((c, i) => Object.assign(c, { i, state: 'down', by: null }));
-  G = { kind: 'mem', players, size: chosen.length, cards, open: [], lock: false, moves: 0, matched: 0, turn: 0, okBy: {}, newFish: [], words: Object.fromEntries(chosen.map(w => [w.id, w])) };
-  openGame(); renderMem();
-}
-function renderMem() {
-  if (G.phase === 'done') {
-    $('#game').innerHTML = `<div class="in">${gameTop('Le memory des coquillages')}<div class="summary"><div class="eyebrow">Toutes les paires !</div><h2>Bravo la tribu</h2><div class="big-n">${G.moves}</div><p>coups pour ${G.size} paires${G.record ? ' : <b>nouveau record !</b>' : ''}</p>
-      <div class="scores">${G.players.map(x => `<div class="score-row"><span class="av" style="--c:${esc(x.color || '#11A39B')}">${esc(x.emoji)}</span><b>${esc(x.name)}</b><span>${plural(G.okBy[x.id] || 0, 'paire')}</span></div>`).join('')}</div>
-      ${G.newFish.length ? `<div class="newfish">${ico('fish')} ${G.newFish.length > 1 ? G.newFish.length + ' nouveaux poissons' : 'Un nouveau poisson'} dans le lagon</div>` : ''}
-      <div class="row" style="justify-content:center"><button class="btn" data-act="startMem">${ico('shell')} Rejouer</button><button class="btn alt" data-act="quitGame">Retour au lagon</button></div></div></div>`;
-    return;
-  }
-  const p = curPlayer(); const back = SHELL_FILLED.replace('fill="currentColor"', 'fill="rgba(255,255,255,.9)"');
-  $('#game').innerHTML = `<div class="in">${gameTop('Le memory des coquillages')}
-    <div class="g-status"><span class="pill">Coups : <b id="mem-moves">${G.moves}</b></span><span class="pill">Paires : <b id="mem-pairs">${G.matched}/${G.size}</b></span>${S.records['mem-' + S.ui.memSize] ? `<span class="pill">${ico('star')} Record : ${S.records['mem-' + S.ui.memSize].best}</span>` : ''}</div>
-    <div id="mem-turn">${turnHTML(p)}</div>
-    <div class="mem" id="mem">${G.cards.map(c => { const w = G.words[c.wid]; return `<button class="mcard" data-act="memFlip" data-i="${c.i}" aria-label="Coquillage ${c.i + 1}"><span class="f"><span class="s back">${back}</span><span class="s face">${c.face === 'ty' ? `<span class="ty">${ty(w.ty)}</span>` : `<span class="em">${esc(w.e)}</span><small>${esc(w.fr)}</small>`}</span></span></button>`; }).join('')}</div>
-    <p class="note" style="text-align:center">Une paire trouvée : on rejoue ! Sinon, on passe le téléphone.</p></div>`;
-  syncMem();
-}
-function syncMem() {
-  const els = document.querySelectorAll('#mem .mcard');
-  G.cards.forEach((c, i) => { const el = els[i]; if (!el) return; el.classList.toggle('up', c.state === 'up'); el.classList.toggle('done', c.state === 'done'); if (c.by) el.style.setProperty('--c', c.by); el.setAttribute('aria-label', c.state === 'down' ? `Coquillage ${i + 1}` : (c.face === 'ty' ? G.words[c.wid].ty : G.words[c.wid].fr)); });
-  const m = $('#mem-moves'), pr = $('#mem-pairs'), tn = $('#mem-turn');
-  if (m) m.textContent = G.moves; if (pr) pr.textContent = `${G.matched}/${G.size}`; if (tn) tn.innerHTML = turnHTML(curPlayer());
-}
-function memFlip(i) {
-  if (!G || G.kind !== 'mem' || G.lock) return;
-  const c = G.cards[i]; if (!c || c.state !== 'down') return;
-  c.state = 'up'; G.open.push(c); Sound.tick(); syncMem();
-  if (G.open.length < 2) return;
-  G.moves++;
-  const [a, b] = G.open; const p = curPlayer();
-  if (a.wid === b.wid) {
-    a.state = b.state = 'done'; a.by = b.by = p.color || '#11A39B'; G.open = []; G.matched++; G.okBy[p.id] = (G.okBy[p.id] || 0) + 1;
-    Sound.good(); if (bump(a.wid, true, p.id)) G.newFish.push(G.words[a.wid]);
-    syncMem();
-    const w = G.words[a.wid]; TTS.speak(w.ty, w.pr);
-    if (G.matched >= G.size) setTimeout(() => { if (!G || G.kind !== 'mem') return; G.phase = 'done'; G.record = setRecord('mem-' + S.ui.memSize, G.moves, (x, y) => x < y, G.players); addStats(G.okBy, G.players); markPracticed(); Sound.win(); flowers(22); renderMem(); }, 700);
-  } else {
-    G.lock = true;
-    setTimeout(() => { if (!G || G.kind !== 'mem') return; a.state = b.state = 'down'; G.open = []; G.lock = false; G.turn++; syncMem(); }, 1100);
-  }
-}
-
-/* ----- Révision express (flashcards) */
-function startFc() {
-  const me = meMember(); const lvl = me ? me.level : (activePlayers()[0].level || 'moyen');
-  const pool = poolFor(lvl, 'tout'); const ex = new Set(); const list = [];
-  while (list.length < Math.min(10, pool.length)) { const w = weightedPick(pool, ex); ex.add(w.id); list.push(w); }
-  G = { kind: 'fc', list, i: 0, flipped: false, known: 0, player: me, newFish: [] };
-  openGame(); renderFc();
-}
-function renderFc() {
-  if (G.i >= G.list.length) {
-    $('#game').innerHTML = `<div class="in">${gameTop('La révision express')}<div class="summary"><div class="eyebrow">Révision terminée</div><h2>${G.known} / ${G.list.length}</h2><p>mots connus. ${G.known === G.list.length ? 'Nehenehe roa !' : 'Les autres reviendront bientôt.'}</p>${G.newFish.length ? `<div class="newfish">${ico('fish')} ${G.newFish.length > 1 ? G.newFish.length + ' nouveaux poissons' : 'Un nouveau poisson'} dans le lagon</div>` : ''}<div class="row" style="justify-content:center"><button class="btn" data-act="startFc">${ico('book')} 10 autres</button><button class="btn alt" data-act="quitGame">Retour au lagon</button></div></div></div>`;
-    return;
-  }
-  const w = G.list[G.i];
-  $('#game').innerHTML = `<div class="in">${gameTop(`Carte ${G.i + 1} / ${G.list.length}`)}
-    <div class="bar"><i style="width:${Math.round(G.i / G.list.length * 100)}%"></i></div>
-    <button class="fc${G.flipped ? ' flipped' : ''}" id="fc" data-act="fcFlip" style="border:0;background:none;padding:0;color:inherit" aria-label="${G.flipped ? esc(w.fr) : 'Retourner la carte'}">
-      <span class="f"><span class="s a"><span class="em">${bigGlyph(w)}</span><span class="ty">${ty(w.ty)}</span><span class="note">Touchez pour retourner</span></span>
-      <span class="s b"><span class="fr">${esc(w.fr)}</span><span class="pron">${esc(w.pr)}</span>${w.tip ? `<span class="tip">${esc(w.tip)}</span>` : ''}</span></span>
-    </button>
-    <div class="row" style="justify-content:center">${speakBtn(w, true)}</div>
-    ${G.flipped ? `<div class="ws-act"><button class="btn alt" data-act="fcMark" data-ok="0">Pas encore</button><button class="btn" data-act="fcMark" data-ok="1">${ico('check')} Je savais !</button></div>` : `<button class="btn block" data-act="fcFlip">Voir la traduction</button>`}
-  </div>`;
-}
-
-/* ================================================================ Claude (sample) */
-async function initSample() {
-  const c = window.claude; if (!c || typeof c.use !== 'function') return;
-  let s = null; try { s = await c.use('sample'); } catch (e) { s = null; }
-  if (!s) return;
-  S.sample = s;
-  try { const lim = await s.limits(); S.sampleImages = !!(lim && lim.images); } catch (e) { S.sampleImages = false; }
-  if (S.tab === 'traduire') scheduleRender();
-}
-function sampleErr(e) {
-  const code = e && e.code;
-  if (code === 'cancelled') return '';
-  if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) { S.sample = null; scheduleRender(); return 'Le guide Claude n’est pas disponible ici : le lexique reste utilisable.'; }
-  if (code === 'rate_limited') return 'Beaucoup de questions d’un coup : réessayez dans un moment.';
-  if (code === 'session_expired') return 'Reconnectez-vous à Claude, puis réessayez.';
-  if (code === 'refused') return 'Le guide ne peut pas traduire ce texte. Essayez une autre formulation.';
-  if (code === 'image_rejected' || code === 'images_unavailable') return 'Cette photo n’a pas pu être lue. Essayez une autre image (JPEG ou PNG).';
-  if (code === 'prompt_too_large') return 'Texte trop long : essayez une phrase plus courte.';
-  return 'Le guide n’a pas pu répondre. Vérifiez la connexion et réessayez.';
-}
-const str = (v, max) => (typeof v === 'string' ? v : v == null ? '' : String(v)).trim().slice(0, max || 400);
-const wordsArr = a => (Array.isArray(a) ? a : []).slice(0, 8).map(x => ({ ty: str(x && x.ty, 60), fr: str(x && x.fr, 80) })).filter(x => x.ty && x.fr);
-function promptTr(text, dir) {
-  const ctx = 'Tu es un professeur de reo Tahiti (la langue tahitienne) qui aide une famille française en vacances en Polynésie française.\n';
-  if (dir === 'fr') return ctx + `Traduis en tahitien cette phrase française : « ${text} »\n\nRéponds uniquement avec un objet JSON, sans texte autour, de cette forme :\n{"tahitien":"…","prononciation":"…","mot_a_mot":[{"ty":"…","fr":"…"}],"retour":"…","note":"…","certitude":"haute"}\n\nRègles :\n- "tahitien" : la formulation la plus naturelle et courante, avec l’orthographe de l’Académie tahitienne (ʻeta ʻ et macrons ā ē ī ō ū) quand tu en es sûr.\n- "prononciation" : pour un francophone, syllabes séparées par des tirets (u se lit « ou », e se lit « é »), par exemple « maa-ou-rou-ou-rou ».\n- "mot_a_mot" : chaque mot tahitien avec son sens en français (8 éléments au maximum).\n- "retour" : la retraduction littérale en français.\n- "note" : une astuce d’usage ou de culture en une phrase courte, ou "" si rien d’utile.\n- "certitude" : "haute", "moyenne" ou "faible". Sois honnête : si tu n’es pas sûr, ou si les Polynésiens disent plutôt cela en français, mets "moyenne" ou "faible" et explique-le dans "note".\n- Si le texte n’est pas une phrase à traduire, mets "tahitien": "" et explique-le dans "note".`;
-  return ctx + `Traduis en français ce texte en tahitien : « ${text} »\n\nRéponds uniquement avec un objet JSON, sans texte autour, de cette forme :\n{"francais":"…","prononciation":"…","mot_a_mot":[{"ty":"…","fr":"…"}],"note":"…","certitude":"haute"}\n\nRègles :\n- "francais" : une traduction naturelle.\n- "prononciation" : la prononciation du texte tahitien pour un francophone (syllabes avec tirets ; u = « ou », e = « é »).\n- "mot_a_mot" : chaque mot tahitien et son sens (8 éléments au maximum).\n- "note" : un contexte culturel ou d’usage en une phrase courte, ou "".\n- "certitude" : "haute", "moyenne" ou "faible", honnêtement. Si le texte n’est pas du tahitien, dis-le dans "note".`;
-}
-async function doTranslate() {
-  const tr = S.ui.tr; const text = tr.text.trim();
-  if (!text) { toast('Écrivez d’abord une phrase à traduire.'); return; }
-  if (!S.sample || tr.busy) return;
-  tr.busy = true; tr.res = null; tr.err = ''; S.phraseSaved = null; refreshTr();
+async function translate() {
+  const q = S.q.trim(); if (!q || !S.sample) return;
+  S.claude = { q, busy: true }; $('#results').innerHTML = resultsHTML();
+  const prompt = `Tu aides une famille française en vacances en Polynésie française à parler reo Tahiti (tahitien).\nTexte : « ${q} »\nS’il est en français, traduis-le en tahitien courant ; s’il est en tahitien, traduis-le en français.\nRéponds uniquement avec un objet JSON, sans texte autour : {"tahitien":"…","francais":"…","prononciation":"…"}\n- "tahitien" : avec l’orthographe de l’Académie tahitienne (ʻeta ʻ et macrons) quand tu en es sûr.\n- "francais" : le sens en français.\n- "prononciation" : la prononciation du tahitien pour un francophone, syllabes séparées par des tirets (u = « ou », e = « é »).`;
   try {
-    const r = await S.sample.json(promptTr(text, tr.dir), { modelTier: 'default' });
-    const o = r && typeof r === 'object' ? r : {};
-    const cert = ['haute', 'moyenne', 'faible'].includes(o.certitude) ? o.certitude : 'moyenne';
-    tr.res = tr.dir === 'fr'
-      ? { dir: 'fr', src: text, ty: str(o.tahitien, 300), pr: str(o.prononciation, 300), words: wordsArr(o.mot_a_mot), back: str(o.retour, 300), note: str(o.note, 300), cert, key: uid('t') }
-      : { dir: 'ty', src: text, fr: str(o.francais, 300), pr: str(o.prononciation, 300), words: wordsArr(o.mot_a_mot), note: str(o.note, 300), cert, key: uid('t') };
-  } catch (e) { tr.err = sampleErr(e); }
-  tr.busy = false; refreshTr();
-}
-function refreshTr() { const o = $('#tr-out'); if (o) o.innerHTML = trOutHTML(); const s = $('#sit-out'); if (s) s.innerHTML = sitOutHTML(); }
-async function prepImage(file) {
-  try {
-    const url = URL.createObjectURL(file);
-    const img = await new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = url; });
-    const max = 1600; const sc = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
-    const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc);
-    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); URL.revokeObjectURL(url);
-    const blob = await new Promise(res => cv.toBlob(res, 'image/jpeg', 0.86));
-    return blob || file;
-  } catch (e) { return file; }
-}
-async function photoTranslate(file) {
-  const tr = S.ui.tr; if (!file || !S.sample || tr.pBusy) return;
-  tr.pBusy = true; tr.pRes = null; tr.pErr = ''; refreshTr();
-  try {
-    const blob = await prepImage(file);
-    const prompt = 'Cette photo a été prise par une famille française en voyage en Polynésie française (panneau, menu, étiquette, affiche, nom de lieu…).\nLis le texte visible et traduis en français ce qui est écrit en tahitien (ou dans une autre langue que le français).\n\nRéponds uniquement avec un objet JSON, sans texte autour :\n{"texte":"…","traduction":"…","mots":[{"ty":"…","fr":"…"}],"note":"…"}\n- "texte" : le texte lu sur la photo ("" s’il n’y en a pas).\n- "traduction" : la traduction en français ("" si rien à traduire).\n- "mots" : jusqu’à 6 mots tahitiens intéressants de la photo, avec leur sens.\n- "note" : une phrase utile (contexte culturel, ou ce que montre la photo s’il n’y a pas de texte).';
-    const r = await S.sample.json(prompt, { images: [blob], modelTier: 'default' });
-    const o = r && typeof r === 'object' ? r : {};
-    tr.pRes = { text: str(o.texte, 500), fr: str(o.traduction, 500), words: wordsArr(o.mots), note: str(o.note, 300) };
-  } catch (e) { tr.pErr = sampleErr(e); }
-  tr.pBusy = false; refreshTr();
-}
-async function doSituation(k) {
-  const tr = S.ui.tr; const s = SITUATIONS.find(x => x.k === k); if (!s || !S.sample || tr.sBusy) return;
-  tr.sit = k; tr.sBusy = true; tr.sRes = null; tr.sErr = '';
-  document.querySelectorAll('[data-act="situation"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.k === k)));
-  refreshTr();
-  try {
-    const prompt = `Propose 5 phrases très utiles et courtes en tahitien pour une famille française ${s.fr}.\n\nRéponds uniquement avec un tableau JSON, sans texte autour :\n[{"fr":"…","ty":"…","pr":"…"}]\n- "ty" : tahitien courant, orthographe de l’Académie tahitienne (ʻeta et macrons) quand tu en es sûr.\n- "pr" : la prononciation pour un francophone, syllabes avec tirets (u = « ou », e = « é »).\n- Des phrases simples qu’un enfant peut retenir. Évite celles que les Polynésiens diraient plutôt en français.`;
     const r = await S.sample.json(prompt, { modelTier: 'default' });
-    const arr = (Array.isArray(r) ? r : (r && Array.isArray(r.phrases) ? r.phrases : [])).slice(0, 6).map(x => ({ fr: str(x && x.fr, 120), ty: str(x && x.ty, 120), pr: str(x && x.pr, 120) })).filter(x => x.fr && x.ty);
-    if (!arr.length) throw { code: 'empty_completion' };
-    tr.sRes = arr;
-  } catch (e) { tr.sErr = sampleErr(e); }
-  tr.sBusy = false; refreshTr();
-}
-function savePhrase(p) {
-  const me = meMember();
-  const id = uid('ph');
-  Data.set('phrases', id, { ty: str(p.ty, 120), fr: str(p.fr, 120), pr: str(p.pr, 120), note: str(p.note, 300), from: str(p.from, 60), src: p.src || 'claude', who: me ? me.id : null, verified: !!p.verified, at: Date.now() });
-  Lagoon.sync();
-  return id;
+    const o = r && typeof r === 'object' ? r : {};
+    const str = v => (typeof v === 'string' ? v : '').trim().slice(0, 300);
+    S.claude = { q, ty: str(o.tahitien), fr: str(o.francais), pr: str(o.prononciation) };
+    if (!S.claude.ty) S.claude.err = 'Pas de traduction trouvée. Essayez une phrase plus simple.';
+  } catch (e) {
+    const code = e && e.code;
+    if (['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed'].includes(code)) S.sample = null;
+    S.claude = { q, err: code === 'rate_limited' ? 'Trop de demandes d’un coup : réessayez dans un moment.' : code === 'cancelled' ? '' : 'La traduction n’a pas marché. Réessayez.' };
+  }
+  if (S.mode === 'find') $('#results').innerHTML = resultsHTML();
 }
 
-/* ================================================================ Actions */
-const ACT = {
-  tab(el) { setTab(el.dataset.tab); },
-  quickVaa() { setTab('jouer'); },
-  openTribe() { openSheet('tribe', {}, true); },
-  newMember() { S.ui.edit = null; openSheet('member', {}); setTimeout(() => { const i = $('#m-name'); if (i) i.focus(); }, 80); },
-  editMember(el) { S.ui.edit = null; openSheet('member', { id: el.dataset.id }); },
-  pickEmoji(el) { if (!S.ui.edit) return; S.ui.edit.emoji = el.dataset.e; document.querySelectorAll('#emoji-grid button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.e === el.dataset.e))); },
-  pickLevel(el) { if (!S.ui.edit) return; S.ui.edit.level = el.dataset.lv; document.querySelectorAll('#level-chips .chip').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lv === el.dataset.lv))); },
-  delMember(el) {
-    const id = el.dataset.id;
-    if (!el.dataset.armed) { el.dataset.armed = '1'; el.innerHTML = `${ico('trash')} Confirmer le retrait`; setTimeout(() => { if (el.isConnected) { delete el.dataset.armed; el.innerHTML = `${ico('trash')} Retirer de la tribu`; } }, 4000); return; }
-    Data.del('members', id);
-    S.players = (S.players || []).filter(x => x !== id); Prefs.set('players', S.players);
-    if (S.me === id) { S.me = null; Prefs.set('me', null); }
-    closeSheet(); toast('Profil retiré de la tribu.'); scheduleRender();
-  },
-  setMe(el) { S.me = el.dataset.id; Prefs.set('me', S.me); renderSheet(); scheduleRender(); },
-  toggleSound() { Sound.on = !Sound.on; Prefs.set('sound', Sound.on); if (Sound.on) Sound.pop(); renderSheet(); },
-  closeSheet() { closeSheet(); },
-  speak(el) { const w = wordById(el.dataset.id); if (w) TTS.speak(w.ty, w.pr); },
-  speakText(el) { TTS.speak(el.dataset.text, el.dataset.pron); },
-  openWord(el) { openSheet('word', { id: el.dataset.id }, true); },
-  wordMark(el) {
-    const id = el.dataset.id; const ok = el.dataset.ok === '1';
-    const p = S.progress[id];
-    if (ok && p && p.last && Date.now() - p.last < 20 * 60000) { toast('Déjà noté il y a peu : revenez réviser ce mot plus tard !'); return; }
-    const me = meMember(); const born = bump(id, ok, me ? me.id : null);
-    if (ok) Sound.good();
-    toast(born ? 'Un nouveau poisson est né dans le lagon !' : ok ? 'Une perle de plus !' : 'Il reviendra bientôt dans les jeux.');
-    markPracticed(); renderSheet(); scheduleRender();
-  },
-  wotdSaid(el) {
-    const id = el.dataset.id; const k = todayKey() + ':' + id;
-    if (Prefs.get('wotd', '') === k) return;
-    Prefs.set('wotd', k); const me = meMember();
-    const born = bump(id, true, me ? me.id : null); markPracticed(); Sound.good();
-    toast(born ? 'Bravo ! Son poisson vient de naître.' : 'Maitaʻi roa ! Une perle de plus pour ce mot.');
-    scheduleRender();
-  },
-  nextFact() { S.ui.fact = ((S.ui.fact || 0) + 1) % FACTS.length; renderView(); },
-  setTheme(el) { S.ui.theme = el.dataset.th; renderView(); },
-  setupGame(el) { const k = el.dataset.kind; if (k === 'vaa') startVaa(); else if (k === 'defi') startDefi(); else if (k === 'mem') startMem(); else startFc(); },
-  togglePlayer(el) {
-    const id = el.dataset.id; let ids = activePlayers().map(p => p.id).filter(x => x !== 'guest');
-    if (ids.includes(id)) { if (ids.length === 1) { toast('Il faut au moins un joueur à bord !'); return; } ids = ids.filter(x => x !== id); } else ids.push(id);
-    S.players = ids; Prefs.set('players', ids); renderView();
-  },
-  guestLevel(el) { S.guestLevel = el.dataset.lv; Prefs.set('guestLevel', S.guestLevel); renderView(); },
-  setRoute(el) { S.ui.route = el.dataset.id; renderView(); },
-  setVaaTheme(el) { S.ui.vaaTheme = el.dataset.th; document.querySelectorAll('[data-act="setVaaTheme"]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.th === el.dataset.th))); },
-  setDefi(el) { S.ui.defiMode = el.dataset.mode; renderView(); },
-  setMem(el) { S.ui.memSize = Number(el.dataset.n) || 8; renderView(); },
-  startVaa() { startVaa(); },
-  startDefi() { startDefi(); },
-  startMem() { startMem(); },
-  startFc() { startFc(); },
-  quitGame() { closeGame(); },
-  answer(el) {
-    if (!G || G.phase !== 'q' || !G.q.choices) return;
-    const i = Number(el.dataset.i); G.picked = i;
-    resolveAnswer(i === G.q.answer, false);
-  },
-  joker() {
-    if (!G || G.kind !== 'vaa' || G.phase !== 'q' || G.pearls <= 0 || !G.q.choices) return;
-    const wrong = G.q.choices.map((c, i) => i).filter(i => i !== G.q.answer && !G.removed.has(i));
-    shuffle(wrong).slice(0, Math.max(1, wrong.length - 1)).forEach(i => G.removed.add(i));
-    G.pearls--; Sound.pop(); renderVaa();
-  },
-  tile(el) {
-    if (!G || G.phase !== 'q') return;
-    const i = Number(el.dataset.i); if (G.built.includes(i)) return;
-    G.built.push(i); Sound.tick();
-    if (G.built.length === G.q.tiles.length) { const s = G.built.map(k => G.q.tiles[k].p).join(G.q.sep); G.typed = s; resolveAnswer(norm(s) === norm(G.q.target), false); }
-    else rerenderGame();
-  },
-  tileUndo() { if (!G || G.phase !== 'q') return; G.built.pop(); rerenderGame(); },
-  gNext() { if (!G) return; if (G.kind === 'vaa') vaaNext(); },
-  defiGo() { defiGo(); },
-  defiReveal() { if (G && G.kind === 'defi') { G.reveal = true; renderDefi(); } },
-  defiMark(el) { if (G && G.kind === 'defi' && G.phase === 'play') defiMark(el.dataset.ok === '1'); },
-  defiNextPlayer() { if (!G) return; G.turn++; G.phase = 'ready'; renderDefi(); },
-  memFlip(el) { memFlip(Number(el.dataset.i)); },
-  fcFlip() { if (!G || G.kind !== 'fc' || G.flipped) return; G.flipped = true; const el = $('#fc'); if (el) el.classList.add('flipped'); setTimeout(() => { if (G && G.kind === 'fc') renderFc(); }, 450); },
-  fcMark(el) {
-    if (!G || G.kind !== 'fc') return;
-    const ok = el.dataset.ok === '1'; const w = G.list[G.i];
-    if (ok) { G.known++; Sound.good(); }
-    if (bump(w.id, ok, G.player ? G.player.id : null, !ok)) G.newFish.push(w);
-    G.i++; G.flipped = false;
-    if (G.i >= G.list.length) { markPracticed(); Sound.win(); if (G.known >= 7) flowers(16); }
-    renderFc();
-  },
-  trDir(el) { S.ui.tr.dir = el.dataset.dir; S.ui.tr.res = null; S.ui.tr.err = ''; renderView(); },
-  situation(el) { doSituation(el.dataset.k); },
-  saveTr() {
-    const r = S.ui.tr.res; if (!r) return;
-    if (r.dir === 'fr') savePhrase({ ty: r.ty, fr: r.src, pr: r.pr, note: r.note, src: 'claude' });
-    else savePhrase({ ty: r.src, fr: r.fr, pr: r.pr, note: r.note, src: 'claude' });
-    S.phraseSaved = r.key; refreshTr(); toast('Ajoutée à nos phrases : elle rejoint les jeux !');
-  },
-  saveSit(el) {
-    const p = S.ui.tr.sRes && S.ui.tr.sRes[Number(el.dataset.i)]; if (!p || p.saved) return;
-    savePhrase({ ty: p.ty, fr: p.fr, pr: p.pr, src: 'claude' }); p.saved = true; refreshTr(); toast('Ajoutée à nos phrases !');
-  },
-  copy(el) {
-    const text = el.dataset.text || '';
-    const done = () => toast('Copié !');
-    try { navigator.clipboard.writeText(text).then(done, () => toast('Copie impossible ici : sélectionnez le texte à la main.')); } catch (e) { toast('Copie impossible ici : sélectionnez le texte à la main.'); }
-  },
-  addPhrase() { openSheet('phrase', {}); setTimeout(() => { const i = $('#p-ty'); if (i) i.focus(); }, 80); },
-  verifyPhrase(el) { const id = el.dataset.id; const p = S.phrases[id]; if (!p) return; Data.set('phrases', id, Object.assign({}, p, { verified: true })); toast('Validée par un Polynésien : māuruuru !'); renderSheet(); scheduleRender(); },
-  delPhrase(el) {
-    const id = el.dataset.id;
-    if (!el.dataset.armed) { el.dataset.armed = '1'; el.innerHTML = `${ico('trash')} Confirmer la suppression`; setTimeout(() => { if (el.isConnected) { delete el.dataset.armed; el.innerHTML = `${ico('trash')} Supprimer`; } }, 4000); return; }
-    Data.del('phrases', id); Data.del('progress', 'p_' + id); closeSheet(); Lagoon.sync(); toast('Phrase supprimée.'); scheduleRender();
-  },
-  doneMission(el) { S.ui.edit = null; openSheet('mission', { id: el.dataset.id }); },
-  toggleWho(el) { if (!S.ui.edit) return; const id = el.dataset.id; const s = S.ui.edit.who; if (s.has(id)) s.delete(id); else s.add(id); el.setAttribute('aria-pressed', String(s.has(id))); },
-  confirmMission(el) {
-    const id = el.dataset.id; const who = S.ui.edit && S.ui.edit.who ? Array.from(S.ui.edit.who) : [];
-    Data.set('missions', id, { by: who, at: Date.now() }); markPracticed();
-    const m = MISSIONS.find(x => x.id === id); if (m) { const me = meMember(); bump(m.w, true, who[0] || (me && me.id)); }
-    closeSheet(); Lagoon.dirtyDecor(); Sound.win(); flowers(20); toast('Coquillage déposé au fond du lagon !'); scheduleRender();
-  },
-  undoMission(el) {
-    if (!el.dataset.armed) { el.dataset.armed = '1'; el.textContent = 'Confirmer ?'; setTimeout(() => { if (el.isConnected) { delete el.dataset.armed; el.textContent = 'Annuler'; } }, 4000); return; }
-    Data.del('missions', el.dataset.id); Lagoon.dirtyDecor(); scheduleRender();
-  }
-};
-function resolveAnswer(ok, almost) { if (!G) return; if (G.kind === 'vaa') vaaResolve(ok, almost); }
-function rerenderGame() { if (G && G.kind === 'vaa') renderVaa(); }
-function setTab(t) {
-  if (!TABS.some(x => x[0] === t)) t = 'lagon';
-  S.tab = t; closeSheet();
-  try { if (location.hash !== '#' + t) history.replaceState(null, '', '#' + t); } catch (e) { /* hash bloqué */ }
-  renderAll(); window.scrollTo(0, 0); Lagoon.toggle();
-  if (t === 'lagon') setTimeout(() => Lagoon.resize(), 30);
+/* ---------- Rendu et gestes */
+function render() {
+  document.querySelectorAll('.switch button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === S.mode)));
+  $('#view').innerHTML = S.mode === 'learn' ? viewLearn() : S.mode === 'play' ? viewPlay() : viewFind();
 }
+function step(d) { const n = deck().length; S.i = (S.i + d + n) % n; render(); }
+const byId = id => WORDS.find(w => w.id === id);
 
 document.addEventListener('click', e => {
+  const m = e.target.closest('[data-mode]');
+  if (m) { S.mode = m.dataset.mode; render(); window.scrollTo(0, 0); return; }
   const el = e.target.closest('[data-act]'); if (!el) return;
-  if (el.tagName === 'A') e.preventDefault();
-  const fn = ACT[el.dataset.act]; if (fn) fn(el, e);
+  const a = el.dataset.act;
+  if (a === 'theme') { S.theme = el.dataset.id; S.i = 0; render(); el.blur(); }
+  else if (a === 'prev') step(-1);
+  else if (a === 'next') step(1);
+  else if (a === 'say') { const w = byId(el.dataset.id); if (w) voice.say(w.ty, w.pr); }
+  else if (a === 'sayText') voice.say(el.dataset.text);
+  else if (a === 'answer') { const g = S.game; if (g.picked !== null) return; g.picked = Number(el.dataset.i); if (g.choices[g.picked].id === g.list[g.n].id) g.score++; render(); }
+  else if (a === 'nextq') { const g = S.game; g.n++; g.picked = null; if (g.n < g.list.length) g.choices = makeChoices(g.list[g.n]); render(); window.scrollTo(0, 0); }
+  else if (a === 'replay') { newGame(); render(); }
+  else if (a === 'translate') translate();
 });
-$('#scrim').addEventListener('click', closeSheet);
-document.addEventListener('keydown', e => { if (e.key === 'Escape') { if (S.ui.sheet) closeSheet(); else if (S.ui.gameOpen) closeGame(); } });
-document.addEventListener('input', e => {
-  const el = e.target;
-  if (el.dataset && el.dataset.input === 'tr') { S.ui.tr.text = el.value; const m = $('#tr-matches'); if (m) m.innerHTML = matchesHTML(); }
+document.addEventListener('input', e => { if (e.target.id === 'q') { S.q = e.target.value; $('#results').innerHTML = resultsHTML(); } });
+document.addEventListener('keydown', e => {
+  if (S.mode !== 'learn' || e.target.tagName === 'INPUT') return;
+  if (e.key === 'ArrowRight') step(1); else if (e.key === 'ArrowLeft') step(-1);
 });
-document.addEventListener('change', e => {
-  const el = e.target;
-  if (el.dataset && el.dataset.change === 'photo' && el.files && el.files[0]) { photoTranslate(el.files[0]); el.value = ''; }
-});
-document.addEventListener('submit', e => {
-  const f = e.target; if (!f.dataset || !f.dataset.form) return;
-  e.preventDefault();
-  if (f.dataset.form === 'translate') { const ta = $('#tr-in'); if (ta) { S.ui.tr.text = ta.value; ta.blur(); } doTranslate(); }
-  else if (f.dataset.form === 'member') {
-    const id = f.dataset.id || uid('m'); const name = (f.elements.name.value || '').trim().slice(0, 24);
-    if (!name) { toast('Il manque le prénom !'); return; }
-    const old = S.members[id] || {}; const e2 = S.ui.edit || {};
-    const m = { name, emoji: e2.emoji || old.emoji || '🐢', level: e2.level || old.level || 'moyen', color: old.color || COLORS[memberList().length % COLORS.length], createdAt: old.createdAt || Date.now(), ok: old.ok || 0, games: old.games || 0 };
-    const isNew = !S.members[id];
-    Data.set('members', id, m);
-    if (isNew) { if (!S.me) { S.me = id; Prefs.set('me', id); } const cur = (S.players || []).filter(x => S.members[x]); if (cur.length) { cur.push(id); S.players = cur; Prefs.set('players', cur); } }
-    S.ui.edit = null; openSheet('tribe', {}, true); toast(isNew ? `${m.emoji} ${m.name} rejoint la tribu !` : 'Profil enregistré.'); scheduleRender();
-  } else if (f.dataset.form === 'phrase') {
-    const tyv = (f.elements.ty.value || '').trim(), frv = (f.elements.fr.value || '').trim();
-    if (!tyv || !frv) { toast('Il faut le tahitien et le français.'); return; }
-    savePhrase({ ty: tyv, fr: frv, pr: (f.elements.pr.value || '').trim(), from: (f.elements.from.value || '').trim(), src: 'local', verified: true });
-    closeSheet(); toast('Māuruuru ! Le mot rejoint nos phrases et les jeux.'); scheduleRender();
-  } else if (f.dataset.form === 'typed') {
-    if (!G || G.phase !== 'q') return;
-    const v = f.elements.typed.value; const r = checkTyped(v, G.q.w);
-    if (r === 'empty') { toast('Écris ta réponse d’abord !'); return; }
-    G.typed = v; f.elements.typed.blur(); resolveAnswer(r !== 'ko', r === 'almost');
-  }
-});
+let sx = null;
+document.addEventListener('pointerdown', e => { if (S.mode === 'learn' && e.target.closest('#card')) sx = e.clientX; });
+document.addEventListener('pointerup', e => { if (sx === null) return; const d = e.clientX - sx; sx = null; if (Math.abs(d) > 50) step(d < 0 ? 1 : -1); });
 
-/* ================================================================ Boot */
-function start() {
-  const h = (location.hash || '').replace('#', '');
-  if (TABS.some(x => x[0] === h)) S.tab = h;
-  TTS.init();
-  Lagoon.init($('#lagoon'));
-  renderAll(); Lagoon.toggle();
-  Data.init();
-  initSample();
+voice.init();
+render();
+if (window.claude && typeof window.claude.use === 'function') {
+  window.claude.use('sample').then(s => { S.sample = s || null; if (S.mode === 'find') $('#results').innerHTML = resultsHTML(); }).catch(() => {});
 }
-start();
 </script>
