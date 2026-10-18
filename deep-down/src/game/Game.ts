@@ -149,6 +149,7 @@ export class Game {
     this.marker = new TargetMarker(s.tileTexture);
     this.scene.add(this.drops.group, this.debris.group, this.particles.group, this.marker.group);
     s.chunks.viewDistance = preset.viewDistance;
+    s.props.viewDistance = preset.viewDistance;
     const ft = layout.landmarks.fallTop;
     const fb = layout.landmarks.fallBottom;
     if (ft && fb) {
@@ -179,6 +180,8 @@ export class Game {
     }, this.marker, this.debris, this.particles, this.drops, this.cameraRig, this.rng);
 
     this.desktop = new DesktopInput(this.canvas, this.input);
+    // Android Back button (see android/MainActivity): returns true when the game handled it.
+    (window as unknown as { deepDownBack: () => boolean }).deepDownBack = () => this.handleBack();
     this.wireEvents();
     this.wireLifecycle();
     installDebugApi(this);
@@ -285,6 +288,26 @@ export class Game {
     this.atCamp = this.inRegion(this.session.layout.camp);
     this.refreshEquipmentVisuals();
     this.autosaveTimer = SAVE.autosaveSeconds;
+  }
+
+  /** System Back: close a screen, pause, or resume. False at the main menu (let the OS exit). */
+  handleBack(): boolean {
+    if (this.mode === 'menu') {
+      if (this.ui.screen !== 'menu') {
+        this.ui.showScreen('menu');
+        return true;
+      }
+      return false;
+    }
+    if (this.mode === 'dead') return true;
+    if (this.mode === 'paused') {
+      if (this.ui.screen === 'pause') this.resume();
+      else this.ui.showScreen('pause');
+      return true;
+    }
+    if (this.ui.isBlockingInput()) this.ui.showScreen('none');
+    else this.pause();
+    return true;
   }
 
   pause(): void {
@@ -441,6 +464,7 @@ export class Game {
 
   private updateIdle(dt: number): void {
     // Paused or dead: keep the scene alive but frozen in gameplay terms.
+    if (this.mode === 'paused' && this.input.pausePressed && this.ui.screen === 'pause') this.resume();
     this.updateExplorer(0, 0);
     this.updateLantern(0, false);
     this.audio.update(dt, this.audioState(true));
@@ -484,6 +508,7 @@ export class Game {
     if (ev.rescued) this.ui.hint(t('hint.outOfReach'), 1500);
 
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
+    if (!blocked && this.isTouch() && this.hintsShown.has('mine')) this.tutorial('look', 'hint.look', 5000, 11);
 
     this.cameraRig.update(dt, p.x, p.y + 1.45 - p.stepOffset, p.z, this.renderer.aspect);
     this.updateExplorer(dt, swinging ? 1 : 0);
@@ -493,8 +518,8 @@ export class Game {
       dt, this.time, p.x, p.y, p.z,
       (item) => ITEMS[item].keyItem || this.backpack.canAccept(item),
       (item, count) => this.collect(item, count),
-      () => {
-        this.bus.emit('item:rejected', { item: 'stone' });
+      (item) => {
+        this.bus.emit('item:rejected', { item });
         this.ui.hint(t('hint.backpackFull'), 2500);
       },
     );
@@ -936,6 +961,7 @@ export class Game {
       this.renderer.setQuality(patch.quality);
       const preset = this.renderer.preset;
       this.session.chunks.viewDistance = preset.viewDistance;
+      this.session.props.viewDistance = preset.viewDistance;
       this.debris.setBudget(preset.particleBudget);
       this.particles.setBudget(preset.particleBudget);
     }

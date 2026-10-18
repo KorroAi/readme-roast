@@ -1,4 +1,4 @@
-import { B, SOLID } from '../../config/blocks';
+import { B, SOLID, isEmitter } from '../../config/blocks';
 import { WORLD } from '../../config/balance';
 import { Noise } from '../../core/noise';
 import { Rng } from '../../core/rng';
@@ -46,7 +46,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   const { sx, sy, sz } = w;
   const interior = (x: number, y: number, z: number) => x > 0 && y > 0 && z > 0 && x < sx - 1 && y < sy - 1 && z < sz - 1;
   const carve = (x: number, y: number, z: number) => {
-    if (interior(x, y, z)) w.blocks[w.index(x, y, z)] = B.AIR;
+    if (!interior(x, y, z)) return;
+    const i = w.index(x, y, z);
+    // Never erase a light already placed by an earlier feature (lamps are open space anyway).
+    const cur = w.blocks[i];
+    if (!SOLID[cur] && isEmitter(cur)) return;
+    w.blocks[i] = B.AIR;
   };
   const put = (x: number, y: number, z: number, id: number) => {
     if (interior(x, y, z)) w.blocks[w.index(x, y, z)] = id;
@@ -192,8 +197,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (let z = 34; z <= 49; z++) for (let x = 28; x <= 45; x++) for (let y = 101; y <= 106; y++) if (get(x, y, z) === B.SLATE || get(x, y, z) === B.UMBER) carve(x, y, z);
 
   addProp({ kind: 'campfire', x: 36.5, y: 101, z: 41.5, emitters: [[36, 101, 41]], interact: 'rest' });
-  addProp({ kind: 'workbench', x: 40.5, y: 101, z: 37.5, rotY: Math.PI, interact: 'craft' });
-  addProp({ kind: 'chest', x: 31.5, y: 101, z: 37.5, rotY: Math.PI, interact: 'storage' });
+  addProp({ kind: 'workbench', x: 40.5, y: 101, z: 37.5, rotY: 0, interact: 'craft' });
+  addProp({ kind: 'chest', x: 31.5, y: 101, z: 37.5, rotY: 0.35, interact: 'storage' });
   addProp({ kind: 'bedroll', x: 32.5, y: 101, z: 45, rotY: 0.2 });
   addProp({ kind: 'crate', x: 42.5, y: 101, z: 45.5, rotY: 0.3 });
   addProp({ kind: 'crate', x: 43.4, y: 101, z: 43.9, rotY: -0.2, scale: 0.8 });

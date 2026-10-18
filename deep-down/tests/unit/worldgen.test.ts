@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { B } from '../../src/config/blocks';
+import { B, isEmitter, SOLID } from '../../src/config/blocks';
 import { generateWorld } from '../../src/world/gen/generateWorld';
 import { minableCount, nearReachable, reachableCells } from '../../src/world/analysis/reachability';
 import type { WorldLayout } from '../../src/world/gen/types';
@@ -97,6 +97,17 @@ describe('world generation', () => {
     for (const p of [craft!, storage!]) {
       expect(layout.world.isSolid(Math.floor(p.x), Math.floor(p.y) - 1, Math.floor(p.z))).toBe(true);
       expect(layout.world.isSolid(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))).toBe(false);
+    }
+  });
+
+  it('gives every prop light a real emitter voxel and props a solid support', () => {
+    const w = layout.world;
+    for (const p of layout.props) {
+      for (const e of p.emitters) {
+        const id = w.get(e[0], e[1], e[2]);
+        expect(isEmitter(id) && !SOLID[id], `${p.id} emitter at ${e.join(',')}`).toBe(true);
+      }
+      if (p.anchor) expect(SOLID[w.get(...p.anchor)], `${p.id} anchor`).toBe(1);
     }
   });
 });
