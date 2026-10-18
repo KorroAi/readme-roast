@@ -22,6 +22,13 @@ export const en = {
   'menu.credits.body':
     'DEEP DOWN is generated entirely in code: every block, texture, sound and note of music. No external assets.',
   'menu.tapToStart': 'Tap to begin',
+  'menu.timeJustNow': 'just now',
+  'menu.timeMinute': '1 minute ago',
+  'menu.timeMinutes': '{n} minutes ago',
+  'menu.timeHour': '1 hour ago',
+  'menu.timeHours': '{n} hours ago',
+  'menu.timeYesterday': 'yesterday',
+  'menu.timeDays': '{n} days ago',
 
   // Pause
   'pause.title': 'Paused',
@@ -64,6 +71,13 @@ export const en = {
   'settings.reset': 'Reset to defaults',
   'settings.deleteSave': 'Delete saved game',
   'settings.deleteSaveConfirm': 'Delete your saved game permanently?',
+  'settings.deleteSaveYes': 'Delete',
+  'settings.deleteSaveNo': 'Cancel',
+  'settings.deleteSaveDone': 'Saved game deleted',
+  'settings.resetDone': 'Settings restored to defaults',
+  'settings.auto': 'Auto',
+  'settings.percent': '{value}%',
+  'settings.multiplier': '{value}×',
 
   // HUD
   'hud.depth': 'Depth',
@@ -81,6 +95,10 @@ export const en = {
   'hud.mine': 'Mine',
   'hud.fps': '{fps} FPS · {ms} ms · {calls} draws · {tris}k tris',
   'hud.objective': 'Objective',
+  'hud.useKey': 'E',
+  'hud.healthValue': 'Health {value} of {max}',
+  'hud.lanternValue': 'Lantern fuel {value}%',
+  'hud.backpackLabel': 'Backpack {used} of {max} slots',
 
   // Hints & tutorial
   'hint.move': 'Drag the left side of the screen to walk.',
@@ -153,6 +171,10 @@ export const en = {
   'inventory.slots': '{used} of {max} slots',
   'inventory.storageHint': 'Items are banked automatically when you return to camp.',
   'inventory.storageEmpty': 'Nothing banked yet.',
+  'inventory.count': '×{count}',
+  'inventory.discoveries': 'Discoveries',
+  'inventory.keyItems': 'Key Items',
+  'inventory.equipped': 'Equipped',
 
   // Crafting
   'craft.title': 'Workbench',
@@ -164,6 +186,7 @@ export const en = {
   'craft.locked': 'Requires {item}',
   'craft.result': 'Result',
   'craft.from': '{have}/{need}',
+  'craft.notAtCamp': 'Only at camp',
 
   // Death
   'death.title': 'You Blacked Out',
@@ -227,6 +250,10 @@ export const en = {
   'equip.stat.radius': 'Light radius',
   'equip.stat.fuel': 'Burn time',
   'equip.stat.slots': 'Slots',
+  'equip.stat.speedValue': '{value}%',
+  'equip.stat.tierValue': 'Tier {value}',
+  'equip.stat.radiusValue': '{value} m',
+  'equip.stat.fuelValue': '{value} min',
 
   // Recipes
   'recipe.copperPickaxe': 'Copper Pickaxe',
