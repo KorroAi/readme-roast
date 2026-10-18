@@ -162,7 +162,9 @@ boom is shorter than 2 m.
 - `EventBus<GameEvents>` (`core/events.ts`) decouples systems. Gameplay emits events;
   audio, UI and effects listen. A throwing listener is logged and never breaks gameplay.
 - `InputState` (`input/types.ts`) is the only input the simulation reads. Touch controls and
-  desktop input both write it.
+  desktop input both write it. Edges (`jumpPressed`, `pausePressed`, …) are cleared after every
+  step. `pausePressed` toggles pause; `pauseRequested` only pauses (used when the pointer
+  capture is lost unexpectedly, e.g. the browser taking Esc), so it can never resume the game.
 - `HudState` / `InventoryView` / `UiActions` (`ui/types.ts`): the UI reads snapshots and
   requests actions. It never mutates game state directly.
 - Pure gameplay modules (`gameplay/*`) have no Three.js or DOM dependency and are unit
@@ -198,17 +200,20 @@ build.
   bedrock shell, reachability of every critical location, sufficient materials), gameplay
   rules, save round-trip and corruption recovery, audio logic on a fake Web Audio context
   (offline rendering of every sound runs in Chromium: `tools/audio-check.mjs`).
-- E2E (Playwright, real WebGL, 915×412 touch): `slice.spec.ts` — boot → menu → new game →
-  move with the joystick → hold-to-mine copper → collect → discover the Hollow → bank at camp
-  → craft at the Workbench → fewer hits + Hardened Slate breaks → save → reload → Continue.
-  `world.spec.ts` — all six discoveries with banners and journal entries; a lethal fall loses
-  the backpack, is saved immediately, and respawns at camp.
+- E2E (Playwright, real WebGL, production build), in `tests/e2e/`, type-checked with one
+  shared `window.__DD__` type (`dd.ts`). Input is real (touch through CDP, Playwright mouse and
+  keyboard); travel between places uses the debug teleport.
+  `slice.spec.ts` (915×412 touch) — the 9-step success path plus autosave reasons and every HUD
+  element. `world.spec.ts` (touch) — all six discoveries, fall damage, lantern burn-down, death,
+  saved death, respawn, backgrounding. `desktop.spec.ts` (1280×720) — keyboard and mouse.
 - UI (`tools/ui-check.mjs`): 60 checks over the sandbox and the real game (touch zones,
   hold/tap mining, multi-touch, buttons, left-handed, keyboard focus, no DOM churn).
 - Packaging (`tools/apk-sim.mjs`): the files inside the APK, served the way the shell
   serves them, boot and play.
-- Visual: `tools/capture.mjs` renders deterministic camera presets; screenshots are
-  inspected and iterated (see TEST_REPORT.md).
+- Visual: `tools/capture.mjs` renders deterministic camera presets and `tools/play.mjs` runs
+  scripted play; screenshots are inspected and iterated (see TEST_REPORT.md).
+- Performance: `tools/perf.mjs` measures the production build (CPU frame time, draw calls,
+  triangles, mining, saves, memory).
 
 ## Debug API
 

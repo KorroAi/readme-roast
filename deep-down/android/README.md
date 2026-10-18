@@ -7,11 +7,16 @@ persistent `localStorage` are unreliable from `file://`. Every other request is 
 game is fully offline.
 
 Behavior:
-- Immersive fullscreen, `sensorLandscape`, screen kept on while playing.
-- Back button → `window.deepDownBack()` in the game (close screen / pause / resume); at the main
-  menu it exits.
+- Immersive fullscreen, `sensorLandscape`. The screen is kept on only while playing: the game
+  calls `window.DeepDownAndroid.keepScreenOn(bool)` (a `@JavascriptInterface` bridge).
+- Text zoom is pinned to 100% (the game has its own Large Text setting sized for the layout).
+- Back button → `window.deepDownBack()` (close screen / pause / resume; ignored while loading);
+  at the main menu it exits; on a page without a handler it goes back in history. The Visual Lab
+  returns to the game.
 - `onPause`/`onResume` forward to the WebView, so the game autosaves and suspends audio on
   `visibilitychange`.
+- Font-scale and locale changes do not recreate the Activity (density cannot be listed when
+  compiling against API 23, see below).
 
 ## Build (verified here)
 
@@ -29,7 +34,13 @@ and signed with a release key.
 
 Install on a device: `adb install -r android/build/deep-down-debug.apk`.
 
-## Not verified
+`build-apk.sh` refuses to package a stale or placeholder web build (every script and style that
+`dist/index.html` loads, and the world worker, must exist).
 
-The APK has been built, aligned, signed and its signature verified. It has **not** been
-installed or run on a device or emulator. See KNOWN_ISSUES.md.
+## Verified / not verified
+
+- Built, aligned, signed, signature verified (293 KB).
+- `node tools/apk-sim.mjs` unpacks the APK's `assets/www` and serves it to headless Chromium the
+  way `MainActivity` does (same origin, MIME table and refusal rule): it boots, generates the world
+  in the worker, plays, saves and offers Continue after a reload.
+- It has **not** been installed or run on a device or emulator. See KNOWN_ISSUES.md.
