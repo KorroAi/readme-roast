@@ -43,7 +43,7 @@ interface Preset {
 const PRESETS: Record<LabView, Preset> = {
   materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16, ambient: 0.22 },
   crystal: { cam: [10, 6.5, 32], target: [16, 4, 44], lantern: [9, 5, 33], lanternRadius: 6, ambient: 0 },
-  lantern: { cam: [34, 7.5, 30], target: [40, 3.5, 42], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
+  lantern: { cam: [33, 7.5, 36], target: [40.5, 3, 43], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
   cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12, ambient: 0.1 },
   particles: { cam: [51.5, 4.6, 54.6], target: [51.5, 2.8, 59.5], lantern: [51.5, 5, 56], lanternRadius: 12, ambient: 0.06 },
   pickup: { cam: [11.5, 4.2, 54.2], target: [11.5, 2.6, 59.5], lantern: [11.5, 5, 56], lanternRadius: 12, ambient: 0.06 },

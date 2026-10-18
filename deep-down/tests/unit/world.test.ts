@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { B } from '../../src/config/blocks';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
-import { LightField, LanternField, LIGHT_REACH } from '../../src/world/light';
+import { LightField, LanternField, LIGHT_REACH, segmentClear } from '../../src/world/light';
 import { raycastVoxels } from '../../src/world/raycast';
 import { meshChunk } from '../../src/render/mesher';
 import { Rng } from '../../src/core/rng';
@@ -198,6 +198,31 @@ describe('LightField', () => {
     }
   });
 
+  it('removing a lamp next to another open emitter leaves no ghost light in it', () => {
+    const w = emptyWorld();
+    w.setRaw(16, 16, 16, B.LIGHT_AMBER);
+    w.setRaw(18, 16, 16, B.LIGHT_CYAN);
+    const l = new LightField(w);
+    l.computeAll();
+    w.set(16, 16, 16, B.AIR);
+    l.onBlockChanged(16, 16, 16, B.LIGHT_AMBER);
+    expect(rgbEqual(l.data, fullLight(w))).toBe(0);
+  });
+
+  it('a freshly mined voxel gets the open-space ambient of its surroundings', () => {
+    const w = emptyWorld();
+    w.fill(0, 0, 20, 31, 31, 31, B.SLATE);
+    const l = new LightField(w);
+    l.computeAll();
+    l.computeOpenness();
+    const before = l.data[w.index(16, 16, 19) * 4 + 3];
+    expect(before).toBeGreaterThan(0);
+    w.set(16, 16, 20, B.AIR);
+    const box = l.onBlockChanged(16, 16, 20, B.SLATE);
+    expect(l.data[w.index(16, 16, 20) * 4 + 3]).toBe(before);
+    expect(box.x0 <= 16 && box.x1 >= 16 && box.z0 <= 20 && box.z1 >= 20).toBe(true);
+  });
+
   it('moving a lamp (remove + place elsewhere) matches a full recompute', () => {
     const w = randomCave(5);
     const l = new LightField(w);
@@ -289,6 +314,60 @@ describe('LanternField', () => {
     expect(at(18, 16, 16)).toBe(255);
     expect(at(21, 16, 16)).toBe(0);
     expect(at(16, 16, 16 + 12)).toBe(0); // outside radius
+  });
+
+  it('still lights the open side when the flame is a few cm inside a wall', () => {
+    const w = emptyWorld();
+    w.fill(17, 0, 0, 31, 31, 31, B.SLATE);
+    const f = new LanternField(w);
+    f.compute(17.03, 16.5, 16.5, 10); // inside the first wall voxel
+    const S = LanternField.SIZE;
+    const at = (x: number, y: number, z: number) => f.data[x - f.originX + S * (y - f.originY + S * (z - f.originZ))];
+    expect(at(15, 16, 16)).toBeGreaterThan(200);
+    expect(at(12, 18, 14)).toBeGreaterThan(200);
+    expect(at(19, 16, 16)).toBe(0);
+  });
+
+  it('agrees with per-voxel ray tracing and casts shadows behind pillars', () => {
+    const w = emptyWorld();
+    let seed = 7;
+    const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+    for (let i = 0; i < 40; i++) {
+      const x = 4 + Math.floor(rnd() * 24);
+      const z = 4 + Math.floor(rnd() * 24);
+      if (Math.abs(x - 16) < 2 && Math.abs(z - 16) < 2) continue;
+      w.fill(x, 0, z, x + Math.floor(rnd() * 2), 31, z + Math.floor(rnd() * 2), B.SLATE);
+    }
+    const f = new LanternField(w);
+    const lx = 16.4;
+    const ly = 15.7;
+    const lz = 16.6;
+    f.compute(lx, ly, lz, 11);
+    const S = LanternField.SIZE;
+    let agree = 0;
+    let total = 0;
+    for (let z = 6; z <= 26; z++)
+      for (let y = 6; y <= 26; y++)
+        for (let x = 6; x <= 26; x++) {
+          if (w.isSolid(x, y, z) || Math.hypot(x + 0.5 - lx, y + 0.5 - ly, z + 0.5 - lz) > 10) continue;
+          const ray = segmentClear(w, lx, ly, lz, x + 0.5, y + 0.5, z + 0.5) ? 1 : 0;
+          const v = f.data[x - f.originX + S * (y - f.originY + S * (z - f.originZ))] / 255;
+          total++;
+          if (Math.abs(v - ray) < 0.5) agree++;
+        }
+    expect(total).toBeGreaterThan(2000);
+    expect(agree / total).toBeGreaterThan(0.9);
+  });
+
+  it('recomputes when the radius changes without moving, and is cheap', () => {
+    const w = emptyWorld();
+    const f = new LanternField(w);
+    expect(f.update(16.5, 16.5, 16.5, 11)).toBe(true);
+    expect(f.update(16.5, 16.5, 16.5, 11)).toBe(false);
+    expect(f.update(16.5, 16.5, 16.5, 14.5)).toBe(true);
+    const t0 = performance.now();
+    for (let i = 0; i < 20; i++) f.compute(16.5 + i * 0.01, 16.5, 16.5, 14.5);
+    expect((performance.now() - t0) / 20).toBeLessThan(5);
   });
 });
 

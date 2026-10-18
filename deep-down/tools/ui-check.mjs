@@ -119,6 +119,21 @@ if (opt.touch) {
   const env = await page.evaluate(() => ({ maxTouchPoints: navigator.maxTouchPoints, coarse: matchMedia('(any-pointer: coarse)').matches, touchUi: document.querySelector('.dd-ui').classList.contains('dd-touch-ui') }));
   check('touch UI detected with hasTouch', env.touchUi, env);
 
+  // setHud runs every frame: a steady state, or a change below what is displayed, writes nothing.
+  const mutations = await page.evaluate(async () => {
+    const { hud } = window.__UI__;
+    let n = 0;
+    const mo = new MutationObserver((list) => (n += list.length));
+    mo.observe(document.querySelector('.dd-hud'), { subtree: true, attributes: true, childList: true, characterData: true });
+    await new Promise((r) => setTimeout(r, 250));
+    Object.assign(hud, { depth: 128.3, campDistance: 24.2 });
+    await new Promise((r) => setTimeout(r, 250));
+    Object.assign(hud, { depth: 128, campDistance: 24 });
+    mo.disconnect();
+    return n;
+  });
+  check('steady HUD writes nothing to the DOM', mutations === 0, { mutations });
+
   // Joystick: full forward at the rim, partial sideways, dead zone, release to zero.
   await touch('touchStart', [{ x: 150, y: 300 }]);
   await touch('touchMove', [{ x: 150, y: 270 }]);
@@ -234,6 +249,8 @@ if (opt.touch) {
   s = await input();
   await touch('touchEnd', []);
   check('touch ignored under a screen', s.moveY === 0, { moveY: s.moveY });
+  await page.getByRole('tab', { name: /Camp Storage/i }).tap();
+  check('switching tabs does not replay the screen entrance', await page.evaluate(() => document.querySelector('.dd-screen').getAnimations({ subtree: true }).length === 0));
   await page.getByRole('button', { name: /Close/i }).first().tap();
   await wait(80);
   await page.locator('.dd-tb-pause').tap();
@@ -340,9 +357,13 @@ if (opt.touch) {
     await p.keyboard.press('Escape');
     check('escape in settings returns to the menu', (await screen()) === 'menu');
     check('menu without a save has no Continue', (await p.getByRole('button', { name: /Continue/i }).count()) === 0);
+    const focused = () => p.evaluate(() => document.activeElement?.textContent ?? '');
+    let f = await focused();
+    check('keyboard users land on the primary button', /New Expedition/.test(f), f);
     await p.keyboard.press('ArrowDown');
-    const focused = await p.evaluate(() => document.activeElement?.textContent);
-    check('arrow keys move focus through the menu', /New Expedition/.test(focused ?? ''), focused);
+    f = await focused();
+    check('arrow keys move focus through the menu', /Settings/.test(f), f);
+    await p.keyboard.press('ArrowUp');
     await p.keyboard.press('Enter');
     await p.waitForFunction(() => window.__UI__.ui.screen === 'none', null, { timeout: 3000 });
     check('enter starts a new expedition without a confirm when there is no save', true);

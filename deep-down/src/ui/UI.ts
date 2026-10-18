@@ -212,6 +212,8 @@ export class UI implements GameUi {
       (document.activeElement as HTMLElement | null)?.blur?.();
       return;
     }
+    // A rebuild of the open screen (tab switch, inventory change) must not replay its entrance.
+    if (keepPlace) next.classList.add('dd-rebuilt');
     this.screensEl.appendChild(next);
     if (this.confirmSpec) next.inert = true;
     const scroller = next.querySelector('.dd-scroll');
