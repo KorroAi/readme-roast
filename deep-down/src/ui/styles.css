@@ -42,3 +42,15 @@ canvas#game {
   touch-action: none;
 }
 #ui > * { pointer-events: auto; }
+.fatal {
+  position: fixed;
+  inset: auto 16px 50% 16px;
+  transform: translateY(50%);
+  padding: 20px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--danger);
+  color: var(--ink);
+  font: 600 16px/1.4 var(--font);
+  text-align: center;
+}

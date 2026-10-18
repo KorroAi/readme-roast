@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BLOCKS } from '../config/blocks';
+import { BLOCKS, SIDE_VARIANTS, VARIANT_COUNT } from '../config/blocks';
 import { TILE_NAMES, TILE_SIZE } from '../config/tiles';
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
 import type { TileAtlas } from './textures';
@@ -24,7 +24,8 @@ export function tileGlowTable(): number[] {
   const glow = new Array(TILE_NAMES.length).fill(0);
   for (const b of BLOCKS) {
     if (!b || !b.visible) continue;
-    for (const t of [b.tiles.top, b.tiles.side, b.tiles.bottom]) glow[t] = Math.max(glow[t], b.glow);
+    const variants = Array.from({ length: VARIANT_COUNT[b.id] }, (_, i) => SIDE_VARIANTS[b.id * 4 + i]);
+    for (const t of [b.tiles.top, b.tiles.side, b.tiles.bottom, ...variants]) glow[t] = Math.max(glow[t], b.glow);
   }
   return glow;
 }

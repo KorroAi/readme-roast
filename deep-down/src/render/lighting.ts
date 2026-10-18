@@ -135,7 +135,7 @@ export class LightingRig {
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color().setRGB(...hexToLinear(0x0b1220)).multiplyScalar(0.55) },
       uOpenAmbient: { value: new THREE.Color().setRGB(...hexToLinear(0x2a4a6e)).multiplyScalar(1.0) },
-      uEmitGain: { value: 1.7 },
+      uEmitGain: { value: 2.6 },
       uFogColor: { value: new THREE.Color().setRGB(...hexToLinear(0x12263a)) },
       uFogDensity: { value: 0.02 },
       uTime: { value: 0 },

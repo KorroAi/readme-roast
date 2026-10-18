@@ -268,6 +268,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     put(125, top, z, B.ANCIENT_BRICK);
   }
   lanternPost(119.5, floorBase + 1, 103.5, 0.4);
+  landmarks.stairsTop = [96.5, 88, 73.5];
+  landmarks.landing = [122.5, 65, 74.5];
   landmarks.stairsBottom = [122.5, floorBase + 1, 104];
   mark('stairs');
 
@@ -331,6 +333,18 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   addProp({ kind: 'abyssMonolith', x: 123.5, y: 6, z: 135.5, scale: 1, anchor: null });
   crystalFormation([110, 12, 128], 5, 6, [0.4, 1, 0.1]);
   crystalFormation([137, 16, 140], 4, 5, [-0.5, 1, -0.2]);
+  // The Glimmerfall: luminous water from a crack in the dome, through the chasm, into the rift.
+  {
+    const fx = 113;
+    const fz = 128;
+    let top = 50;
+    while (top < sy - 2 && isAir(fx, top + 1, fz)) top++;
+    let bottom = 40;
+    while (bottom > 2 && isAir(fx, bottom - 1, fz)) bottom--;
+    for (let y = bottom + 2; y < top; y += 7) setEmitter(fx, y, fz, B.LIGHT_CYAN);
+    landmarks.fallTop = [fx + 0.5, top + 1, fz + 0.5];
+    landmarks.fallBottom = [fx + 0.5, bottom, fz + 0.5];
+  }
   landmarks.bridge = [122.5, floorBase + 1, 128.5];
   landmarks.monolith = [123.5, 6, 135.5];
   mark('rift');
@@ -430,7 +444,49 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   crystalFormation([132, 70, 78], 4, 5, [-0.6, -0.8, 0.3]);
   addProp({ kind: 'crystalCluster', x: 110.5, y: floorBase + 1 + 0, z: 105.5, scale: 0.8, emitters: [], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 } });
   landmarks.hollowCrystals = [113, floorBase + 1, 108];
+  // Small clusters scattered over the walls: cold points of light that give the dark depth
+  // cues. Found by casting from the chamber center to the rock, away from the shrine.
+  let wallCrystals = 0;
+  for (let attempt = 0; attempt < 60 && wallCrystals < 11; attempt++) {
+    const yaw = rng.range(0, Math.PI * 2);
+    const pitch = rng.range(-0.25, 0.55);
+    const dx = Math.cos(yaw) * Math.cos(pitch);
+    const dy = Math.sin(pitch);
+    const dz = Math.sin(yaw) * Math.cos(pitch);
+    let px = H.cx;
+    let py = 62;
+    let pz = H.cz;
+    let hit = false;
+    for (let i = 0; i < 70; i++) {
+      px += dx;
+      py += dy;
+      pz += dz;
+      if (!isAir(Math.floor(px), Math.floor(py), Math.floor(pz))) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit || py < floorBase + 4) continue;
+    if (Math.hypot(px - 62, pz - 104) < 14) continue; // keep the shrine wall in shadow
+    const back: V3 = [px - dx * 1.5, py - dy * 1.5, pz - dz * 1.5];
+    crystalFormation(back, rng.int(2, 3), rng.range(2, 3.5), [-dx, -dy + 0.6, -dz]);
+    wallCrystals++;
+  }
   mark('crystals');
+
+  // ------------------------------------------------------------------------------------
+  // Warm light in the cold hall: braziers at the sealed door, lamps at the bridge, and an
+  // abandoned explorers' camp - someone came this far before.
+  lanternPost(133.5, floorBase + 1, 97.5, 0, true);
+  lanternPost(133.5, floorBase + 1, 104.5, 0, true);
+  lanternPost(119.2, floorBase + 1, 120.5, 0.5);
+  lanternPost(124.6, floorBase + 1, 137.2, -0.4);
+  const oldCamp: V3 = [101, floorHeight(101, 104), 103.5];
+  lanternPost(oldCamp[0], oldCamp[1], oldCamp[2], 0.7);
+  addProp({ kind: 'brokenCart', x: oldCamp[0] + 2.2, y: floorHeight(103, 105), z: oldCamp[2] + 1.6, rotY: 2.1 });
+  addProp({ kind: 'crate', x: oldCamp[0] - 1.4, y: floorHeight(100, 103), z: oldCamp[2] - 0.8, rotY: 0.6, scale: 0.85 });
+  addProp({ kind: 'ropeCoil', x: oldCamp[0] + 0.6, y: floorHeight(101, 102), z: oldCamp[2] - 1.5 });
+  landmarks.oldCamp = oldCamp;
 
   // ------------------------------------------------------------------------------------
   // 12. Surface dressing: soil and glowmoss floors, then visible ore veins on walls.
@@ -551,7 +607,14 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
             const d = Math.hypot(dx, dz) / r;
             if (d > 1) continue;
             const h = height * (0.55 + 0.45 * Math.sqrt(1 - d * d)) + detail.noise2((cx + dx) * 0.4, (cz + dz) * 0.4) * 0.8;
-            for (let y = floor; y < floor + h; y++) carve(Math.round(cx + dx), y, Math.round(cz + dz));
+            const vx = Math.round(cx + dx);
+            const vz = Math.round(cz + dz);
+            for (let y = floor; y < floor + h; y++) carve(vx, y, vz);
+            // Where the path crosses open space, lay a rock shelf under it (a natural bridge).
+            if (d < 0.85) {
+              const depth = Math.round(3 * (1 - d) + 1);
+              for (let y = floor - 1; y >= floor - depth; y--) if (isAir(vx, y, vz)) put(vx, y, vz, B.SLATE);
+            }
           }
       }
     }
@@ -560,6 +623,11 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   function lanternPost(x: number, y: number, z: number, rotY: number, bright = false): void {
     const ex = Math.floor(x);
     const ez = Math.floor(z);
+    // Stand on the real floor: terraces and rubble may have moved it since layout time.
+    let fy = Math.floor(y) + 4;
+    while (fy > Math.floor(y) - 5 && !(isAir(ex, fy, ez) && !isAir(ex, fy - 1, ez))) fy--;
+    if (fy <= Math.floor(y) - 5) return; // no floor nearby (e.g. over the chasm): skip this lamp
+    y = fy;
     const spec = addProp({ kind: 'lanternPost', x, y, z, rotY, emitters: [] });
     const ey = Math.floor(y) + 1;
     if (isAir(ex, ey, ez)) put(ex, ey, ez, bright ? B.LIGHT_AMBER : B.LIGHT_LAMP);
@@ -580,7 +648,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       const d: V3 = [dir[0] + rng.range(-0.35, 0.35), dir[1], dir[2] + rng.range(-0.35, 0.35)];
       const dl = Math.hypot(d[0], d[1], d[2]);
       const L = length * (i === 0 ? 1 : rng.range(0.45, 0.8));
-      const r0 = i === 0 ? 1.45 : rng.range(0.8, 1.2);
+      // Big formations get a thick main column; small ones stay slender so they read as crystals.
+      const r0 = length >= 4.5 ? (i === 0 ? 1.45 : rng.range(0.8, 1.2)) : i === 0 ? 0.85 : rng.range(0.5, 0.7);
       const steps = Math.ceil(L * 3);
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;

@@ -1,4 +1,4 @@
-import { B, SOLID, TILE_BOTTOM, TILE_SIDE, TILE_TOP, VISIBLE } from '../config/blocks';
+import { B, SIDE_VARIANTS, SOLID, TILE_BOTTOM, TILE_SIDE, TILE_TOP, VARIANT_COUNT, VISIBLE } from '../config/blocks';
 import type { VoxelWorld } from '../world/VoxelWorld';
 
 /**
@@ -120,7 +120,12 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
           for (let f = 0; f < 6; f++) {
             const front = i + FACE_DELTA[f];
             if (OPAQUE[pad[front]]) continue;
-            const layer = f === 2 ? TILE_TOP[id] : f === 3 ? TILE_BOTTOM[id] : TILE_SIDE[id];
+            let layer = f === 2 ? TILE_TOP[id] : f === 3 ? TILE_BOTTOM[id] : TILE_SIDE[id];
+            const nv = VARIANT_COUNT[id];
+            if (nv > 1 && f !== 2 && f !== 3) {
+              const h = (Math.imul(bx + x, 73856093) ^ Math.imul(by + y, 19349663) ^ Math.imul(bz + z, 83492791)) >>> 0;
+              layer = SIDE_VARIANTS[id * 4 + (h % nv)];
+            }
             const ao = AO_OFFSETS[f];
             const corners = FACE_CORNERS[f];
             const uvs = FACE_UVS[f];

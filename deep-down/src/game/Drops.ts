@@ -1,0 +1,247 @@
+import * as THREE from 'three';
+import { ITEMS, type ItemId } from '../config/items';
+import { SOLID } from '../config/blocks';
+import { PLAYER } from '../config/balance';
+import type { LightingUniforms } from '../render/lighting';
+import { createEntityMaterial } from '../render/entityMaterial';
+import { VoxBuilder } from '../render/voxModel';
+import type { TileAtlas } from '../render/textures';
+import { TILE_SIZE } from '../config/tiles';
+import type { Rng } from '../core/rng';
+import type { VoxelWorld } from '../world/VoxelWorld';
+
+interface Drop {
+  item: ItemId;
+  count: number;
+  mesh: THREE.Mesh;
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  age: number;
+  spin: number;
+  magnet: boolean;
+  rejectedNotified: boolean;
+}
+
+/**
+ * Resource drops: miniature blocks (painted from the same pixel tiles as the terrain) or
+ * glowing shards that pop out of a broken block, settle, then fly into the explorer's
+ * backpack when it has room. Drops that cannot fit stay on the ground.
+ */
+export class DropSystem {
+  readonly group = new THREE.Group();
+  private readonly drops: Drop[] = [];
+  private readonly geometries = new Map<ItemId, THREE.BufferGeometry>();
+  private readonly material: THREE.ShaderMaterial;
+  private readonly maxDrops = 48;
+
+  constructor(private readonly world: VoxelWorld, lighting: LightingUniforms, private readonly atlas: TileAtlas) {
+    this.material = createEntityMaterial(lighting, { emissiveScale: 2.4 });
+  }
+
+  get count(): number {
+    return this.drops.length;
+  }
+
+  private geometryFor(item: ItemId): THREE.BufferGeometry {
+    let g = this.geometries.get(item);
+    if (g) return g;
+    const def = ITEMS[item];
+    const b = new VoxBuilder();
+    if (def.icon.kind === 'cube') {
+      miniBlock(b, this.atlas, def.icon.tile, 0.3);
+    } else if (def.icon.kind === 'shard') {
+      b.push().translate(0, -0.18, 0).crystal(0.08, 0.28, 0.12, 6, 0x6ff2ff, 0x29b7d6, 0.85).pop();
+      b.push().translate(0.07, -0.18, 0.03).rotateZ(-0.5).crystal(0.05, 0.16, 0.08, 5, 0x9ff6ff, 0x3fc9e0, 0.85).pop();
+    } else {
+      b.cube(0, 0, 0, 0.3, 0.36, 0.08, 0x59616f);
+      b.cube(0, 0.02, 0.045, 0.16, 0.2, 0.01, 0x48d6ea, 1, false);
+    }
+    g = b.build();
+    this.geometries.set(item, g);
+    return g;
+  }
+
+  spawn(item: ItemId, count: number, x: number, y: number, z: number, rng: Rng): void {
+    if (count <= 0) return;
+    if (this.drops.length >= this.maxDrops) {
+      // Merge into the oldest drop of the same item rather than losing it.
+      const same = this.drops.find((d) => d.item === item);
+      if (same) {
+        same.count += count;
+        return;
+      }
+    }
+    const mesh = new THREE.Mesh(this.geometryFor(item), this.material);
+    mesh.frustumCulled = false;
+    this.group.add(mesh);
+    const a = rng.range(0, Math.PI * 2);
+    const sp = rng.range(0.8, 1.8);
+    this.drops.push({
+      item, count, mesh, x, y, z,
+      vx: Math.cos(a) * sp, vy: rng.range(3, 5), vz: Math.sin(a) * sp,
+      age: 0, spin: rng.range(1.5, 3) * (rng.chance(0.5) ? 1 : -1), magnet: false, rejectedNotified: false,
+    });
+  }
+
+  /**
+   * @param collect called when a drop reaches the explorer; returns how many were accepted.
+   * @param onRejected called once per drop when the backpack cannot take it.
+   */
+  update(
+    dt: number,
+    time: number,
+    px: number,
+    py: number,
+    pz: number,
+    canAccept: (item: ItemId) => boolean,
+    collect: (item: ItemId, count: number) => number,
+    onRejected: (item: ItemId) => void,
+  ): void {
+    const w = this.world;
+    for (let i = this.drops.length - 1; i >= 0; i--) {
+      const d = this.drops[i];
+      d.age += dt;
+      const tx = px;
+      const ty = py + 1.0;
+      const tz = pz;
+      const dx = tx - d.x;
+      const dy = ty - d.y;
+      const dz = tz - d.z;
+      const dist = Math.hypot(dx, dy, dz);
+      if (d.age > 0.35 && dist < PLAYER.pickupRadius) {
+        if (canAccept(d.item)) d.magnet = true;
+        else if (!d.rejectedNotified) {
+          d.rejectedNotified = true;
+          onRejected(d.item);
+        }
+      } else if (dist > PLAYER.pickupRadius * 1.6) {
+        d.magnet = false;
+        d.rejectedNotified = false;
+      }
+      if (d.magnet) {
+        // Accelerate toward the chest; faster the closer it gets.
+        const pull = 22 + 30 / Math.max(0.3, dist);
+        d.vx += (dx / dist) * pull * dt;
+        d.vy += (dy / dist) * pull * dt;
+        d.vz += (dz / dist) * pull * dt;
+        d.vx *= 1 - 6 * dt;
+        d.vy *= 1 - 6 * dt;
+        d.vz *= 1 - 6 * dt;
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+        d.z += d.vz * dt;
+        if (dist < 0.45) {
+          const taken = collect(d.item, d.count);
+          d.count -= taken;
+          if (d.count <= 0) {
+            this.remove(i);
+            continue;
+          }
+          d.magnet = false;
+          d.vy = 2;
+        }
+      } else {
+        d.vy -= 18 * dt;
+        const ny = d.y + d.vy * dt;
+        if (SOLID[w.get(Math.floor(d.x), Math.floor(ny - 0.15), Math.floor(d.z))]) {
+          d.vy = Math.abs(d.vy) > 2 ? -d.vy * 0.3 : 0;
+          d.vx *= 0.5;
+          d.vz *= 0.5;
+          d.y = Math.floor(ny - 0.15) + 1 + 0.15;
+        } else d.y = ny;
+        const nx = d.x + d.vx * dt;
+        const nz = d.z + d.vz * dt;
+        if (!SOLID[w.get(Math.floor(nx), Math.floor(d.y), Math.floor(d.z))]) d.x = nx;
+        else d.vx = 0;
+        if (!SOLID[w.get(Math.floor(d.x), Math.floor(d.y), Math.floor(nz))]) d.z = nz;
+        else d.vz = 0;
+        // Never let a drop get lost inside rock.
+        if (SOLID[w.get(Math.floor(d.x), Math.floor(d.y), Math.floor(d.z))]) d.y = Math.floor(d.y) + 1.15;
+      }
+      const bob = d.magnet ? 0 : Math.sin(time * 3 + i) * 0.04;
+      d.mesh.position.set(d.x, d.y + bob, d.z);
+      d.mesh.rotation.y += d.spin * dt;
+      const appear = Math.min(1, d.age * 8);
+      d.mesh.scale.setScalar(appear * (d.magnet ? Math.max(0.4, Math.min(1, dist)) : 1));
+    }
+  }
+
+  private remove(i: number): void {
+    const d = this.drops[i];
+    this.group.remove(d.mesh);
+    this.drops.splice(i, 1);
+  }
+
+  /** Remove all drops (e.g. on respawn). Returns what was on the ground. */
+  clear(): Partial<Record<ItemId, number>> {
+    const lost: Partial<Record<ItemId, number>> = {};
+    for (const d of this.drops) {
+      lost[d.item] = (lost[d.item] ?? 0) + d.count;
+      this.group.remove(d.mesh);
+    }
+    this.drops.length = 0;
+    return lost;
+  }
+
+  dispose(): void {
+    this.clear();
+    for (const g of this.geometries.values()) g.dispose();
+    this.material.dispose();
+  }
+}
+
+/** A tiny block whose faces are the tile downsampled to 4x4 pixel clusters. */
+export function miniBlock(b: VoxBuilder, atlas: TileAtlas, tile: number, size: number): void {
+  const N = 4;
+  const S = TILE_SIZE;
+  const step = S / N;
+  const sample = (u: number, v: number): number[] => {
+    let r = 0;
+    let g = 0;
+    let bl = 0;
+    for (let y = 0; y < step; y++)
+      for (let x = 0; x < step; x++) {
+        const px = u * step + x;
+        const py = v * step + y;
+        const o = (tile * S * S + py * S + px) * 4;
+        r += atlas.data[o];
+        g += atlas.data[o + 1];
+        bl += atlas.data[o + 2];
+      }
+    const n = step * step;
+    return [r / n, g / n, bl / n];
+  };
+  const h = size / 2;
+  const cell = size / N;
+  // Each face: origin corner, u axis, v axis, normal, brightness.
+  const faces: Array<{ o: [number, number, number]; u: [number, number, number]; v: [number, number, number]; n: [number, number, number]; f: number }> = [
+    { o: [-h, h, h], u: [1, 0, 0], v: [0, 0, -1], n: [0, 1, 0], f: 1.25 },
+    { o: [-h, -h, -h], u: [1, 0, 0], v: [0, 0, 1], n: [0, -1, 0], f: 0.6 },
+    { o: [-h, h, h], u: [1, 0, 0], v: [0, -1, 0], n: [0, 0, 1], f: 1.0 },
+    { o: [h, h, -h], u: [-1, 0, 0], v: [0, -1, 0], n: [0, 0, -1], f: 0.85 },
+    { o: [h, h, h], u: [0, 0, -1], v: [0, -1, 0], n: [1, 0, 0], f: 0.92 },
+    { o: [-h, h, -h], u: [0, 0, 1], v: [0, -1, 0], n: [-1, 0, 0], f: 0.8 },
+  ];
+  for (const face of faces) {
+    const [ux, uy, uz] = face.u;
+    const [vx, vy, vz] = face.v;
+    const cross = [uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx];
+    const ccw = cross[0] * face.n[0] + cross[1] * face.n[1] + cross[2] * face.n[2] > 0;
+    for (let j = 0; j < N; j++)
+      for (let i = 0; i < N; i++) {
+        const c = sample(i, j).map((x) => Math.min(255, x * face.f));
+        const p = (a: number, bb: number): [number, number, number] => [
+          face.o[0] + face.u[0] * a * cell + face.v[0] * bb * cell,
+          face.o[1] + face.u[1] * a * cell + face.v[1] * bb * cell,
+          face.o[2] + face.u[2] * a * cell + face.v[2] * bb * cell,
+        ];
+        // Wind counter-clockwise seen from outside whichever way u and v point.
+        if (ccw) b.quad([p(i, j), p(i + 1, j), p(i + 1, j + 1), p(i, j + 1)], face.n, c, 0);
+        else b.quad([p(i, j + 1), p(i + 1, j + 1), p(i + 1, j), p(i, j)], face.n, c, 0);
+      }
+  }
+}

@@ -1,0 +1,38 @@
+.lab-bar {
+  position: fixed;
+  top: calc(8px + var(--safe-top));
+  left: calc(8px + var(--safe-left));
+  right: calc(8px + var(--safe-right));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  font: 600 13px/1 var(--font);
+}
+.lab-title {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cyan);
+  margin-right: 8px;
+}
+.lab-bar button,
+.lab-back {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--panel-edge);
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+}
+.lab-bar button.active {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+.lab-back {
+  margin-left: auto;
+}

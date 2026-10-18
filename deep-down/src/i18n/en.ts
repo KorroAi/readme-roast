@@ -251,6 +251,8 @@ export const en = {
   'lab.ui': 'UI Readability',
   'lab.character': 'Character',
   'lab.cave': 'Cave Vista',
+  'lab.props': 'Props',
+  'lab.backToGame': 'Back to Game',
 } as const;
 
 export type TextKey = keyof typeof en;

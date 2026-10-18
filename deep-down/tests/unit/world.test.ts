@@ -242,3 +242,16 @@ describe('LanternField', () => {
     expect(at(16, 16, 16 + 12)).toBe(0); // outside radius
   });
 });
+
+import { tileGlowTable } from '../../src/render/terrainMaterial';
+import { TILE } from '../../src/config/tiles';
+
+describe('tile glow table', () => {
+  it('gives every glyph variant the glyph stone glow', () => {
+    const g = tileGlowTable();
+    expect(g[TILE.glyphStone]).toBeGreaterThan(0);
+    expect(g[TILE.glyphStoneB]).toBe(g[TILE.glyphStone]);
+    expect(g[TILE.glyphStoneC]).toBe(g[TILE.glyphStone]);
+    expect(g[TILE.deepSlate]).toBe(0);
+  });
+});

@@ -133,7 +133,7 @@ const DEEP = [0x15181e, 0x1b1f26, 0x21262f, 0x282e38, 0x313844];
 const UMBER = [0x271f1a, 0x30271f, 0x3b3027, 0x473a2f, 0x544538];
 const SOIL = [0x1f1813, 0x271e18, 0x30251d, 0x3a2d23];
 const PEBBLE = [0x34373d, 0x45484f, 0x5a5e66, 0x737882];
-const MOSS = [0x17302c, 0x1f413a, 0x29554b, 0x346a5c, 0x438070];
+const MOSS = [0x11283a, 0x163444, 0x1b4150, 0x22505e, 0x2a5f6c];
 const COPPER = [0x6b3519, 0xa9582a, 0xdb8547, 0xffc58e];
 const VERDIGRIS = [0x21564c, 0x318373, 0x48b29c, 0x86e2cc];
 const IRON = [0x4a3d35, 0x7d6857, 0xb9a38c, 0xece0cf];
@@ -192,7 +192,7 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
     fillRamp(t, rng, MOSS, { cell: 4, jitter: 0.18 });
     for (let i = 0; i < 4; i++) t.set(rng.int(1, 14), rng.int(1, 14), SLATE[2]);
     // bioluminescent spores
-    for (let i = 0; i < 4; i++) t.set(rng.int(1, 14), rng.int(1, 14), 0x8affd8, 200);
+    for (let i = 0; i < 4; i++) t.set(rng.int(1, 14), rng.int(1, 14), 0x6fe8d0, 160);
     bevel(t, 1.06, 0.84);
   },
   mossSide(t, rng) {
@@ -200,7 +200,7 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
     for (let x = 0; x < S; x++) {
       const depth = 2 + Math.floor(rng.next() * 3) + (rng.chance(0.15) ? 3 : 0);
       for (let y = 0; y < depth; y++) t.set(x, y, MOSS[Math.min(4, 4 - y + rng.int(-1, 0))]);
-      if (rng.chance(0.12)) t.set(x, depth, 0x8affd8, 180);
+      if (rng.chance(0.12)) t.set(x, depth, 0x6fe8d0, 150);
     }
     for (let i = 0; i < S; i++) t.shade(i, 0, 1.1);
   },
@@ -321,6 +321,48 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
     }
     t.set(8, 6, GLYPH[2], 255);
     t.set(8, 2, GLYPH[2], 255);
+  },
+  glyphStoneB(t, rng) {
+    brickPattern(t, rng, ANCIENT, 16, 16, MORTAR);
+    // A ring pierced by a vertical stroke, with two dots: the "eye" rune.
+    for (let a = 0; a < 40; a++) {
+      const ang = (a / 40) * Math.PI * 2;
+      const x = Math.round(8 + Math.cos(ang) * 4.2);
+      const y = Math.round(8 + Math.sin(ang) * 4.2);
+      t.set(x, y, GLYPH[1], 255);
+    }
+    for (let y = 2; y <= 13; y++) t.set(8, y, GLYPH[1], 255);
+    t.set(4, 3, GLYPH[2], 255);
+    t.set(12, 3, GLYPH[2], 255);
+    t.set(8, 8, GLYPH[2], 255);
+    for (let y = 3; y <= 13; y++) t.set(9, y, GLYPH[0], 90);
+  },
+  glyphStoneC(t, rng) {
+    brickPattern(t, rng, ANCIENT, 16, 16, MORTAR);
+    // Stacked bars joined by diagonals under a small triangle: the "descent" rune.
+    const strokes: Array<[number, number, number, number]> = [
+      [8, 2, 5, 5], [8, 2, 11, 5], [5, 5, 11, 5], [4, 8, 12, 8], [12, 8, 4, 11], [4, 11, 12, 11], [8, 11, 8, 14],
+    ];
+    for (const [x0, y0, x1, y1] of strokes) {
+      const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      for (let i = 0; i <= n; i++) {
+        const x = Math.round(x0 + ((x1 - x0) * i) / n);
+        const y = Math.round(y0 + ((y1 - y0) * i) / n);
+        t.set(x, y, GLYPH[1], 255);
+        t.set(x + 1, y + 1, GLYPH[0], 90);
+      }
+    }
+    t.set(8, 2, GLYPH[2], 255);
+    t.set(8, 14, GLYPH[2], 255);
+  },
+  ancientBrickCarved(t, rng) {
+    brickPattern(t, rng, ANCIENT, 8, 4, MORTAR);
+    // A recessed horizontal frieze with a repeating notch motif (no glow).
+    for (let x = 0; x < S; x++) {
+      t.set(x, 6, ANCIENT[0]);
+      t.set(x, 9, ANCIENT[4]);
+      for (let y = 7; y <= 8; y++) t.set(x, y, x % 4 === 1 ? ANCIENT[0] : ANCIENT[2]);
+    }
   },
   plank(t, rng) {
     for (let board = 0; board < 4; board++) {

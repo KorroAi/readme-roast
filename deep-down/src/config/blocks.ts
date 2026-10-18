@@ -133,6 +133,19 @@ for (const d of defs) {
   GLOW[d.id] = d.glow;
 }
 
+/**
+ * Optional side-face variants chosen per block position, so repeated materials (glyph
+ * frames, brick walls) do not tile visibly. Up to 4 variants per block.
+ */
+export const SIDE_VARIANTS = new Uint8Array(256 * 4);
+export const VARIANT_COUNT = new Uint8Array(256);
+function setVariants(id: number, tiles: number[]): void {
+  VARIANT_COUNT[id] = tiles.length;
+  tiles.forEach((t, i) => (SIDE_VARIANTS[id * 4 + i] = t));
+}
+setVariants(B.GLYPH_STONE, [TILE.glyphStone, TILE.glyphStoneB, TILE.glyphStoneC]);
+setVariants(B.ANCIENT_BRICK, [TILE.ancientBrick, TILE.ancientBrick, TILE.ancientBrick, TILE.ancientBrickCarved]);
+
 export const isEmitter = (id: number): boolean => (EMIT_R[id] | EMIT_G[id] | EMIT_B[id]) !== 0;
 
 export function blockDef(id: number): BlockDef {
