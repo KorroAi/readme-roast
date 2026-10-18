@@ -75,6 +75,18 @@ describe('PlayerController', () => {
     expect(p.grounded).toBe(true);
   });
 
+  it('reports every landing (no fall is silently absorbed by the ground probe)', () => {
+    const w = floorWorld();
+    let missed = 0;
+    for (let k = 0; k < 230; k++) {
+      const p = new PlayerController(w);
+      p.teleport(8.5, 8 + k * 0.013, 16.5);
+      const r = run(p, 1.5, 0, 0);
+      if (!(r.landed > 0)) missed++;
+    }
+    expect(missed).toBe(0);
+  });
+
   it('never tunnels through the floor at max fall speed', () => {
     const w = floorWorld();
     const p = new PlayerController(w);

@@ -25,8 +25,20 @@ export class DesktopInput {
     on(window, 'blur', () => {
       this.keys.clear();
       this.input.mining = false;
+      this.input.jumpHeld = false;
+      this.rightDrag = false;
       this.updateMove();
     });
+    // Once the pointer is captured, aim from the crosshair (the click that captured it set a cursor aim).
+    const onLock = () => {
+      if (this.pointerLocked) {
+        this.input.aimX = 0;
+        this.input.aimY = 0;
+        this.input.aimFromPointer = false;
+      }
+    };
+    document.addEventListener('pointerlockchange', onLock);
+    this.disposers.push(() => document.removeEventListener('pointerlockchange', onLock));
     on(canvas, 'mousedown', (e) => this.onMouseDown(e));
     on(window, 'mouseup', (e) => this.onMouseUp(e));
     on(window, 'mousemove', (e) => this.onMouseMove(e));
@@ -104,6 +116,7 @@ export class DesktopInput {
       this.input.lastDevice = 'mouse';
       return;
     }
+    if (this.rightDrag && (e.buttons & 2) === 0) this.rightDrag = false;
     if (this.rightDrag) {
       this.input.lookDX += e.clientX - this.lastX;
       this.input.lookDY += e.clientY - this.lastY;

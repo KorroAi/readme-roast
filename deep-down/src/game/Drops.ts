@@ -24,6 +24,10 @@ interface Drop {
   spin: number;
   magnet: boolean;
   rejectedNotified: boolean;
+  /** Last position known to be in open space. */
+  freeX: number;
+  freeY: number;
+  freeZ: number;
 }
 
 /**
@@ -84,6 +88,7 @@ export class DropSystem {
       item, count, mesh, x, y, z,
       vx: Math.cos(a) * sp, vy: rng.range(3, 5), vz: Math.sin(a) * sp,
       age: 0, spin: rng.range(1.5, 3) * (rng.chance(0.5) ? 1 : -1), magnet: false, rejectedNotified: false,
+      freeX: x, freeY: y, freeZ: z,
     });
   }
 
@@ -147,7 +152,13 @@ export class DropSystem {
       } else {
         d.vy -= 18 * dt;
         const ny = d.y + d.vy * dt;
-        if (SOLID[w.get(Math.floor(d.x), Math.floor(ny - 0.15), Math.floor(d.z))]) {
+        const fx = Math.floor(d.x);
+        const fz = Math.floor(d.z);
+        if (d.vy > 0 && SOLID[w.get(fx, Math.floor(ny + 0.15), fz)]) {
+          // Ceiling: stop rising just below it (drops pop out of walls and ceilings constantly).
+          d.vy = 0;
+          d.y = Math.min(d.y, Math.floor(ny + 0.15) - 0.16);
+        } else if (d.vy <= 0 && SOLID[w.get(fx, Math.floor(ny - 0.15), fz)]) {
           d.vy = Math.abs(d.vy) > 2 ? -d.vy * 0.3 : 0;
           d.vx *= 0.5;
           d.vz *= 0.5;
@@ -159,8 +170,17 @@ export class DropSystem {
         else d.vx = 0;
         if (!SOLID[w.get(Math.floor(d.x), Math.floor(d.y), Math.floor(nz))]) d.z = nz;
         else d.vz = 0;
-        // Never let a drop get lost inside rock.
-        if (SOLID[w.get(Math.floor(d.x), Math.floor(d.y), Math.floor(d.z))]) d.y = Math.floor(d.y) + 1.15;
+        // Never let a drop get lost inside rock: fall back to the last open position it had.
+        if (SOLID[w.get(Math.floor(d.x), Math.floor(d.y), Math.floor(d.z))]) {
+          d.x = d.freeX;
+          d.y = d.freeY;
+          d.z = d.freeZ;
+          d.vx = d.vy = d.vz = 0;
+        } else {
+          d.freeX = d.x;
+          d.freeY = d.y;
+          d.freeZ = d.z;
+        }
       }
       const bob = d.magnet ? 0 : Math.sin(time * 3 + i) * 0.04;
       d.mesh.position.set(d.x, d.y + bob, d.z);

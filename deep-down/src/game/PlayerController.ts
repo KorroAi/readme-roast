@@ -163,8 +163,18 @@ export class PlayerController {
         this.vy = 0;
       }
     }
-    // Stay grounded when standing still on a surface (probe just below the feet).
-    if (!groundedNow && this.vy <= 0 && this.collides(this.x, this.y - 0.05, this.z)) groundedNow = true;
+    // Floor within 5 cm below the feet: settle onto it. If we were airborne this is a landing,
+    // so it must report the fall speed (otherwise fall damage would be skipped at random).
+    if (!groundedNow && this.vy <= 0 && this.collides(this.x, this.y - 0.05, this.z)) {
+      groundedNow = true;
+      if (!wasGrounded && !landed) {
+        landed = true;
+        landSpeed = -this.vy;
+      }
+      const floorY = Math.floor(this.y - 0.05) + 1;
+      if (floorY <= this.y + 1e-6 && !this.collides(this.x, floorY, this.z)) this.y = floorY;
+      this.vy = 0;
+    }
     this.grounded = groundedNow;
     if (landed) ev.landedSpeed = landSpeed;
 

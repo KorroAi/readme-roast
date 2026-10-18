@@ -75,34 +75,34 @@ export class CameraRig {
     // Backward vector (camera looks along -back).
     this.dir.set(Math.sin(this.yaw) * cy, -Math.sin(this.pitch), Math.cos(this.yaw) * cy);
     const right = this.tmp.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    const shoulderX = right.x * this.shoulder;
-    const shoulderZ = right.z * this.shoulder;
 
-    // Collision: cast from the pivot (shifted to the shoulder) toward the desired position.
-    const ox = this.pivot.x + shoulderX * 0.6;
+    // 1) Shoulder offset, shortened if a wall is right beside the explorer.
+    let lateral = this.shoulder;
+    const side = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, right.x, 0, right.z, this.shoulder + 0.3);
+    if (side) lateral = Math.max(0, Math.min(lateral, side.distance - 0.3));
+    const ox = this.pivot.x + right.x * lateral;
     const oy = this.pivot.y;
-    const oz = this.pivot.z + shoulderZ * 0.6;
+    const oz = this.pivot.z + right.z * lateral;
+
+    // 2) Boom: cast a small bundle of rays back from the (open) shoulder point.
     let allowed = this.maxDistance;
-    const offsets = [0, 0.18, -0.18];
-    for (const off of offsets) {
-      for (const offY of [0, 0.15]) {
-        const sx = ox + right.x * off;
-        const sz = oz + right.z * off;
-        const hit = raycastVoxels(this.world, sx, oy + offY, sz, this.dir.x, this.dir.y, this.dir.z, this.maxDistance + 0.4);
+    for (const off of [0, 0.2, -0.2]) {
+      for (const offY of [0, 0.18, -0.12]) {
+        const hit = raycastVoxels(this.world, ox + right.x * off, oy + offY, oz + right.z * off, this.dir.x, this.dir.y, this.dir.z, this.maxDistance + 0.4);
         if (hit) allowed = Math.min(allowed, hit.distance - 0.3);
       }
     }
-    allowed = Math.max(0.35, allowed);
-    // Pull in fast, ease out slowly.
-    this.distance = allowed < this.distance ? damp(this.distance, allowed, 30, dt) : damp(this.distance, allowed, 3, dt);
+    allowed = Math.max(0, allowed);
+    // Snap in at once (never let rock come between camera and explorer); ease back out slowly.
+    this.distance = allowed < this.distance ? allowed : damp(this.distance, allowed, 3, dt);
 
-    const shoulderFactor = clamp((this.distance - 0.6) / 2.5, 0, 1);
     const cam = this.camera;
-    cam.position.set(
-      ox + shoulderX * 0.4 * shoulderFactor + this.dir.x * this.distance,
-      oy + this.dir.y * this.distance,
-      oz + shoulderZ * 0.4 * shoulderFactor + this.dir.z * this.distance,
-    );
+    cam.position.set(ox + this.dir.x * this.distance, oy + this.dir.y * this.distance, oz + this.dir.z * this.distance);
+    // 3) Last guard: if the lens point itself is inside rock (ray grazing a corner), pull in.
+    for (let i = 0; i < 24 && this.distance > 0 && this.world.isSolidAt(cam.position.x, cam.position.y, cam.position.z); i++) {
+      this.distance = Math.max(0, this.distance - 0.15);
+      cam.position.set(ox + this.dir.x * this.distance, oy + this.dir.y * this.distance, oz + this.dir.z * this.distance);
+    }
 
     // Shake (decaying trauma, smooth noise-like offsets).
     this.shakeTime += dt;
