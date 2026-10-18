@@ -246,9 +246,21 @@ export class Game {
     this.ui.showScreen('menu');
     this.audio.setPaused(false);
     // Stage the explorer on the ledge overlooking the Hollow, like a title card.
+    // Body forward is (sin(yaw), cos(yaw)): 0.85 looks across the chamber toward the stairs and
+    // the temple. Walk the explorer out to the very edge of the ledge for the title composition.
     const ledge = this.session.layout.landmarks.ledge;
-    this.player.teleport(ledge[0] + 4.5, ledge[1], ledge[2] + 4, -2.3 + Math.PI);
-    this.player.yaw = 2.3;
+    const yaw = 0.98;
+    const w = this.session.world;
+    let ex = ledge[0] + 0.5;
+    let ez = ledge[2] + 0.5;
+    for (let i = 0; i < 40; i++) {
+      const nx = ex + Math.sin(yaw) * 0.25;
+      const nz = ez + Math.cos(yaw) * 0.25;
+      if (!w.isSolid(Math.floor(nx + Math.sin(yaw) * 0.9), Math.floor(ledge[1]) - 1, Math.floor(nz + Math.cos(yaw) * 0.9))) break;
+      ex = nx;
+      ez = nz;
+    }
+    this.player.teleport(ex, ledge[1], ez, yaw);
     this.menuTime = 0;
   }
 
@@ -282,6 +294,7 @@ export class Game {
 
   private startPlaying(): void {
     this.mode = 'playing';
+    this.cameraRig.camera.fov = 62;
     this.ui.showScreen('none');
     this.ui.setGameplayActive(true);
     this.audio.setPaused(false);
@@ -449,13 +462,14 @@ export class Game {
   private updateMenu(dt: number): void {
     this.menuTime += dt;
     const ledge = this.session.layout.landmarks.ledge;
-    const p = this.player;
-    // Slow cinematic drift behind the explorer on the ledge.
-    const a = -0.55 + Math.sin(this.menuTime * 0.06) * 0.35;
+    // A slow cinematic drift just past the ledge rim: pillars, the glimmerfall, the stairs and
+    // the sealed gate below. (The explorer waits on the ledge, out of frame.)
+    const t = this.menuTime;
     const cam = this.cameraRig.camera;
-    const dist = 6.5;
-    cam.position.set(p.x - Math.sin(p.yaw + a) * dist, ledge[1] + 3.2 + Math.sin(this.menuTime * 0.1) * 0.4, p.z - Math.cos(p.yaw + a) * dist);
-    cam.lookAt(p.x + Math.sin(p.yaw) * 14, ledge[1] - 6, p.z + Math.cos(p.yaw) * 14);
+    cam.position.set(ledge[0] + 5 + Math.sin(t * 0.05) * 1.2, ledge[1] + 3.5 + Math.sin(t * 0.08) * 0.4, ledge[2] + 6 + Math.cos(t * 0.05) * 1.2);
+    cam.rotation.order = 'YXZ';
+    cam.rotation.set(-0.5 + Math.sin(t * 0.06) * 0.04, -2.2 + Math.sin(t * 0.045) * 0.16, 0);
+    cam.fov = 68;
     cam.aspect = this.renderer.aspect;
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
