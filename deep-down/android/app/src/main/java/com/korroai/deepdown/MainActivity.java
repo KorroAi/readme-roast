@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.view.View;
 import android.view.WindowManager;
+import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
 import android.webkit.WebChromeClient;
 import android.webkit.WebResourceRequest;
@@ -47,7 +48,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        // The screen is kept on only while the game says it is being played (see Bridge).
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN);
 
         web = new WebView(this);
         web.setBackgroundColor(0xff05080c);
@@ -60,19 +62,41 @@ public class MainActivity extends Activity {
         s.setAllowContentAccess(false);
         s.setSupportZoom(false);
         s.setBuiltInZoomControls(false);
+        // The UI has its own Large Text setting sized for this layout; don't let the system font
+        // scale enlarge text inside fixed-size buttons and panels.
+        s.setTextZoom(100);
+        web.addJavascriptInterface(new Bridge(), "DeepDownAndroid");
         web.setWebChromeClient(new WebChromeClient());
         web.setWebViewClient(new AssetClient());
         setContentView(web);
         hideSystemUi();
-        if (savedInstanceState != null) web.restoreState(savedInstanceState);
-        else web.loadUrl("https://" + HOST + "/index.html");
+        if (savedInstanceState == null || web.restoreState(savedInstanceState) == null) {
+            web.loadUrl("https://" + HOST + "/index.html");
+        }
+    }
+
+    /** Called from the page (window.DeepDownAndroid). Only bundled local pages are ever loaded. */
+    private final class Bridge {
+        @JavascriptInterface
+        public void keepScreenOn(final boolean on) {
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    if (on) getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                    else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+                }
+            });
+        }
     }
 
     private final class AssetClient extends WebViewClient {
         @Override
         public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
             Uri url = request.getUrl();
-            if (!HOST.equals(url.getHost())) {
+            String scheme = url.getScheme();
+            // In-memory URLs (generated icons are data: PNGs) never touch the network.
+            if ("data".equals(scheme) || "blob".equals(scheme)) return null;
+            if (!"https".equals(scheme) || !HOST.equals(url.getHost())) {
                 // The game is fully offline: refuse anything that is not a bundled file.
                 return new WebResourceResponse("text/plain", "utf-8", 403, "Forbidden", null, empty());
             }
@@ -126,10 +150,14 @@ public class MainActivity extends Activity {
     public void onBackPressed() {
         // Let the game handle Back (pause / close a screen); exit only from the main menu.
         // Anonymous class rather than a lambda: the dx dexer used for local builds predates desugaring.
-        web.evaluateJavascript("(window.deepDownBack ? window.deepDownBack() : false)", new ValueCallback<String>() {
+        // The page answers true (handled), false (at the main menu: exit) or nothing (a page
+        // without a handler, e.g. mid-navigation): then go back in history if possible.
+        web.evaluateJavascript("(window.deepDownBack ? window.deepDownBack() : null)", new ValueCallback<String>() {
             @Override
             public void onReceiveValue(String value) {
-                if (!"true".equals(value)) MainActivity.super.onBackPressed();
+                if ("true".equals(value)) return;
+                if (!"false".equals(value) && web.canGoBack()) web.goBack();
+                else MainActivity.super.onBackPressed();
             }
         });
     }

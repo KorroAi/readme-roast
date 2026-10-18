@@ -98,6 +98,7 @@ export class Game {
   fps = 0;
   frameMs = 0;
   private atCamp = false;
+  private keepAwake = false;
   /** A New Game / Continue load is in progress (Back and repeated taps are ignored). */
   private loading = false;
   private autosaveTimer: number = SAVE.autosaveSeconds;
@@ -489,6 +490,12 @@ export class Game {
 
     this.render(dt);
     consumeEdges(this.input);
+    const awake = this.mode === 'playing';
+    if (awake !== this.keepAwake) {
+      this.keepAwake = awake;
+      // Android shell bridge: the screen may sleep on menus, pause and death screens.
+      (window as unknown as { DeepDownAndroid?: { keepScreenOn(on: boolean): void } }).DeepDownAndroid?.keepScreenOn(awake);
+    }
     this.frameMs = performance.now() - t0;
     this.fpsFrames++;
     this.fpsTime += dt;

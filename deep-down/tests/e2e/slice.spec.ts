@@ -52,7 +52,8 @@ async function mineWithTouch(page: Page, touch: Touch, block: [number, number, n
     if ((await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === B.AIR) break;
   }
   await touch.up();
-  return page.evaluate(() => window.__DD__.events('block:hit').length);
+  // Hits on the target only (rock mined through on the way is not the pickaxe comparison).
+  return page.evaluate(([x, y, z]) => window.__DD__.events('block:hit').filter((e) => e.payload.x === x && e.payload.y === y && e.payload.z === z).length, block);
 }
 
 test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }) => {

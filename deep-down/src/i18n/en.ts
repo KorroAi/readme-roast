@@ -263,6 +263,7 @@ export const en = {
 
   // Errors (player-facing)
   'error.webgl': 'Your device does not support the graphics features DEEP DOWN needs (WebGL 2).',
+  'error.webviewOutdated': 'DEEP DOWN needs a newer browser engine. Please update Android System WebView (or Chrome) and try again.',
   'error.generic': 'Something went wrong. Please restart the game.',
   'error.saveCorrupt': 'Your latest save was damaged. A backup was restored.',
   'error.saveNewer': 'This save was made by a newer version of DEEP DOWN. Update the game to continue it.',
@@ -283,6 +284,22 @@ export const en = {
   'lab.cave': 'Cave Vista',
   'lab.props': 'Props',
   'lab.backToGame': 'Back to Game',
+  'lab.backToLab': 'Visual Lab',
+  'lab.uiScene': 'Scene',
+  'lab.scene.menu': 'Main menu',
+  'lab.scene.loading': 'Loading',
+  'lab.scene.hud': 'HUD',
+  'lab.scene.hudLow': 'HUD: danger',
+  'lab.scene.discovery': 'Discovery',
+  'lab.scene.inventory': 'Backpack',
+  'lab.scene.storage': 'Camp storage',
+  'lab.scene.equipment': 'Equipment',
+  'lab.scene.journal': 'Journal',
+  'lab.scene.crafting': 'Workbench',
+  'lab.scene.pause': 'Pause',
+  'lab.scene.settings': 'Settings',
+  'lab.scene.confirm': 'Confirm',
+  'lab.scene.death': 'Death',
 } as const;
 
 export type TextKey = keyof typeof en;

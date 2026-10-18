@@ -13,6 +13,23 @@
   <body>
     <canvas id="game"></canvas>
     <div id="ui"></div>
+    <script>
+      // ES5 on purpose: runs even where the game bundle cannot parse (WebView older than Chromium 80).
+      (function () {
+        var ok = true;
+        try {
+          new Function('var a = null; return a?.b ?? 1;')();
+        } catch (e) {
+          ok = false;
+        }
+        if (ok) return;
+        var el = document.createElement('div');
+        el.className = 'fatal';
+        el.setAttribute('role', 'alert');
+        el.textContent = '%DD_WEBVIEW_OUTDATED%';
+        document.body.appendChild(el);
+      })();
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

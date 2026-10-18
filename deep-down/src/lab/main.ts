@@ -32,7 +32,7 @@ function boot(): void {
   }
   // UI readability lives in the UI sandbox: the real HUD and screens over a cave backdrop.
   const uiLab = document.createElement('a');
-  uiLab.href = './src/ui/dev/sandbox.html';
+  uiLab.href = './src/ui/dev/sandbox.html?lab=1&scene=hud';
   uiLab.className = 'lab-link';
   uiLab.textContent = t('lab.ui');
   bar.appendChild(uiLab);
@@ -42,6 +42,11 @@ function boot(): void {
   back.textContent = t('lab.backToGame');
   bar.appendChild(back);
   if (params.get('chrome') !== '0') ui.appendChild(bar);
+  // Android Back (android/MainActivity) returns to the game.
+  (window as unknown as { deepDownBack: () => boolean }).deepDownBack = () => {
+    location.href = './index.html';
+    return true;
+  };
 
   function select(v: LabView): void {
     lab.setView(v);

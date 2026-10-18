@@ -2,7 +2,7 @@ import { ITEM_IDS, type ItemId } from '../../config/items';
 import { RECIPES, type RecipeId } from '../../config/recipes';
 import { EventBus, type GameEvents } from '../../core/events';
 import { Noise } from '../../core/noise';
-import { t } from '../../i18n';
+import { t, type TextKey } from '../../i18n';
 import { consumeEdges, createInputState } from '../../input/types';
 import { DEFAULT_SETTINGS, type ItemCounts, type Settings, type SlotData } from '../../save/types';
 import type { HudState, InventoryView, ScreenId, UiActions } from '../types';
@@ -291,6 +291,47 @@ actions.updateSettings({
   highContrast: params.get('contrast') === '1',
   leftHanded: params.get('lefty') === '1',
 });
+if (params.get('lab') === '1') labBar();
+
+/** Visual Lab mode (?lab=1): a scene picker with the accessibility variants, for judging readability. */
+function labBar(): void {
+  const scenes: Array<[string, TextKey]> = [
+    ['menu', 'lab.scene.menu'], ['loading', 'lab.scene.loading'], ['hud', 'lab.scene.hud'], ['hud:low', 'lab.scene.hudLow'],
+    ['discovery', 'lab.scene.discovery'], ['inventory', 'lab.scene.inventory'], ['inventory:storage', 'lab.scene.storage'],
+    ['inventory:equipment', 'lab.scene.equipment'], ['inventory:journal', 'lab.scene.journal'], ['crafting', 'lab.scene.crafting'],
+    ['pause', 'lab.scene.pause'], ['settings', 'lab.scene.settings'], ['confirm', 'lab.scene.confirm'], ['death', 'lab.scene.death'],
+  ];
+  const bar = document.createElement('div');
+  bar.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:9999;display:flex;gap:8px;align-items:center;padding:6px 8px;border-radius:8px;background:rgba(9,14,22,0.85);color:#e8eef6;font:600 13px system-ui,sans-serif';
+  const pick = document.createElement('select');
+  pick.setAttribute('aria-label', t('lab.uiScene'));
+  for (const [id, key] of scenes) pick.add(new Option(t(key), id, false, id === (params.get('scene') ?? 'menu')));
+  const toggle = (label: string, key: 'large' | 'contrast') => {
+    const l = document.createElement('label');
+    const c = document.createElement('input');
+    c.type = 'checkbox';
+    c.checked = params.get(key) === '1';
+    l.append(c, ' ', label);
+    c.addEventListener('change', go);
+    return { l, c };
+  };
+  const large = toggle(t('settings.textSize.large'), 'large');
+  const contrast = toggle(t('settings.highContrast'), 'contrast');
+  function go(): void {
+    const url = new URL(location.href);
+    url.searchParams.set('scene', pick.value);
+    url.searchParams.set('large', large.c.checked ? '1' : '0');
+    url.searchParams.set('contrast', contrast.c.checked ? '1' : '0');
+    location.replace(url);
+  }
+  pick.addEventListener('change', go);
+  const back = document.createElement('a');
+  back.href = '../../../visuallab.html';
+  back.textContent = t('lab.backToLab');
+  back.style.color = 'inherit';
+  bar.append(pick, large.l, contrast.l, back);
+  document.body.appendChild(bar);
+}
 
 /** A painted stand-in for the 3D cave so contrast and readability can be judged. */
 function paintCave(canvas: HTMLCanvasElement): void {

@@ -22,6 +22,12 @@ mkdir -p "$OUT/compiled" "$OUT/gen" "$OUT/classes" "$OUT/assets/www"
 
 echo "== web build"
 if [ "${SKIP_WEB_BUILD:-0}" != "1" ]; then (cd "$ROOT" && npm run build --silent); fi
+# Refuse to package a stale or placeholder build: every script/style index.html loads must exist.
+[ -f "$ROOT/dist/index.html" ] || { echo "dist/index.html missing: run npm run build"; exit 1; }
+REFS="$(grep -oE '(src|href)="\./assets/[^"]+"' "$ROOT/dist/index.html" | sed -E 's/^(src|href)="\.\///; s/"$//')"
+[ -n "$REFS" ] || { echo "dist/index.html references no bundled assets (placeholder build?)"; exit 1; }
+for f in $REFS; do [ -f "$ROOT/dist/$f" ] || { echo "dist is stale: missing $f"; exit 1; }; done
+ls "$ROOT"/dist/assets/zoneWorker-*.js >/dev/null 2>&1 || { echo "dist is missing the world-generation worker"; exit 1; }
 cp -R "$ROOT/dist/." "$OUT/assets/www/"
 
 echo "== resources"
