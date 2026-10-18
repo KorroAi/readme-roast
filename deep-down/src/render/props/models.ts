@@ -543,8 +543,9 @@ function hangingLantern(m: ModelBuilder, _rng: Rng, o: PropModelOptions): void {
       const y = y0 + i * link;
       const yt = i === n - 1 ? top - 0.03 : y + link + 0.012;
       b.push().rotateY(i % 2 === 0 ? 0 : Math.PI / 2);
-      b.box(-0.024, y, -0.007, -0.012, yt, 0.007, IRON.mid);
-      b.box(0.012, y, -0.007, 0.024, yt, 0.007, IRON.mid);
+      // Side bars run between the end bars (not through them) so their faces never overlap.
+      b.box(-0.024, y + 0.012, -0.007, -0.012, yt - 0.012, 0.007, IRON.mid);
+      b.box(0.012, y + 0.012, -0.007, 0.024, yt - 0.012, 0.007, IRON.mid);
       b.box(-0.024, y, -0.007, 0.024, y + 0.012, 0.007, IRON.light);
       b.box(-0.024, yt - 0.012, -0.007, 0.024, yt, 0.007, IRON.light);
       b.pop();
@@ -636,7 +637,7 @@ function tablet(m: ModelBuilder, rng: Rng, o: PropModelOptions): void {
       if (rng.chance(0.45)) {
         const tx = rng.chance(0.5) ? x : x1 - 0.016;
         const up = rng.chance(0.5);
-        g.box(tx, up ? y : y - 0.03, zf, tx + 0.016, up ? y + 0.046 : y + 0.016, zf + 0.006, c, 0.8);
+        g.box(tx, up ? y : y - 0.03, zf, tx + 0.016, up ? y + 0.046 : y + 0.016, zf + 0.006, c, bright ? 0.95 : 0.8);
       }
       x = x1 + rng.range(0.02, 0.035);
     }
@@ -717,7 +718,8 @@ function ropeCoil(m: ModelBuilder, rng: Rng, o: PropModelOptions): void {
   for (let i = 0; i < 6; i++) {
     const nx = x + Math.cos(a) * 0.08;
     const nz = z + Math.sin(a) * 0.08;
-    beam(b, x, 0.024, z, nx, 0.024, nz, 0.05, 0.046, i % 2 ? ROPE.mid : ROPE.light);
+    // Alternate segments are a hair thicker so the overlapping joints never share a plane.
+    beam(b, x, 0.024, z, nx, 0.024, nz, 0.05, i % 2 ? 0.046 : 0.0476, i % 2 ? ROPE.mid : ROPE.light);
     x = nx;
     z = nz;
     a += rng.range(-0.5, 0.5);

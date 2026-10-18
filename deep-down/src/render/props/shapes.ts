@@ -84,17 +84,24 @@ export interface RingOptions {
   emissive?: number;
 }
 
+/** Height step between neighbouring ring segments: invisible, but well above depth precision. */
+const RING_LIFT = 0.0008;
+
 /**
  * A closed ring of boxes around +Y (barrel staves, hoops, rope turns). Segments are just wide
- * enough at their outer face to close the gaps between neighbours.
+ * enough at their outer face to close the gaps between neighbours, so neighbours overlap near
+ * the inner face; every other segment is a hair taller so those overlaps never share a plane
+ * (coplanar faces of different colors would z-fight).
  */
 export function ring(b: VoxBuilder, o: RingOptions): void {
   const width = 2 * (o.radius + o.thickness / 2) * Math.tan(Math.PI / o.sides) * 1.02;
   for (let i = 0; i < o.sides; i++) {
     const a = (i / o.sides) * Math.PI * 2 + (o.phase ?? 0);
+    // With an odd count the last segment neighbours segment 0 too, so it gets a third height.
+    const lift = RING_LIFT * (i % 2 === 1 ? 1 : i === o.sides - 1 ? 2 : 0);
     b.push()
       .rotateY(-a)
-      .box(o.radius - o.thickness / 2, o.y0, -width / 2, o.radius + o.thickness / 2, o.y1, width / 2, o.color(i), o.emissive ?? 0)
+      .box(o.radius - o.thickness / 2, o.y0 - lift, -width / 2, o.radius + o.thickness / 2, o.y1 + lift, width / 2, o.color(i), o.emissive ?? 0)
       .pop();
   }
 }

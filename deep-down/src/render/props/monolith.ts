@@ -47,7 +47,9 @@ export function buildMonolith(m: ModelBuilder, rng: Rng): void {
     for (let side = 0; side < 4; side++) {
       const front = side === 0;
       L.push().rotateY((side * Math.PI) / 2);
-      cornice(b, rng, t.hw, t.y1, front && ti < PLINTHS);
+      // Cornices stand a little proud of the tier top, adjacent sides at different heights, so
+      // no two ledge faces share a plane where they overlap (that z-fights at a distance).
+      cornice(b, rng, t.hw, t.y1 + 0.03 + 0.02 * (side % 2), front && ti < PLINTHS);
       if (ti < PLINTHS) plinthFace(b, g, rng, t.hw, t.y0, t.y1, front);
       else if (ti === 3) shaftFace(b, g, t.hw, t.y0, t.y1, front, [-1, 0, 1], [9.3, 12.3, 14.5], [11.0, 13.5], 2.0);
       else if (ti === 4) shaftFace(b, g, t.hw, t.y0, t.y1, false, [-0.7, 0.7], [17.2, 19.4], [18.3], 1.6);
@@ -147,9 +149,10 @@ function cornice(b: VoxBuilder, rng: Rng, hw: number, y1: number, notch: boolean
     const fallen = rng.chance(0.12);
     if (fallen) continue;
     if (notch && x0 < STAIR_HALF && x1 > -STAIR_HALF) {
-      // Split around the stair notch.
-      if (x0 < -STAIR_HALF) b.box(x0, y1 - 0.35, hw - 0.3, -STAIR_HALF, y1, hw + 0.25, vary(BRICK.light, rng, 0.08));
-      if (x1 > STAIR_HALF) b.box(STAIR_HALF, y1 - 0.35, hw - 0.3, x1, y1, hw + 0.25, vary(BRICK.light, rng, 0.08));
+      // Split around the stair notch, capping its edges a little proud of the notch walls.
+      const cap = STAIR_HALF - 0.03;
+      if (x0 < -STAIR_HALF) b.box(x0, y1 - 0.35, hw - 0.3, -cap, y1, hw + 0.25, vary(BRICK.light, rng, 0.08));
+      if (x1 > STAIR_HALF) b.box(cap, y1 - 0.35, hw - 0.3, x1, y1, hw + 0.25, vary(BRICK.light, rng, 0.08));
       continue;
     }
     b.box(x0, y1 - 0.35, hw - 0.3, x1, y1, hw + 0.25, vary(BRICK.light, rng, 0.08));
@@ -199,8 +202,9 @@ function shaftFace(
 ): void {
   for (const sx of [-1, 1]) {
     const x = sx * ribX;
-    b.box(x - 0.25, y0, hw - 0.1, x + 0.25, y1, hw + 0.25, BRICK.mid);
-    g.box(x - 0.07, y0 + 0.4, hw + 0.25, x + 0.07, y1 - 0.6, hw + 0.27, CYAN.mid, 0.85);
+    // Ribs stop just behind the cornice front and below the tier top so they never share a face.
+    b.box(x - 0.25, y0, hw - 0.1, x + 0.25, y1 - 0.02, hw + 0.22, BRICK.mid);
+    g.box(x - 0.07, y0 + 0.4, hw + 0.22, x + 0.07, y1 - 0.6, hw + 0.24, CYAN.mid, 0.85);
   }
   const bay = ribX - 0.3;
   const outerX = (ribX + 0.3 + hw - 0.45) / 2;

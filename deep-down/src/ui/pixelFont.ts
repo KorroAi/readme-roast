@@ -53,7 +53,7 @@ const GLYPHS: Record<string, readonly string[]> = {
 };
 
 /** The title's O is a cut crystal: the ancient builders' cyan, set into the logo. */
-const CRYSTAL_O: readonly string[] = ['..#..', '.###.', '##.##', '#...#', '##.##', '.###.', '..#..'];
+const CRYSTAL_O: readonly string[] = ['.###.', '##.##', '#...#', '#...#', '#...#', '##.##', '.###.'];
 
 export const hasGlyph = (ch: string): boolean => ch.toUpperCase() in GLYPHS;
 
@@ -193,6 +193,17 @@ export function renderPixelTitle(canvas: HTMLCanvasElement, text: string, cssWid
     if (!has(cell.x + 1, cell.y)) {
       ctx.fillStyle = cell.crystal ? 'rgba(6, 50, 70, 0.3)' : 'rgba(25, 60, 105, 0.28)';
       ctx.fillRect(x + c - bevel, y, bevel, c);
+    }
+  }
+
+  // Crystal facets: the left half catches the light, the right half falls into shade.
+  const crystalCells = layout.cells.filter((cell) => cell.crystal);
+  if (crystalCells.length) {
+    const mid = (Math.min(...crystalCells.map((cell) => cell.x)) + Math.max(...crystalCells.map((cell) => cell.x))) / 2;
+    for (const cell of crystalCells) {
+      if (cell.x === mid) continue;
+      ctx.fillStyle = cell.x < mid ? 'rgba(255, 255, 255, 0.22)' : 'rgba(4, 40, 60, 0.28)';
+      ctx.fillRect(px(cell), py(cell), c, c);
     }
   }
 

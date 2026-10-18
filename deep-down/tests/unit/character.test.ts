@@ -156,13 +156,50 @@ describe('ExplorerModel', () => {
       e.root.position.z += 4.6 / 60;
       e.update(1 / 60, state({ speed: 4.6, time: t }));
     }
-    for (let i = 0; i < 6; i++) {
+    // Peak swing over the half second after stopping (independent of the walk phase at the stop).
+    let peak = 0;
+    for (let i = 0; i < 30; i++) {
       t += 1 / 60;
       e.update(1 / 60, state({ time: t }));
+      peak = Math.max(peak, Math.abs(pivot.rotation.x));
     }
-    expect(Math.abs(pivot.rotation.x)).toBeGreaterThan(0.02);
+    expect(peak).toBeGreaterThan(0.02);
     run(e, 4, {}, t);
     expect(Math.abs(pivot.rotation.x)).toBeLessThan(0.02);
+  });
+
+  it('keeps the lantern swing slight at the player\'s real acceleration, turning and walking', () => {
+    const e = new ExplorerModel(lighting());
+    const pivot = e.root.getObjectByName('lanternPivot')!;
+    const angle = () => Math.max(Math.abs(pivot.rotation.x), Math.abs(pivot.rotation.z));
+    const dt = 1 / 60;
+    let t = 0;
+    let v = 0;
+    let peak = 0;
+    let walking = 0;
+    // Start at the player's ground acceleration (38 m/s^2), walk 2 s, stop just as hard.
+    for (let i = 0; i < 60 * 3; i++) {
+      t += dt;
+      const target = t < 2 ? 4.6 : 0;
+      v = target > v ? Math.min(target, v + 38 * dt) : Math.max(target, v - 38 * dt);
+      e.root.position.z += v * dt;
+      e.update(dt, state({ speed: v, time: t }));
+      peak = Math.max(peak, angle());
+      if (t > 1 && t < 2) walking = Math.max(walking, angle());
+    }
+    expect(peak).toBeGreaterThan(0.05);
+    expect(peak).toBeLessThan(0.4);
+    expect(walking).toBeLessThan(0.1);
+    expect(angle()).toBeLessThan(0.02);
+    // A fast turn on the spot.
+    peak = 0;
+    for (let i = 0; i < 30; i++) {
+      t += dt;
+      e.root.rotation.y += 6 * dt;
+      e.update(dt, state({ time: t }));
+      peak = Math.max(peak, angle());
+    }
+    expect(peak).toBeLessThan(0.3);
   });
 
   it('swaps tool meshes by tier and drives the lantern glow from fuel', () => {
@@ -198,7 +235,7 @@ describe('ExplorerAnimator', () => {
   const snapshot = (p: ExplorerPose) => keys.map((k) => p[k]);
   const maxJump = (a: number[], b: number[]) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
 
-  it('walks at about two steps per second at walking speed', () => {
+  it('walks at about three and a half steps per second at walking speed', () => {
     const a = new ExplorerAnimator();
     let t = 0;
     let crossings = 0;
@@ -211,8 +248,8 @@ describe('ExplorerAnimator', () => {
     }
     // Each step swaps which thigh leads, so sign changes of one thigh count steps.
     const stepsPerSecond = crossings / ((600 - 60) / 60);
-    expect(stepsPerSecond).toBeGreaterThan(1.7);
-    expect(stepsPerSecond).toBeLessThan(2.3);
+    expect(stepsPerSecond).toBeGreaterThan(3.0);
+    expect(stepsPerSecond).toBeLessThan(3.8);
   });
 
   it('blends between states without pops', () => {

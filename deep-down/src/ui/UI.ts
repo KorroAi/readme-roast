@@ -59,7 +59,7 @@ export class UI implements GameUi {
   private readonly disposers: Array<() => void> = [];
   readonly state: ScreenState = { invTab: 'backpack', invSlot: 0, loadingProgress: 0, loadingLabel: '', deathLost: {} };
 
-  constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, input: InputState) {
+  constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
     this.screensEl = h('div', { class: 'dd-screens' });
     this.modalEl = h('div', { class: 'dd-modal-layer' });
     this.el = h('div', { class: 'dd-ui' });
@@ -135,7 +135,6 @@ export class UI implements GameUi {
 
   setGameplayActive(active: boolean): void {
     this.gameplay = active;
-    this.hud.setVisible(active);
     this.el.classList.toggle('dd-playing', active);
     this.updateTouch();
   }
@@ -220,8 +219,8 @@ export class UI implements GameUi {
     if (scroller && scroll) scroller.scrollTop = scroll;
     if (this.confirmSpec) return;
     const keep = focusKey ? next.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusKey)}"]`) : null;
-    const target = keep && !(keep as HTMLButtonElement).disabled ? keep : next.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(next)[0];
-    target?.focus({ preventScroll: true });
+    if (keep && !(keep as HTMLButtonElement).disabled) keep.focus({ preventScroll: true });
+    else if (this.keyboardUser()) this.autofocus(next);
   }
 
   private rerender(): void {
@@ -244,7 +243,7 @@ export class UI implements GameUi {
         h('div', { class: 'dd-panel dd-confirm', role: 'alertdialog', 'aria-modal': 'true', 'aria-describedby': 'dd-confirm-text' }, text, h('div', { class: 'dd-confirm-actions' }, no, yes)),
       ),
     );
-    no.focus({ preventScroll: true });
+    if (this.keyboardUser()) no.focus({ preventScroll: true });
     this.updateTouch();
   }
 
@@ -254,8 +253,7 @@ export class UI implements GameUi {
     if (!spec) return;
     this.dismissConfirm();
     this.updateTouch();
-    const back = this.screenEl?.querySelector<HTMLElement>('[data-autofocus]') ?? (this.screenEl ? focusables(this.screenEl)[0] : null);
-    back?.focus({ preventScroll: true });
+    if (this.screenEl && this.keyboardUser()) this.autofocus(this.screenEl);
     if (yes) spec.onYes();
     else spec.onNo?.();
   }
@@ -267,8 +265,23 @@ export class UI implements GameUi {
     if (this.screenEl) this.screenEl.inert = false;
   }
 
+  /**
+   * Move focus into a new screen only for keyboard users: on touch the focus ring would
+   * just be noise (arrow keys and Tab still find the first control at any time).
+   */
+  private keyboardUser(): boolean {
+    return this.input.lastDevice === 'keyboard';
+  }
+
+  private autofocus(scope: HTMLElement): void {
+    (scope.querySelector<HTMLElement>('[data-autofocus]') ?? focusables(scope)[0])?.focus({ preventScroll: true });
+  }
+
+  /** HUD and touch controls only while playing with no screen open (screens stay uncluttered). */
   private updateTouch(): void {
-    this.touch.setEnabled(this.gameplay && this.current === 'none');
+    const live = this.gameplay && this.current === 'none';
+    this.touch.setEnabled(live);
+    this.hud.setVisible(live);
   }
 
   private patchSettings(p: Partial<Settings>, coalesce: boolean): void {

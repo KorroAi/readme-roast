@@ -46,21 +46,24 @@ export function outline(r: Raster, color = 0x05080d, passes = 1): Raster {
   return r;
 }
 
-/** Nearest-neighbor upscale by the largest whole factor that fits, centered. */
+/**
+ * Nearest-neighbor resample to `size` px. Exact at whole multiples of the sprite size;
+ * otherwise sprite pixels differ by at most one device pixel, which keeps hard edges.
+ */
 export function scaleNearest(src: Raster, size: number): Raster {
   const out = newRaster(size);
-  const k = Math.max(1, Math.floor(size / src.size));
-  const off = Math.floor((size - src.size * k) / 2);
-  for (let y = 0; y < src.size * k; y++)
-    for (let x = 0; x < src.size * k; x++) {
-      const si = (Math.floor(x / k) + Math.floor(y / k) * src.size) * 4;
-      const oi = (x + off + (y + off) * size) * 4;
-      if (x + off >= size || y + off >= size) continue;
+  const k = size / src.size;
+  for (let y = 0; y < size; y++) {
+    const sy = Math.min(src.size - 1, Math.floor(y / k));
+    for (let x = 0; x < size; x++) {
+      const si = (Math.min(src.size - 1, Math.floor(x / k)) + sy * src.size) * 4;
+      const oi = (x + y * size) * 4;
       out.data[oi] = src.data[si];
       out.data[oi + 1] = src.data[si + 1];
       out.data[oi + 2] = src.data[si + 2];
       out.data[oi + 3] = src.data[si + 3];
     }
+  }
   return out;
 }
 

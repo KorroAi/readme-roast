@@ -81,7 +81,7 @@ export class Hud {
     this.compassText = h('span', { class: 'dd-compass-text' });
     this.compass = h('div', { class: 'dd-compass' }, h('span', { class: 'dd-compass-ring' }, this.compassDial), this.compassText);
     this.pillText = h('span');
-    this.pill = h('div', { class: 'dd-pill' }, h('span', { class: 'dd-pill-icon', 'aria-hidden': 'true' }), this.pillText);
+    this.pill = h('div', { class: 'dd-pill' }, h('span', { class: 'dd-pill-icon', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 1, iconPx(20))}")` }), this.pillText);
     this.objective = h('div', { class: 'dd-objective', 'aria-live': 'polite' });
     this.crosshair = h('div', { class: 'dd-crosshair', 'aria-hidden': 'true' });
     this.targetName = h('span', { class: 'dd-target-name' });

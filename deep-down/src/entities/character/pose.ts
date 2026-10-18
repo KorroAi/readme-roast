@@ -73,8 +73,11 @@ export function createPose(): ExplorerPose {
 
 /** Walk speed at which the cycle reaches full stride (the player's walk speed). */
 const STRIDE_SPEED = 4.6;
-/** Steps per second at STRIDE_SPEED. */
-const CADENCE = 2;
+/**
+ * Steps per second at STRIDE_SPEED. With ~0.95 m steps a true no-slip cadence would be ~4.8;
+ * 3.4 keeps the chunky explorer readable (not frantic) with only slight foot slide.
+ */
+const CADENCE = 3.4;
 
 /**
  * Mining swing channels: right shoulder pitch, right arm roll, right elbow, right wrist (pickaxe
@@ -172,8 +175,8 @@ export class ExplorerAnimator {
     const sway = Math.sin(t * 0.55);
 
     // Legs: thigh swing, knee bend while the leg swings forward, then air tuck and landing crouch.
-    let thighL = -0.6 * walk * sL + 0.025 * idle * sway;
-    let thighR = 0.6 * walk * sL - 0.025 * idle * sway;
+    let thighL = -0.68 * walk * sL + 0.025 * idle * sway;
+    let thighR = 0.68 * walk * sL - 0.025 * idle * sway;
     let kneeL = walk * (0.08 + 0.95 * Math.max(0, cL));
     let kneeR = walk * (0.08 + 0.95 * Math.max(0, -cL));
     thighL = lerp(thighL, lerp(-0.3, -0.8, rise), air);

@@ -167,7 +167,12 @@ export class WorldSession {
       const [ax, ay, az] = spec.anchor;
       if (x !== undefined && (ax !== x || ay !== y || az !== z)) continue;
       if (SOLID[w.get(ax, ay, az)]) continue;
-      // Hanging props (anchor above the base) simply fall with their support gone.
+      // A hanging prop (anchor above its base) loses its chain: it breaks rather than landing half
+      // inside the floor.
+      if (ay > spec.y) {
+        this.removeProp(spec.id);
+        continue;
+      }
       let ny = ay;
       while (ny > 1 && !SOLID[w.get(ax, ny, az)]) ny--;
       const drop = ay - ny;

@@ -6,7 +6,7 @@ type Listener = (e: Event) => void;
 
 export interface Props {
   class?: string;
-  text?: string;
+  text?: string | number;
   [attr: string]: string | number | boolean | Listener | undefined;
 }
 

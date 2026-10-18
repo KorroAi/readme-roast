@@ -113,7 +113,7 @@ export function buildHead(): THREE.BufferGeometry {
 export function buildPack(): THREE.BufferGeometry {
   const b = new VoxBuilder();
   // Main bag, darker base, leather top flap with copper buckles.
-  b.box(-0.22, -0.5, -0.3, 0.22, 0.06, 0, CLOTH.canvas);
+  b.box(-0.22, -0.49, -0.3, 0.22, 0.06, 0, CLOTH.canvas);
   b.box(-0.225, -0.5, -0.305, 0.225, -0.42, 0.0, CLOTH.canvasDark);
   b.box(-0.23, -0.02, -0.315, 0.23, 0.08, 0.005, LEATHER.mid);
   b.box(-0.2, -0.24, -0.315, 0.2, -0.02, -0.3, LEATHER.mid);

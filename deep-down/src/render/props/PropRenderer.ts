@@ -80,6 +80,8 @@ export class PropRenderer {
   /** Same entries as `entries`, as an array so per-frame loops allocate nothing. */
   private readonly list: PropEntry[] = [];
   private highlighted: PropEntry | null = null;
+  /** The id last passed to setHighlight: a prop re-added under it (after settling) stays lit. */
+  private highlightId: string | null = null;
 
   constructor(lighting: LightingUniforms) {
     this.lighting = lighting;
@@ -156,6 +158,10 @@ export class PropRenderer {
     };
     this.entries.set(spec.id, entry);
     this.list.push(entry);
+    if (spec.id === this.highlightId) {
+      this.highlighted = entry;
+      this.applyFx(entry, 1);
+    }
   }
 
   remove(id: string): void {
@@ -227,6 +233,7 @@ export class PropRenderer {
   }
 
   setHighlight(id: string | null): void {
+    this.highlightId = id;
     const e = id ? (this.entries.get(id) ?? null) : null;
     if (this.highlighted === e) return;
     const prev = this.highlighted;

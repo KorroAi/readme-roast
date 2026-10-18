@@ -32,7 +32,16 @@ interface Leg {
 
 /** Pendulum length of the hand lantern (grip to the lantern's center of mass), in meters. */
 const LANTERN_ARM = 0.2;
-const LANTERN_DAMPING = 4.5;
+/**
+ * The fist grips the carry ring, so the lantern is not a free pendulum: only part of the fist's
+ * acceleration reaches it and the grip adds a restoring stiffness (1/s^2). That keeps the swing
+ * slight when the explorer starts, stops or turns at full acceleration, and lifts the natural
+ * frequency (~1.6 Hz) clear of the 1 Hz arm swing so walking never pumps it up.
+ */
+const LANTERN_COUPLING = 0.2;
+const LANTERN_STIFFNESS = 50;
+/** Damping (1/s): about half of critical, so a swing rocks back once and settles in ~0.5 s. */
+const LANTERN_DAMPING = 11;
 const LANTERN_MAX_ANGLE = 0.7;
 /** Ignore pivot accelerations above this (teleports, respawns). */
 const MAX_ACCEL = 60;
@@ -273,15 +282,15 @@ export class ExplorerModel {
       this.gripVel.copy(vel);
       if (acc.lengthSq() > MAX_ACCEL * MAX_ACCEL) acc.setLength(MAX_ACCEL);
       // Into the root's frame: the pendulum angles are about the root's own axes.
-      acc.applyQuaternion(this.root.getWorldQuaternion(this.tmpQ).invert());
+      acc.applyQuaternion(this.root.getWorldQuaternion(this.tmpQ).invert()).multiplyScalar(LANTERN_COUPLING);
       const g = Math.max(2, 9.8 + acc.y);
       // Integrate at 120 Hz; a long hitch only simulates its last 0.1 s.
       const span = Math.min(dt, 0.1);
       const steps = Math.ceil(span * 120);
       const h = span / steps;
       for (let i = 0; i < steps; i++) {
-        const ax = (-g * Math.sin(this.swingX) + acc.z * Math.cos(this.swingX)) / LANTERN_ARM - LANTERN_DAMPING * this.swingVX;
-        const az = (-g * Math.sin(this.swingZ) - acc.x * Math.cos(this.swingZ)) / LANTERN_ARM - LANTERN_DAMPING * this.swingVZ;
+        const ax = (-g * Math.sin(this.swingX) + acc.z * Math.cos(this.swingX)) / LANTERN_ARM - LANTERN_STIFFNESS * this.swingX - LANTERN_DAMPING * this.swingVX;
+        const az = (-g * Math.sin(this.swingZ) - acc.x * Math.cos(this.swingZ)) / LANTERN_ARM - LANTERN_STIFFNESS * this.swingZ - LANTERN_DAMPING * this.swingVZ;
         this.swingVX += ax * h;
         this.swingVZ += az * h;
         this.swingX = clamp(this.swingX + this.swingVX * h, -LANTERN_MAX_ANGLE, LANTERN_MAX_ANGLE);

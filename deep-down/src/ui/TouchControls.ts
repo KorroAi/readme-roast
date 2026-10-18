@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import type { InputState } from '../input/types';
 import { h } from './dom';
+import { equipmentIconDataUrl, iconPx } from './icons';
 import {
   advanceLookPhase,
   clampBase,
@@ -77,11 +78,11 @@ export class TouchControls {
     }, () => {
       input.jumpHeld = false;
     });
-    const bag = this.button('dd-tbtn dd-sysbtn dd-bag', [h('span', { class: 'dd-bag-glyph', 'aria-hidden': 'true' })], () => {
+    const bag = this.button('dd-tbtn dd-sysbtn dd-tb-bag', [h('span', { class: 'dd-bag-glyph', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 2, iconPx(26))}")` })], () => {
       input.inventoryPressed = true;
     });
     bag.setAttribute('aria-label', t('hud.inventory'));
-    const pause = this.button('dd-tbtn dd-sysbtn dd-pause', [h('span', { class: 'dd-pause-glyph', 'aria-hidden': 'true' })], () => {
+    const pause = this.button('dd-tbtn dd-sysbtn dd-tb-pause', [h('span', { class: 'dd-pause-glyph', 'aria-hidden': 'true' })], () => {
       input.pausePressed = true;
     });
     pause.setAttribute('aria-label', t('hud.pause'));
@@ -159,6 +160,7 @@ export class TouchControls {
 
   private button(cls: string, content: HTMLElement[], press: () => void, release?: () => void): HTMLButtonElement {
     const b = h('button', { class: cls, type: 'button' }, ...content);
+    let pressedAt = -Infinity;
     const up = () => {
       if (!b.classList.contains('pressed')) return;
       b.classList.remove('pressed');
@@ -171,14 +173,16 @@ export class TouchControls {
       if (e.pointerType === 'touch') this.noteTouch();
       b.setPointerCapture?.(e.pointerId);
       b.classList.add('pressed');
+      pressedAt = e.timeStamp;
       press();
     });
     b.addEventListener('pointerup', up);
     b.addEventListener('pointercancel', up);
     b.addEventListener('lostpointercapture', up);
-    // Keyboard / switch-access activation arrives as a click without a pointer press.
+    // Keyboard / switch-access activation arrives as a click without a pointer press. The
+    // click that follows a touch can also report detail 0, so skip clicks right after a press.
     b.addEventListener('click', (e) => {
-      if (!this.enabled || e.detail !== 0) return;
+      if (!this.enabled || e.detail !== 0 || e.timeStamp - pressedAt < 1000) return;
       press();
       release?.();
     });
@@ -292,12 +296,15 @@ export class TouchControls {
     this.ring.className = 'dd-mine-ring on mine';
   }
 
+  /**
+   * Stop mining. The aim stays at the last finger position: a swing already in flight
+   * re-acquires its target at the impact frame, and must find the block that was touched.
+   */
   private endMining(): void {
     window.clearTimeout(this.tapTimer);
     if (this.look?.phase === 'mine' || !this.ownsMining) return;
     this.ownsMining = false;
     this.input.mining = false;
-    this.input.aimFromPointer = false;
   }
 
   private aimAt(x: number, y: number): void {
