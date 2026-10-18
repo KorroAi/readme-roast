@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+import { raycastVoxels } from '../world/raycast';
 import type { Game } from '../game/Game';
 import type { ItemId } from '../config/items';
 import type { InputState } from '../input/types';
@@ -84,13 +86,38 @@ export function installDebugApi(game: Game): void {
       game.cameraRig.pitch = pitch;
     },
     /** Point the camera so the screen center ray passes through the center of block (x,y,z). */
-    aimAt: (x: number, y: number, z: number) => {
-      const cam = game.cameraRig.camera.position;
-      const dx = x + 0.5 - cam.x;
-      const dy = y + 0.5 - cam.y;
-      const dz = z + 0.5 - cam.z;
-      game.cameraRig.yaw = Math.atan2(-dx, -dz);
-      game.cameraRig.pitch = Math.atan2(dy, Math.hypot(dx, dz));
+    /**
+     * Turn the camera so the ray through screen point (ndcX, ndcY) (default: the crosshair) hits
+     * block x,y,z on a face the camera can see. @returns false if no face is visible.
+     */
+    aimAt: (x: number, y: number, z: number, ndcX = 0, ndcY = 0) => {
+      const rig = game.cameraRig;
+      const p = game.player;
+      const o = new THREE.Vector3();
+      const d = new THREE.Vector3();
+      const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
+      // The camera orbits a shoulder pivot, so its position depends on the aim: iterate.
+      const aim = (tx: number, ty: number, tz: number) => {
+        for (let i = 0; i < 16; i++) {
+          rig.update(0, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+          rig.rayThrough(ndcX, ndcY, o, d);
+          const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
+          const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
+          const pitchErr = Math.asin((ty - o.y) / len) - Math.asin(d.y);
+          rig.yaw += yawErr;
+          rig.pitch += pitchErr;
+        }
+        rig.update(0, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+        rig.rayThrough(ndcX, ndcY, o, d);
+      };
+      const faces: Array<[number, number, number]> = [[0, 0, 0], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];
+      for (const [fx, fy, fz] of faces) {
+        aim(x + 0.5 + fx * 0.45, y + 0.5 + fy * 0.45, z + 0.5 + fz * 0.45);
+        const hit = raycastVoxels(w(), o.x, o.y, o.z, d.x, d.y, d.z, 12);
+        if (hit && hit.x === x && hit.y === y && hit.z === z) return true;
+      }
+      aim(x + 0.5, y + 0.5, z + 0.5);
+      return false;
     },
     give: (item: ItemId, count: number) => game.backpack.add(item, count),
     bank: (item: ItemId, count: number) => {

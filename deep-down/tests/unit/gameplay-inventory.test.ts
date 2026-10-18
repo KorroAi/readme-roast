@@ -246,6 +246,15 @@ describe('CampStorage', () => {
     expect(s.total).toBe(0);
   });
 
+  it('reads unknown keys as empty, never as inherited members', () => {
+    const s = new CampStorage();
+    for (const key of ['toString', 'constructor', '__proto__']) {
+      expect(s.count(key as never)).toBe(0);
+      expect(s.remove(key as never, 1)).toBe(0);
+    }
+    expect(s.toJSON()).toEqual({});
+  });
+
   it('round-trips and sanitizes JSON', () => {
     const s = new CampStorage();
     s.add('stone', 12);

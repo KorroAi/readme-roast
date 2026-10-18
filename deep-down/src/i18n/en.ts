@@ -264,6 +264,8 @@ export const en = {
   'error.webgl': 'Your device does not support the graphics features DEEP DOWN needs (WebGL 2).',
   'error.generic': 'Something went wrong. Please restart the game.',
   'error.saveCorrupt': 'Your latest save was damaged. A backup was restored.',
+  'error.saveNewer': 'This save was made by a newer version of DEEP DOWN. Update the game to continue it.',
+  'error.saveUnreadable': 'Your saved game is damaged and cannot be loaded.',
   'error.saveUnavailable': 'Saving is unavailable on this device. Progress will not persist.',
 
   // Visual Lab

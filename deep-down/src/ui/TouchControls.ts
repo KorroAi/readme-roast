@@ -145,10 +145,6 @@ export class TouchControls {
     if (label !== null) this.useLabel.textContent = label;
   }
 
-  get isTouchUi(): boolean {
-    return this.touchUi;
-  }
-
   dispose(): void {
     this.releaseAll();
     for (const d of this.disposers) d();
@@ -219,8 +215,9 @@ export class TouchControls {
       this.updateStick(e.clientX, e.clientY);
     } else {
       if (this.look) return;
-      const now = performance.now();
-      this.look = { id: e.pointerId, phase: 'pending', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: now };
+      // Event timestamps (same clock as performance.now) judge the hold by when the finger
+      // actually moved, even if a busy main thread delivers the move late.
+      this.look = { id: e.pointerId, phase: 'pending', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: e.timeStamp };
       window.clearTimeout(this.holdTimer);
       this.holdTimer = window.setTimeout(() => this.onHoldTimer(), HOLD_TO_MINE_MS);
       this.showRing(e.clientX, e.clientY, 'pending');
@@ -238,7 +235,7 @@ export class TouchControls {
     const x = e.clientX;
     const y = e.clientY;
     const prev = look.phase;
-    look.phase = advanceLookPhase(prev, x - look.startX, y - look.startY, performance.now() - look.startT);
+    look.phase = advanceLookPhase(prev, x - look.startX, y - look.startY, e.timeStamp - look.startT);
     if (look.phase === 'look') {
       // The first drag frame includes the slop so the camera follows the finger 1:1.
       this.input.lookDX += x - (prev === 'pending' ? look.startX : look.lastX);

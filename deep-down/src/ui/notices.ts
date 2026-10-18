@@ -66,6 +66,7 @@ interface PickupEntry {
 export class PickupFeed {
   readonly el = h('div', { class: 'dd-pickups', 'aria-live': 'polite' });
   private readonly live = new Map<ItemId, PickupEntry>();
+  private readonly reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   show(n: PickupNotice): void {
     const entry = this.live.get(n.item);
@@ -74,9 +75,8 @@ export class PickupFeed {
       entry.label.textContent = this.text(n.item, entry.count);
       window.clearTimeout(entry.timer);
       entry.timer = window.setTimeout(() => this.dismiss(n.item), PICKUP_MS);
-      entry.el.classList.remove('bump');
-      // Restart the bump animation without forcing a synchronous reflow.
-      requestAnimationFrame(() => entry.el.classList.add('bump'));
+      // A short bump says "more of the same"; WAAPI restarts it without class juggling or reflow.
+      if (!this.reduceMotion) entry.el.animate([{ scale: 1 }, { scale: 1.07 }, { scale: 1 }], { duration: 250, easing: 'ease-out' });
       return;
     }
     const label = h('span', { text: this.text(n.item, n.count) });

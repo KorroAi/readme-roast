@@ -135,7 +135,6 @@ export class UI implements GameUi {
 
   setGameplayActive(active: boolean): void {
     this.gameplay = active;
-    this.el.classList.toggle('dd-playing', active);
     this.updateTouch();
   }
 

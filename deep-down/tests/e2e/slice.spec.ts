@@ -12,7 +12,7 @@ type DD = {
   events(type?: string): Array<{ type: string; payload: any }>;
   clearEvents(): void;
   prepareMining(id: number, x: number, y: number, z: number, r?: number): { block: [number, number, number]; stand: [number, number, number] } | null;
-  aimAt(x: number, y: number, z: number): void;
+  aimAt(x: number, y: number, z: number, ndcX?: number, ndcY?: number): boolean;
   teleport(x: number, y: number, z: number, yaw?: number): void;
   landmarks(): Record<string, [number, number, number]>;
   standableNear(x: number, y: number, z: number): [number, number, number] | null;
@@ -36,22 +36,22 @@ async function waitMode(page: Page, mode: string) {
   await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: 120_000, polling: 200 });
 }
 
-/** Mine a block with press-and-hold at the screen center until it breaks; returns hits used. */
-async function mineWithTouch(page: Page, touch: Touch, block: [number, number, number], maxMs = 9000): Promise<number> {
+/** Mine a block with one press-and-hold at the screen center until it breaks; returns hits used. */
+async function mineWithTouch(page: Page, touch: Touch, block: [number, number, number], maxMs = 20_000): Promise<number> {
   const vp = page.viewportSize()!;
   await page.evaluate(() => window.__DD__.clearEvents());
   await page.waitForTimeout(250);
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z), block);
-  await page.waitForTimeout(150);
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z), block);
+  // The look/mine zone is the right half of the screen: press just right of the center.
+  const at = { x: Math.ceil(vp.width / 2) + 6, y: Math.round(vp.height * 0.5) };
+  await page.evaluate(([x, y, z, ax, ay]) => window.__DD__.aimAt(x, y, z, ax, ay), [...block, (at.x / vp.width) * 2 - 1, 1 - (at.y / vp.height) * 2]);
+  await touch.down(at);
   const start = Date.now();
-  // Hold in segments so we can stop as soon as it breaks.
   while (Date.now() - start < maxMs) {
-    await touch.hold({ x: vp.width / 2, y: vp.height / 2 }, 700);
-    const broken = await page.evaluate(() => window.__DD__.events('block:broken').length);
-    if (broken > 0) break;
-    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z), block);
+    await page.waitForTimeout(250);
+    // Rock in front of the target is mined through first, as a player would.
+    if ((await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === B.AIR) break;
   }
+  await touch.up();
   return page.evaluate(() => window.__DD__.events('block:hit').length);
 }
 
@@ -88,7 +88,7 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(copper, 'a reachable copper vein near the tunnel').not.toBeNull();
   await mineWithTouch(page, touch, copper!.block);
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), copper!.block)).toBe(B.AIR);
-  await page.waitForFunction(() => window.__DD__.events('item:picked').length > 0, null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.events('item:picked').some((e) => e.payload.item === 'copperOre'), null, { timeout: 15_000 });
   s = await state(page);
   const backpackCopper = s.backpack.filter((x: any) => x && x.item === 'copperOre').reduce((a: number, x: any) => a + x.count, 0);
   expect(backpackCopper).toBeGreaterThan(0);

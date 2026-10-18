@@ -143,8 +143,9 @@ if (opt.touch) {
 
   // Look drag: accumulates CSS px deltas, never mines.
   let before = await seen();
-  await touch('touchStart', [{ x: 650, y: 200 }]);
-  for (let i = 1; i <= 10; i++) {
+  // Start and first move are pipelined so harness latency cannot turn the drag into a hold.
+  await Promise.all([touch('touchStart', [{ x: 650, y: 200 }]), touch('touchMove', [{ x: 663, y: 202 }])]);
+  for (let i = 3; i <= 10; i++) {
     await touch('touchMove', [{ x: 650 + i * 6, y: 200 + i }]);
     await wait(16);
   }
@@ -194,8 +195,11 @@ if (opt.touch) {
   // Two fingers: joystick and look at the same time.
   before = await seen();
   await touch('touchStart', [{ x: 150, y: 300, id: 1 }]);
-  await touch('touchStart', [{ x: 150, y: 300, id: 1 }, { x: 650, y: 200, id: 2 }]);
-  for (let i = 1; i <= 6; i++) {
+  await Promise.all([
+    touch('touchStart', [{ x: 150, y: 300, id: 1 }, { x: 650, y: 200, id: 2 }]),
+    touch('touchMove', [{ x: 150, y: 290, id: 1 }, { x: 665, y: 200, id: 2 }]),
+  ]);
+  for (let i = 2; i <= 6; i++) {
     await touch('touchMove', [{ x: 150, y: 300 - i * 10, id: 1 }, { x: 650 + i * 5, y: 200, id: 2 }]);
     await wait(16);
   }
@@ -272,9 +276,10 @@ if (opt.touch) {
   check('discovery banner shows the first', (await page.locator('.dd-discovery-title').textContent()) === 'First Discovery');
   await wait(4000);
   check('toast auto-dismisses', (await page.getByText('check-toast').count()) === 0);
-  await wait(1200);
-  const second = await page.locator('.dd-discovery-title').textContent();
-  check('queued discovery plays next', second === 'Second Discovery', second);
+  const second = await page
+    .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'Second Discovery', null, { timeout: 4000 })
+    .then(() => true, () => false);
+  check('queued discovery plays next', second);
 
   // Left-handed: sides swap.
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: true }));
@@ -310,6 +315,39 @@ if (opt.touch) {
   check('mouse drives it with data-touch-ui=1', s.mining && !s2.mining, { held: s.mining, released: s2.mining });
 
   await context.close();
+
+  // Screen flows driven like a player would (mouse + keyboard), on the sandbox's fake game.
+  {
+    const { page: p, context: c } = await openPage(VIEWPORTS.desk, 'menu');
+    const screen = () => p.evaluate(() => window.__UI__.ui.screen);
+    await p.getByRole('button', { name: /New Expedition/i }).click();
+    check('new expedition with a save asks first', (await screen()) === 'confirm' && (await p.getByText(/progress will be erased/i).isVisible()));
+    await p.keyboard.press('Escape');
+    check('escape cancels the confirm', (await screen()) === 'menu');
+    await p.getByRole('button', { name: /Settings/i }).click();
+    await p.getByRole('switch', { name: /Invert vertical/i }).click();
+    check('settings apply immediately', (await p.evaluate(() => window.__UI__.settings().invertY)) === true);
+    const slider = p.getByRole('slider', { name: /Master volume/i });
+    await slider.focus();
+    await p.keyboard.press('ArrowRight');
+    await p.waitForTimeout(80);
+    check('sliders apply (coalesced per frame)', Math.abs((await p.evaluate(() => window.__UI__.settings().masterVolume)) - 0.85) < 1e-6, await p.evaluate(() => window.__UI__.settings().masterVolume));
+    await p.getByRole('button', { name: /Reset to defaults/i }).click();
+    check('reset restores defaults', (await p.evaluate(() => window.__UI__.settings().invertY)) === false && (await p.getByRole('switch', { name: /Invert vertical/i }).getAttribute('aria-checked')) === 'false');
+    await p.getByRole('button', { name: /Delete saved game/i }).click();
+    await p.getByRole('button', { name: /^Delete$/ }).click();
+    check('delete save removes it and disables the button', (await p.evaluate(() => window.__UI__.actions.hasSave())) === false && (await p.getByRole('button', { name: /Delete saved game/i }).isDisabled()));
+    await p.keyboard.press('Escape');
+    check('escape in settings returns to the menu', (await screen()) === 'menu');
+    check('menu without a save has no Continue', (await p.getByRole('button', { name: /Continue/i }).count()) === 0);
+    await p.keyboard.press('ArrowDown');
+    const focused = await p.evaluate(() => document.activeElement?.textContent);
+    check('arrow keys move focus through the menu', /New Expedition/.test(focused ?? ''), focused);
+    await p.keyboard.press('Enter');
+    await p.waitForFunction(() => window.__UI__.ui.screen === 'none', null, { timeout: 3000 });
+    check('enter starts a new expedition without a confirm when there is no save', true);
+    await c.close();
+  }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -413,5 +451,5 @@ await server.close();
 
 if (problems.length) console.log(`\nConsole problems:\n  ${problems.join('\n  ')}`);
 const failed = checks.filter((c) => !c.ok);
-console.log(`\n${checks.length - failed.length}/${checks.length} touch checks passed, ${problems.length} console problems`);
+console.log(`\n${checks.length - failed.length}/${checks.length} checks passed, ${problems.length} console problems`);
 process.exit(failed.length || problems.length ? 1 : 0);

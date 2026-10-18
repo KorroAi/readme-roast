@@ -211,7 +211,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   addProp({ kind: 'hangingLantern', x: 32.5, y: 105.2, z: 35.5, anchor: [32, 107, 35], emitters: [[32, 105, 35]] });
   addProp({ kind: 'hangingLantern', x: 29.5, y: 105.2, z: 44.5, anchor: [29, 107, 44], emitters: [[29, 105, 44]] });
   lanternPost(47.5, 101, 43.5, 0, true);
-  const spawn = { x: 34.5, y: 101, z: 43.2, yaw: -Math.PI / 2 };
+  // Body forward is (sin(yaw), cos(yaw)): +X faces the camp exit and the tunnel.
+  const spawn = { x: 34.5, y: 101, z: 43.2, yaw: Math.PI / 2 };
   landmarks.campfire = [36.5, 101, 41.5];
   landmarks.workbench = [40.5, 101, 37.5];
   mark('camp');

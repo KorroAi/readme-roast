@@ -30,6 +30,8 @@ export class Renderer {
   preset: QualityPreset;
   quality: QualityLevel;
   renderScaleOverride: number | null = null;
+  /** Player's Glow setting; bloom runs only if both this and the preset allow it. */
+  userBloom = true;
   private width = 1;
   private height = 1;
 
@@ -66,8 +68,17 @@ export class Renderer {
   setQuality(level: QualityLevel): void {
     this.quality = level;
     this.preset = QUALITY[level];
-    this.post.setOptions({ bloom: this.preset.bloom, msaa: this.preset.msaa });
+    this.applyPostOptions();
     this.resize();
+  }
+
+  setUserBloom(on: boolean): void {
+    this.userBloom = on;
+    this.applyPostOptions();
+  }
+
+  private applyPostOptions(): void {
+    this.post.setOptions({ bloom: this.preset.bloom && this.userBloom, msaa: this.preset.msaa });
   }
 
   get pixelRatio(): number {

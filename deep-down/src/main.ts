@@ -1,6 +1,7 @@
 import { Game } from './game/Game';
 import type { UiFactory } from './game/GameUi';
 import { Renderer } from './render/Renderer';
+import { UI } from './ui/UI';
 import { t } from './i18n';
 
 function fatal(message: string, err?: unknown): void {
@@ -12,17 +13,7 @@ function fatal(message: string, err?: unknown): void {
   document.body.appendChild(el);
 }
 
-// Temporary while the UI module is being built: fall back to the dev stub if it is missing.
-async function loadUi(): Promise<UiFactory> {
-  try {
-    const path = './ui/UI.ts';
-    const m = await import(/* @vite-ignore */ path);
-    return (root, actions, bus, input) => new m.UI(root, actions, bus, input);
-  } catch {
-    const { StubUI } = await import('./debug/StubUI');
-    return () => new StubUI();
-  }
-}
+const createUi: UiFactory = (root, actions, bus, input) => new UI(root, actions, bus, input);
 
 async function boot(): Promise<void> {
   if (!Renderer.isSupported()) {
@@ -31,7 +22,7 @@ async function boot(): Promise<void> {
   }
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ui = document.getElementById('ui') as HTMLElement;
-  const game = new Game(canvas, ui, await loadUi());
+  const game = new Game(canvas, ui, createUi);
   await game.boot();
 }
 

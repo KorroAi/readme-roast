@@ -93,6 +93,15 @@ describe('Lantern', () => {
     l.update(-10, false, OIL);
     expect(l.fuel).toBe(50);
   });
+
+  it('a NaN time step burns nothing instead of poisoning the fuel', () => {
+    const l = new Lantern(OIL.fuelSeconds, 50);
+    const e = l.update(Number.NaN, false, OIL);
+    expect(l.fuel).toBe(50);
+    expect(e).toEqual({ becameLow: false, becameEmpty: false, refueled: false });
+    l.update(10, false, OIL);
+    expect(l.fuel).toBe(40);
+  });
 });
 
 describe('Health', () => {

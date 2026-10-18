@@ -34,6 +34,15 @@ export class Touch {
     await this.send('touchEnd', []);
   }
 
+  /** Finger down (for holds that end on a condition). */
+  async down(at: { x: number; y: number }, id = 2): Promise<void> {
+    await this.send('touchStart', [{ ...at, id }]);
+  }
+
+  async up(): Promise<void> {
+    await this.send('touchEnd', []);
+  }
+
   async tap(at: { x: number; y: number }): Promise<void> {
     await this.hold(at, 60, 3);
   }

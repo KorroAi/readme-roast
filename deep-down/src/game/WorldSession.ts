@@ -9,6 +9,7 @@ import { generateTiles, type TileAtlas } from '../render/textures';
 import { createTerrainMaterial, createTileTexture } from '../render/terrainMaterial';
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { PropRenderer } from '../render/props/PropRenderer';
+import { applyWorldEdits, encodeWorldEdits } from '../save/worldDelta';
 
 const yieldFrame = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -100,6 +101,24 @@ export class WorldSession {
     this.resetProps();
   }
 
+  /**
+   * Continue: the generated world plus a saved delta, with a single light pass and rebuild
+   * (reset() + applySave() would do both twice). Invalid entries are ignored.
+   */
+  async restore(edits: readonly number[], removedProps: readonly string[]): Promise<void> {
+    const w = this.world;
+    w.blocks.set(this.generated);
+    applyWorldEdits(w.blocks, edits);
+    w.revision++;
+    this.resetProps();
+    for (const id of removedProps) this.removeProp(id, false);
+    this.settleProps();
+    this.light.computeAll();
+    this.rig.lightTex.needsUpdate = true;
+    w.markAllDirty();
+    await this.chunks.buildAll();
+  }
+
   /** Apply a saved delta (after reset). Invalid entries are ignored. */
   async applySave(edits: number[], removedProps: string[]): Promise<void> {
     const w = this.world;
@@ -120,11 +139,7 @@ export class WorldSession {
 
   /** Delta of the live world against the generated one: [index, id, ...]. */
   worldEdits(): number[] {
-    const out: number[] = [];
-    const b = this.world.blocks;
-    const g = this.generated;
-    for (let i = 0; i < b.length; i++) if (b[i] !== g[i]) out.push(i, b[i]);
-    return out;
+    return encodeWorldEdits(this.generated, this.world.blocks);
   }
 
   /** Keep light and props consistent after a gameplay edit. */

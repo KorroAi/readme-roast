@@ -8,7 +8,8 @@ import type { Backpack } from './Inventory';
  * Key items are refused because they live in the Journal.
  */
 export class CampStorage {
-  private readonly items: ItemCounts = {};
+  // No prototype, so a stray key such as "toString" reads as 0 instead of an inherited member.
+  private readonly items: ItemCounts = Object.create(null) as ItemCounts;
 
   /** Move the whole backpack into storage. @returns the counts moved. */
   deposit(backpack: Backpack): ItemCounts {

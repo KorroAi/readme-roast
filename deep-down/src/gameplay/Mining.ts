@@ -18,7 +18,7 @@ export type DropSpec = NonNullable<BlockDef['drop']>;
 export const MINING = {
   /** Damage holds this long after the last hit… */
   holdSeconds: 1,
-  /** …then recedes linearly, reaching 0 exactly 1.5 s after the last hit. */
+  /** …then recedes at one full bar per fadeSeconds, so any damage is gone 1.5 s after the last hit. */
   fadeSeconds: 0.5,
 } as const;
 

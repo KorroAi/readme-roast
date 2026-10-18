@@ -63,7 +63,8 @@ export class Lantern {
     }
     const wasLow = this.low;
     const wasLit = this.lit;
-    this.fuelS = Math.max(0, this.fuelS - Math.max(0, dt));
+    // A NaN step must not poison the fuel: NaN fuel would also fail save validation forever.
+    this.fuelS = Math.max(0, this.fuelS - (dt > 0 ? dt : 0));
     e.becameLow = !wasLow && this.low;
     e.becameEmpty = wasLit && !this.lit;
     return e;

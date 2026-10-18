@@ -221,15 +221,19 @@ export class SaveSystem {
 
   /** Delete the game save (both slots and the pointer). Settings are kept. */
   clear(): void {
-    this.store.removeItem(SAVE_KEYS.active);
-    this.store.removeItem(SAVE_KEYS.slotA);
-    this.store.removeItem(SAVE_KEYS.slotB);
+    for (const key of [SAVE_KEYS.active, SAVE_KEYS.slotA, SAVE_KEYS.slotB]) {
+      try {
+        this.store.removeItem(key);
+      } catch {
+        // Best effort, like LocalStorageStore: anything left behind is still validated on load.
+      }
+    }
     this.good = null;
   }
 
   /** Stored settings merged over the defaults; damaged settings yield the defaults. */
   loadSettings(): Settings {
-    const raw = this.store.getItem(SAVE_KEYS.settings);
+    const raw = this.read(SAVE_KEYS.settings);
     if (raw === null) return sanitizeSettings(null);
     try {
       return sanitizeSettings(JSON.parse(raw));
@@ -248,14 +252,23 @@ export class SaveSystem {
     }
   }
 
+  /** Reads fail soft so that load(), hasSave() and save() stay total even over a store whose reads throw. */
+  private read(key: string): string | null {
+    try {
+      return this.store.getItem(key);
+    } catch {
+      return null;
+    }
+  }
+
   private activeSlot(): SlotId | null {
-    const p = this.store.getItem(SAVE_KEYS.active);
+    const p = this.read(SAVE_KEYS.active);
     return p === 'a' || p === 'b' ? p : null;
   }
 
   /** null = slot empty; otherwise the verified, migrated, validated data or why it failed. */
   private readSlot(slot: SlotId): SlotRead {
-    const raw = this.store.getItem(SLOT_KEY[slot]);
+    const raw = this.read(SLOT_KEY[slot]);
     if (raw === null) return null;
     try {
       const env: unknown = JSON.parse(raw);

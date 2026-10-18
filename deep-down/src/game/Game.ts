@@ -91,12 +91,15 @@ export class Game {
   readonly rng = new Rng(0x5eed);
   private time = 0;
   private lastFrame = 0;
+  private lastStep = 0;
   private frameAccumulator = 0;
   private fpsFrames = 0;
   private fpsTime = 0;
   fps = 0;
   frameMs = 0;
   private atCamp = false;
+  /** A New Game / Continue load is in progress (Back and repeated taps are ignored). */
+  private loading = false;
   private autosaveTimer: number = SAVE.autosaveSeconds;
   private hintsShown = new Set<string>();
   private focusedProp: PropSpec | null = null;
@@ -118,6 +121,8 @@ export class Game {
     this.settings = this.saves.loadSettings();
     this.renderer = new Renderer(canvas, this.settings.quality);
     this.renderer.renderScaleOverride = this.settings.renderScale;
+    this.renderer.setUserBloom(this.settings.bloom);
+    this.renderer.resize();
   }
 
   // ------------------------------------------------------------------------------------
@@ -188,7 +193,7 @@ export class Game {
 
     this.enterMenu();
     this.ready = true;
-    this.lastFrame = performance.now();
+    this.lastFrame = this.lastStep = performance.now();
     requestAnimationFrame(this.frame);
   }
 
@@ -276,30 +281,46 @@ export class Game {
   }
 
   async newGame(): Promise<void> {
-    this.ui.showScreen('loading');
-    this.ui.setLoading(0.5, t('menu.loadingMesh'));
-    this.saves.clear();
-    await this.session.reset();
-    this.resetProgress();
-    this.halosDirty = true;
-    this.startPlaying();
+    if (this.loading || this.mode !== 'menu') return;
+    this.loading = true;
+    try {
+      this.ui.showScreen('loading');
+      this.ui.setLoading(0.5, t('menu.loadingMesh'));
+      this.saves.clear();
+      await this.session.reset();
+      this.resetProgress();
+      this.halosDirty = true;
+      this.startPlaying();
+    } finally {
+      this.loading = false;
+    }
     this.tutorial('move', this.isTouch() ? 'hint.move' : 'hint.moveDesktop', 6000);
     this.saveNow('new');
   }
 
   async continueGame(): Promise<void> {
+    if (this.loading || this.mode !== 'menu') return;
     const res = this.saves.load();
     if (!res.data) {
+      if (res.error) {
+        // Never wipe a save we cannot read (e.g. written by a newer build) without asking.
+        this.ui.toast(t(res.error === 'version' ? 'error.saveNewer' : 'error.saveUnreadable'), 'warn');
+        return;
+      }
       await this.newGame();
       return;
     }
-    this.ui.showScreen('loading');
-    this.ui.setLoading(0.5, t('menu.loadingMesh'));
-    await this.session.reset();
-    await this.session.applySave(res.data.worldEdits, res.data.removedProps);
-    this.restoreProgress(res.data);
-    this.halosDirty = true;
-    this.startPlaying();
+    this.loading = true;
+    try {
+      this.ui.showScreen('loading');
+      this.ui.setLoading(0.5, t('menu.loadingMesh'));
+      await this.session.restore(res.data.worldEdits, res.data.removedProps);
+      this.restoreProgress(res.data);
+      this.halosDirty = true;
+      this.startPlaying();
+    } finally {
+      this.loading = false;
+    }
     if (res.recovered) this.ui.toast(t('error.saveCorrupt'), 'warn');
   }
 
@@ -319,6 +340,7 @@ export class Game {
 
   /** System Back: close a screen, pause, or resume. False at the main menu (let the OS exit). */
   handleBack(): boolean {
+    if (this.loading) return true;
     if (this.mode === 'menu') {
       if (this.ui.screen !== 'menu') {
         this.ui.showScreen('menu');
@@ -368,7 +390,6 @@ export class Game {
     this.hintsShown.clear();
     this.drops.clear();
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
-    this.player.yaw = Math.atan2(1, 0); // face the camp exit (+X)
   }
 
   private restoreProgress(d: SaveData): void {
@@ -390,19 +411,24 @@ export class Game {
   // Save
 
   buildSave(): SaveData {
+    // On the death screen, save the respawn the player is about to get (backpack already lost).
+    const dead = this.mode === 'dead';
+    const spawn = this.session.layout.spawn;
     return {
       version: SAVE.version,
       savedAt: Date.now(),
       worldSeed: WORLD.seed,
       playTime: this.playTime,
-      player: {
-        x: this.player.x,
-        y: this.player.y,
-        z: this.player.z,
-        yaw: this.player.yaw,
-        health: this.health.current,
-        lanternFuel: this.lanternFuel.fuel,
-      },
+      player: dead
+        ? { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, health: PLAYER.maxHealth, lanternFuel: lanternForTier(this.equipment.tiers.lantern).fuelSeconds }
+        : {
+            x: this.player.x,
+            y: this.player.y,
+            z: this.player.z,
+            yaw: this.player.yaw,
+            health: this.health.current,
+            lanternFuel: this.lanternFuel.fuel,
+          },
       backpack: this.backpack.toJSON(),
       storage: this.storage.toJSON(),
       equipment: { ...this.equipment.tiers },
@@ -416,8 +442,8 @@ export class Game {
   }
 
   saveNow(reason: string): boolean {
-    if (this.mode !== 'playing' && this.mode !== 'paused') return false;
-    if (this.health.dead) return false;
+    if (this.mode !== 'playing' && this.mode !== 'paused' && this.mode !== 'dead') return false;
+    if (this.loading) return false;
     const res = this.saves.save(this.buildSave());
     if (res.ok) this.bus.emit('game:saved', { reason });
     else {
@@ -433,19 +459,21 @@ export class Game {
 
   private readonly frame = (now: number): void => {
     requestAnimationFrame(this.frame);
-    const cap = this.renderer.preset.fpsCap;
-    const elapsed = now - this.lastFrame;
-    if (cap > 0 && cap < 60) {
-      // Frame limiter for the battery preset.
-      this.frameAccumulator += elapsed;
-      this.lastFrame = now;
-      if (this.frameAccumulator < 1000 / cap - 2) return;
-      this.step(Math.min(0.05, this.frameAccumulator / 1000));
-      this.frameAccumulator = 0;
-      return;
-    }
+    // Behind the pause and death overlays the world is frozen: a low rate saves the battery.
+    const idle = this.mode === 'paused' || this.mode === 'dead';
+    const cap = idle ? 15 : this.renderer.preset.fpsCap;
+    const elapsed = Math.max(0, now - this.lastFrame);
     this.lastFrame = now;
-    this.step(Math.min(0.05, Math.max(0, elapsed / 1000)));
+    if (cap > 0) {
+      // Frame limiter (90/120 Hz panels still average the cap: the remainder carries over).
+      const interval = 1000 / cap;
+      this.frameAccumulator += elapsed;
+      if (this.frameAccumulator < interval - 1.5) return;
+      this.frameAccumulator = Math.min(interval, Math.max(0, this.frameAccumulator - interval));
+    }
+    const dt = (now - this.lastStep) / 1000;
+    this.lastStep = now;
+    this.step(Math.min(0.05, Math.max(0, dt)));
   };
 
   /** One simulation + render step. Public so tests can advance deterministically. */
@@ -664,17 +692,13 @@ export class Game {
     const inCamp = this.inRegion(this.session.layout.camp);
     if (inCamp && !this.atCamp) {
       this.atCamp = true;
-      const banked = this.storage.deposit(this.backpack);
-      const total = Object.values(banked).reduce((a, b) => a + (b ?? 0), 0);
       this.bus.emit('camp:entered', {});
-      if (total > 0) {
-        this.stats.itemsBanked += total;
-        this.bus.emit('items:banked', { total, items: banked });
-        this.bus.emit('inventory:changed', {});
-        this.ui.toast(t('toast.banked', { count: total }), 'good');
-      } else if (this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
+      if (!this.bank() && this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
       this.tutorial('workbench', 'hint.workbench', 5000);
       this.saveNow('camp');
+    } else if (inCamp && !this.backpack.isEmpty) {
+      // Drops that fly in after arrival, or a backpack restored from an in-camp save.
+      if (this.bank()) this.saveNow('camp');
     } else if (!inCamp && this.atCamp) {
       this.atCamp = false;
       this.bus.emit('camp:left', {});
@@ -687,6 +711,19 @@ export class Game {
         this.campRegenCarry -= Math.floor(this.campRegenCarry);
       }
     }
+  }
+
+  /** Move the backpack into camp storage. @returns the number of items banked. */
+  private bank(): number {
+    const banked = this.storage.deposit(this.backpack);
+    const total = Object.values(banked).reduce((a, b) => a + (b ?? 0), 0);
+    if (total > 0) {
+      this.stats.itemsBanked += total;
+      this.bus.emit('items:banked', { total, items: banked });
+      this.bus.emit('inventory:changed', {});
+      this.ui.toast(t('toast.banked', { count: total }), 'good');
+    }
+    return total;
   }
 
   private inRegion(r: Region): boolean {
@@ -823,6 +860,7 @@ export class Game {
     this.bus.emit('player:died', { lost });
     this.ui.setGameplayActive(false);
     this.ui.showDeath(lost);
+    this.saveNow('death');
   }
 
   respawn(): void {
@@ -831,10 +869,12 @@ export class Game {
     this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
     this.mode = 'playing';
+    this.audio.setPaused(false);
     this.ui.showScreen('none');
     this.ui.setGameplayActive(true);
-    this.cameraRig.snapTo(spawn.x, spawn.y + 1.45, spawn.z);
     this.cameraRig.yaw = this.player.yaw + Math.PI;
+    this.cameraRig.pitch = -0.2;
+    this.cameraRig.snapTo(spawn.x, spawn.y + 1.45, spawn.z);
     this.atCamp = true;
     this.bus.emit('player:respawned', {});
     this.saveNow('respawn');
@@ -1002,7 +1042,7 @@ export class Game {
       this.renderer.renderScaleOverride = this.settings.renderScale;
       this.renderer.resize();
     }
-    if ('bloom' in patch) this.renderer.post.setOptions({ bloom: this.settings.bloom && this.renderer.preset.bloom, msaa: this.renderer.preset.msaa });
+    if ('bloom' in patch) this.renderer.setUserBloom(this.settings.bloom);
     this.applyAudioSettings();
     this.ui.applySettings(this.settings);
   }
@@ -1045,10 +1085,14 @@ export class Game {
       },
       updateSettings: (p) => this.updateSettings(p),
       resetSettings: () => this.updateSettings({ ...DEFAULT_SETTINGS }),
-      deleteSave: () => this.saves.clear(),
+      deleteSave: () => {
+        this.saves.clear();
+        if (this.mode !== 'menu' && this.mode !== 'boot') this.enterMenu();
+      },
       getInventory: () => this.inventoryView(),
       getSettings: () => this.settings,
-      hasSave: () => this.saves.hasSave(),
+      // An unreadable save still counts, so New Game asks before replacing it.
+      hasSave: () => this.saves.hasSave() || this.saves.load().error !== undefined,
       saveTimestamp: () => this.saves.timestamp(),
     };
   }

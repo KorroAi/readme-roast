@@ -251,7 +251,7 @@
 }
 .dd-objective {
   max-width: min(42vw, 340px);
-  font-size: calc(13px * var(--s));
+  font-size: calc(14px * var(--s));
   font-weight: 600;
   text-align: right;
   color: #f6e8d4;
@@ -463,9 +463,6 @@
 .dd-pickup.relic {
   border-color: rgba(201, 162, 255, 0.6);
 }
-.dd-pickup.bump {
-  animation: dd-bump 0.25s ease-out;
-}
 .dd-pickup.leaving {
   opacity: 0;
   transform: translateX(-10px);
@@ -474,11 +471,6 @@
   from {
     opacity: 0;
     transform: translateX(-14px);
-  }
-}
-@keyframes dd-bump {
-  40% {
-    scale: 1.07;
   }
 }
 
@@ -1611,7 +1603,7 @@
   border-radius: 999px;
   background: rgba(0, 0, 0, 0.32);
   border: 1px solid;
-  font-size: calc(13px * var(--s));
+  font-size: calc(14px * var(--s));
   font-weight: 600;
 }
 .dd-req .dd-icon {

@@ -260,6 +260,15 @@ describe('SaveSystem', () => {
     expect(wrapped.loadSettings()).toEqual(DEFAULT_SETTINGS);
     const raw = new SaveSystem({ ...hostile, getItem: () => null });
     expect(raw.save(sample(1))).toEqual({ ok: false, error: 'unavailable' });
+    // Unwrapped, with reads throwing too: every entry point still answers instead of throwing.
+    const bare = new SaveSystem(hostile);
+    expect(bare.hasSave()).toBe(false);
+    expect(bare.timestamp()).toBeNull();
+    expect(bare.load()).toEqual({ data: null, recovered: false });
+    expect(bare.save(sample(1))).toEqual({ ok: false, error: 'unavailable' });
+    expect(bare.loadSettings()).toEqual(DEFAULT_SETTINGS);
+    expect(bare.saveSettings(DEFAULT_SETTINGS)).toEqual({ ok: false, error: 'unavailable' });
+    expect(() => bare.clear()).not.toThrow();
   });
 
   describe('versions and migrations', () => {
