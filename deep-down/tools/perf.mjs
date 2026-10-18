@@ -91,10 +91,12 @@ results.mining = await page.evaluate(() => {
   const lightMs = [];
   const meshMs = [];
   let n = 0;
-  for (let z = p[2] - 6; z < p[2] + 6 && n < 20; z++)
-    for (let x = p[0] - 12; x < p[0] - 2 && n < 20; x++) {
-      const y = Math.floor(p[1]) - 1;
-      if (w.get(x, y, z) !== 1 && w.get(x, y, z) !== 2 && w.get(x, y, z) !== 6) continue;
+  const minable = new Set([1, 2, 3, 4, 5, 6]);
+  const exposed = (x, y, z) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([a, b, c]) => w.get(x + a, y + b, z + c) === 0);
+  for (let z = Math.floor(p[2]) - 12; z < p[2] + 12 && n < 20; z++)
+    for (let y = Math.floor(p[1]) - 3; y < p[1] + 3 && n < 20; y++)
+    for (let x = Math.floor(p[0]) - 16; x < p[0] && n < 20; x++) {
+      if (!minable.has(w.get(x, y, z)) || !exposed(x, y, z)) continue;
       const old = w.get(x, y, z);
       w.set(x, y, z, 0);
       const t1 = performance.now();

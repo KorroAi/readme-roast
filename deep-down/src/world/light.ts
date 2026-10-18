@@ -62,6 +62,7 @@ export class LightField {
   private readonly edgeOff: Int32Array;
   private readonly edgeA: Int32Array;
   private readonly edgeB: Int32Array;
+  private readonly removalQueue: number[] = [];
   /** Bounding box of voxels changed by the last operation (for partial GPU upload). */
   readonly changed: Box3i = { x0: 0, y0: 0, z0: 0, x1: -1, y1: -1, z1: -1 };
 
@@ -132,21 +133,24 @@ export class LightField {
     const oldEmits = (EMIT_R[oldId] | EMIT_G[oldId] | EMIT_B[oldId]) !== 0;
     const newEmits = (EMIT_R[newId] | EMIT_G[newId] | EMIT_B[newId]) !== 0;
     const becameSolid = !SOLID[oldId] && SOLID[newId];
-    if (oldEmits || becameSolid || newEmits) {
-      // Light can only be removed by a full local rebuild that covers the emitter reach.
+    if (becameSolid) {
+      // Adding an occluder can darken anything its shadow reaches: rebuild locally (rare).
       this.recomputeBox({
         x0: x - LIGHT_REACH, y0: y - LIGHT_REACH, z0: z - LIGHT_REACH,
         x1: x + LIGHT_REACH, y1: y + LIGHT_REACH, z1: z + LIGHT_REACH,
       });
-    } else if (SOLID[oldId] && !SOLID[newId]) {
+      return this.changed;
+    }
+    const i = w.index(x, y, z);
+    const d = this.data;
+    this.qHead = this.qTail = 0;
+    if (oldEmits) this.removeLight(i, x, y, z);
+    if (SOLID[oldId] && !SOLID[newId]) {
       // An occluder was removed: light can only increase. Pull light in from neighbors.
-      const i = w.index(x, y, z);
-      const d = this.data;
       d[i * 4] = 0;
       d[i * 4 + 1] = 0;
       d[i * 4 + 2] = 0;
       this.expand(x, y, z);
-      this.qHead = this.qTail = 0;
       this.pullFromNeighbors(i, x, y, z);
       if (d[i * 4] | d[i * 4 + 1] | d[i * 4 + 2]) this.push(i);
       // The opened voxel may also unblock diagonal steps between two of its face neighbors.
@@ -156,9 +160,80 @@ export class LightField {
         const n = i + this.faceOff[k];
         if (d[n * 4] | d[n * 4 + 1] | d[n * 4 + 2]) this.push(n);
       }
-      this.propagate(null);
     }
+    if (newEmits) {
+      d[i * 4] = Math.max(d[i * 4], EMIT_R[newId]);
+      d[i * 4 + 1] = Math.max(d[i * 4 + 1], EMIT_G[newId]);
+      d[i * 4 + 2] = Math.max(d[i * 4 + 2], EMIT_B[newId]);
+      this.expand(x, y, z);
+      this.push(i);
+    }
+    this.propagate(null);
     return this.changed;
+  }
+
+  /**
+   * Remove the light an emitter at voxel i contributed, per channel, then queue the
+   * brighter frontier so other sources refill the cleared region. Generalizes the classic
+   * voxel light-removal flood fill to our multiplicative decay: a neighbor is assumed lit
+   * by the removed light when its value is no brighter than the decayed level reaching it.
+   * Visits only voxels that the light actually reached (far fewer than a box rebuild).
+   */
+  private removeLight(i: number, x: number, y: number, z: number): void {
+    const w = this.world;
+    const d = this.data;
+    const blocks = w.blocks;
+    const sx = w.sx;
+    const sy = w.sy;
+    const sz = w.sz;
+    const sxy = sx * sy;
+    const emitTables = [EMIT_R, EMIT_G, EMIT_B];
+    const rq = this.removalQueue;
+    for (let c = 0; c < 3; c++) {
+      const start = d[i * 4 + c];
+      if (start === 0) continue;
+      const emitC = emitTables[c];
+      d[i * 4 + c] = 0;
+      this.expand(x, y, z);
+      rq.length = 0;
+      rq.push(i, start);
+      for (let h = 0; h < rq.length; h += 2) {
+        const idx = rq[h];
+        const lvl = rq[h + 1];
+        const cz = (idx / sxy) | 0;
+        const rem = idx - cz * sxy;
+        const cy = (rem / sx) | 0;
+        const cx = rem - cy * sx;
+        for (let k = 0; k < 18; k++) {
+          const dir = k < 6 ? FACE_DIRS[k] : EDGE_DIRS[k - 6];
+          const nx = cx + dir[0];
+          const ny = cy + dir[1];
+          const nz = cz + dir[2];
+          if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
+          let n: number;
+          let decayed: number;
+          if (k < 6) {
+            n = idx + this.faceOff[k];
+            decayed = DECAY_FACE[lvl];
+          } else {
+            const e = k - 6;
+            if (SOLID[blocks[idx + this.edgeA[e]]] && SOLID[blocks[idx + this.edgeB[e]]]) continue;
+            n = idx + this.edgeOff[e];
+            decayed = DECAY_EDGE[lvl];
+          }
+          const v = d[n * 4 + c];
+          if (v === 0) continue;
+          if (emitC[blocks[n]] === 0 && !SOLID[blocks[n]] && v <= decayed) {
+            d[n * 4 + c] = 0;
+            this.expand(nx, ny, nz);
+            rq.push(n, v);
+          } else {
+            // Lit by another source (or an emitter itself): it will refill the gap.
+            this.push(n);
+          }
+        }
+      }
+    }
   }
 
   /** Clear and rebuild light inside `box` (clamped), seeding from emitters inside and lit voxels just outside. */

@@ -194,14 +194,17 @@ export class Game {
 
   private wireEvents(): void {
     const bus = this.bus;
+    const objective = (moved: boolean) => {
+      if (moved) bus.emit('objective:changed', { id: this.objectives.current().id });
+    };
     bus.on('item:picked', ({ item, count }) => {
-      this.objectives.onEvent('item:picked', { item, count });
+      objective(this.objectives.onEvent('item:picked', { item, count }));
       this.tutorial('pickup', 'hint.pickup');
     });
-    bus.on('block:broken', (e) => this.objectives.onEvent('block:broken', e));
-    bus.on('craft:done', (e) => this.objectives.onEvent('craft:done', e));
-    bus.on('discovery', (e) => this.objectives.onEvent('discovery', e));
-    bus.on('camp:entered', () => this.objectives.onEvent('camp:entered', {}));
+    bus.on('block:broken', (e) => objective(this.objectives.onEvent('block:broken', e)));
+    bus.on('craft:done', (e) => objective(this.objectives.onEvent('craft:done', e)));
+    bus.on('discovery', (e) => objective(this.objectives.onEvent('discovery', e)));
+    bus.on('camp:entered', () => objective(this.objectives.onEvent('camp:entered', {})));
     bus.on('block:tooHard', ({ block }) => {
       if (block === B.IRON_ORE) this.discover('ironVein');
     });
@@ -528,7 +531,12 @@ export class Game {
     this.updateDiscoveries();
     this.updateFocus();
     this.updateHealthWarnings();
-    this.objectives.setTotals({ copperOwned: this.backpack.count('copperOre') + this.storage.count('copperOre') });
+    const objectiveMoved = this.objectives.setTotals({
+      copperOwned: this.backpack.count('copperOre') + this.storage.count('copperOre'),
+      atCamp: this.atCamp,
+      pickaxeTier: this.equipment.tiers.pickaxe,
+    });
+    if (objectiveMoved) this.bus.emit('objective:changed', { id: this.objectives.current().id });
 
     this.autosaveTimer -= dt;
     if (this.autosaveTimer <= 0) this.saveNow('auto');

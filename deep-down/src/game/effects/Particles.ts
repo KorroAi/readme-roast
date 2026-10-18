@@ -136,7 +136,7 @@ export class ParticleSystem {
       this.moteSeed[i * 3] = hash3(i, 1, 7) * 1000;
       this.moteSeed[i * 3 + 1] = hash3(i, 2, 7) * 1000;
       this.moteSeed[i * 3 + 2] = hash3(i, 3, 7) * 1000;
-      moteSize[i] = 0.035 + hash3(i, 4, 7) * 0.04;
+      moteSize[i] = 0.018 + hash3(i, 4, 7) * 0.026;
       moteColor[i * 3] = 0.9;
       moteColor[i * 3 + 1] = 0.85;
       moteColor[i * 3 + 2] = 0.75;

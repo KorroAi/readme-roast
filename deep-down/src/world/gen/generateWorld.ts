@@ -658,14 +658,18 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       base = [base[0] - dir[0], base[1] - dir[1], base[2] - dir[2]];
     }
     base = [base[0] + dir[0] * 0.8, base[1] + dir[1] * 0.8, base[2] + dir[2] * 0.8];
-    for (let i = 0; i < count; i++) {
+    // Big upright formations: a slender glowing voxel core, with large faceted shards (props)
+    // forming the silhouette. Blocks alone read as a wall of glowing cubes.
+    const big = length >= 4.5 && dir[1] >= 0.5;
+    const voxelColumns = big ? 1 : count;
+    for (let i = 0; i < voxelColumns; i++) {
       const spread = i === 0 ? 0 : 1.8;
       const b: V3 = [base[0] + rng.range(-spread, spread), base[1] - 0.5, base[2] + rng.range(-spread, spread)];
       const d: V3 = [dir[0] + rng.range(-0.35, 0.35), dir[1], dir[2] + rng.range(-0.35, 0.35)];
       const dl = Math.hypot(d[0], d[1], d[2]);
-      const L = length * (i === 0 ? 1.15 : rng.range(0.5, 0.85));
+      const L = big ? length * 0.75 : length * (i === 0 ? 1.15 : rng.range(0.5, 0.85));
       // Slender columns read as crystals; fat ones read as glowing boulders.
-      const r0 = length >= 4.5 ? (i === 0 ? 1.0 : rng.range(0.55, 0.8)) : i === 0 ? 0.7 : rng.range(0.45, 0.6);
+      const r0 = big ? 0.8 : length >= 4.5 ? (i === 0 ? 1.0 : rng.range(0.55, 0.8)) : i === 0 ? 0.7 : rng.range(0.45, 0.6);
       const steps = Math.ceil(L * 3);
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
@@ -686,16 +690,16 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
     // Faceted shard clusters around upright formations sell the crystalline silhouette.
     if (!shards || dir[1] < 0.5) return;
-    const n = length >= 4.5 ? 3 : 1;
+    const n = big ? count + 1 : 1;
     for (let k = 0; k < n; k++) {
-      const a = rng.range(0, Math.PI * 2);
-      const r = rng.range(1.6, 2.6);
+      const a = (k / n) * Math.PI * 2 + rng.range(-0.4, 0.4);
+      const r = big ? rng.range(0.9, 1.8) : rng.range(1.6, 2.6);
       const px = Math.floor(base[0] + Math.cos(a) * r);
       const pz = Math.floor(base[2] + Math.sin(a) * r);
       let py = Math.floor(base[1]) + 3;
       while (py > Math.floor(base[1]) - 4 && !(isAir(px, py, pz) && !isAir(px, py - 1, pz))) py--;
       if (!(isAir(px, py, pz) && !isAir(px, py - 1, pz))) continue;
-      const scale = length >= 4.5 ? rng.range(1.5, 2.3) : rng.range(0.9, 1.3);
+      const scale = big ? rng.range(2.0, 3.2) : rng.range(0.9, 1.3);
       addProp({
         kind: 'crystalCluster', x: px + 0.5, y: py, z: pz + 0.5, rotY: rng.range(0, Math.PI * 2), scale,
         emitters: [[px, py, pz]], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 },

@@ -171,6 +171,55 @@ describe('LightField', () => {
     for (let x = 0; x < 32; x++) for (let y = 0; y < 32; y++) expect(l.data[w.index(x, y, 19) * 4]).toBe(0);
   });
 
+  it('removing emitters (crystals and lamps) matches a full recompute (property test)', () => {
+    for (let seed = 11; seed <= 18; seed++) {
+      const w = randomCave(seed);
+      const l = new LightField(w);
+      l.computeAll();
+      const emitters: number[] = [];
+      for (let i = 0; i < w.blocks.length; i++) if (w.blocks[i] === B.CRYSTAL || w.blocks[i] === B.LIGHT_AMBER || w.blocks[i] === B.LIGHT_CYAN) emitters.push(i);
+      const rng = new Rng(seed * 31);
+      for (let k = 0; k < Math.min(6, emitters.length); k++) {
+        const i = emitters[rng.int(0, emitters.length - 1)];
+        const z = Math.floor(i / (48 * 32)), y = Math.floor(i / 48) % 32, x = i % 48;
+        const old = w.get(x, y, z);
+        if (old === B.AIR) continue;
+        w.set(x, y, z, B.AIR);
+        l.onBlockChanged(x, y, z, old);
+        // Interleave ordinary mining so removal and fill paths mix.
+        const mx = rng.int(1, 46), my = rng.int(1, 30), mz = rng.int(1, 46);
+        const mo = w.get(mx, my, mz);
+        if (mo === B.SLATE) {
+          w.set(mx, my, mz, B.AIR);
+          l.onBlockChanged(mx, my, mz, mo);
+        }
+      }
+      expect(rgbEqual(l.data, fullLight(w)), `seed ${seed}`).toBe(0);
+    }
+  });
+
+  it('moving a lamp (remove + place elsewhere) matches a full recompute', () => {
+    const w = randomCave(5);
+    const l = new LightField(w);
+    l.computeAll();
+    let placed = 0;
+    for (let i = 0; i < w.blocks.length && placed < 4; i++) {
+      if (w.blocks[i] !== B.AIR) continue;
+      const z = Math.floor(i / (48 * 32)), y = Math.floor(i / 48) % 32, x = i % 48;
+      if (x % 7 || z % 5) continue;
+      w.set(x, y, z, B.LIGHT_AMBER);
+      l.onBlockChanged(x, y, z, B.AIR);
+      w.set(x, y, z, B.AIR);
+      l.onBlockChanged(x, y, z, B.LIGHT_AMBER);
+      if (w.get(x, y - 1, z) === B.AIR) {
+        w.set(x, y - 1, z, B.LIGHT_AMBER);
+        l.onBlockChanged(x, y - 1, z, B.AIR);
+      }
+      placed++;
+    }
+    expect(rgbEqual(l.data, fullLight(w))).toBe(0);
+  });
+
   it('incremental updates after mining match a full recompute (property test)', () => {
     for (let seed = 1; seed <= 6; seed++) {
       const w = randomCave(seed);
