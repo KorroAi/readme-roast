@@ -495,8 +495,8 @@ export class LightField {
  * the average of its up-to-three neighbours one step back toward the lantern, weighted by how
  * much the lantern direction runs along each axis, and 0 if the voxel is solid. Straight lines
  * of sight stay fully lit, walls cast shadows, and penumbrae soften with distance like a real
- * flame's. O(r^3) (about 0.2 ms at r = 14.5) where per-voxel ray marching was O(r^4) (up to
- * 7 ms), so moving with the lantern never stalls a frame. Trilinear filtering on the GPU
+ * flame's. O(r^3): 0.2-0.6 ms on the real world (Node, dev container) where per-voxel ray
+ * marching was O(r^4) and took 1.75-5.7 ms, so moving with the lantern never stalls a frame. Trilinear filtering on the GPU
  * smooths the grid; the shader applies the distance falloff from the exact flame position.
  */
 export class LanternField {
