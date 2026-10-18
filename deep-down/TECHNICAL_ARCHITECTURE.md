@@ -26,9 +26,13 @@ src/
   i18n/        en.ts (complete English table) + t()
   world/       VoxelWorld storage, DDA raycast, LightField + LanternField, gen/
   render/      mesher, ChunkRenderer, textures, terrain + entity materials,
-               lighting rig, voxModel builder, PostFX, Renderer (quality presets)
-  entities/    explorer character, player controller & physics, camera, drops, debris
-  gameplay/    inventory, crafting, equipment, lantern, mining rules, objectives, discoveries
+               lighting rig, voxModel builder, PostFX, Renderer (quality presets),
+               props/ (14 procedural prop kinds, PropRenderer with picking)
+  entities/    character/ (jointed explorer model + pure pose math)
+  game/        Game (modes, frame loop, flow), WorldSession, PlayerController, CameraRig,
+               MiningController, Drops, Guidance, effects/ (debris, particles, halos,
+               waterfall, target marker)
+  gameplay/    inventory, crafting, equipment, lantern, mining rules, objectives, journal
   input/       InputState contract + desktop (keyboard/mouse) input
   ui/          DOM UI: menus, HUD, touch controls, inventory, crafting, settings, icons
   audio/       Web Audio synthesis: sfx, ambience, music, reverb
@@ -37,7 +41,10 @@ src/
   debug/       window.__DD__ test/debug API, perf overlay
 tests/unit     Vitest (pure logic, world invariants, light correctness)
 tests/e2e      Playwright (real WebGL in headless Chromium)
-tools/         capture.mjs (screenshots), run-ts.mjs, gen-stats.ts, png.mjs
+tools/         capture.mjs (screenshots), play.mjs (scripted play), perf.mjs, ui-check.mjs
+               (UI + touch checks), apk-sim.mjs (APK files on the shell's origin),
+               audio-check.mjs, run-ts.mjs, gen-stats.ts, png.mjs
+android/       WebView shell (MainActivity), manifest, build-apk.sh (no Gradle)
 ```
 
 ## World and voxels
@@ -56,7 +63,14 @@ tools/         capture.mjs (screenshots), run-ts.mjs, gen-stats.ts, png.mjs
 Authored-procedural and deterministic per seed: the composition (camp, tunnel, ledge,
 stairs, hall, shrine, chasm, rift, temple gate) is designed by hand in code; noise only adds
 natural irregularity. Output `WorldLayout` = world + spawn + camp region + discovery
-regions + prop specs + marked route + named landmarks. ~380 ms on the dev container.
+regions + prop specs + marked route + named landmarks.
+
+Generation and the first full light + openness pass run in a module Web Worker
+(`world/gen/zoneWorker.ts`, loaded by `zoneLoader.ts`); the block and light buffers are
+transferred back, not copied. Measured on the dev container: ~330 ms generation + ~280 ms
+light, off the main thread, so the loading bar keeps moving. If module workers are
+unavailable the same code runs on the main thread. Meshing then runs on the main thread,
+time-sliced (~125 ms total).
 
 ### Meshing (`render/mesher.ts`)
 
@@ -75,19 +89,32 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
    multiplicative falloff so hue is preserved. Stored RGBA8 in a world-sized 3D texture.
    Alpha = *openness* (fraction of open space nearby) → faint blue ambient fill that makes
    big chambers read as big.
-   - Mining a non-emitter can only add light: incremental fill from neighbors.
-   - Removing an emitter (or adding a solid) rebuilds a local box of radius `LIGHT_REACH`.
+   - Mining a non-emitter can only add light: incremental fill from neighbors (0.06–0.1 ms).
+   - Removing an emitter runs a per-channel light-removal flood fill, then refills the gap
+     from the brighter frontier (0.3 ms; a box rebuild took 17 ms). Open emitters next to the
+     removed light drop back to their own emission, so no ghost light survives.
+   - Only placing a solid voxel (props settling) rebuilds a local box of radius `LIGHT_REACH`.
+   - A freshly opened voxel takes the openness of its most open neighbour.
    - Only the changed sub-box is uploaded (`texSubImage3D`).
-   - A property test proves incremental updates equal a full recompute.
-2. **Lantern** — the only dynamic light. `LanternField` ray-traces line-of-sight from the
-   lantern to every voxel within its radius (32³ R8 texture following the player), so light
-   never leaks through walls. The shader applies a smooth falloff from the lantern's exact
-   position, so light moves continuously.
+   - Property tests prove incremental, removal and lamp-move updates equal a full recompute.
+2. **Lantern** — the only dynamic light. `LanternField` (32³ R8 texture following the player)
+   stores visibility from the flame, computed in one outward propagation pass: each voxel
+   averages its up-to-three neighbours one step back toward the flame, weighted by the flame
+   direction, and solids are 0. Walls cast shadows, penumbrae soften with distance, light
+   never leaks through walls, and it costs 0.2–0.6 ms where ray-marching each voxel cost
+   1.75–5.7 ms. It recomputes when the flame moves 0.35 m, the radius changes or the world
+   changes; a flame a few cm inside a wall starts from the nearest open voxel. The shader
+   applies a smooth falloff from the flame's exact position, so light moves continuously.
 3. Surfaces sample both volumes at `position + normal * 0.5` (the open voxel in front of the
    face), so trilinear filtering yields soft light and natural corner darkening.
 4. Fog: dark blue exponential-squared haze; emissive surfaces punch through partially.
-5. Post (`render/PostFX.ts`): HalfFloat HDR target (MSAA on High), 4-level dual-filter bloom,
-   ACES fitted tone map, cool-shadow/warm-highlight split tone, vignette, dithering.
+5. Post (`render/PostFX.ts`): HalfFloat HDR target (MSAA on High, multisampled depth is not
+   resolved), 4-level dual-filter bloom, ACES fitted tone map, cool-shadow/warm-highlight
+   split tone, vignette, dithering, player brightness (exposure ×0.7–1.5). If the device
+   cannot render to float targets (no `EXT_color_buffer_(half_)float`), 8-bit targets are
+   used instead of a black screen.
+6. Halos: additive camera-facing quads on placed lights (one draw call). Quads rather than
+   point sprites, because GPUs drop a whole point once its centre leaves the screen.
 
 ## Rendering budgets (target device class: 2022 mid-range Android, e.g. Mali-G68 / Adreno 642L)
 
@@ -100,8 +127,11 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
 | View distance | 110 | 88 | 64 |
 | Particle budget | 400 | 220 | 120 |
 
-Dynamic lights: exactly one (lantern). Static light is a texture lookup. Typical frame:
-~120 draw calls, ~70k triangles in the Hollow (measured in headless Chromium).
+Dynamic lights: exactly one (lantern). Static light is a texture lookup. Measured frames:
+59–187 draw calls, 21–95k triangles (camp to ledge vista; TEST_REPORT.md).
+
+Frame loop: the cap is enforced for every preset (the remainder carries over, so 90/120 Hz
+panels average the cap). Behind the pause and death overlays the game renders at 15 fps.
 
 ## Materials
 
@@ -112,6 +142,19 @@ Dynamic lights: exactly one (lantern). Static light is a texture lookup. Typical
   (`render/voxModel.ts`): position, normal, sRGB color (Uint8), `aEmissive` (Uint8).
   Instancing supported. Uniforms: `uTint`, `uEmissiveScale`, `uEmissiveColor`, `uFlash`,
   `uFade` (screen-door fade when the camera is too close).
+- No shader in the opaque pass can `discard` in normal play: the debug section clip
+  (`DEBUG_CLIP`) and the screen-door fade (`USE_FADE`, explorer only) are compile-time
+  defines, so tile-based mobile GPUs keep early depth rejection / hidden-surface removal.
+
+## Camera
+
+Third-person over-the-shoulder rig (`game/CameraRig.ts`). The shoulder offset (0.7 m) is cast
+sideways first and shortened against walls; when the right side is walled in and the left is
+open, the rig swaps shoulders (smoothed, with hysteresis). The boom is a bundle of 9 rays
+from the shoulder point: it snaps in at once and eases back out, and a last check pulls the
+lens out of rock if a ray grazed a corner. Unit tests sweep fast turns in a tight tunnel and
+assert the camera is never inside rock or behind rock. The explorer dithers out when the
+boom is shorter than 2 m.
 
 ## Gameplay architecture
 
@@ -131,7 +174,21 @@ Dynamic lights: exactly one (lantern). Static light is a texture lookup. Typical
 - Two-slot writes with checksums: write the inactive slot, then flip the pointer. On load,
   a corrupt/partial slot falls back to the other one and the player is told.
 - Autosave on camp entry, crafting, discoveries, every 45 s, and on `visibilitychange`/
-  `pagehide` (Android backgrounding).
+  `pagehide` (Android backgrounding). A death is saved at once as the respawn it leads to.
+- The delta is a word-compare scan of the 3.3 MB volume (~2 ms); Continue restores the
+  generated world, applies the delta and rebuilds light and meshes once.
+- Unreadable saves (newer version, both slots corrupt) are never wiped silently: Continue
+  explains, New Game asks before replacing.
+
+## Android shell
+
+`android/app/src/main/java/.../MainActivity.java`: one Activity with a WebView. Files are
+served from `https://appassets.androidplatform.net/` out of `assets/www`; every other request
+is refused (the game is offline). Text zoom is pinned to 100% (the game has its own Large
+Text setting), Back goes to `window.deepDownBack()` (close screen / pause / resume; exit at
+the main menu; history back on pages without a handler), and a small JS bridge keeps the
+screen on only while playing. `build-apk.sh` refuses to package a stale or placeholder web
+build.
 
 ## Testing strategy
 
@@ -139,12 +196,21 @@ Dynamic lights: exactly one (lantern). Static light is a texture lookup. Typical
   correctness (incl. incremental == full property test), world invariants (determinism,
   bedrock shell, reachability of every critical location, sufficient materials), gameplay
   rules, save round-trip and corruption recovery, audio graph rendering (offline).
-- E2E (Playwright, real WebGL): boot → menu → new game → move with touch → mine → collect →
-  return to camp → craft → verify faster mining → save → reload → resume.
+- E2E (Playwright, real WebGL, 915×412 touch): `slice.spec.ts` — boot → menu → new game →
+  move with the joystick → hold-to-mine copper → collect → discover the Hollow → bank at camp
+  → craft at the Workbench → fewer hits + Hardened Slate breaks → save → reload → Continue.
+  `world.spec.ts` — all six discoveries with banners and journal entries; a lethal fall loses
+  the backpack, is saved immediately, and respawns at camp.
+- UI (`tools/ui-check.mjs`): 60 checks over the sandbox and the real game (touch zones,
+  hold/tap mining, multi-touch, buttons, left-handed, keyboard focus, no DOM churn).
+- Packaging (`tools/apk-sim.mjs`): the files inside the APK, served the way the shell
+  serves them, boot and play.
 - Visual: `tools/capture.mjs` renders deterministic camera presets; screenshots are
   inspected and iterated (see TEST_REPORT.md).
 
 ## Debug API
 
 `window.__DD__` (always present, read-mostly): `ready`, `state()`, `report()` (perf stats),
-and test helpers (`teleport`, `look`, `give`, `setBlock`, `mineAt`, …) used by e2e tests.
+and test helpers (`teleport`, `aimAt` (visible face through any screen point), `prepareMining`,
+`give`, `setBlock`, `standableNear`, `events`, `save`, `setQuality`, `debugLight`, …) used by
+the e2e tests and tools.

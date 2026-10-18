@@ -38,6 +38,19 @@ The reference image is a mood target, not a source. Everything is generated in c
 - Guidance through light: route lanterns every ~10–15 m (warm pools with dark gaps).
 - Secrets are hinted, not hidden: crumbling brick leaks thin cyan light through cracks.
 
+## Light and shadow
+
+- The lantern casts soft shadows: visibility is propagated outward from the flame, so shadow
+  edges are crisp near an occluder and widen with distance, like a real flame.
+- Placed lights get a soft additive halo so distant lamps read across the dark.
+- Warm pools along the route alternate with dark gaps; the eye follows the next pool.
+
+## Camera framing
+
+Over the right shoulder, 3.8 m boom, explorer left of centre so the crosshair stays on the
+rock. In tunnels the rig swaps to the left shoulder when the right is walled in, and the
+explorer dithers out when the camera gets close, instead of filling the screen.
+
 ## Explorer
 
 Chunky proportions (large head, ~1.7 m), brown hood/hair, cream shirt, dark trousers, brown
@@ -45,6 +58,9 @@ boots, a big backpack with a bedroll, a lantern in the left hand, the pickaxe in
 Readable silhouette from behind at 4 m: backpack shape + lantern glow.
 
 ## UI
+
+The title is drawn with a pixel font defined in code: icy gradient, dark outline and bevel,
+soft glow, and the first O of DOWN cut as a cyan crystal.
 
 Clean sans-serif in caps with generous letter spacing for headers, mixed case for body.
 Dark translucent panels (`rgba(9,14,22,0.82)`) with a thin cool edge. Amber for primary

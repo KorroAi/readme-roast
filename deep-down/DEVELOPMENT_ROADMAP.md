@@ -7,33 +7,25 @@ Milestones are only marked done when their acceptance criteria are checked (see 
 - Voxel storage, chunk mesher with AO, colored flood-fill light + lantern visibility volume,
   procedural pixel-art texture array, terrain shader, HDR post chain, screenshot tooling.
 
-## M1 — Vertical slice: "The Lantern Hollow" (current)
+## M1 — Vertical slice: "The Lantern Hollow" ✅ (verified in this environment; device test pending)
 Scope: one zone, one camp, one crafting station, three recipes, five resources.
 
-Acceptance criteria (all must be verified):
-1. Boots to an English main menu over a live 3D scene; New Expedition and Continue work.
-2. Touch controls: floating joystick, drag-to-look, press-and-hold-to-mine, jump, use, bag,
-   pause. Desktop: WASD/mouse equivalents.
-3. Mining: per-material durability, 10 crack stages, impact punch, cubic debris, dust,
-   distinct sounds for stone / metal / crystal, tier gating with clear feedback.
-4. Resources: stone, copper ore, glimmer shards (iron ore visible but gated) drop and fly
-   into a tiny 6-slot backpack; pickup notifications; "backpack full" handling.
-5. Environment: camp → lantern-marked tunnel → ledge reveal over the Hollow → ancient
-   stairs → pillared hall, crystal formations, violet chasm, hidden shrine, sealed gate.
-   Every critical place is reachable (automated reachability test).
-6. Camp: entering banks the backpack, refills the lantern, heals. Workbench crafts the
-   Copper Pickaxe (+60% mining speed, breaks Hardened Slate and iron), Sturdy Backpack,
-   Copper Lantern. The difference after upgrading is measurable in tests.
-7. Discoveries: Lantern Hollow, Glimmer Crystals, Sealed Shrine, Ancient Tablet, Iron Vein,
-   Deep Gate — each with a banner, a journal entry, and the discovery audio cue.
-8. Risk: lantern fuel, fall damage, death loses the unbanked backpack, respawn at camp.
-9. Persistence: versioned two-slot save with checksum, autosave on camp/craft/discovery/
-   background; resume restores position, inventory, equipment, mined tunnels, journal.
-10. HUD: health, lantern, backpack capacity, depth, camp compass, objective, target info.
-11. VisualLab: isolated, repeatable views of materials, crystal light, lantern light, crack
-    stages, particles, pickup effects, UI, character.
-12. Quality: zero console errors in the e2e run; unit + e2e tests green; screenshots
-    inspected; performance measured and recorded.
+| # | Acceptance criterion | Status | Evidence |
+|---|---|---|---|
+| 1 | Boots to an English main menu over a live 3D scene; New Expedition and Continue work | ✅ | e2e both specs; ui-check |
+| 2 | Touch: floating joystick, drag-to-look, press-and-hold-to-mine, jump, use, bag, pause. Desktop: WASD / mouse | ✅ | ui-check touch section (joystick, look, hold/tap mine, multi-touch, buttons, left-handed); e2e uses real touch events |
+| 3 | Mining: per-material durability, 10 crack stages, impact punch, cubic debris, dust, distinct stone / metal / crystal sounds, tier gating with clear feedback | ✅ | gameplay-mining tests; Visual Lab damage stages; audio centroids 2.0 / 3.0 / 5.3 kHz; e2e iron-vein gating |
+| 4 | Stone, copper ore, glimmer shards (iron visible but gated) drop and fly into a 6-slot backpack; pickup notices; backpack-full handling | ✅ | e2e copper pickup; inventory tests; UI pickup feed |
+| 5 | Camp → lantern tunnel → ledge reveal → stairs → pillared hall, crystals, violet chasm, hidden shrine, sealed gate; every critical place reachable | ✅ | reachability + route-walk tests; e2e visits every discovery |
+| 6 | Camp banks, refills the lantern, heals; Workbench crafts Copper Pickaxe (+60 %, breaks Hardened Slate and iron), Sturdy Backpack, Copper Lantern; the difference is measurable | ✅ | e2e bank + craft + fewer hits + seal breaks; crafting / survival tests |
+| 7 | Six discoveries, each with a banner, a journal entry and an audio cue | ✅ | `e2e/world.spec.ts`; audio event-mapping tests |
+| 8 | Lantern fuel, fall damage, death loses the unbanked backpack, respawn at camp | ✅ | survival tests; `e2e/world.spec.ts` lethal fall, saved death, respawn |
+| 9 | Versioned two-slot save with checksum, autosave on camp / craft / discovery / background; resume restores everything | ✅ | save tests (corruption, interrupted writes, migrations); e2e reload → Continue |
+| 10 | HUD: health, lantern, backpack, depth, camp compass, objective, target info | ✅ | ui-check; screenshots |
+| 11 | Visual Lab: materials, crystal light, lantern light, crack stages, particles, pickup effects, UI, character | ✅ | 8 3D views + UI-readability scenes; screenshots |
+| 12 | Zero console errors in e2e; unit + e2e green; screenshots inspected; performance measured | ✅ | TEST_REPORT.md |
+
+Open from M1 (moved to M5): measure on real Android devices; by-ear audio mix.
 
 ## M2 — Expedition loop depth
 - Expedition summary screen on extraction (what was found, banked, lost).
@@ -52,6 +44,8 @@ Acceptance criteria (all must be verified):
 - Camp upgrade tree (permanent progression): lift, forge, cartographer's table.
 
 ## M5 — Mobile production
+- **First:** install the APK on a 2022 mid-range and a low-end Android phone; measure FPS,
+  thermals, touch latency, audio, Back and lifecycle; fix what that finds.
 - On-device profiling on the target device classes; adaptive quality.
 - Android release build (signed AAB, targetSdk current), immersive mode, back button,
   lifecycle/audio focus handling; iOS WKWebView wrapper.
