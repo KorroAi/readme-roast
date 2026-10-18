@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { t } from '../i18n';
 import { Renderer } from '../render/Renderer';
 import { LAB_VIEWS, VisualLab, type LabView } from './VisualLab';
@@ -45,12 +46,36 @@ function boot(): void {
   }
   select(LAB_VIEWS.some((v) => v.id === initial) ? initial : 'materials');
 
+  // Material name labels projected from 3D (shown only in the materials view).
+  const labelLayer = document.createElement('div');
+  labelLayer.className = 'lab-labels';
+  ui.appendChild(labelLayer);
+  const labels = lab.materialLabels().map((l) => {
+    const el = document.createElement('span');
+    el.textContent = l.text;
+    labelLayer.appendChild(el);
+    return { el, pos: new THREE.Vector3(l.x, l.y, l.z) };
+  });
+  const tmp = new THREE.Vector3();
+  const placeLabels = () => {
+    const show = lab.currentView === 'materials';
+    labelLayer.style.display = show ? '' : 'none';
+    if (!show) return;
+    for (const l of labels) {
+      tmp.copy(l.pos).project(lab.camera);
+      const visible = tmp.z < 1 && Math.abs(tmp.x) < 1.1 && Math.abs(tmp.y) < 1.1;
+      l.el.style.display = visible ? '' : 'none';
+      l.el.style.transform = `translate(${((tmp.x + 1) / 2) * innerWidth}px, ${((1 - tmp.y) / 2) * innerHeight}px) translate(-50%, -100%)`;
+    }
+  };
+
   let last = performance.now();
   const loop = (now: number) => {
     requestAnimationFrame(loop);
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     lab.step(dt);
+    placeLabels();
   };
   requestAnimationFrame(loop);
   window.addEventListener('resize', () => lab.renderer.resize());

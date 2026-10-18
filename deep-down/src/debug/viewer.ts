@@ -7,6 +7,7 @@ import { createTerrainMaterial, createTileTexture } from '../render/terrainMater
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { Renderer } from '../render/Renderer';
 import { Waterfall } from '../game/effects/Waterfall';
+import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
 
 /**
  * Developer world viewer (not shipped in the game UI): renders the generated zone from a
@@ -30,6 +31,8 @@ async function boot(): Promise<void> {
   const ft = layout.landmarks.fallTop;
   const fb = layout.landmarks.fallBottom;
   if (ft && fb) scene.add(new Waterfall(rig.uniforms, new THREE.Vector3(...ft), new THREE.Vector3(...fb)).group);
+  const halos = new HaloSystem(rig.uniforms, collectWorldLights(layout.world));
+  if (params.get('halos') !== '0') scene.add(halos.points);
   let props: { update(dt: number, t: number, p: THREE.Vector3): void } | null = null;
   if (params.get('props') === '1') {
     // Resolved at runtime so the viewer still loads while the props module is being built.
@@ -64,6 +67,7 @@ async function boot(): Promise<void> {
     camera.updateProjectionMatrix();
     chunks.update(camera.position);
     props?.update(1 / 60, time, camera.position);
+    if (camera instanceof THREE.PerspectiveCamera) halos.setPixelScale(renderer.canvas.height, camera.fov);
     renderer.render(scene, camera, time);
     frames++;
     requestAnimationFrame(loop);

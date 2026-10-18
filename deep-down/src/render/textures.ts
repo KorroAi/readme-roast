@@ -142,9 +142,9 @@ const HARD = [0x0e1015, 0x13161c, 0x191c24, 0x20242e, 0x2a2e3b];
 const ANCIENT = [0x2a2f3a, 0x343a46, 0x3f4552, 0x4b5260, 0x58606f];
 const MORTAR = 0x1b1e25;
 const GLYPH = [0x1f8fa6, 0x48d6ea, 0xb4fbff];
-const WOOD = [0x352314, 0x452e1b, 0x573a23, 0x6a472c, 0x7e5636];
+const WOOD = [0x2e2117, 0x3b2b1e, 0x4a3727, 0x5a4431, 0x6b523c];
 const WOOD_DARK = [0x26190e, 0x312014, 0x3d291a, 0x4a3221];
-const HEARTH = [0x3f1e15, 0x4f271b, 0x613223, 0x763e2c];
+const HEARTH = [0x1a1512, 0x26201c, 0x332b25, 0x40362e];
 const BEDROCK = [0x08090c, 0x0e1014, 0x14161c, 0x1b1e25];
 
 type Painter = (t: Tile, rng: Rng) => void;
@@ -174,12 +174,12 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
   },
   soil(t, rng) {
     fillRamp(t, rng, SOIL, { cell: 3, jitter: 0.2 });
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 4; i++) {
       const x = rng.int(1, 14);
       const y = rng.int(1, 14);
-      t.set(x, y, PEBBLE[rng.int(1, 2)]);
-      if (rng.chance(0.5)) t.set(x + 1, y, PEBBLE[1]);
-      t.set(x, y - 1, PEBBLE[3]);
+      t.set(x, y, PEBBLE[rng.int(0, 1)]);
+      if (rng.chance(0.5)) t.set(x + 1, y, PEBBLE[0]);
+      t.set(x, y - 1, PEBBLE[2]);
     }
     bevel(t, 1.06, 0.82);
   },
@@ -401,8 +401,13 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
       }
   },
   hearth(t, rng) {
-    brickPattern(t, rng, HEARTH, 6, 3, 0x1a0e0a);
-    for (let i = 0; i < 6; i++) t.set(rng.int(0, 15), rng.int(0, 15), 0x2a1610);
+    // Soot-blackened fire-pit stones with a few glowing ember cracks.
+    brickPattern(t, rng, HEARTH, 6, 3, 0x0d0a08);
+    for (let i = 0; i < 6; i++) t.set(rng.int(0, 15), rng.int(0, 15), 0x120d0a);
+    for (let k = 0; k < 2; k++) {
+      const pts = crack(t, rng, 0x0a0705, rng.int(4, 7));
+      for (const [x, y] of pts) if (rng.chance(0.6)) t.set(x, y, rng.chance(0.5) ? 0xff8a3a : 0xd8561e, 200);
+    }
   },
   bedrock(t, rng) {
     fillRamp(t, rng, BEDROCK, { cell: 3, jitter: 0.25 });

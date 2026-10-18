@@ -41,15 +41,18 @@ interface Preset {
 
 /** Fixed camera + light presets so changes can be compared screenshot to screenshot. */
 const PRESETS: Record<LabView, Preset> = {
-  materials: { cam: [24, 9.5, 2.5], target: [24, 4.5, 12], lantern: [24, 6.5, 6], lanternRadius: 14, ambient: 0.05 },
+  materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16, ambient: 0.22 },
   crystal: { cam: [10, 6.5, 32], target: [16, 4, 44], lantern: [9, 5, 33], lanternRadius: 6, ambient: 0 },
   lantern: { cam: [34, 7.5, 30], target: [40, 3.5, 42], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
-  cracks: { cam: [24, 5.2, 50.5], target: [24, 3.2, 56], lantern: [24, 5.5, 52], lanternRadius: 12, ambient: 0.08 },
-  particles: { cam: [48, 5.6, 51], target: [52, 3.6, 56], lantern: [50, 5, 53], lanternRadius: 12, ambient: 0.05 },
-  pickup: { cam: [8, 5, 51], target: [12, 3, 56], lantern: [10, 5, 53], lanternRadius: 12, ambient: 0.05 },
-  character: { cam: [53, 4.2, 26], target: [56, 3.6, 30], lantern: [55.4, 4.1, 30.4], lanternRadius: 11, ambient: 0.04 },
+  cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12, ambient: 0.1 },
+  particles: { cam: [51.5, 4.6, 54.6], target: [51.5, 2.8, 59.5], lantern: [51.5, 5, 56], lanternRadius: 12, ambient: 0.06 },
+  pickup: { cam: [11.5, 4.2, 54.2], target: [11.5, 2.6, 59.5], lantern: [11.5, 5, 56], lanternRadius: 12, ambient: 0.06 },
+  character: { cam: [57, 3.6, 25.2], target: [57, 3.0, 30.5], lantern: [57, 4.4, 28], lanternRadius: 11, ambient: 0.05 },
   props: { cam: [24, 6.5, 22], target: [26, 3.2, 30], lantern: [24, 5.5, 25], lanternRadius: 13, ambient: 0.05 },
 };
+
+/** Material gallery grid: 6 per row, 3 rows, 4 blocks apart. */
+const galleryCell = (i: number) => ({ x: 9 + (i % 6) * 4, z: 6 + Math.floor(i / 6) * 5 });
 
 const MATERIAL_ROW = [
   B.SLATE, B.DEEP_SLATE, B.UMBER, B.SOIL, B.GRAVEL, B.MOSS, B.COPPER_ORE, B.IRON_ORE, B.CRYSTAL, B.HARDENED_SLATE,
@@ -101,7 +104,7 @@ export class VisualLab {
     // Crack stages: one marker per stage on a row of slate blocks.
     for (let s = 0; s < CRACK_STAGES; s++) {
       const m = new TargetMarker(tiles);
-      m.set({ x: 19 + s, y: 2, z: 56 }, (s + 0.5) / CRACK_STAGES, false, true);
+      m.set({ x: 19 + s, y: 2, z: 59 }, (s + 0.5) / CRACK_STAGES, false, true);
       this.markers.push(m);
       this.scene.add(m.group);
     }
@@ -133,8 +136,7 @@ export class VisualLab {
     w.fill(0, 0, 0, 63, 1, 63, B.DEEP_SLATE);
     // Material gallery: pedestals of 2x2x2 blocks per material along x, backed by a wall.
     MATERIAL_ROW.forEach((id, i) => {
-      const x = 3 + (i % 9) * 5;
-      const z = i < 9 ? 12 : 18;
+      const { x, z } = galleryCell(i);
       w.fill(x, 2, z, x + 1, 3, z + 1, id);
     });
     w.fill(0, 2, 22, 63, 9, 22, B.SLATE);
@@ -151,9 +153,9 @@ export class VisualLab {
     for (const [x, z] of [[37, 39], [43, 39], [37, 45], [43, 45], [40, 47]]) w.fill(x, 2, z, x, 7, z, B.ANCIENT_BRICK);
     w.fill(44, 2, 41, 48, 3, 43, B.COPPER_ORE);
     // Crack row and particle / pickup pads.
-    w.fill(19, 2, 56, 28, 2, 56, B.SLATE);
-    w.fill(51, 2, 56, 53, 2, 56, B.COPPER_ORE);
-    w.fill(11, 2, 56, 13, 2, 56, B.UMBER);
+    w.fill(19, 2, 59, 28, 2, 59, B.SLATE);
+    w.fill(50, 2, 59, 53, 2, 59, B.COPPER_ORE);
+    w.fill(10, 2, 59, 13, 2, 59, B.UMBER);
     // Character stage: soft warm lamp on the left, cyan rim on the right.
     w.fill(52, 2, 33, 62, 8, 33, B.ANCIENT_BRICK);
     w.setRaw(53, 3, 31, B.LIGHT_LAMP);
@@ -201,13 +203,13 @@ export class VisualLab {
       this.burstTimer = 1.2;
       if (this.view === 'particles') {
         const def = BLOCKS[B.COPPER_ORE];
-        this.debris.burst(52.5, 3.2, 56.5, def.debris, this.rng, { count: 12, speed: 4.2, size: [0.09, 0.22], spread: 0.35 });
-        this.particles.dust(52.5, 3.2, 56.5, def.debris[0], 7, this.rng);
-        this.debris.burst(50.5, 3.2, 56.5, BLOCKS[B.CRYSTAL].debris, this.rng, { count: 8, speed: 3.5, size: [0.06, 0.14], glow: true });
-        this.particles.sparkle(50.5, 3.4, 56.5, 0x8ff6ff, 14, this.rng);
+        this.debris.burst(52.5, 3.2, 59.5, def.debris, this.rng, { count: 12, speed: 4.2, size: [0.09, 0.22], spread: 0.35 });
+        this.particles.dust(52.5, 3.2, 59.5, def.debris[0], 7, this.rng);
+        this.debris.burst(50.5, 3.2, 59.5, BLOCKS[B.CRYSTAL].debris, this.rng, { count: 8, speed: 3.5, size: [0.06, 0.14], glow: true });
+        this.particles.sparkle(50.5, 3.4, 59.5, 0x8ff6ff, 14, this.rng);
       } else if (this.view === 'pickup') {
         const items: ItemId[] = ['stone', 'copperOre', 'ironOre', 'glimmerShard'];
-        for (const item of items) this.drops.spawn(item, 1, 12.5 + this.rng.range(-0.5, 0.5), 3.5, 56.5, this.rng);
+        for (const item of items) this.drops.spawn(item, 1, 12.5 + this.rng.range(-0.5, 0.5), 3.5, 59.5, this.rng);
       }
     }
     this.markers.forEach((m) => m.update(dt));
@@ -216,7 +218,7 @@ export class VisualLab {
       e.update(dt, { speed: i === 1 ? 4.6 : 0, grounded: i !== 2, verticalVelocity: i === 2 ? 3 : 0, aimPitch: 0, time: this.time });
     });
     // Pickups fly to a point 2 m in front of the pad (stands in for the explorer).
-    this.drops.update(dt, this.time, 9, 2, 54, () => true, (_i, n) => n, () => undefined);
+    this.drops.update(dt, this.time, 10.5, 2, 56.5, () => true, (_i, n) => n, () => undefined);
     this.props.update(dt, this.time, this.camera.position);
     this.debris.update(dt);
     this.particles.update(dt, this.time, this.camera.position.x, this.camera.position.y, this.camera.position.z);
@@ -227,6 +229,14 @@ export class VisualLab {
     this.camera.updateProjectionMatrix();
     this.renderer.render(this.scene, this.camera, this.time);
     this.frames++;
+  }
+
+  /** Screen-space labels for the material gallery (name + world anchor). */
+  materialLabels(): Array<{ text: string; x: number; y: number; z: number }> {
+    return MATERIAL_ROW.map((id, i) => {
+      const { x, z } = galleryCell(i);
+      return { text: t(BLOCKS[id].name), x: x + 1, y: 4.5, z: z + 1 };
+    });
   }
 
   label(view: LabView): string {

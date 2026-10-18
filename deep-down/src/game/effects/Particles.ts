@@ -21,7 +21,8 @@ void main() {
   vDepth = length(mv.xyz);
   gl_Position = projectionMatrix * mv;
   gl_PointSize = clamp(aSize * uPixelScale / max(0.1, -mv.z), 1.0, 64.0);
-  vAlpha = aAlpha;
+  // Fade particles that drift right in front of the lens instead of drawing huge blurry discs.
+  vAlpha = aAlpha * smoothstep(0.5, 1.8, -mv.z);
   vColor = aColor;
   vGlow = aGlow;
 }

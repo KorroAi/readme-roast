@@ -65,7 +65,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       ...p,
     };
     for (const [ex, ey, ez] of spec.emitters) {
-      if (isAir(ex, ey, ez)) put(ex, ey, ez, spec.kind === 'campfire' ? B.LIGHT_EMBER : B.LIGHT_AMBER);
+      const light = spec.kind === 'campfire' ? B.LIGHT_EMBER : spec.kind === 'crystalCluster' ? B.LIGHT_CYAN : B.LIGHT_AMBER;
+      if (isAir(ex, ey, ez)) put(ex, ey, ez, light);
     }
     props.push(spec);
     return spec;
@@ -158,43 +159,53 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // ------------------------------------------------------------------------------------
   // 3. Camp: a low, warm pocket near the top with a plank deck around a fire pit.
   const camp: Region = { id: 'camp', min: [24, 100, 30], max: [51, 111, 53] };
-  for (let z = 29; z <= 54; z++)
-    for (let x = 22; x <= 52; x++)
-      for (let y = 101; y <= 112; y++) {
-        const dx = (x - 37) / 14.5;
-        const dz = (z - 41) / 12.5;
-        const dy = (y - 101) / 9.5;
+  for (let z = 29; z <= 53; z++)
+    for (let x = 23; x <= 51; x++)
+      for (let y = 101; y <= 111; y++) {
+        const dx = (x - 37) / 12.5;
+        const dz = (z - 41) / 10.5;
+        const dy = (y - 101) / 8.5;
         const e = Math.pow(Math.abs(dx), 3) + Math.pow(Math.abs(dz), 3) + Math.pow(Math.max(0, dy), 2.2);
         const n = noise.fbm3(x * 0.12, y * 0.12, z * 0.12, 2) * 0.25;
         if (e + n < 1) carve(x, y, z);
       }
-  for (let z = 29; z <= 54; z++) for (let x = 22; x <= 52; x++) if (isAir(x, 101, z)) put(x, 100, z, B.SOIL);
-  for (let z = 35; z <= 47; z++) for (let x = 29; x <= 43; x++) put(x, 100, z, B.PLANK);
+  // Earthen floor with gravel patches; two small plank decks (work and sleeping areas).
+  for (let z = 29; z <= 53; z++)
+    for (let x = 23; x <= 51; x++) {
+      if (!isAir(x, 101, z)) continue;
+      put(x, 100, z, detail.noise2(x * 0.35, z * 0.35) > 0.35 ? B.GRAVEL : B.SOIL);
+    }
+  for (let z = 34; z <= 39; z++) for (let x = 38; x <= 44; x++) put(x, 100, z, B.PLANK);
+  for (let z = 43; z <= 47; z++) for (let x = 29; x <= 34; x++) put(x, 100, z, B.PLANK);
   for (let z = 40; z <= 42; z++) for (let x = 35; x <= 37; x++) put(x, 100, z, B.HEARTH);
   // Support frame; the south-east post has snapped and its crossbeam lies on the floor.
-  const posts: V3[] = [[29, 0, 35], [43, 0, 35], [29, 0, 47]];
+  const posts: V3[] = [[29, 0, 35], [44, 0, 35], [29, 0, 48]];
   for (const [px, , pz] of posts) for (let y = 101; y <= 107; y++) put(px, y, pz, B.BEAM);
-  for (let y = 101; y <= 103; y++) put(43, y, 47, B.BEAM);
-  for (let x = 29; x <= 43; x++) put(x, 107, 35, B.BEAM);
-  for (let z = 35; z <= 47; z++) put(29, 107, z, B.BEAM);
-  for (let x = 29; x <= 36; x++) put(x, 107, 47, B.BEAM);
-  line([37, 101, 48], [44, 102, 45], (x, y, z) => put(x, y, z, B.BEAM));
-  blob([45, 101, 49], 1.8, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.GRAVEL); });
-  blob([47, 101, 33], 1.5, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.SLATE); });
+  for (let y = 101; y <= 103; y++) put(44, y, 48, B.BEAM);
+  for (let x = 29; x <= 44; x++) put(x, 107, 35, B.BEAM);
+  for (let z = 35; z <= 48; z++) put(29, 107, z, B.BEAM);
+  for (let x = 29; x <= 36; x++) put(x, 107, 48, B.BEAM);
+  line([37, 101, 49], [44, 102, 46], (x, y, z) => put(x, y, z, B.BEAM));
+  blob([45, 101, 49], 1.6, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.GRAVEL); });
+  blob([46, 101, 33], 1.4, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.SLATE); });
   // Make sure the camp ceiling clears the frame everywhere.
-  for (let z = 34; z <= 48; z++) for (let x = 28; x <= 44; x++) for (let y = 101; y <= 106; y++) if (get(x, y, z) === B.SLATE || get(x, y, z) === B.UMBER) carve(x, y, z);
+  for (let z = 34; z <= 49; z++) for (let x = 28; x <= 45; x++) for (let y = 101; y <= 106; y++) if (get(x, y, z) === B.SLATE || get(x, y, z) === B.UMBER) carve(x, y, z);
 
   addProp({ kind: 'campfire', x: 36.5, y: 101, z: 41.5, emitters: [[36, 101, 41]], interact: 'rest' });
   addProp({ kind: 'workbench', x: 40.5, y: 101, z: 37.5, rotY: Math.PI, interact: 'craft' });
   addProp({ kind: 'chest', x: 31.5, y: 101, z: 37.5, rotY: Math.PI, interact: 'storage' });
   addProp({ kind: 'bedroll', x: 32.5, y: 101, z: 45, rotY: 0.2 });
-  addProp({ kind: 'crate', x: 41.5, y: 101, z: 45.5, rotY: 0.3 });
-  addProp({ kind: 'crate', x: 42.4, y: 101, z: 43.9, rotY: -0.2, scale: 0.8 });
-  addProp({ kind: 'barrel', x: 30.5, y: 101, z: 43.5 });
+  addProp({ kind: 'crate', x: 42.5, y: 101, z: 45.5, rotY: 0.3 });
+  addProp({ kind: 'crate', x: 43.4, y: 101, z: 43.9, rotY: -0.2, scale: 0.8 });
+  addProp({ kind: 'crate', x: 42.6, y: 101.82, z: 45.4, rotY: 0.9, scale: 0.7, anchor: [42, 100, 45] });
+  addProp({ kind: 'barrel', x: 30.4, y: 101, z: 41 });
+  addProp({ kind: 'barrel', x: 30.6, y: 101, z: 39.7, rotY: 1.1, scale: 0.9 });
+  addProp({ kind: 'crate', x: 46, y: 101, z: 38.5, rotY: 0.1, scale: 0.9 });
   addProp({ kind: 'pickaxeRack', x: 29.6, y: 101, z: 40.5, rotY: Math.PI / 2 });
   addProp({ kind: 'ropeCoil', x: 34, y: 101, z: 36.2 });
   addProp({ kind: 'hangingLantern', x: 32.5, y: 105.2, z: 35.5, anchor: [32, 107, 35], emitters: [[32, 105, 35]] });
   addProp({ kind: 'hangingLantern', x: 29.5, y: 105.2, z: 44.5, anchor: [29, 107, 44], emitters: [[29, 105, 44]] });
+  lanternPost(47.5, 101, 43.5, 0, true);
   const spawn = { x: 34.5, y: 101, z: 43.2, yaw: -Math.PI / 2 };
   landmarks.campfire = [36.5, 101, 41.5];
   landmarks.workbench = [40.5, 101, 37.5];
@@ -368,11 +379,11 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       put(138, y, z, B.HARDENED_SLATE);
     }
   for (let z = 99; z <= 102; z++) for (let x = 132; x <= 136; x++) for (let y = floorBase + 1; y <= floorBase + 7; y++) carve(x, y, z);
-  for (let z = 99; z <= 102; z++) for (let x = 130; x <= 136; x++) put(x, floorBase, z, B.ANCIENT_TILE);
+  for (let z = 99; z <= 102; z++) for (let x = 130; x <= 136; x++) put(x, floorBase, z, x % 2 === 0 && (z === 100 || z === 101) ? B.ANCIENT_TILE : B.ANCIENT_BRICK);
   landmarks.seal = [136.5, floorBase + 1, 100.5];
   // Corridor east, stairs down south, then west onto the balcony.
   for (let x = 139; x <= 151; x++) for (let z = 99; z <= 102; z++) {
-    put(x, floorBase, z, B.ANCIENT_TILE);
+    put(x, floorBase, z, (z === 100 || z === 101) && x % 3 === 0 ? B.ANCIENT_TILE : B.ANCIENT_BRICK);
     for (let y = floorBase + 1; y <= floorBase + 5; y++) carve(x, y, z);
   }
   for (let k = 0; k <= 17; k++) {
@@ -385,12 +396,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   }
   const lowWalk = floorBase + 1 - 17;
   for (let z = 120; z <= 129; z++) for (let x = 141; x <= 151; x++) {
-    put(x, lowWalk - 1, z, B.ANCIENT_TILE);
+    put(x, lowWalk - 1, z, B.ANCIENT_BRICK);
     for (let y = lowWalk; y <= lowWalk + 5; y++) carve(x, y, z);
   }
   for (let z = 122; z <= 132; z++)
     for (let x = 132; x <= 141; x++) {
-      put(x, lowWalk - 1, z, B.ANCIENT_TILE);
+      put(x, lowWalk - 1, z, z === 127 && x % 2 === 0 ? B.ANCIENT_TILE : B.ANCIENT_BRICK);
       put(x, lowWalk - 2, z, B.ANCIENT_BRICK);
       for (let y = lowWalk; y <= lowWalk + 6; y++) carve(x, y, z);
       if (x === 132 || z === 122 || z === 132) put(x, lowWalk, z, B.ANCIENT_BRICK);
@@ -634,7 +645,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     spec.emitters.push([ex, ey, ez]);
   }
 
-  function crystalFormation(base: V3, count: number, length: number, lean: V3): void {
+  function crystalFormation(base: V3, count: number, length: number, lean: V3, shards = true): void {
     const ln = Math.hypot(lean[0], lean[1], lean[2]);
     const dir: V3 = [lean[0] / ln, lean[1] / ln, lean[2] / ln];
     // Root the formation in the nearest rock behind it so crystals never float.
@@ -647,9 +658,9 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       const b: V3 = [base[0] + rng.range(-spread, spread), base[1] - 0.5, base[2] + rng.range(-spread, spread)];
       const d: V3 = [dir[0] + rng.range(-0.35, 0.35), dir[1], dir[2] + rng.range(-0.35, 0.35)];
       const dl = Math.hypot(d[0], d[1], d[2]);
-      const L = length * (i === 0 ? 1 : rng.range(0.45, 0.8));
-      // Big formations get a thick main column; small ones stay slender so they read as crystals.
-      const r0 = length >= 4.5 ? (i === 0 ? 1.45 : rng.range(0.8, 1.2)) : i === 0 ? 0.85 : rng.range(0.5, 0.7);
+      const L = length * (i === 0 ? 1.15 : rng.range(0.5, 0.85));
+      // Slender columns read as crystals; fat ones read as glowing boulders.
+      const r0 = length >= 4.5 ? (i === 0 ? 1.0 : rng.range(0.55, 0.8)) : i === 0 ? 0.7 : rng.range(0.45, 0.6);
       const steps = Math.ceil(L * 3);
       for (let s = 0; s <= steps; s++) {
         const t = s / steps;
@@ -667,6 +678,23 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
               if (cur === B.AIR || cur === B.SLATE || cur === B.DEEP_SLATE || cur === B.MOSS || cur === B.GRAVEL || cur === B.SOIL) put(x, y, z, B.CRYSTAL);
             }
       }
+    }
+    // Faceted shard clusters around upright formations sell the crystalline silhouette.
+    if (!shards || dir[1] < 0.5) return;
+    const n = length >= 4.5 ? 3 : 1;
+    for (let k = 0; k < n; k++) {
+      const a = rng.range(0, Math.PI * 2);
+      const r = rng.range(1.6, 2.6);
+      const px = Math.floor(base[0] + Math.cos(a) * r);
+      const pz = Math.floor(base[2] + Math.sin(a) * r);
+      let py = Math.floor(base[1]) + 3;
+      while (py > Math.floor(base[1]) - 4 && !(isAir(px, py, pz) && !isAir(px, py - 1, pz))) py--;
+      if (!(isAir(px, py, pz) && !isAir(px, py - 1, pz))) continue;
+      const scale = length >= 4.5 ? rng.range(1.5, 2.3) : rng.range(0.9, 1.3);
+      addProp({
+        kind: 'crystalCluster', x: px + 0.5, y: py, z: pz + 0.5, rotY: rng.range(0, Math.PI * 2), scale,
+        emitters: [[px, py, pz]], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 },
+      });
     }
   }
 

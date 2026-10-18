@@ -47,7 +47,9 @@ void main() {
   float topFade = smoothstep(0.0, 0.06, 1.0 - vUv.y);
   float a = (0.18 + 0.62 * streak) * core * shimmer * topFade;
   float fog = fogFactor(vDepth);
-  vec3 col = uColor * a * (1.0 - fog * 0.65);
+  // Fade out right in front of the lens so falling past it never blinds the screen.
+  float nearFade = smoothstep(1.0, 6.0, vDepth);
+  vec3 col = uColor * a * (1.0 - fog * 0.65) * nearFade;
   fragColor = vec4(col, 1.0); // additive blending scales by source alpha
 }
 `;
@@ -63,7 +65,7 @@ export class Waterfall {
 
   constructor(
     lighting: LightingUniforms,
-    private readonly top: THREE.Vector3,
+    top: THREE.Vector3,
     private readonly bottom: THREE.Vector3,
     width = 2.8,
   ) {

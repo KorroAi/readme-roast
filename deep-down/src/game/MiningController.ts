@@ -37,7 +37,7 @@ export interface MiningTarget {
 
 /** Narrow interface to the pure mining rules (gameplay/Mining.ts). */
 export interface MiningRules {
-  hit(targetKey: string, hardness: number, tier: number, pickaxe: PickaxeDef): { progress: number; broken: boolean; blocked: boolean };
+  hit(targetKey: string, hardness: number, tier: number, pickaxe: PickaxeDef, protectedReason?: 'unbreakable' | 'protected' | null): { progress: number; broken: boolean; blocked: boolean };
   update(dt: number): void;
   readonly progress: number;
   readonly targetKey: string | null;
@@ -168,7 +168,7 @@ export class MiningController {
 
   private impact(tgt: MiningTarget): void {
     const pick = this.hooks.pickaxe();
-    const res = this.rules.hit(tgt.key, tgt.hardness, tgt.tier, pick);
+    const res = this.rules.hit(tgt.key, tgt.hardness, tgt.tier, pick, tgt.protectedReason);
     const p = tgt.point;
     if (res.blocked) {
       this.bus.emit('block:tooHard', { x: tgt.x, y: tgt.y, z: tgt.z, block: tgt.block, requiredTier: tgt.tier });

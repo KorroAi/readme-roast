@@ -11,7 +11,7 @@ import { DesktopInput } from '../input/DesktopInput';
 import { consumeEdges, createInputState, type InputState } from '../input/types';
 import { Renderer } from '../render/Renderer';
 import type { PropSpec, Region } from '../world/gen/types';
-import { UI } from '../ui/UI';
+import type { GameUi, UiFactory } from './GameUi';
 import type { HudState, InventoryView, UiActions } from '../ui/types';
 import { AudioSystem } from '../audio/AudioSystem';
 import { ExplorerModel } from '../entities/character/ExplorerModel';
@@ -33,6 +33,8 @@ import { DropSystem } from './Drops';
 import { DebrisSystem } from './effects/Debris';
 import { ParticleSystem } from './effects/Particles';
 import { TargetMarker } from './effects/TargetMarker';
+import { Waterfall } from './effects/Waterfall';
+import { HaloSystem, collectWorldLights, type HaloSource } from './effects/Halos';
 import { WorldSession } from './WorldSession';
 import { Guidance } from './Guidance';
 import { installDebugApi } from '../debug/DebugApi';
@@ -57,7 +59,7 @@ export class Game {
 
   // Created during boot.
   session!: WorldSession;
-  ui!: UI;
+  ui!: GameUi;
   audio!: AudioSystem;
   desktop!: DesktopInput;
   cameraRig!: CameraRig;
@@ -70,6 +72,10 @@ export class Game {
   particles!: ParticleSystem;
   marker!: TargetMarker;
   guidance!: Guidance;
+  waterfall: Waterfall | null = null;
+  halos!: HaloSystem;
+  private halosDirty = false;
+  private staticHalos: HaloSource[] | null = null;
 
   // Progress state.
   backpack = new Backpack(packForTier(1).slots);
@@ -104,7 +110,11 @@ export class Game {
   private disposers: Array<() => void> = [];
   ready = false;
 
-  constructor(private readonly canvas: HTMLCanvasElement, private readonly uiRoot: HTMLElement) {
+  constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly uiRoot: HTMLElement,
+    private readonly createUi: UiFactory,
+  ) {
     this.settings = this.saves.loadSettings();
     this.renderer = new Renderer(canvas, this.settings.quality);
     this.renderer.renderScaleOverride = this.settings.renderScale;
@@ -114,7 +124,7 @@ export class Game {
   // Boot
 
   async boot(): Promise<void> {
-    this.ui = new UI(this.uiRoot, this.createActions(), this.bus, this.input);
+    this.ui = this.createUi(this.uiRoot, this.createActions(), this.bus, this.input);
     this.ui.applySettings(this.settings);
     this.ui.showScreen('loading');
     this.ui.setLoading(0, t('menu.loading'));
@@ -139,6 +149,14 @@ export class Game {
     this.marker = new TargetMarker(s.tileTexture);
     this.scene.add(this.drops.group, this.debris.group, this.particles.group, this.marker.group);
     s.chunks.viewDistance = preset.viewDistance;
+    const ft = layout.landmarks.fallTop;
+    const fb = layout.landmarks.fallBottom;
+    if (ft && fb) {
+      this.waterfall = new Waterfall(s.rig.uniforms, new THREE.Vector3(...ft), new THREE.Vector3(...fb));
+      this.scene.add(this.waterfall.group);
+    }
+    this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
+    this.scene.add(this.halos.points);
 
     this.guidePath.push([layout.spawn.x, layout.spawn.y, layout.spawn.z], ...layout.route.map((p) => [p[0], p[1], p[2]] as [number, number, number]));
     for (const key of ['stairsTop', 'landing', 'stairsBottom'] as const) {
@@ -234,6 +252,7 @@ export class Game {
     this.saves.clear();
     await this.session.reset();
     this.resetProgress();
+    this.halosDirty = true;
     this.startPlaying();
     this.tutorial('move', this.isTouch() ? 'hint.move' : 'hint.moveDesktop', 6000);
     this.saveNow('new');
@@ -250,6 +269,7 @@ export class Game {
     await this.session.reset();
     await this.session.applySave(res.data.worldEdits, res.data.removedProps);
     this.restoreProgress(res.data);
+    this.halosDirty = true;
     this.startPlaying();
     if (res.recovered) this.ui.toast(t('error.saveCorrupt'), 'warn');
   }
@@ -696,12 +716,32 @@ export class Game {
 
   private onBlockBroken(x: number, y: number, z: number, oldId: number): void {
     this.stats.blocksMined++;
+    // Mining under a lamp makes it settle (its emitter moves): check before the settle runs.
+    for (const p of this.session.liveProps.values()) {
+      if (p.anchor && p.anchor[0] === x && p.anchor[1] === y && p.anchor[2] === z) this.halosDirty = true;
+    }
     this.session.blockChanged(x, y, z, oldId);
     if (oldId === B.CRYSTAL) this.discover('crystals');
   }
 
+  /** Halo sources: lamps owned by live props plus static abyss lights. */
+  private haloSources(): HaloSource[] {
+    const s = this.session;
+    if (!this.staticHalos) this.staticHalos = collectWorldLights(s.world).filter((h) => h.id === B.LIGHT_ABYSS);
+    const out: HaloSource[] = [...this.staticHalos];
+    for (const spec of s.liveProps.values()) {
+      if (spec.kind === 'crystalCluster') continue;
+      for (const [x, y, z] of spec.emitters) {
+        const id = s.world.get(x, y, z);
+        if (id === B.LIGHT_AMBER || id === B.LIGHT_LAMP || id === B.LIGHT_EMBER) out.push({ x, y, z, id });
+      }
+    }
+    return out;
+  }
+
   private onPropBroken(spec: PropSpec): void {
     this.session.removeProp(spec.id);
+    this.halosDirty = true;
     if (this.focusedProp?.id === spec.id) this.focusedProp = null;
   }
 
@@ -867,8 +907,14 @@ export class Game {
     s.rig.flush(this.renderer.gl);
     s.props.update(dt, this.time, cam.position);
     this.debris.update(dt);
+    this.waterfall?.update(dt, this.particles, this.rng, cam.position);
     this.particles.update(dt, this.time, cam.position.x, cam.position.y, cam.position.z);
     this.particles.setPixelScale(this.renderer.canvas.height, cam.fov);
+    if (this.halosDirty) {
+      this.halosDirty = false;
+      this.halos.setSources(this.haloSources());
+    }
+    this.halos.setPixelScale(this.renderer.canvas.height, cam.fov);
     const post = this.renderer.post.params;
     post.flash = damp(post.flash, 0, 5, dt);
     this.renderer.render(this.scene, cam, this.time);

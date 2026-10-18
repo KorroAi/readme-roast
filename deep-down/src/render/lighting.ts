@@ -70,7 +70,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n) {
   float x = clamp(dist / uLanternRadius, 0.0, 1.0);
   float att = (1.0 - x * x);
   att *= att;
-  att *= 1.0 + 1.6 / (1.0 + dist * dist * 0.35);
+  att *= 1.0 + 0.9 / (1.0 + dist * dist * 0.35);
   float ndl = dot(n, d / max(dist, 1e-3));
   float wrap = clamp(ndl * 0.7 + 0.3, 0.0, 1.0);
   return uLanternColor * (uLanternIntensity * att * wrap * lanternVisibility(samplePos));
@@ -130,7 +130,7 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffc58a)).multiplyScalar(1.7) },
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffd2a6)).multiplyScalar(1.6) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color().setRGB(...hexToLinear(0x0b1220)).multiplyScalar(0.55) },
