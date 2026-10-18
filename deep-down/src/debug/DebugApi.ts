@@ -98,8 +98,9 @@ export function installDebugApi(game: Game): void {
       const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
       // The camera orbits a shoulder pivot, so its position depends on the aim: iterate.
       const aim = (tx: number, ty: number, tz: number) => {
+        // Simulated time lets the boom, pivot and shoulder side settle as they would in play.
         for (let i = 0; i < 16; i++) {
-          rig.update(0, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+          rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
           rig.rayThrough(ndcX, ndcY, o, d);
           const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
           const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
@@ -107,7 +108,7 @@ export function installDebugApi(game: Game): void {
           rig.yaw += yawErr;
           rig.pitch += pitchErr;
         }
-        rig.update(0, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+        rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
         rig.rayThrough(ndcX, ndcY, o, d);
       };
       const faces: Array<[number, number, number]> = [[0, 0, 0], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];

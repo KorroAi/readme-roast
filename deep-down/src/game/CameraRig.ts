@@ -87,7 +87,10 @@ export class CameraRig {
     const hitL = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, -right.x, 0, -right.z, reach);
     const roomR = hitR ? Math.max(0, hitR.distance - 0.3) : this.shoulder;
     const roomL = hitL ? Math.max(0, hitL.distance - 0.3) : this.shoulder;
-    const want = roomR >= this.shoulder * 0.5 || roomR >= roomL ? 1 : -1;
+    // Hysteresis: once on the left, return only when the right is clearly open again.
+    const want = this.side < 0
+      ? roomR >= this.shoulder * 0.9 || roomR > roomL + 0.2 ? 1 : -1
+      : roomR >= this.shoulder * 0.5 || roomR >= roomL ? 1 : -1;
     this.side = damp(this.side, want, 5, dt);
     const lateral = this.side >= 0 ? Math.min(this.shoulder * this.side, roomR) : -Math.min(-this.shoulder * this.side, roomL);
     const ox = this.pivot.x + right.x * lateral;
