@@ -17,5 +17,5 @@
     "resolveJsonModule": true,
     "useDefineForClassFields": true
   },
-  "include": ["src", "tests/unit", "vite.config.ts", "vitest.config.ts"]
+  "include": ["src", "tests/unit", "tests/e2e", "vite.config.ts", "vitest.config.ts", "playwright.config.ts"]
 }

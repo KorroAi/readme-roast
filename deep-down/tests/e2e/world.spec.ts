@@ -1,27 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
+import './dd';
 
 // Beyond the success path: every discovery can be triggered and shows its banner, death costs
 // the unbanked backpack and returns the explorer to camp, and the death itself is saved.
 
-type DD = {
-  ready: boolean;
-  state(): any;
-  events(type?: string): Array<{ type: string; payload: any }>;
-  clearEvents(): void;
-  teleport(x: number, y: number, z: number, yaw?: number): void;
-  landmarks(): Record<string, [number, number, number]>;
-  standableNear(x: number, y: number, z: number): [number, number, number] | null;
-  prepareMining(id: number, x: number, y: number, z: number, r?: number): { block: [number, number, number]; stand: [number, number, number] } | null;
-  aimAt(x: number, y: number, z: number, ndcX?: number, ndcY?: number): boolean;
-  give(item: string, n: number): number;
-  game: any;
-};
-declare global {
-  interface Window {
-    __DD__: DD;
-  }
-}
 
 const IRON_ORE = 8;
 
@@ -37,6 +20,13 @@ async function visit(page: Page, at: [number, number, number]) {
 
 async function discovered(page: Page, id: string, title: RegExp) {
   await page.waitForFunction((d) => window.__DD__.events('discovery').some((e) => e.payload.id === d), id, { timeout: 15_000 });
+  // Every discovery is saved at once: the next save after it is a 'discovery' save.
+  const reason = await page.evaluate((d) => {
+    const ev = window.__DD__.events();
+    const i = ev.findIndex((e) => e.type === 'discovery' && e.payload.id === d);
+    return ev.slice(i + 1).find((e) => e.type === 'game:saved')?.payload.reason ?? 'none';
+  }, id);
+  expect(reason, `save after the ${id} discovery`).toBe('discovery');
   // Banners play in turn, so a discovery right after another one shows a few seconds later.
   await expect(page.locator('.dd-discovery-title', { hasText: title })).toBeVisible({ timeout: 20_000 });
 }
@@ -85,9 +75,43 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
   const journal = (await page.evaluate(() => window.__DD__.state())).journal.discoveries;
   expect(journal).toEqual(expect.arrayContaining(['crystals', 'hollow', 'gate', 'shrine', 'tablet', 'ironVein']));
 
+  const floor = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), lm.stairsBottom);
+  // The HUD hearts follow health: a 6 m fall onto the hall floor (away from camp, so no regen) hurts.
+  const hearts = page.locator('.dd-hud.on .dd-hearts');
+  await expect(hearts.locator('.dd-heart.f2')).toHaveCount(5);
+  await page.evaluate(() => window.__DD__.clearEvents());
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 3, y + 6, z), floor!);
+  await page.waitForFunction(() => window.__DD__.events('player:damaged').some((e) => e.payload.cause === 'fall'), null, { timeout: 15_000 });
+  const hp = (await page.evaluate(() => window.__DD__.state())).health as number;
+  expect(hp, 'health after a 6 m fall').toBeGreaterThan(0);
+  expect(hp).toBeLessThan(100);
+  await expect(hearts).toHaveAttribute('aria-label', `Health ${Math.ceil(hp)} of 100`);
+  // Half-heart units, as specified for the HUD: nearest half heart, 1..9 while hurt but alive.
+  const fullHearts = Math.floor(Math.max(1, Math.min(9, Math.round((hp / 100) * 10))) / 2);
+  await expect(hearts.locator('.dd-heart.f2')).toHaveCount(fullHearts);
+  await expect(hearts.locator('.dd-heart:not(.f2)')).toHaveCount(5 - fullHearts);
+
+  // The lantern meter follows the fuel: burn 250 s of the 300 s oil lantern (as 250 s away from
+  // camp would) and the HUD shows what is left and warns that it is low.
+  // The fuel keeps burning, so the meter is compared with the live value in the same task.
+  await page.evaluate(() => {
+    const l = window.__DD__.game.lanternFuel;
+    l.update(250, false, { fuelSeconds: l.capacity });
+  });
+  const meterVsFuel = () =>
+    page.evaluate(() => {
+      const el = document.querySelector('.dd-hud.on .dd-lantern[role="meter"]');
+      const shown = Number(el?.getAttribute('aria-valuenow'));
+      return { shown, label: el?.getAttribute('aria-label'), low: !!el?.classList.contains('low'), fuel: window.__DD__.game.lanternFuel.fraction * 100 };
+    });
+  await expect.poll(async () => { const m = await meterVsFuel(); return m.shown < 20 && Math.abs(m.shown - m.fuel) <= 1; }, { message: 'lantern meter shows the burnt-down fuel' }).toBe(true);
+  const meter = await meterVsFuel();
+  expect(meter.fuel).toBeLessThan(20);
+  expect(meter.label).toBe(`Lantern fuel ${meter.shown}%`);
+  expect(meter.low, 'low-fuel warning on the meter').toBe(true);
+
   // Death: carry unbanked finds, fall 30 m onto the hall floor.
   await page.evaluate(() => window.__DD__.give('copperOre', 3));
-  const floor = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), lm.stairsBottom);
   const deathsBefore = (await page.evaluate(() => window.__DD__.game.stats.deaths)) as number;
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 3, y + 30, z), floor!);
   await waitMode(page, 'dead');
@@ -105,6 +129,29 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
   expect(s.atCamp).toBe(true);
   expect(s.backpack.filter(Boolean).length).toBe(0);
   expect(await page.evaluate(() => window.__DD__.game.audio.paused ?? false)).toBe(false);
+
+  // Backgrounding (Android onPause / tab hidden) saves at once and pauses play; coming back
+  // stays paused until the player resumes.
+  const hidden = await page.evaluate(() => {
+    window.__DD__.clearEvents();
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    // Read synchronously: the handler must have saved and paused before returning.
+    return { saves: window.__DD__.events('game:saved').map((e) => e.payload.reason), mode: window.__DD__.state().mode, screen: window.__DD__.state().screen };
+  });
+  expect(hidden.saves).toEqual(['background']);
+  expect(hidden.mode).toBe('paused');
+  expect(hidden.screen).toBe('pause');
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    delete (document as unknown as { visibilityState?: string }).visibilityState;
+  });
+  expect(await page.evaluate(() => document.visibilityState)).toBe('visible');
+  await page.waitForTimeout(300);
+  expect((await page.evaluate(() => window.__DD__.state())).mode).toBe('paused');
+  await page.getByRole('button', { name: /Resume/i }).tap();
+  await waitMode(page, 'playing');
 
   expect(errors, errors.join('\n')).toEqual([]);
 });

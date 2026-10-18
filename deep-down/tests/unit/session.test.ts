@@ -56,6 +56,45 @@ describe('WorldSession', () => {
     await session.reset();
   });
 
+  it('breaks a hanging prop when the voxel it hangs from is mined, and its light goes out', async () => {
+    await session.reset();
+    const w = session.world;
+    // A real hanging prop from the generated layout: anchored above its base, carrying a light.
+    const lamp = [...session.liveProps.values()].find((p) => p.anchor && p.anchor[1] > p.y && p.emitters.length > 0);
+    expect(lamp, 'the layout has a hanging prop with a light').toBeDefined();
+    const id = lamp!.id;
+    const [ax, ay, az] = lamp!.anchor!;
+    const emitters = lamp!.emitters.map((e) => [...e] as [number, number, number]);
+    expect(w.isSolid(ax, ay, az)).toBe(true);
+    for (const e of emitters) expect(isEmitter(w.get(...e))).toBe(true);
+    const lightAt = ([x, y, z]: [number, number, number]) => {
+      const i = w.index(x, y, z) * 4;
+      return session.light.data[i] + session.light.data[i + 1] + session.light.data[i + 2];
+    };
+    const litBefore = lightAt(emitters[0]);
+    expect(litBefore).toBeGreaterThan(0);
+
+    // Control: mining a solid neighbour of the anchor (anchoring nothing) leaves the prop hanging.
+    const neighbour = ([[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]] as const)
+      .map(([dx, dy, dz]) => [ax + dx, ay + dy, az + dz] as [number, number, number])
+      .find(([x, y, z]) => w.isSolid(x, y, z) && ![...session.liveProps.values()].some((p) => p.anchor && p.anchor[0] === x && p.anchor[1] === y && p.anchor[2] === z));
+    expect(neighbour, 'a solid voxel next to the anchor').toBeDefined();
+    session.setBlock(...neighbour!, B.AIR);
+    expect(session.liveProps.has(id)).toBe(true);
+    for (const e of emitters) expect(isEmitter(w.get(...e))).toBe(true);
+
+    // Mining the anchor itself: the prop breaks (it is not moved or dropped), its emitters go.
+    session.setBlock(ax, ay, az, B.AIR);
+    expect(session.liveProps.has(id)).toBe(false);
+    expect(session.removedProps.has(id)).toBe(true);
+    for (const e of emitters) expect(isEmitter(w.get(...e))).toBe(false);
+    expect(lightAt(emitters[0])).toBeLessThan(litBefore);
+
+    await session.reset();
+    expect(session.liveProps.has(id)).toBe(true);
+    for (const e of emitters) expect(isEmitter(w.get(...e))).toBe(true);
+  });
+
   it('removes a prop together with its light emitters', async () => {
     await session.reset();
     const fire = [...session.liveProps.values()].find((p) => p.kind === 'campfire')!;

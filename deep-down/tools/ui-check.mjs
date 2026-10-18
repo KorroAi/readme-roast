@@ -347,8 +347,11 @@ if (opt.touch) {
     const slider = p.getByRole('slider', { name: /Master volume/i });
     await slider.focus();
     await p.keyboard.press('ArrowRight');
-    await p.waitForTimeout(80);
-    check('sliders apply (coalesced per frame)', Math.abs((await p.evaluate(() => window.__UI__.settings().masterVolume)) - 0.85) < 1e-6, await p.evaluate(() => window.__UI__.settings().masterVolume));
+    // The patch is applied on the next animation frame: poll for it instead of guessing a delay.
+    const sliderApplied = await p
+      .waitForFunction(() => Math.abs(window.__UI__.settings().masterVolume - 0.85) < 1e-6, null, { timeout: 1500, polling: 20 })
+      .then(() => true, () => false);
+    check('sliders apply (coalesced per frame)', sliderApplied, await p.evaluate(() => window.__UI__.settings().masterVolume));
     await p.getByRole('button', { name: /Reset to defaults/i }).click();
     check('reset restores defaults', (await p.evaluate(() => window.__UI__.settings().invertY)) === false && (await p.getByRole('switch', { name: /Invert vertical/i }).getAttribute('aria-checked')) === 'false');
     await p.getByRole('button', { name: /Delete saved game/i }).click();

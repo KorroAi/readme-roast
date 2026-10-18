@@ -11,6 +11,11 @@ export class DesktopInput {
   enabled = true;
   private readonly keys = new Set<string>();
   private rightDrag = false;
+  private wasLocked = false;
+  /** The game itself released the pointer (opening a screen): not a reason to pause. */
+  private expectRelease = false;
+  /** When an unexpected unlock paused the game (ms); an Esc keydown right after is the same press. */
+  private unlockPauseAt = -1e9;
   private lastX = 0;
   private lastY = 0;
   private readonly disposers: Array<() => void> = [];
@@ -30,11 +35,22 @@ export class DesktopInput {
       this.updateMove();
     });
     // Once the pointer is captured, aim from the crosshair (the click that captured it set a cursor aim).
+    // Losing the capture without the game asking for it (the browser takes Esc to release it, or
+    // the window loses focus) pauses, so the first Esc while captured still pauses.
     const onLock = () => {
       if (this.pointerLocked) {
+        this.wasLocked = true;
         this.input.aimX = 0;
         this.input.aimY = 0;
         this.input.aimFromPointer = false;
+      } else {
+        if (this.wasLocked && !this.expectRelease && this.enabled) {
+          this.input.pauseRequested = true;
+          this.unlockPauseAt = performance.now();
+        }
+        this.wasLocked = false;
+        this.expectRelease = false;
+        this.input.mining = false;
       }
     };
     document.addEventListener('pointerlockchange', onLock);
@@ -50,7 +66,10 @@ export class DesktopInput {
   }
 
   releasePointer(): void {
-    if (this.pointerLocked) document.exitPointerLock();
+    if (this.pointerLocked) {
+      this.expectRelease = true;
+      document.exitPointerLock();
+    }
     this.input.mining = false;
   }
 
@@ -68,7 +87,7 @@ export class DesktopInput {
       else if ((k === 'KeyI' || k === 'Tab') && !e.repeat) {
         this.input.inventoryPressed = true;
         e.preventDefault();
-      } else if (k === 'Escape' && !e.repeat) this.input.pausePressed = true;
+      } else if (k === 'Escape' && !e.repeat && performance.now() - this.unlockPauseAt > 400) this.input.pausePressed = true;
       this.keys.add(k);
     } else {
       if (k === 'Space') this.input.jumpHeld = false;

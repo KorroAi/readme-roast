@@ -556,7 +556,7 @@ export class Game {
     this.playTime += dt;
 
     if (!blocked) {
-      if (input.pausePressed) {
+      if (input.pausePressed || input.pauseRequested) {
         this.pause();
         return;
       }

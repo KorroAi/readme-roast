@@ -22,6 +22,8 @@ export interface InputState {
   interactPressed: boolean;
   inventoryPressed: boolean;
   pausePressed: boolean;
+  /** Pause if playing, never resume (focus or pointer capture lost). Edge, cleared each frame. */
+  pauseRequested: boolean;
   /** Which device produced the last meaningful input; drives on-screen hints. */
   lastDevice: 'touch' | 'mouse' | 'keyboard';
 }
@@ -41,6 +43,7 @@ export function createInputState(): InputState {
     interactPressed: false,
     inventoryPressed: false,
     pausePressed: false,
+    pauseRequested: false,
     lastDevice: 'touch',
   };
 }
@@ -53,4 +56,5 @@ export function consumeEdges(s: InputState): void {
   s.interactPressed = false;
   s.inventoryPressed = false;
   s.pausePressed = false;
+  s.pauseRequested = false;
 }

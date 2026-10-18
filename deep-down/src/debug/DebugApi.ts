@@ -105,8 +105,9 @@ export function installDebugApi(game: Game): void {
           const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
           const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
           const pitchErr = Math.asin((ty - o.y) / len) - Math.asin(d.y);
-          rig.yaw += yawErr;
-          rig.pitch += pitchErr;
+          // Wrap and clamp like the rig's own look input, or off-centre aims can run away.
+          rig.yaw = wrap(rig.yaw + yawErr);
+          rig.pitch = Math.max(-1.2, Math.min(0.85, wrap(rig.pitch + pitchErr)));
         }
         rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
         rig.rayThrough(ndcX, ndcY, o, d);
