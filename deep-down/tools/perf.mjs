@@ -3,10 +3,13 @@
 // (JS frame time, chunk rebuilds, light updates, saves) and scene complexity (draw calls,
 // triangles, memory) are meaningful and are what this tool reports.
 //
-// Usage: node tools/perf.mjs [--quality balanced] [--size 915x412] [--out artifacts/perf.json]
+// Measures the production build in dist/ (run `npm run build` first) served by `vite preview`;
+// pass --dev 1 to measure the dev server (unbundled modules) instead.
+//
+// Usage: node tools/perf.mjs [--quality balanced] [--size 915x412] [--out artifacts/perf.json] [--dev 1]
 import { chromium } from '@playwright/test';
-import { createServer } from 'vite';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { createServer, preview } from 'vite';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const args = process.argv.slice(2);
@@ -14,8 +17,14 @@ const opt = { quality: 'balanced', size: '915x412', out: 'artifacts/perf.json', 
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 
-const server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
-await server.listen();
+let server;
+if (opt.dev) {
+  server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
+  await server.listen();
+} else {
+  if (!existsSync('dist/index.html')) throw new Error('dist/ missing: run npm run build first (or pass --dev 1)');
+  server = await preview({ preview: { port: 5197, strictPort: false }, logLevel: 'error' });
+}
 const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
 const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
@@ -160,8 +169,20 @@ results.memory = await page.evaluate(() => {
     renderTargetsMB: +(rtBytes / 1048576).toFixed(1),
     textures: g.renderer.gl.info.memory.textures,
     geometries: g.renderer.gl.info.memory.geometries,
-    dynamicLights: 1,
-    staticEmitters: g.session.world.blocks.reduce((n, b) => n + (b >= 19 && b <= 23 ? 1 : 0), 0),
+    renderTargetsAreEstimate: true, // width x height x 8 B x (MSAA) x 1.4 for bloom levels
+    dynamicLights: 1, // by design: the lantern is the only light computed at runtime
+    emitters: (() => {
+      const b = g.session.world.blocks;
+      let propLights = 0;
+      let crystal = 0;
+      let glyphStone = 0;
+      for (let i = 0; i < b.length; i++) {
+        if (b[i] >= 19 && b[i] <= 23) propLights++;
+        else if (b[i] === 9) crystal++;
+        else if (b[i] === 14) glyphStone++;
+      }
+      return { propLights, crystal, glyphStone, total: propLights + crystal + glyphStone };
+    })(),
     canvas: `${canvas.width}x${canvas.height}`,
   };
 });

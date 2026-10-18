@@ -288,16 +288,28 @@ export class Game {
     try {
       this.ui.showScreen('loading');
       this.ui.setLoading(0.5, t('menu.loadingMesh'));
-      this.saves.clear();
       await this.session.reset();
+      // Only now replace the old save (a failed reset must not have erased it).
+      this.saves.clear();
       this.resetProgress();
       this.halosDirty = true;
       this.startPlaying();
+    } catch (e) {
+      this.loadFailed(e);
+      return;
     } finally {
       this.loading = false;
     }
     this.tutorial('move', this.isTouch() ? 'hint.move' : 'hint.moveDesktop', 6000);
     this.saveNow('new');
+  }
+
+  /** A load threw: back to the menu with a message instead of a stuck loading screen. */
+  private loadFailed(e: unknown): void {
+    console.error('[deep-down] load failed', e);
+    this.mode = 'menu';
+    this.ui.showScreen('menu');
+    this.ui.toast(t('error.loadFailed'), 'warn');
   }
 
   async continueGame(): Promise<void> {
@@ -320,6 +332,9 @@ export class Game {
       this.restoreProgress(res.data);
       this.halosDirty = true;
       this.startPlaying();
+    } catch (e) {
+      this.loadFailed(e);
+      return;
     } finally {
       this.loading = false;
     }

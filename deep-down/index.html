@@ -22,6 +22,8 @@
         } catch (e) {
           ok = false;
         }
+        // Newest platform features the build relies on: CSS inset (Chromium 87), replaceChildren (86).
+        ok = ok && !!(window.CSS && CSS.supports && CSS.supports('inset', '0')) && 'replaceChildren' in Element.prototype;
         if (ok) return;
         var el = document.createElement('div');
         el.className = 'fatal';

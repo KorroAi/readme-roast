@@ -16,6 +16,7 @@
   margin-right: 8px;
 }
 .lab-bar button,
+.lab-link,
 .lab-back {
   min-height: 36px;
   padding: 0 12px;

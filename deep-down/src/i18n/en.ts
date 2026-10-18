@@ -264,6 +264,7 @@ export const en = {
   // Errors (player-facing)
   'error.webgl': 'Your device does not support the graphics features DEEP DOWN needs (WebGL 2).',
   'error.webviewOutdated': 'DEEP DOWN needs a newer browser engine. Please update Android System WebView (or Chrome) and try again.',
+  'error.loadFailed': 'The expedition could not be loaded. Please try again.',
   'error.generic': 'Something went wrong. Please restart the game.',
   'error.saveCorrupt': 'Your latest save was damaged. A backup was restored.',
   'error.saveNewer': 'This save was made by a newer version of DEEP DOWN. Update the game to continue it.',

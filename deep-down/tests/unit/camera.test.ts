@@ -3,6 +3,9 @@ import { B } from '../../src/config/blocks';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 import { CameraRig } from '../../src/game/CameraRig';
 import { segmentClear } from '../../src/world/light';
+import { generateWorld } from '../../src/world/gen/generateWorld';
+import { standable } from '../../src/world/analysis/reachability';
+import { Rng } from '../../src/core/rng';
 
 /** A 3x3 tunnel along X (y 5..7, z 15..17) through solid rock. */
 function tunnelWorld(): VoxelWorld {
@@ -70,4 +73,38 @@ describe('CameraRig collision', () => {
     for (let i = 0; i < 200; i++) rig.update(1 / 60, 16, 16, 16, 1);
     expect(rig.distance).toBeGreaterThan(rig.maxDistance - 0.05);
   });
+
+  it('keeps a clear line to the explorer at random poses all over the real zone (fuzz)', () => {
+    const { world, landmarks } = generateWorld();
+    const rng = new Rng(4242);
+    const centres = Object.values(landmarks).filter((v): v is [number, number, number] => !!v);
+    const rig = new CameraRig(world);
+    let poses = 0;
+    let blocked = 0;
+    let inside = 0;
+    for (let attempt = 0; attempt < 4000 && poses < 400; attempt++) {
+      const c = centres[rng.int(0, centres.length - 1)];
+      const x = Math.floor(c[0]) + rng.int(-8, 8);
+      const y = Math.floor(c[1]) + rng.int(-4, 4);
+      const z = Math.floor(c[2]) + rng.int(-8, 8);
+      if (!standable(world, x, y, z)) continue;
+      poses++;
+      const px = x + 0.5;
+      const py = y + 1.45;
+      const pz = z + 0.5;
+      rig.snapTo(px, py, pz);
+      rig.yaw = rng.range(-Math.PI, Math.PI);
+      rig.pitch = rng.range(-1.1, 0.8);
+      for (let f = 0; f < 60; f++) {
+        if (f % 20 === 10) rig.yaw += rng.range(-0.8, 0.8); // a swipe mid-settle
+        rig.update(1 / 60, px, py, pz, 16 / 9);
+        const cam = rig.camera.position;
+        if (world.isSolidAt(cam.x, cam.y, cam.z)) inside++;
+        else if (!segmentClear(world, px, py, pz, cam.x, cam.y, cam.z)) blocked++;
+      }
+    }
+    expect(poses).toBeGreaterThan(300);
+    expect(inside).toBe(0);
+    expect(blocked).toBe(0);
+  }, 60_000);
 });

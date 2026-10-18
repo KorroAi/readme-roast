@@ -7,13 +7,14 @@ The reference image is a mood target, not a source. Everything is generated in c
 1. **Darkness with intent.** The underground is dark, never unreadable. Big spaces get a
    faint blue haze (openness ambient + fog) so silhouettes read against it.
 2. **Warm safety vs. cold mystery.** Amber = people, camp, lanterns, safety. Cyan = minerals
-   and the ancient builders. Violet = the deep and the unknown. Nothing else glows.
+   and the ancient builders. Violet = the deep and the unknown. Faint teal moss is the only
+   other glow.
 3. **Chunky, deliberate voxels.** 1 m blocks with 16×16 pixel-art faces, a 1-pixel bevel on
    every block, per-vertex AO, per-face directional shading. Props and the explorer use
-   smaller boxes (1/16 – 1/8 m) so they read as crafted objects against the terrain.
+   smaller boxes (about 1/16 – 1/4 m) so they read as crafted objects against the terrain.
 4. **Restraint.** Glow is reserved for things that matter (crystals, glyphs, lanterns, the
    abyss). Particles are short-lived and few. No full-screen effects except bloom, vignette,
-   and brief flashes on discoveries.
+   colour grading, and brief flashes on discoveries (cyan) and damage (red).
 
 ## Palette (sRGB)
 
@@ -26,7 +27,7 @@ The reference image is a mood target, not a source. Everything is generated in c
 | Glyph / crystal cyan | `#1f8fa6` `#48d6ea` `#b4fbff` / `#0a3a4c` … `#e2ffff` |
 | Copper | `#6b3519` `#a9582a` `#db8547` `#ffc58e`, verdigris `#48b29c` |
 | Iron | `#4a3d35` `#7d6857` `#b9a38c` `#ece0cf` |
-| Lantern / camp amber | light `#ffc58a`, emitters (1.0, 0.70, 0.42) |
+| Lantern / camp amber | lantern light `#ffd2a6` (×1.6), lantern glass `#ffc58a`, emitters (1.0, 0.70, 0.42) |
 | Abyss violet | emitter (0.50, 0.32, 1.0) |
 | Fog | `#12263a`; ambient `#0b1220`; openness fill `#2a4a6e` |
 
@@ -64,8 +65,9 @@ soft glow, and the first O of DOWN cut as a cyan crystal.
 
 Clean sans-serif in caps with generous letter spacing for headers, mixed case for body.
 Dark translucent panels (`rgba(9,14,22,0.82)`) with a thin cool edge. Amber for primary
-actions, cyan for discoveries, red only for danger. Minimum touch target 48 px; minimum body
-text 14 px (16 px in Large mode). Icons are isometric voxel cubes drawn from the same tiles.
+actions, cyan for discoveries, red only for danger. Touch targets are at least 44 px (48 px
+for primary buttons and tabs); button and body text 15 px, scaled up in Large mode;
+secondary labels go down to 12 px. Icons are isometric voxel cubes drawn from the same tiles.
 
 ## Audio
 

@@ -16,7 +16,7 @@ const dir = mkdtempSync(join(tmpdir(), 'dd-apk-'));
 execFileSync('unzip', ['-q', apk, 'assets/www/*', '-d', dir]);
 const www = join(dir, 'assets/www');
 const HOST = 'appassets.androidplatform.net';
-const MIME = { html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', png: 'image/png', svg: 'image/svg+xml', wasm: 'application/wasm' };
+const MIME = { html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', png: 'image/png', svg: 'image/svg+xml', wasm: 'application/wasm', webmanifest: 'application/manifest+json' };
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });

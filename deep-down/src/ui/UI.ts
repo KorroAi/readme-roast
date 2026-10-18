@@ -312,6 +312,9 @@ export class UI implements GameUi {
 
   private onKey(e: KeyboardEvent): void {
     if (this.current === 'none') return;
+    // Form controls outside the game UI (e.g. the Visual Lab scene picker) keep their keys.
+    const target = e.target;
+    if (target instanceof HTMLElement && !this.el.contains(target) && target.matches('select, input, textarea')) return;
     // Keys the UI consumes never reach DesktopInput, so record the device here.
     this.input.lastDevice = 'keyboard';
     const stop = () => {

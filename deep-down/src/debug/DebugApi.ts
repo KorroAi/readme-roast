@@ -156,7 +156,17 @@ export function installDebugApi(game: Game): void {
       for (let i = 0; i < frames; i++) game.step(dt);
     },
     setQuality: (q: 'battery' | 'balanced' | 'high') => game.updateSettings({ quality: q }),
-    debugLight: (fullbright: number, clipY = 9999) => game.session.rig.uniforms.uDebug.value.set(fullbright, clipY, 0),
+    /** Fullbright amount and an optional section clip height (compiles the clip into the terrain shader). */
+    debugLight: (fullbright: number, clipY = 9999) => {
+      game.session.rig.uniforms.uDebug.value.set(fullbright, clipY, 0);
+      const m = game.session.terrainMaterial;
+      const clip = clipY < 9999;
+      if (clip !== ('DEBUG_CLIP' in m.defines)) {
+        if (clip) m.defines.DEBUG_CLIP = '';
+        else delete m.defines.DEBUG_CLIP;
+        m.needsUpdate = true;
+      }
+    },
     game,
   };
   (window as unknown as { __DD__: typeof api }).__DD__ = api;

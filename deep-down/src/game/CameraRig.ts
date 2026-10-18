@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { clamp, damp, dampAngle } from '../core/math';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import { raycastVoxels } from '../world/raycast';
+import { segmentClear } from '../world/light';
 
 /**
  * Third-person over-the-shoulder camera with voxel collision.
@@ -111,8 +112,15 @@ export class CameraRig {
 
     const cam = this.camera;
     cam.position.set(ox + this.dir.x * this.distance, oy + this.dir.y * this.distance, oz + this.dir.z * this.distance);
-    // 3) Last guard: if the lens point itself is inside rock (ray grazing a corner), pull in.
-    for (let i = 0; i < 24 && this.distance > 0 && this.world.isSolidAt(cam.position.x, cam.position.y, cam.position.z); i++) {
+    // 3) Last guard: pull in while the lens is inside rock (a ray grazed a corner) or rock hides
+    //    the explorer (the straight pivot-to-lens line is not one of the rays). At distance 0 the
+    //    lens is the shoulder point, whose line from the pivot was ray-checked in step 1.
+    const p = this.pivot;
+    for (
+      let i = 0;
+      i < 26 && this.distance > 0 && (this.world.isSolidAt(cam.position.x, cam.position.y, cam.position.z) || !segmentClear(this.world, p.x, p.y, p.z, cam.position.x, cam.position.y, cam.position.z));
+      i++
+    ) {
       this.distance = Math.max(0, this.distance - 0.15);
       cam.position.set(ox + this.dir.x * this.distance, oy + this.dir.y * this.distance, oz + this.dir.z * this.distance);
     }

@@ -38,7 +38,7 @@ src/
   audio/       Web Audio synthesis: sfx, ambience, music, reverb
   save/        Settings + SaveData types, versioned two-slot persistence
   lab/         VisualLab entry (visuallab.html)
-  debug/       window.__DD__ test/debug API, perf overlay
+  debug/       window.__DD__ test/debug API, stub UI, developer world viewer (viewer.html)
 tests/unit     Vitest (pure logic, world invariants, light correctness)
 tests/e2e      Playwright (real WebGL in headless Chromium)
 tools/         capture.mjs (screenshots), play.mjs (scripted play), perf.mjs, ui-check.mjs
@@ -75,7 +75,8 @@ time-sliced (~125 ms total).
 ### Meshing (`render/mesher.ts`)
 
 Culled faces with per-vertex ambient occlusion and anisotropy-safe quad splitting.
-Vertex = 8 bytes: `Uint8 x3` local position + `Uint8 x4` (face, AO, texture layer, uv bits).
+Vertex = 7 bytes: `Uint8 x3` local position + `Uint8 x4` (face, AO, texture layer, uv bits),
+in two non-interleaved attributes.
 A 16³ chunk meshes in < 2 ms. `ChunkRenderer` rebuilds dirty chunks nearest-first within a
 4 ms/frame budget (always at least one, so an edit is never left invisible) and hides chunks
 beyond the view distance.
@@ -195,7 +196,8 @@ build.
 - Unit (Vitest, Node): voxel storage, mesher geometry and winding, raycast, light
   correctness (incl. incremental == full property test), world invariants (determinism,
   bedrock shell, reachability of every critical location, sufficient materials), gameplay
-  rules, save round-trip and corruption recovery, audio graph rendering (offline).
+  rules, save round-trip and corruption recovery, audio logic on a fake Web Audio context
+  (offline rendering of every sound runs in Chromium: `tools/audio-check.mjs`).
 - E2E (Playwright, real WebGL, 915×412 touch): `slice.spec.ts` — boot → menu → new game →
   move with the joystick → hold-to-mine copper → collect → discover the Hollow → bank at camp
   → craft at the Workbench → fewer hits + Hardened Slate breaks → save → reload → Continue.
