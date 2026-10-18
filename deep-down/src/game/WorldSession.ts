@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { B, SOLID, isEmitter } from '../config/blocks';
-import { generateWorld } from '../world/gen/generateWorld';
+import { loadZone } from '../world/gen/zoneLoader';
+import { WORLD } from '../config/balance';
 import type { PropSpec, WorldLayout } from '../world/gen/types';
 import { LightField, LanternField } from '../world/light';
 import { LightingRig } from '../render/lighting';
@@ -31,10 +32,10 @@ export class WorldSession {
   readonly removedProps = new Set<string>();
   readonly timings: Record<string, number> = {};
 
-  private constructor(layout: WorldLayout, atlas: TileAtlas) {
+  private constructor(layout: WorldLayout, atlas: TileAtlas, light: LightField) {
     this.layout = layout;
     this.generated = layout.world.blocks.slice();
-    this.light = new LightField(layout.world);
+    this.light = light;
     this.lantern = new LanternField(layout.world);
     const w = layout.world;
     this.rig = new LightingRig(this.light, this.lantern, w.sx, w.sy, w.sz);
@@ -45,19 +46,14 @@ export class WorldSession {
     this.props = new PropRenderer(this.rig.uniforms);
   }
 
-  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void): Promise<WorldSession> {
+  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed): Promise<WorldSession> {
     onProgress(0.02, 'carve');
     await yieldFrame();
     const t0 = performance.now();
-    const layout = generateWorld();
+    const zone = await loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));
     const atlas = generateTiles();
-    const session = new WorldSession(layout, atlas);
-    session.timings.generateMs = Math.round(performance.now() - t0);
-    onProgress(0.3, 'light');
-    await yieldFrame();
-    const t1 = performance.now();
-    session.light.computeAll();
-    session.timings.lightMs = Math.round(performance.now() - t1);
+    const session = new WorldSession(zone.layout, atlas, zone.light);
+    Object.assign(session.timings, zone.timings, { zoneTotalMs: Math.round(performance.now() - t0), worker: zone.usedWorker ? 1 : 0 });
     onProgress(0.5, 'mesh');
     await yieldFrame();
     const t2 = performance.now();

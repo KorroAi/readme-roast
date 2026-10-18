@@ -66,9 +66,11 @@ export class LightField {
   /** Bounding box of voxels changed by the last operation (for partial GPU upload). */
   readonly changed: Box3i = { x0: 0, y0: 0, z0: 0, x1: -1, y1: -1, z1: -1 };
 
-  constructor(world: VoxelWorld) {
+  /** @param data optional precomputed light buffer to adopt (e.g. from the loading worker). */
+  constructor(world: VoxelWorld, data?: Uint8Array) {
     this.world = world;
-    this.data = new Uint8Array(world.sx * world.sy * world.sz * 4);
+    if (data && data.length !== world.sx * world.sy * world.sz * 4) throw new Error('light buffer size mismatch');
+    this.data = data ?? new Uint8Array(world.sx * world.sy * world.sz * 4);
     const size = 1 << 21;
     this.queue = new Int32Array(size);
     this.qMask = size - 1;
@@ -414,48 +416,62 @@ export class LightField {
   }
 
   /**
-   * Openness: fraction of open voxels in a (2r+1)^3 neighborhood, computed with three
-   * separable box-blur passes. Only computed on load; a single mined block changes it by
-   * far less than one 8-bit step, so gameplay edits do not need to refresh it.
+   * Openness: fraction of open voxels in a ~(2r+1)^3 neighborhood. It is a slow, low-frequency
+   * field, so it is computed on a half-resolution grid (8x fewer cells) with three separable
+   * box-blur passes and sampled back per voxel. Only computed on load; a single mined block
+   * changes it by far less than one 8-bit step, so gameplay edits do not refresh it.
    */
   computeOpenness(radius = 6): void {
     const w = this.world;
     const { sx, sy, sz } = w;
-    const n = sx * sy * sz;
+    const hx = Math.ceil(sx / 2);
+    const hy = Math.ceil(sy / 2);
+    const hz = Math.ceil(sz / 2);
+    const n = hx * hy * hz;
     let a = new Float32Array(n);
-    let bBuf = new Float32Array(n);
-    for (let i = 0; i < n; i++) a[i] = SOLID[w.blocks[i]] ? 0 : 1;
-    const passes: Array<[number, number]> = [
-      [1, sx],
-      [sx, sy],
-      [sx * sy, sz],
+    let b = new Float32Array(n);
+    const blocks = w.blocks;
+    for (let z = 0; z < sz; z++)
+      for (let y = 0; y < sy; y++) {
+        const row = (y >> 1) * hx + (z >> 1) * hx * hy;
+        let i = sx * (y + sy * z);
+        for (let x = 0; x < sx; x++, i++) if (!SOLID[blocks[i]]) a[row + (x >> 1)] += 0.125;
+      }
+    const r = Math.max(1, Math.round(radius / 2));
+    const norm = 1 / (r * 2 + 1);
+    const passes: Array<[number, number, number]> = [
+      [1, hx, n / hx],
+      [hx, hy, n / hy],
+      [hx * hy, hz, n / hz],
     ];
-    for (const [stride, len] of passes) {
-      const lines = n / len;
+    for (const [stride, len, lines] of passes) {
       for (let line = 0; line < lines; line++) {
-        // Base index of this line: enumerate all indices whose coordinate along this axis is 0.
         let base: number;
-        if (stride === 1) base = line * sx;
-        else if (stride === sx) base = (line % sx) + Math.floor(line / sx) * sx * sy;
+        if (stride === 1) base = line * hx;
+        else if (stride === hx) base = (line % hx) + Math.floor(line / hx) * hx * hy;
         else base = line;
         let sum = 0;
-        for (let k = -radius; k <= radius; k++) {
-          const kk = Math.min(len - 1, Math.max(0, k));
-          sum += a[base + kk * stride];
-        }
+        for (let k = -r; k <= r; k++) sum += a[base + Math.min(len - 1, Math.max(0, k)) * stride];
         for (let p = 0; p < len; p++) {
-          bBuf[base + p * stride] = sum / (radius * 2 + 1);
-          const out = Math.max(0, p - radius);
-          const inn = Math.min(len - 1, p + radius + 1);
+          b[base + p * stride] = sum * norm;
+          const out = Math.max(0, p - r);
+          const inn = Math.min(len - 1, p + r + 1);
           sum += a[base + inn * stride] - a[base + out * stride];
         }
       }
       const t = a;
-      a = bBuf;
-      bBuf = t;
+      a = b;
+      b = t;
     }
     const d = this.data;
-    for (let i = 0; i < n; i++) d[i * 4 + 3] = SOLID[w.blocks[i]] ? 0 : Math.round(Math.min(1, a[i]) * 255);
+    for (let z = 0; z < sz; z++)
+      for (let y = 0; y < sy; y++) {
+        const row = (y >> 1) * hx + (z >> 1) * hx * hy;
+        let i = sx * (y + sy * z);
+        for (let x = 0; x < sx; x++, i++) {
+          d[i * 4 + 3] = SOLID[blocks[i]] ? 0 : Math.round(Math.min(1, a[row + (x >> 1)]) * 255);
+        }
+      }
   }
 }
 

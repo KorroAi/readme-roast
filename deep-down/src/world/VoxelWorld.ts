@@ -22,7 +22,8 @@ export class VoxelWorld {
   /** Increments on every edit; cheap change detection for caches. */
   revision = 0;
 
-  constructor(sx: number, sy: number, sz: number, chunkSize = 16) {
+  /** @param blocks optional existing voxel buffer to adopt (e.g. transferred from a worker). */
+  constructor(sx: number, sy: number, sz: number, chunkSize = 16, blocks?: Uint8Array) {
     if (sx % chunkSize || sy % chunkSize || sz % chunkSize) {
       throw new Error(`World size ${sx}x${sy}x${sz} must be a multiple of chunk size ${chunkSize}`);
     }
@@ -33,7 +34,8 @@ export class VoxelWorld {
     this.cx = sx / chunkSize;
     this.cy = sy / chunkSize;
     this.cz = sz / chunkSize;
-    this.blocks = new Uint8Array(sx * sy * sz);
+    if (blocks && blocks.length !== sx * sy * sz) throw new Error('voxel buffer size mismatch');
+    this.blocks = blocks ?? new Uint8Array(sx * sy * sz);
     this.dirty = new Uint8Array(this.cx * this.cy * this.cz);
   }
 
