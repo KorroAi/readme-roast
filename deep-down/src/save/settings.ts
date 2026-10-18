@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, type Settings } from './types';
 /** Valid ranges for numeric settings. The settings UI should use the same bounds. */
 export const SETTINGS_LIMITS = {
   renderScale: [0.5, 1.5],
+  brightness: [0.7, 1.5],
   lookSensitivity: [0.25, 2],
   volume: [0, 1],
   cameraShake: [0, 1],
@@ -23,6 +24,7 @@ export function sanitizeSettings(x: unknown): Settings {
     quality: oneOf(s.quality, QUALITIES, d.quality),
     renderScale: s.renderScale === null ? null : num(s.renderScale, SETTINGS_LIMITS.renderScale, d.renderScale),
     bloom: bool(s.bloom, d.bloom),
+    brightness: num(s.brightness, SETTINGS_LIMITS.brightness, d.brightness),
     showFps: bool(s.showFps, d.showFps),
     lookSensitivity: num(s.lookSensitivity, SETTINGS_LIMITS.lookSensitivity, d.lookSensitivity),
     invertY: bool(s.invertY, d.invertY),

@@ -14,6 +14,8 @@ export default defineConfig({
       input: {
         main: entry('index.html'),
         visuallab: entry('visuallab.html'),
+        // The UI sandbox doubles as the Visual Lab's "UI Readability" view.
+        uilab: entry('src/ui/dev/sandbox.html'),
       },
     },
   },

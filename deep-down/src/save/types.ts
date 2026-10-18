@@ -7,6 +7,8 @@ export interface Settings {
   /** Internal resolution multiplier override (null = preset default). */
   renderScale: number | null;
   bloom: boolean;
+  /** Overall image brightness (exposure multiplier) for dark screens and bright rooms. */
+  brightness: number; // 0.7 .. 1.5
   showFps: boolean;
   lookSensitivity: number; // 0.25 .. 2
   invertY: boolean;
@@ -24,6 +26,7 @@ export const DEFAULT_SETTINGS: Settings = {
   quality: 'balanced',
   renderScale: null,
   bloom: true,
+  brightness: 1,
   showFps: false,
   lookSensitivity: 1,
   invertY: false,

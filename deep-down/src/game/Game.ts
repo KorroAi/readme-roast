@@ -122,6 +122,7 @@ export class Game {
     this.renderer = new Renderer(canvas, this.settings.quality);
     this.renderer.renderScaleOverride = this.settings.renderScale;
     this.renderer.setUserBloom(this.settings.bloom);
+    this.renderer.setBrightness(this.settings.brightness);
     this.renderer.resize();
   }
 
@@ -1043,6 +1044,7 @@ export class Game {
       this.renderer.resize();
     }
     if ('bloom' in patch) this.renderer.setUserBloom(this.settings.bloom);
+    if ('brightness' in patch) this.renderer.setBrightness(this.settings.brightness);
     this.applyAudioSettings();
     this.ui.applySettings(this.settings);
   }

@@ -30,6 +30,12 @@ function boot(): void {
     buttons.set(v.id, b);
     bar.appendChild(b);
   }
+  // UI readability lives in the UI sandbox: the real HUD and screens over a cave backdrop.
+  const uiLab = document.createElement('a');
+  uiLab.href = './src/ui/dev/sandbox.html';
+  uiLab.className = 'lab-link';
+  uiLab.textContent = t('lab.ui');
+  bar.appendChild(uiLab);
   const back = document.createElement('a');
   back.href = './index.html';
   back.className = 'lab-back';

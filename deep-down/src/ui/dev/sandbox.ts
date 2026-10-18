@@ -9,7 +9,7 @@ import type { HudState, InventoryView, ScreenId, UiActions } from '../types';
 import { UI } from '../UI';
 
 /**
- * Development sandbox for the UI (served by Vite at /src/ui/dev/sandbox.html, never built).
+ * Development sandbox for the UI (src/ui/dev/sandbox.html; also built as the Visual Lab "UI Readability" view).
  * Mounts the real UI over a painted cave backdrop with fake UiActions that behave like the
  * game, and exposes window.__UI__ so tools/ui-check.mjs can switch scenes and inspect input.
  */

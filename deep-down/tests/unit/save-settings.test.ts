@@ -34,6 +34,8 @@ describe('sanitizeSettings', () => {
     expect(s.cameraShake).toBe(0);
     expect(s.renderScale).toBe(SETTINGS_LIMITS.renderScale[0]);
     expect(sanitizeSettings({ lookSensitivity: 0 }).lookSensitivity).toBe(SETTINGS_LIMITS.lookSensitivity[0]);
+    expect(sanitizeSettings({ brightness: 3 }).brightness).toBe(SETTINGS_LIMITS.brightness[1]);
+    expect(sanitizeSettings({ brightness: 'dark' }).brightness).toBe(1);
   });
 
   it('falls back per field on wrong types and unknown values', () => {

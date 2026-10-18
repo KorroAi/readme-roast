@@ -49,6 +49,7 @@ export const en = {
   'settings.quality.balanced': 'Balanced',
   'settings.quality.high': 'High',
   'settings.renderScale': 'Resolution',
+  'settings.brightness': 'Brightness',
   'settings.bloom': 'Glow',
   'settings.showFps': 'Show performance',
   'settings.controls': 'Controls',

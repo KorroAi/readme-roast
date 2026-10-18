@@ -44,6 +44,13 @@ export function buildSettings(host: ScreenHost): HTMLElement {
             'quality',
           ),
           resolutionRow(s, set, drag),
+          slider(t('settings.brightness'), s.brightness, (brightness) => drag({ brightness }), {
+            min: SETTINGS_LIMITS.brightness[0],
+            max: SETTINGS_LIMITS.brightness[1],
+            step: 0.05,
+            format: percent,
+            key: 'brightness',
+          }),
           toggle(t('settings.bloom'), s.bloom, (bloom) => set({ bloom }), 'bloom', on, off),
           toggle(t('settings.showFps'), s.showFps, (showFps) => set({ showFps }), 'showFps', on, off),
         ),

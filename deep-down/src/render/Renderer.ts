@@ -23,6 +23,8 @@ export const QUALITY: Record<QualityLevel, QualityPreset> = {
 };
 
 /** WebGL2 renderer + post chain + resize handling, shared by the game and the Visual Lab. */
+const BASE_EXPOSURE = 1.15;
+
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
   readonly post: PostFX;
@@ -70,6 +72,11 @@ export class Renderer {
     this.preset = QUALITY[level];
     this.applyPostOptions();
     this.resize();
+  }
+
+  /** Player brightness setting: scales the tone-mapping exposure. */
+  setBrightness(k: number): void {
+    this.post.params.exposure = BASE_EXPOSURE * k;
   }
 
   setUserBloom(on: boolean): void {
