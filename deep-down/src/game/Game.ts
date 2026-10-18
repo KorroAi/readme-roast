@@ -224,14 +224,25 @@ export class Game {
     document.addEventListener('visibilitychange', onVis);
     window.addEventListener('pagehide', onHide);
     window.addEventListener('resize', onResize);
+    // iOS only lets audio start inside the gesture handler that ends a touch, so listen to all.
     window.addEventListener('pointerdown', unlock, { passive: true });
+    window.addEventListener('pointerup', unlock, { passive: true });
+    window.addEventListener('touchend', unlock, { passive: true });
     window.addEventListener('keydown', unlock);
+    // Every UI button gets the same soft click.
+    const click = (e: Event) => {
+      if ((e.target as HTMLElement | null)?.closest?.('button')) this.audio.ui('click');
+    };
+    this.uiRoot.addEventListener('click', click);
     this.disposers.push(
       () => document.removeEventListener('visibilitychange', onVis),
       () => window.removeEventListener('pagehide', onHide),
       () => window.removeEventListener('resize', onResize),
       () => window.removeEventListener('pointerdown', unlock),
+      () => window.removeEventListener('pointerup', unlock),
+      () => window.removeEventListener('touchend', unlock),
       () => window.removeEventListener('keydown', unlock),
+      () => this.uiRoot.removeEventListener('click', click),
     );
   }
 
