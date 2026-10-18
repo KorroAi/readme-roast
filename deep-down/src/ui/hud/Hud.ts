@@ -135,9 +135,11 @@ export class Hud {
       this.lantern.classList.toggle('low', s.lanternLow);
     }
 
-    if (s.depth !== this.depthV) {
-      this.depthV = s.depth;
-      this.depth.textContent = depthText(s.depth);
+    // Compare what is displayed (whole meters), so a fractional input never rewrites the DOM.
+    const depth = Math.max(0, Math.round(s.depth));
+    if (depth !== this.depthV) {
+      this.depthV = depth;
+      this.depth.textContent = depthText(depth);
     }
 
     if (s.atCamp !== this.atCamp) {
@@ -157,9 +159,10 @@ export class Hud {
         this.bearingQ = q;
         this.compassDial.style.transform = `rotate(${q * 2}deg)`;
       }
-      if (s.campDistance !== this.campDist) {
-        this.campDist = s.campDistance;
-        this.compassText.textContent = t('hud.campDistance', { distance: s.campDistance });
+      const dist = Math.max(0, Math.round(s.campDistance));
+      if (dist !== this.campDist) {
+        this.campDist = dist;
+        this.compassText.textContent = t('hud.campDistance', { distance: dist });
       }
     }
 

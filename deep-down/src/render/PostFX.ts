@@ -145,9 +145,19 @@ export class PostFX {
   private width = 1;
   private height = 1;
   private options: PostFXOptions;
+  /**
+   * HDR targets need EXT_color_buffer_(half_)float to be renderable. A WebGL2 device without it
+   * would otherwise get an incomplete framebuffer (a black screen): fall back to 8-bit targets
+   * (no HDR headroom, so bloom has little to catch, but the game is playable).
+   */
+  readonly hdr: boolean;
+  private readonly colorType: THREE.TextureDataType;
   readonly params = { bloomStrength: 0.55, threshold: 0.75, exposure: 1.15, vignette: 0.42, flash: 0, flashColor: new THREE.Color(1, 1, 1) };
 
   constructor(renderer: THREE.WebGLRenderer, options: PostFXOptions) {
+    const ext = renderer.extensions;
+    this.hdr = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
+    this.colorType = this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
     this.renderer = renderer;
     this.options = { ...options };
     this.sceneRT = this.makeSceneRT(1, 1);
@@ -179,11 +189,14 @@ export class PostFX {
   }
 
   private makeSceneRT(w: number, h: number): THREE.WebGLRenderTarget {
+    const samples = this.options?.msaa ?? 0;
     return new THREE.WebGLRenderTarget(w, h, {
-      type: THREE.HalfFloatType,
+      type: this.colorType,
       format: THREE.RGBAFormat,
       depthBuffer: true,
-      samples: this.options?.msaa ?? 0,
+      samples,
+      // No pass reads depth after the scene: don't resolve the multisampled depth every frame.
+      resolveDepthBuffer: samples === 0,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
     });
@@ -217,7 +230,7 @@ export class PostFX {
         bw = Math.max(1, Math.floor(bw / 2));
         bh = Math.max(1, Math.floor(bh / 2));
         this.bloomRTs.push(
-          new THREE.WebGLRenderTarget(bw, bh, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }),
+          new THREE.WebGLRenderTarget(bw, bh, { type: this.colorType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter }),
         );
       }
     }
@@ -278,7 +291,7 @@ export class PostFX {
     let s = this.scratch[level];
     if (!s || s.width !== base.width || s.height !== base.height) {
       s?.dispose();
-      s = new THREE.WebGLRenderTarget(base.width, base.height, { type: THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+      s = new THREE.WebGLRenderTarget(base.width, base.height, { type: this.colorType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
       this.scratch[level] = s;
     }
     return s;

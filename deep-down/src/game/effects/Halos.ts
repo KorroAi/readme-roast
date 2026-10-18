@@ -7,17 +7,23 @@ import type { VoxelWorld } from '../../world/VoxelWorld';
 const vert = /* glsl */ `
 in vec3 aColor;
 in float aSize;
+in vec2 aCorner;
 uniform float uPixelScale;
 out vec3 vColor;
 out float vDepth;
 out float vNear;
+out vec2 vUv;
 void main() {
   vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
   vDepth = length(mv.xyz);
-  gl_Position = projectionMatrix * mv;
+  float z = max(0.1, -mv.z);
   // Halos keep a minimum on-screen size so distant lamps still read as points of light.
-  float px = aSize * uPixelScale / max(0.1, -mv.z);
-  gl_PointSize = clamp(max(px, 6.0), 1.0, 96.0);
+  float px = clamp(max(aSize * uPixelScale / z, 6.0), 1.0, 96.0);
+  // Camera-facing quad rather than a point sprite: GPUs drop a whole point once its centre
+  // leaves the screen, which made big halos pop at the edges.
+  mv.xy += aCorner * (0.5 * px * z / uPixelScale);
+  gl_Position = projectionMatrix * mv;
+  vUv = aCorner;
   vColor = aColor;
   // Fade out when very close: up close the lamp itself and its light do the work.
   vNear = smoothstep(3.5, 12.0, vDepth);
@@ -30,10 +36,10 @@ ${LIGHTING_GLSL}
 in vec3 vColor;
 in float vDepth;
 in float vNear;
+in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
 void main() {
-  vec2 c = gl_PointCoord - 0.5;
-  float d = length(c) * 2.0;
+  float d = length(vUv);
   if (d > 1.0) discard;
   float core = exp(-d * d * 9.0);
   float glow = exp(-d * d * 2.5) * 0.35;
@@ -72,10 +78,10 @@ export function collectWorldLights(world: VoxelWorld): HaloSource[] {
 /**
  * Soft additive halos on placed light sources (lamps, fires, abyss lights). They make the
  * dark read as a space full of distant lights, the way the eye sees lanterns across a
- * cavern, at the cost of a single draw call.
+ * cavern, at the cost of a single draw call (camera-facing quads).
  */
 export class HaloSystem {
-  readonly points: THREE.Points;
+  readonly mesh: THREE.Mesh;
   private readonly material: THREE.ShaderMaterial;
 
   constructor(lighting: LightingUniforms, sources: HaloSource[]) {
@@ -88,15 +94,19 @@ export class HaloSystem {
       depthWrite: false,
       blending: THREE.AdditiveBlending,
     });
-    this.points = new THREE.Points(HaloSystem.geometry(sources), this.material);
-    this.points.frustumCulled = false;
-    this.points.renderOrder = 10;
+    this.mesh = new THREE.Mesh(HaloSystem.geometry(sources), this.material);
+    this.mesh.frustumCulled = false;
+    this.mesh.renderOrder = 10;
   }
 
   private static geometry(sources: HaloSource[]): THREE.BufferGeometry {
-    const pos = new Float32Array(sources.length * 3);
-    const col = new Float32Array(sources.length * 3);
-    const size = new Float32Array(sources.length);
+    const n = sources.length;
+    const pos = new Float32Array(n * 12);
+    const col = new Float32Array(n * 12);
+    const size = new Float32Array(n * 4);
+    const corner = new Float32Array(n * 8);
+    const index: number[] = [];
+    const CORNERS = [-1, -1, 1, -1, 1, 1, -1, 1];
     sources.forEach((s, i) => {
       let rgb: [number, number, number];
       let sz: number;
@@ -116,19 +126,28 @@ export class HaloSystem {
         rgb = [1.6, 0.92, 0.45];
         sz = 0.85;
       }
-      pos.set([s.x + 0.5, s.y + lift, s.z + 0.5], i * 3);
-      col.set(rgb, i * 3);
-      size[i] = sz;
+      for (let k = 0; k < 4; k++) {
+        const v = i * 4 + k;
+        pos.set([s.x + 0.5, s.y + lift, s.z + 0.5], v * 3);
+        col.set(rgb, v * 3);
+        size[v] = sz;
+        corner[v * 2] = CORNERS[k * 2];
+        corner[v * 2 + 1] = CORNERS[k * 2 + 1];
+      }
+      const b = i * 4;
+      index.push(b, b + 1, b + 2, b, b + 2, b + 3);
     });
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
     geo.setAttribute('aSize', new THREE.BufferAttribute(size, 1));
+    geo.setAttribute('aCorner', new THREE.BufferAttribute(corner, 2));
+    geo.setIndex(index);
     return geo;
   }
 
   get count(): number {
-    return this.points.geometry.getAttribute('position').count;
+    return this.mesh.geometry.getAttribute('position').count / 4;
   }
 
   setPixelScale(heightPx: number, fovDeg: number): void {
@@ -137,12 +156,12 @@ export class HaloSystem {
 
   /** Replace the halo set (cheap: a few dozen points). */
   setSources(sources: HaloSource[]): void {
-    this.points.geometry.dispose();
-    this.points.geometry = HaloSystem.geometry(sources);
+    this.mesh.geometry.dispose();
+    this.mesh.geometry = HaloSystem.geometry(sources);
   }
 
   dispose(): void {
-    this.points.geometry.dispose();
+    this.mesh.geometry.dispose();
     this.material.dispose();
   }
 }

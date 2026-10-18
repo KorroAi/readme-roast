@@ -92,7 +92,7 @@ export class ExplorerModel {
   private readonly tmpQ = new THREE.Quaternion();
 
   constructor(lighting: LightingUniforms) {
-    this.material = createEntityMaterial(lighting, { emissiveScale: 2 });
+    this.material = createEntityMaterial(lighting, { emissiveScale: 2, fade: true });
     this.root.name = 'explorer';
     this.root.add(this.body, this.lanternPivot);
     const mesh = (geometry: THREE.BufferGeometry, parent: THREE.Object3D) => {

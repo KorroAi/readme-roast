@@ -75,7 +75,9 @@ const vec3 FACE_N[6] = vec3[](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,
 const float FACE_SHADE[6] = float[](0.80, 0.74, 1.0, 0.52, 0.88, 0.70);
 
 void main() {
-  if (vWorldPos.y > uDebug.y) discard;
+#ifdef DEBUG_CLIP
+  if (vWorldPos.y > uDebug.y) discard; // debug section view only: discard would disable early-Z
+#endif
   vec3 n = FACE_N[vFace];
   vec4 tex = texture(uTiles, vec3(vUv, vLayer));
   vec3 cell = floor(vWorldPos - n * 0.5);
@@ -102,9 +104,14 @@ void main() {
 }
 `;
 
-export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.DataArrayTexture): THREE.ShaderMaterial {
+/**
+ * @param debugClip compile the debug section-view discard (uDebug.y). Off in the game: any
+ * possible discard turns off early depth rejection / hidden-surface removal on mobile GPUs.
+ */
+export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.DataArrayTexture, debugClip = false): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
+    defines: debugClip ? { DEBUG_CLIP: '' } : {},
     uniforms: {
       ...lighting,
       uTiles: { value: tiles },

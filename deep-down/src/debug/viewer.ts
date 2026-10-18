@@ -24,7 +24,7 @@ async function boot(): Promise<void> {
   const lantern = new LanternField(layout.world);
   const rig = new LightingRig(field, lantern, layout.world.sx, layout.world.sy, layout.world.sz);
   const tiles = createTileTexture(generateTiles());
-  const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles));
+  const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, params.has('clip')));
   await chunks.buildAll();
   const scene = new THREE.Scene();
   scene.add(chunks.group);
@@ -32,7 +32,7 @@ async function boot(): Promise<void> {
   const fb = layout.landmarks.fallBottom;
   if (ft && fb) scene.add(new Waterfall(rig.uniforms, new THREE.Vector3(...ft), new THREE.Vector3(...fb)).group);
   const halos = new HaloSystem(rig.uniforms, collectWorldLights(layout.world));
-  if (params.get('halos') !== '0') scene.add(halos.points);
+  if (params.get('halos') !== '0') scene.add(halos.mesh);
   let props: { update(dt: number, t: number, p: THREE.Vector3): void } | null = null;
   if (params.get('props') === '1') {
     // Resolved at runtime so the viewer still loads while the props module is being built.

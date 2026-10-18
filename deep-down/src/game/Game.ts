@@ -162,7 +162,7 @@ export class Game {
       this.scene.add(this.waterfall.group);
     }
     this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
-    this.scene.add(this.halos.points);
+    this.scene.add(this.halos.mesh);
 
     this.guidePath.push([layout.spawn.x, layout.spawn.y, layout.spawn.z], ...layout.route.map((p) => [p[0], p[1], p[2]] as [number, number, number]));
     for (const key of ['stairsTop', 'landing', 'stairsBottom'] as const) {

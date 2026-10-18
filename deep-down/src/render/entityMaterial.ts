@@ -65,11 +65,13 @@ in float vDepth;
 layout(location = 0) out highp vec4 fragColor;
 
 void main() {
+#ifdef USE_FADE
   // Screen-door fade (used when the camera gets very close to the explorer).
   if (uFade < 0.999) {
     float d = fract(dot(gl_FragCoord.xy, vec2(0.7548777, 0.5698403)));
     if (d > uFade) discard;
   }
+#endif
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
   vec3 albedo = vColor * uTint;
@@ -90,6 +92,8 @@ export interface EntityMaterialOptions {
   emissiveScale?: number;
   emissiveColor?: THREE.ColorRepresentation;
   doubleSided?: boolean;
+  /** Compile the screen-door fade (uFade). Only for materials that fade: discard costs early-Z. */
+  fade?: boolean;
 }
 
 export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMaterialOptions = {}): THREE.ShaderMaterial {
@@ -103,6 +107,7 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uFlash: { value: 0 },
       uFade: { value: 1 },
     },
+    defines: opts.fade ? { USE_FADE: '' } : {},
     vertexShader: vertex,
     fragmentShader: fragment,
     side: opts.doubleSided ? THREE.DoubleSide : THREE.FrontSide,

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LIGHTING_GLSL, type LightingUniforms } from '../../render/lighting';
 import type { Rng } from '../../core/rng';
-import { hash3 } from '../../core/math';
+import { hash3, hexToLinear } from '../../core/math';
 
 const vert = /* glsl */ `
 in float aSize;
@@ -163,23 +163,20 @@ export class ParticleSystem {
 
   /** Dust cloud (e.g. when a block breaks). */
   dust(x: number, y: number, z: number, hex: number, count: number, rng: Rng, spread = 0.45): void {
-    const r = ((hex >> 16) & 255) / 255;
-    const g = ((hex >> 8) & 255) / 255;
-    const b = (hex & 255) / 255;
+    // Colors are sRGB hex like the rest of the palette; the shader works in linear light.
+    const [r, g, b] = hexToLinear(hex);
     for (let i = 0; i < count; i++) {
       this.spawn({
         x: x + rng.range(-spread, spread), y: y + rng.range(-spread, spread), z: z + rng.range(-spread, spread),
         vx: rng.range(-0.6, 0.6), vy: rng.range(0.1, 0.8), vz: rng.range(-0.6, 0.6),
-        life: 0, maxLife: rng.range(0.7, 1.4), size: rng.range(0.25, 0.5), grow: 0.6, alpha: 0.5, r: r * 1.6, g: g * 1.6, b: b * 1.6, glow: 0,
+        life: 0, maxLife: rng.range(0.7, 1.4), size: rng.range(0.25, 0.5), grow: 0.6, alpha: 0.5, r: r * 2.6, g: g * 2.6, b: b * 2.6, glow: 0,
       });
     }
   }
 
   /** Bright glints (crystal hits, pickups, discoveries). */
   sparkle(x: number, y: number, z: number, hex: number, count: number, rng: Rng, speed = 2.2): void {
-    const r = ((hex >> 16) & 255) / 255;
-    const g = ((hex >> 8) & 255) / 255;
-    const b = (hex & 255) / 255;
+    const [r, g, b] = hexToLinear(hex);
     for (let i = 0; i < count; i++) {
       const a = rng.range(0, Math.PI * 2);
       const e = rng.range(-0.3, 1);

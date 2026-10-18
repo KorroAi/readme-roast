@@ -6,13 +6,14 @@ import type { ParticleSystem } from './Particles';
 const vert = /* glsl */ `
 out vec2 vUv;
 out vec3 vWorldPos;
-out float vDepth;
+out vec3 vViewPos;
 void main() {
   vUv = uv;
   vec4 wp = modelMatrix * vec4(position, 1.0);
   vWorldPos = wp.xyz;
   vec4 mv = viewMatrix * wp;
-  vDepth = length(mv.xyz);
+  // The ribbon is one tall quad: interpolate the view position, take its length per pixel.
+  vViewPos = mv.xyz;
   gl_Position = projectionMatrix * mv;
 }
 `;
@@ -24,7 +25,7 @@ uniform float uHeight;
 uniform vec3 uColor;
 in vec2 vUv;
 in vec3 vWorldPos;
-in float vDepth;
+in vec3 vViewPos;
 layout(location = 0) out highp vec4 fragColor;
 
 float hash12(vec2 p) {
@@ -46,6 +47,7 @@ void main() {
   float shimmer = 0.75 + 0.25 * sin(uTime * 3.0 + cx * 1.7);
   float topFade = smoothstep(0.0, 0.06, 1.0 - vUv.y);
   float a = (0.18 + 0.62 * streak) * core * shimmer * topFade;
+  float vDepth = length(vViewPos);
   float fog = fogFactor(vDepth);
   // Fade out right in front of the lens so falling past it never blinds the screen.
   float nearFade = smoothstep(1.0, 6.0, vDepth);

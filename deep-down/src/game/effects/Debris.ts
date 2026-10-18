@@ -74,7 +74,10 @@ export class DebrisSystem {
   }
 
   setBudget(n: number): void {
-    this.budget = Math.min(this.pool.length, n);
+    this.budget = Math.max(1, Math.min(this.pool.length, n));
+    // Chunks past the new budget are never updated again: retire them now, not on a later raise.
+    for (let i = this.budget; i < this.pool.length; i++) this.pool[i].active = false;
+    if (this.next >= this.budget) this.next = 0;
   }
 
   burst(x: number, y: number, z: number, colors: readonly number[], rng: Rng, o: BurstOptions): void {

@@ -199,7 +199,7 @@ const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
     painters.slate(t, rng);
     for (let x = 0; x < S; x++) {
       const depth = 2 + Math.floor(rng.next() * 3) + (rng.chance(0.15) ? 3 : 0);
-      for (let y = 0; y < depth; y++) t.set(x, y, MOSS[Math.min(4, 4 - y + rng.int(-1, 0))]);
+      for (let y = 0; y < depth; y++) t.set(x, y, MOSS[Math.max(0, Math.min(4, 4 - y + rng.int(-1, 0)))]);
       if (rng.chance(0.12)) t.set(x, depth, 0x6fe8d0, 150);
     }
     for (let i = 0; i < S; i++) t.shade(i, 0, 1.1);

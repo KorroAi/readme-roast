@@ -1775,6 +1775,17 @@
   }
 }
 
+/* Narrower landscape phones (740x360, 640x360): a centered toast would cover the depth
+   readout, so the stack sits in the gap between the hearts and the top-right cluster. */
+@media (orientation: landscape) and (max-width: 900px) {
+  .dd-toasts {
+    left: calc(150px + var(--safe-left));
+    right: calc(260px + var(--safe-right));
+    width: auto;
+    transform: none;
+  }
+}
+
 @media (orientation: portrait) {
   /* Narrow top bar: keep the depth readout clear of the hearts. */
   .dd-depth-value {

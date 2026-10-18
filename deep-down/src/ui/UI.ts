@@ -310,6 +310,8 @@ export class UI implements GameUi {
 
   private onKey(e: KeyboardEvent): void {
     if (this.current === 'none') return;
+    // Keys the UI consumes never reach DesktopInput, so record the device here.
+    this.input.lastDevice = 'keyboard';
     const stop = () => {
       e.preventDefault();
       e.stopPropagation();
@@ -327,9 +329,16 @@ export class UI implements GameUi {
       }
       return;
     }
-    if (e.code === 'KeyI' && this.current === 'inventory' && !e.repeat) {
+    // The keys that open the bag (I, Tab) also close it.
+    if ((e.code === 'KeyI' || e.code === 'Tab') && this.current === 'inventory' && !e.repeat) {
       stop();
       this.actions.closeScreen();
+      return;
+    }
+    // Tab moves focus and Space presses the focused control. DesktopInput binds both (bag,
+    // jump) and cancels their default action, so they must not reach it while a screen is open.
+    if (e.code === 'Tab' || e.code === 'Space') {
+      e.stopPropagation();
       return;
     }
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {

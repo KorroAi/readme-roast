@@ -346,6 +346,9 @@ if (opt.touch) {
     await p.keyboard.press('Enter');
     await p.waitForFunction(() => window.__UI__.ui.screen === 'none', null, { timeout: 3000 });
     check('enter starts a new expedition without a confirm when there is no save', true);
+    await p.evaluate(() => window.__UI__.actions.openInventory());
+    await p.keyboard.press('Tab');
+    check('tab closes the inventory it opens', (await screen()) === 'none');
     await c.close();
   }
 }
@@ -382,6 +385,9 @@ async function gameFlow(page, st, until, shot) {
   await until(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu');
   await page.waitForTimeout(800);
   check('game: menu title attached', (await page.getByText('DEEP DOWN').count()) > 0);
+  // Gameplay binds Tab (bag) and Space (jump); on a screen they must still move focus and press.
+  await page.keyboard.press('Tab');
+  check('game: Tab moves focus into the menu', await page.evaluate(() => !!document.activeElement?.closest('.dd-menu')));
   await page.getByRole('button', { name: /New Expedition/i }).click();
   await until(() => window.__DD__.state().mode === 'playing');
   await page.waitForTimeout(1200);
@@ -393,6 +399,11 @@ async function gameFlow(page, st, until, shot) {
   check('game: pause button pauses', (await st()).screen === 'pause');
   await page.getByRole('button', { name: /^Settings$/ }).tap();
   await until(() => window.__DD__.state().screen === 'settings');
+  const invert = page.getByRole('switch', { name: /Invert vertical/i });
+  await invert.focus();
+  await page.keyboard.press('Space');
+  check('game: Space toggles the focused switch', (await invert.getAttribute('aria-checked')) === 'true');
+  await page.keyboard.press('Space');
   const fps = page.getByRole('switch', { name: /Show performance/i });
   await fps.tap();
   check('game: performance switch toggles', (await fps.getAttribute('aria-checked')) === 'true');
