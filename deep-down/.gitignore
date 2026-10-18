@@ -1,0 +1,9 @@
+node_modules/
+dist/
+test-results/
+playwright-report/
+artifacts/
+android/build/
+*.apk
+*.keystore
+!android/debug.keystore.README
