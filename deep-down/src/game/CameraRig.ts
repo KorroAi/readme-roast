@@ -18,10 +18,12 @@ export class CameraRig {
   /** Smoothed current boom length. */
   distance = 3.8;
   maxDistance = 3.8;
-  shoulder = 0.55;
+  shoulder = 0.7;
   sensitivity = 1;
   invertY = false;
   shakeScale = 1;
+  /** Shoulder side, smoothed: +1 right, -1 left (switches when the right side is walled in). */
+  private side = 1;
   private trauma = 0;
   private shakeTime = 0;
   private readonly pivot = new THREE.Vector3();
@@ -52,6 +54,7 @@ export class CameraRig {
     this.pivotTarget.set(px, py, pz);
     this.pivot.copy(this.pivotTarget);
     this.distance = this.maxDistance;
+    this.side = 1;
     this.initialized = true;
   }
 
@@ -76,10 +79,17 @@ export class CameraRig {
     this.dir.set(Math.sin(this.yaw) * cy, -Math.sin(this.pitch), Math.cos(this.yaw) * cy);
     const right = this.tmp.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
-    // 1) Shoulder offset, shortened if a wall is right beside the explorer.
-    let lateral = this.shoulder;
-    const side = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, right.x, 0, right.z, this.shoulder + 0.3);
-    if (side) lateral = Math.max(0, Math.min(lateral, side.distance - 0.3));
+    // 1) Shoulder offset, shortened if a wall is right beside the explorer. When the right side
+    //    is walled in and the left is open, swap shoulders so the explorer never sits on the
+    //    crosshair in a narrow tunnel.
+    const reach = this.shoulder + 0.3;
+    const hitR = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, right.x, 0, right.z, reach);
+    const hitL = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, -right.x, 0, -right.z, reach);
+    const roomR = hitR ? Math.max(0, hitR.distance - 0.3) : this.shoulder;
+    const roomL = hitL ? Math.max(0, hitL.distance - 0.3) : this.shoulder;
+    const want = roomR >= this.shoulder * 0.5 || roomR >= roomL ? 1 : -1;
+    this.side = damp(this.side, want, 5, dt);
+    const lateral = this.side >= 0 ? Math.min(this.shoulder * this.side, roomR) : -Math.min(-this.shoulder * this.side, roomL);
     const ox = this.pivot.x + right.x * lateral;
     const oy = this.pivot.y;
     const oz = this.pivot.z + right.z * lateral;

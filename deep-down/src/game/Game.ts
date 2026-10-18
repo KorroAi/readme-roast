@@ -637,7 +637,8 @@ export class Game {
       time: this.time,
     });
     const camDist = this.cameraRig.camera.position.distanceTo(this.tmpV.set(p.x, p.y + 1.2, p.z));
-    e.setFade(this.mode === 'menu' ? 1 : clamp((camDist - 0.55) / 0.6, 0.15, 1));
+    // In tight tunnels the boom is short and the explorer would hide the crosshair: dither them out.
+    e.setFade(this.mode === 'menu' ? 1 : clamp((camDist - 0.7) / 1.3, 0.25, 1));
   }
 
   private updateLantern(dt: number, burn: boolean): void {

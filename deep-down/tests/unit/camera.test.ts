@@ -47,6 +47,22 @@ describe('CameraRig collision', () => {
     expect(w.isSolidAt(c.x, c.y, c.z)).toBe(false);
   });
 
+  it('swaps to the left shoulder when the right is walled in, keeping the explorer off the crosshair', () => {
+    const w = tunnelWorld();
+    const rig = new CameraRig(w);
+    const px = 16.5;
+    const py = 6.45;
+    const pz = 17.6; // right side (+Z when yaw = -pi/2) is the wall at z = 18
+    rig.snapTo(px, py, pz);
+    rig.yaw = -Math.PI / 2;
+    rig.pitch = -0.1;
+    for (let i = 0; i < 90; i++) rig.update(1 / 60, px, py, pz, 16 / 9);
+    const c = rig.camera.position;
+    expect(c.z).toBeLessThan(pz - 0.3);
+    expect(w.isSolidAt(c.x, c.y, c.z)).toBe(false);
+    expect(segmentClear(w, px, py, pz, c.x, c.y, c.z)).toBe(true);
+  });
+
   it('uses the full boom in open space', () => {
     const w = new VoxelWorld(32, 32, 32);
     const rig = new CameraRig(w);
