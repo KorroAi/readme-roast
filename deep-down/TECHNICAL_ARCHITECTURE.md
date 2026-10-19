@@ -395,6 +395,17 @@ and no dither pattern is printed over the world.
 - `vite.config.ts` → `webApp()` emits the manifest and icons at build time, and serves them from
   memory in dev.
 
+## Loop core (final pass W1)
+
+- game/Progression.ts is the seam later waves extend. Game delegates camp entry and exit, black-out (onBlackout), abandon (onAbandon), camp-prop interaction, the HUD fields (hud(out)), and save (toSave/fromSave). It owns Records (gameplay/Records.ts), Cold (gameplay/Cold.ts), the cache (gameplay/Expedition.ts makeCache/replaceCache/recoverCache, placement in gameplay/CacheSpot.ts) and the Next line (gameplay/NextStep.ts).
+- world/analysis/homeField.ts: HomeField is a backwards BFS from the camp's standable cells over the reachability moves (walk, step up 1, drop up to 3) into one reused Int32Array (13 MB), resetting only the cells it touched. Extra edges cost whole steps (rides). cellNear() finds the explorer's cell; descend() and downhill() follow the steepest descent. walkSeconds = steps x 1.35 / 4.6. ReachSet is the same idea forward from the spawn (Uint8Array) and equals reachableCells. A second HomeField toward the cache is allocated while a cache exists. Recomputes run in requestIdleCallback or setTimeout, not inside a frame: about 2-3 ms warm on the container, 10-15 ms cold.
+- Cache placement: the last cell the explorer stood on, grounded at least 0.3 s, that is on the ReachSet and has a home distance; otherwise the nearest such cell within 8; otherwise the spawn.
+- game/FrameGuard.ts wraps step(). After 3 failures in a row it stops the loop, sets mode 'crashed', calls keepScreenOn(false), suspends audio and sends window CustomEvent 'dd:crash'. No save from the first error until a good frame. Game.crash(err) is public (src/main.ts calls it).
+- game/MenuCamera.ts: menuPose(t) is the old pose; the lens is lockedVerticalFov(aspect, 94); MENU_FPS 30 in Game.frame.
+- Save pipeline: parse, check version, migrate (MIGRATIONS[1] = migrateV1), normalizeSave (drop unknown ids and count them; key items found in the pack go to the journal; overflow to storage; progression defaults; unknown progression fields kept), validateSaveData, then in Game shiftWorldIfNeeded (genVersion mismatch: drop edits and removed props, wake at spawn, carry the cache to storage). WORLD.genVersion is pinned by world/analysis/fingerprint.ts (FNV-1a over the volume and prop ids) in tests/unit/genVersion.test.ts.
+- Events added: expedition:started/ended, cache:created/recovered, lantern:turnBack, player:cold, record:depth; item:picked gains sx/sy; player:damaged cause 'cold'. DiscoveryNotice gains index/total/major from the gameplay/discoveries.ts table.
+- __DD__.loop: recompute, timings, homeSteps, reachable, cache, report, next. __DD__.report().loop gives field timings.
+
 ## Gameplay architecture
 
 - `EventBus<GameEvents>` (`core/events.ts`) decouples systems. Gameplay emits events;
@@ -421,15 +432,22 @@ and no dither pattern is printed over the world.
 - Unreadable saves (newer version, both slots corrupt) are never wiped silently: Continue
   explains, New Game asks before replacing.
 
-## Android shell
+## Release shell (src/main.ts, final pass W1)
+`main.ts` boots the game and wraps it, using only Game's public API:
+- **Crash panel** (`.dd-crash`, styles.css): shown on window `dd:crash` (from Game's frame guard), and after boot on window `error` (only events with an error object) and `unhandledrejection` (DOMExceptions are platform refusals and are ignored); those call `game.crash(err)` first. Boot failures (`fatal()`) use the same panel. The details are built on demand: version, versionCode, build, mode, time, user agent, the GL renderer (read once at boot, because getParameter is a synchronous GPU round trip) and the first stack. They are copied with the Clipboard API, falling back to a select-and-copy textarea. `deepDownBack` returns false while the panel is up.
+- **Android bridge**: `setBackHandled(bool)` is pushed on change and polled every 250 ms (false only at mode menu and screen menu, or on the panel). `window.deepDownLifecycle('pause'|'resume')`: pause = saveNow('background') unless a save happened < 1 s ago, then pause and audio suspend; resume = audio resume.
+- **Context loss**: on webglcontextlost the game pauses and shows `.dd-gl-notice`; restore hides it; after 10 s of visible time without a restore the crash panel shows.
+- **QualityGovernor** (`src/render/QualityGovernor.ts`, pure): fed requestAnimationFrame intervals while mode is 'playing' and the page is visible. 5 s warm-up, 8 s window, median by in-place quickselect over a Float32Array ring (no allocations); limits 22 ms (Balanced/High → Battery) and 40 ms (Battery → renderScale 0.65); gaps > 2 s ignored. The first-launch preset (Battery if deviceMemory ≤ 3 or hardwareConcurrency ≤ 4) is written through SaveSystem before Game is constructed. State is in localStorage `deepdown.autoquality` {auto, toasted}. A settings change it did not make → auto off for good. Off under navigator.webdriver unless `?autoq=1`.
+- `window.__DD_RELEASE__`: test/support surface (version, crashPanel(), crashDetails(), backHandled(), governor()).
 
-`android/app/src/main/java/.../MainActivity.java`: one Activity with a WebView. Files are
-served from `https://appassets.androidplatform.net/` out of `assets/www`; every other request
-is refused (the game is offline). Text zoom is pinned to 100% (the game has its own Large
-Text setting), Back goes to `window.deepDownBack()` (close screen / pause / resume; exit at
-the main menu; history back on pages without a handler), and a small JS bridge keeps the
-screen on only while playing. `build-apk.sh` refuses to package a stale or placeholder web
-build.
+## Versioning
+`tools/version.mjs`: versionName = package.json version, versionCode = (MAJOR×10000+MINOR×100+PATCH)×100+BUILD (DD_BUILD 0–99); prereleases refused. vite.config.ts defines `__DD_VERSION__`, `__DD_BUILD__` and `__DD_VERSION_CODE__` (read by src/version.ts) and writes dist/version.json, which build-apk.sh and Gradle compare before packaging.
+
+## Build outputs (vite.config.ts)
+Plugins: htmlStrings, webApp (manifest + icons from make-icon.mjs), and releaseFiles (licenses.txt = three.js LICENSE + Vite's MIT notice; privacy.html = self-contained, built from en/release.ts; version.json). `DD_RELEASE=1` builds index.html only.
+
+## Android shell
+One MainActivity source, two builds. build-apk.sh: API 23 toolchain, targetSdk 36, min 24, debug key, smoke test. Gradle (android/app/build.gradle.kts): compile/target 36, the Play AAB, built in CI. Every API > 23 call goes through reflection, or a Proxy for OnBackInvokedCallback; onRenderProcessGone compiles against a compile-only stub (android/stubs). The Gradle-only `src/modern` adds the manifest overlay (appCategory game, enableOnBackInvokedCallback, density) and the values-v31 splash theme. The cutout insets reach CSS as `--dd-inset-*`, and styles.css's `--safe-*` take max(env(), injected). Icons and the splash logo are generated by make-icon.mjs (the Gradle task generateIcons<Variant>); the web assets come from a stale-checked copy of ../dist (copyWeb<Variant>).
 
 ## Testing strategy
 

@@ -144,6 +144,13 @@ if (opt.touch) {
   await touch('touchMove', [{ x: 150, y: 180 }]);
   s = await input();
   check('joystick clamps beyond radius', Math.abs(s.moveY - 1) < 1e-6, { moveY: s.moveY });
+  // The base follows a thumb that overshoots (turning back responds at once), so the partial and
+  // dead-zone checks start from a fresh touch with the base where the thumb lands.
+  const followed = await page.evaluate(() => document.querySelector('.dd-stick')?.getBoundingClientRect().top ?? 0);
+  await touch('touchEnd', []);
+  await touch('touchStart', [{ x: 150, y: 300 }]);
+  const fresh = await page.evaluate(() => document.querySelector('.dd-stick')?.getBoundingClientRect().top ?? 0);
+  check('joystick base follows an overshoot', followed < fresh - 20, { followedTop: followed, freshTop: fresh });
   await touch('touchMove', [{ x: 170, y: 300 }]);
   s = await input();
   check('joystick partial right', s.moveX > 0.2 && s.moveX < 0.4 && Math.abs(s.moveY) < 1e-6, { moveX: s.moveX });
@@ -174,12 +181,12 @@ if (opt.touch) {
   check('look drag -> lookDX/lookDY', Math.abs(ldx - 60) < 1.5 && Math.abs(ldy - 10) < 1.5, { lookDX: ldx, lookDY: ldy });
   check('look drag never mines', after.miningFrames === before.miningFrames && !s.mining, { miningFrames: after.miningFrames - before.miningFrames });
 
-  // Hold to mine: still for 140 ms -> mining at the finger in NDC; moving re-aims, no look.
+  // Hold to mine: still for 230 ms -> mining at the finger in NDC; moving re-aims, no look.
   before = await seen();
   await touch('touchStart', [{ x: 600, y: 150 }]);
   await wait(100);
   s = await input();
-  check('hold: not mining before 140 ms', !s.mining, { mining: s.mining });
+  check('hold: not mining before 230 ms', !s.mining, { mining: s.mining });
   await wait(150);
   s = await input();
   const nx = (600 / vp.width) * 2 - 1;
@@ -306,7 +313,7 @@ if (opt.touch) {
   await touch('touchEnd', []);
   check('left-handed: joystick on the right', Math.abs(s.moveY - 1) < 1e-6, { moveY: s.moveY });
   await touch('touchStart', [{ x: 200, y: 150 }]);
-  await wait(220);
+  await wait(320);
   s = await input();
   await touch('touchEnd', []);
   check('left-handed: hold-to-mine on the left', s.mining, { mining: s.mining });
@@ -316,7 +323,7 @@ if (opt.touch) {
   // The mouse does not drive the touch layer unless the page opts in.
   await page.mouse.move(600, 150);
   await page.mouse.down();
-  await wait(220);
+  await wait(320);
   s = await input();
   await page.mouse.up();
   check('mouse ignored by default', !s.mining, { mining: s.mining });
@@ -324,7 +331,7 @@ if (opt.touch) {
     document.documentElement.dataset.touchUi = '1';
   });
   await page.mouse.down();
-  await wait(220);
+  await wait(320);
   s = await input();
   await page.mouse.up();
   await wait(30);

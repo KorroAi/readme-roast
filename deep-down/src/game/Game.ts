@@ -71,6 +71,8 @@ export class Game {
   private haptics: Haptics | null = null;
   /** Seconds since the look input last moved (touch camera follow waits for it). */
   private lookStill = 0;
+  /** When the last background/pagehide save succeeded (one backgrounding saves once). */
+  private lastBackgroundSaveAt = -Infinity;
   desktop!: DesktopInput;
   cameraRig!: CameraRig;
   player!: PlayerController;
@@ -229,14 +231,19 @@ export class Game {
   }
 
   private wireLifecycle(): void {
+    // On Android the shell's onPause saves first (deepDownLifecycle), then the WebView hides the
+    // page: one backgrounding must not write twice, so a second background save within 1 s is skipped.
+    const backgroundSave = (reason: string) => {
+      if (performance.now() - this.lastBackgroundSaveAt >= 1000) this.saveNow(reason);
+    };
     const onVis = () => {
       if (document.visibilityState === 'hidden') {
-        this.saveNow('background');
+        backgroundSave('background');
         this.audio.suspend();
         if (this.mode === 'playing') this.pause();
       } else this.audio.resume();
     };
-    const onHide = () => this.saveNow('pagehide');
+    const onHide = () => backgroundSave('pagehide');
     const onResize = () => this.renderer.resize();
     const unlock = () => void this.audio.unlock();
     document.addEventListener('visibilitychange', onVis);
@@ -472,7 +479,10 @@ export class Game {
     // Never save a state a failing frame may have broken (until a frame succeeds again).
     if (!this.frameGuard.canSave) return false;
     const res = this.saves.save(this.buildSave());
-    if (res.ok) this.bus.emit('game:saved', { reason });
+    if (res.ok) {
+      if (reason === 'background' || reason === 'pagehide') this.lastBackgroundSaveAt = performance.now();
+      this.bus.emit('game:saved', { reason });
+    }
     else {
       this.bus.emit('game:saveFailed', { reason: res.error ?? 'unknown' });
       this.ui.toast(t('toast.saveFailed'), 'warn');

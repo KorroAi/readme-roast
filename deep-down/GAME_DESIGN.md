@@ -79,6 +79,16 @@ are displayed. Returning home banks the backpack, refuels, heals and plays a war
   is itself a choice.
 - Shortcuts (ropes, beacons, the lift) make deeper starts possible without grinding the same path.
 
+## The trip loop as built (final pass W1)
+
+- The lantern is the clock: Oil 300 s, Copper 600 s, Attuned 900 s. Empty, the light shrinks to an ember (0.38; Attuned 0.7).
+- Cold: 8 s of grace after the flame dies, then 2 hp/s (10 hp per 5 s). Never at camp; Attuned immune; the Miner's Coat (W2) halves it.
+- Walk home: the compass shows walking metres along the walkable route. The turn-back mark sits at walkHome x 1.25 + 10 s of fuel, announced once per trip; critical at walkHome x 1.0.
+- Black-out or abandoning a trip: the pack minus the Sealed Pouch (and loose drops) stays as one cache where the explorer last stood safely. Walk within 1.6 m to get it back; what does not fit stays. A second black-out destroys the older cache. Abandoning with an empty pack keeps the older cache.
+- Packs: Tiny 6, Sturdy 8, Expedition 10 (the last 2 slots are the Sealed Pouch). Stacks: stone 30, fibre 20, copper 15, iron 10, glimmer 10, echo 5.
+- The Next line, in order: recover your pack, then the tutorial chain, then the closest upgrade ('Next: X — Material have/need'), then 'Go deeper — your best is -N m'.
+- Records: deepest (depths stood on during an expedition), biggest haul, expeditions, black-outs, best streak; they only go up. Depth records every 10 m (toast from the second expedition on).
+
 ## Creatures and hazards (few, memorable, readable)
 
 | Name | Where | Behaviour | Purpose |

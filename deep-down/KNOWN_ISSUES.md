@@ -16,25 +16,28 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 
 ## Android build
 
-- The verified build path (`android/build-apk.sh`) uses Ubuntu's packaged SDK: compile SDK 23,
-  build-tools 29, `dx`. `targetSdkVersion` is 34 in the manifest, but the app is compiled
-  against API 23. Google Play needs a build with a current compile/target SDK through Gradle and
-  Android Studio (not set up here: the official SDK cannot be downloaded).
-- Because of API 23, `density` cannot be listed in `configChanges`: a display-size change while
-  the app runs recreates the Activity and reloads to the main menu (progress is autosaved).
-- The APK is signed with a locally generated debug key (`android/debug.keystore`, not committed).
-- The build needs Android System WebView / Chromium 87 or newer (Nov 2020: CSS `inset`,
-  `replaceChildren`, ES2020 syntax). Older WebViews, possible on un-updated Android 6/7
-  devices, get a message asking to update instead of a black screen.
+- The Play bundle (Gradle, compile/target SDK 36) and the CI workflow are written but **unverified until their first CI run**: Google's SDK and Gradle downloads are blocked in this container. The smoke-test APK (`android/build-apk.sh`, API 23 toolchain, targetSdk 36) is the verified path.
+- The native API 28+/30+/33+ behaviours (predictive Back, cutouts, WindowInsetsController, renderer recovery, lifecycle timers, the API 31 splash, themed icon) are reflection-based and **untested on a device or emulator**.
+- The smoke-test APK has no manifest overlay. On API 33–35 it uses the legacy onBackPressed path (Android 16 forces the callback path, which the shell also registers) and it lacks the API 31 splash theme.
+- The crash panel waits for the frame guard's 3 failed frames: under SwiftShader (about 2 fps) that is 0.4–2.3 s; on a phone it should be about 0.1 s (unverified).
+- Governor thresholds (22 ms / 40 ms medians) are set by reasoning, not tuned on phones.
+- The store title is pending the trademark check (Capcom holds 'Deep Down'); the support email, copyright line and game licence are director decisions.
 
 ## Gameplay / content
 
+- Cold is continuous (2 hp/s) rather than discrete 10 hp hits, so both acceptance lines hold (first damage at 8 s, black-out at 58 s). The heartbeat event 'player:cold' fires every 5 s of cold.
+- The cache uses an interim crate model with an ember halo until the W2 satchel. The turn-back tick, cache chip and fuel-state classes have only inline styles until W4-B.
+- The discovery banner does not show index/total yet, and the Expedition Report has no screen yet (W2/W3).
+- 25 reachable cells (pits) have no walk home; caches are never placed there (the nearest cell with a way home is used).
+- v1 saves migrate with genVersion 0, so their world edits are dropped on first load (the world they were made in is unknown).
+- Memory: walk-home field 13 MB (Int32), reach set 3.3 MB, plus 13 MB for the cache field while a cache exists.
+- Phone feel of the turn-back and cold haptics: unverified.
 - One zone only (the Lantern Hollow). The Deep Gate leads to a balcony over the rift; the rift
   is the end of the vertical slice.
 - Creatures and active hazards (falling rocks, gas) are not in the slice; the risks are falls,
   the lethal chasm and running out of lantern fuel.
-- Drops left on the ground (backpack full) are not saved; they disappear if you quit before
-  picking them up.
+- Drops left on the ground (backpack full) are not saved, and they fade after 90 s. A black-out
+  sweeps loose drops into the cache.
 - Mined crystal light is gone for good (crystals do not regrow).
 - Balance (hardness, fuel, recipe costs) is tuned by tests and play-throughs in a desktop
   browser, not by players.

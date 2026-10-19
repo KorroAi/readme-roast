@@ -39,7 +39,12 @@ block, buttons for jump / use / bag / pause, short vibrations on strikes, breaks
 | UI (menu, HUD, touch controls, inventory, workbench, settings, pause, death, discoveries) | ✅ Done, reviewed | 60 UI checks, e2e (every HUD element is asserted to follow the game) |
 | Settings (quality, render scale, glow, brightness, FPS, sensitivity, invert, left-handed, 4 volumes, camera shake, large text, high contrast) | ✅ Done | applied at boot and live; sanitized |
 | Visual Lab (materials, crystal light, lantern light, damage stages, particles, pickup, character, props, UI readability) | ✅ Done | screenshots written to artifacts/ (git-ignored); inspection log in TEST_REPORT.md |
-| Android shell + APK | ✅ Builds, signed, packaging simulated | **never installed on a device** |
+| Trip loop (lantern clock, cold, walk-home compass, turn-back mark, black-out cache, records, Next line) | ✅ Done (final pass W1) | unit tests (cold, homeField incl. every reachable cell, cache fuzz over 200 lethal falls, records, save v2); e2e world.spec (death → cache → reload → recovery) |
+| Save v2 (progression block, world genVersion + fingerprint, v1 migration) | ✅ Done | save-v2 and genVersion tests |
+| Crash panel + context-loss notice | ✅ Done | e2e release.spec (6 tests) |
+| Automatic quality governor | ✅ Done | governor unit tests (9), e2e with CPU throttling ×6; thresholds unverified on phones |
+| Versioning (`tools/version.mjs`, 1.0.0 → versionCode 1000000) | ✅ Done | version unit tests (7), aapt badging |
+| Android shell + APK | ✅ Smoke-test APK builds (API 23 toolchain, targetSdk 36, versionCode 1000000), signed, packaging simulated (apk-sim incl. crash panel, privacy, licences) | Play AAB via Gradle + CI written, **unverified until the first CI run**; **never installed on a device** |
 
 ## Definition of success (from the brief)
 
@@ -65,6 +70,11 @@ is proven walkable by `routeWalk.test.ts`).
 1. Run it on real Android devices (mid-range 2022 class and a low-end one): FPS, thermals,
    touch latency, audio, Back / lifecycle behaviour. Nothing here could measure those.
 2. A by-ear audio mix pass.
-3. A Play-Store-grade build (current compile SDK via Gradle, release signing, AAB).
+3. The first CI run of the Play bundle (`.github/workflows/deep-down-android.yml`; Gradle,
+   compile/target SDK 36, upload key from secrets). It is written but cannot run here.
+4. The director-only release steps in `docs/release-checklist.md`: Play account, trademark
+   and title check, upload key and secrets, listing forms, device runs
+   (`docs/device-test-protocol.md`).
+5. The rest of the final pass (`docs/final-pass/MERGE.md`): waves 2–5.
 
 See KNOWN_ISSUES.md for limitations and DEVELOPMENT_ROADMAP.md for what comes next.

@@ -2,6 +2,45 @@
 
 Newest first. Each entry says what changed and how it was verified.
 
+## Unreleased — final pass toward 1.0.0
+
+Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before it: local tag
+`checkpoint/pre-final-pass-w1` (commit ee3c11e).
+
+### Final pass W1: loop core (`game/Progression.ts`, `gameplay/{Cold,Records,NextStep,CacheSpot}.ts`, `world/analysis/homeField.ts`, save v2)
+- The dark is cold. After the flame dies there are 8 s of grace, then the cold takes 10 hp per 5 s (black-out 58 s after the flame dies from full health, 148 s with the coat). Never at camp; the Attuned Lantern is immune.
+- Walk-home field. The compass shows walking metres to camp and aims down the field's steepest descent (balcony: 191 m walk, 152 m straight). It is recomputed on leaving camp and every 25 mined blocks.
+- Turn-back mark on the lantern bar at walkHome x 1.25 + 10 s; 'Turn back — about N s to camp' once per trip; the bar pulses red at walkHome x 1.0.
+- A black-out or an abandoned trip leaves one cache (the pack minus the Sealed Pouch, plus loose drops) on the last cell the explorer stood on safely. A 'Pack N m' chip and the Next line 'Recover your pack — N m' lead back to it. Within 1.6 m the items return and any overflow stays. A second black-out destroys the first cache. The cache is saved with the death.
+- Materials: Root Fibre (cave soil, 45%) and Echo Shard; stacks stone 30, fibre 20, copper 15, iron 10, glimmer 10, echo 5; iron ore drops 1-2; the seven rune key items are defined.
+- Packs 6 / 8 / 10 slots; the Expedition Pack's last 2 slots are the Sealed Pouch. Lanterns 300 / 600 / 900 s.
+- Expeditions and records: trip tracking, ExpeditionReport, records that only go up, depth marks every 10 m.
+- The objective pill always shows a Next line; 'All objectives complete' is gone.
+- Save v2: progression block, world genVersion with a fingerprint test, v1 migration (oversized stacks to storage, nothing lost), unknown items dropped and counted instead of failing the load, saves from another world wake at camp with their finds.
+- Crash guard: three failed frames in a row stop the game, nothing more is saved, and 'dd:crash' is sent.
+- Title screen: gameplay lens (94 degrees horizontal), 30 fps; tagline 'FOLLOW THE LIGHT DOWN', 'v1.0.0'; Ancient Ashlar / Loose Masonry / Hearth Stone / Lichen Stone.
+- Loose drops fade after 90 s.
+- e2e: world.spec covers the cache (death, reload, recovery); the specs wait on game time and survive a loaded machine.
+
+### Final pass W1: release infrastructure (`src/main.ts`, `android/**`, `tools/version.mjs`, CI)
+- One version source: `tools/version.mjs` (versionCode = (MAJOR×10000+MINOR×100+PATCH)×100+BUILD, prereleases refused); package.json 1.0.0 → versionCode 1000000; `src/version.ts`, vite defines, `dist/version.json`, build-apk.sh and Gradle all read it, and both Android builds refuse a web build made for another versionCode.
+- Play bundle pipeline: Gradle project (AGP 8.11.1, compile/target SDK 36, min 24, no AndroidX, no minify, upload key from `DD_UPLOAD_*` environment only) and the CI workflow `.github/workflows/deep-down-android.yml` (workflow_dispatch + `deep-down-v*` tags → AAB + APK artifacts). Unverified until its first run.
+- Android shell for API 35/36: predictive Back (`DeepDownAndroid.setBackHandled`), edge to edge into cutouts with insets passed to CSS, immersive via WindowInsetsController, renderer-crash recovery, explicit lifecycle (`window.deepDownLifecycle`), volume keys on media, debugging only in debuggable builds, external links in the browser; game category, `density` config change and the API 31 splash in a Gradle-only overlay. Still compiles with the API 23 toolchain.
+- Adaptive launcher icon (background, foreground, monochrome) with the mark inside the safe circle, legacy icon, 512 px Play icon, splash; `tools/icon-masks.mjs` previews four launcher masks.
+- Crash panel: 'DEEP DOWN hit a problem. Your last autosave is safe.' with Restart and Copy details (nothing is sent); also used for boot failures. Context loss pauses behind 'Restoring graphics…'.
+- Automatic quality: Battery on first launch for ≤ 3 GB / ≤ 4-core devices; a downshift-only governor while playing (Balanced → Battery → render scale 0.65), one toast, off for good after a manual change.
+- Bundled `licenses.txt` (three.js MIT, Vite helpers) and a self-contained `privacy.html`; `DD_RELEASE=1` builds only the game page.
+- apk-sim: 180 s waits, load average, crash-panel/privacy/licence checks. New scripted tour `tools/tours/first-five.json`. New docs: release checklist, store listing, device test protocol, iOS plan.
+
+### Final pass W1: wave close (orchestrator)
+- One backgrounding saves once. The Android shell's pause save is followed by the WebView's
+  `visibilitychange`, so a second background or pagehide save within 1 s is skipped. Other
+  save reasons are unaffected.
+- `tools/ui-check.mjs` follows the mobile controls: hold-to-mine waits past the 230 ms
+  threshold, and the joystick checks start a fresh touch after the base has followed an
+  overshoot. A new check asserts that the base follows. Sandbox 48/48.
+- `package-lock.json` root version 1.0.0 (`npm ci --dry-run` passes).
+
 ## Unreleased — visual identity pass
 
 Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce23151).
