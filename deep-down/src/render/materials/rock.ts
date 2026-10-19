@@ -496,7 +496,7 @@ function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
   const clumps = new PeriodicCells(rng, 7, 7, 0.95);
   for (const cl of clumps.cells) {
     // Tops get few, small crusts: a lichen-covered top reads as a moss block.
-    if (cl.r > (side ? 0.45 : 0.2)) continue;
+    if (cl.r > (side ? 0.32 : 0.2)) continue;
     const r = 1.5 + cl.r2 * (side ? 4.5 : 3.5);
     // A few satellites around each clump.
     const n = 1 + Math.floor(cl.r3 * 4);

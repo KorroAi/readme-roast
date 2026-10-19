@@ -91,7 +91,7 @@ const gpuBytes = (m: THREE.Mesh) => Array.from((m.geometry.getAttribute('aGeo') 
 
 async function built(hub: Hub, w = terrain(), workers = 2): Promise<{ w: VoxelWorld; cr: ChunkRenderer }> {
   // No warm-up here: these tests count the requests each worker receives.
-  const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers, spawn: hub.spawn, warmUp: 0 });
+  const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers, spawn: hub.spawn, warmUp: 0, workerStartFrames: 0 });
   await cr.buildAll();
   // Jobs the main thread stole at the end of the build are still answered (and dropped).
   await cr.flush();
@@ -167,29 +167,37 @@ describe('mesh worker', () => {
 });
 
 describe('ChunkRenderer with mesh workers', () => {
-  it('builds on the main thread by default, then warms the idle workers on real chunks', async () => {
+  it('builds on the main thread; the workers start 30 frames later and warm up before taking edits', async () => {
     const hub = new Hub();
     hub.auto = false;
     const w = terrain();
     const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, warmUp: 3 });
-    expect(hub.workers.length).toBe(0); // nothing competes with the first build
     await cr.buildAll();
-    expect(cr.stats.workers).toBe(2);
     expect(cr.stats.workerMeshes).toBe(0);
     expect(cr.stats.syncMeshes).toBe(w.cx * w.cy * w.cz);
     expect(cr.verify().mismatched).toEqual([]);
-    // One warm-up job per worker at a time, one chunk per request.
+    for (let k = 0; k < 29; k++) cr.update(focus);
+    expect(hub.workers.length).toBe(0); // nothing competes with the rest of loading
+    cr.update(focus);
+    expect(cr.stats.workers).toBe(2);
+    // One warm-up job (a real chunk) per worker at a time.
     expect(hub.workers.map((f) => f.inbox.length)).toEqual([1, 1]);
-    // An edit meanwhile waits behind one warm-up job at most.
+    // During the warm-up an edit is meshed on the main thread, at once.
     const [x, y, z] = surfaceBlock(w, 1, 1);
     w.set(x, y, z, B.AIR);
     expect(cr.update(focus)).toBe(1);
-    expect(Math.max(...hub.workers.map((f) => f.inbox.length))).toBe(2);
+    expect(gpuBytes(chunkMesh(cr, 1, 0, 1)!)).toEqual(Array.from(meshChunk(w, 1, 0, 1).vertices));
+    expect(hub.workers.map((f) => f.inbox.length)).toEqual([1, 1]);
     hub.drain();
-    // 3 warm-up chunks per worker (results dropped, nothing drawn from them), then the edit.
     const log = hub.workers.flatMap((f) => f.log);
+    expect(log.length).toBe(3 * 2);
     expect(log.every((r) => r.jobs.length === 1)).toBe(true);
-    expect(log.length).toBe(3 * 2 + 1);
+    expect(cr.stats.workerMeshes).toBe(0); // warm-up results are dropped, nothing drawn from them
+    // Warm: edits go to the workers.
+    w.set(x, y - 1, z, B.AIR);
+    expect(cr.update(focus)).toBe(1);
+    expect(cr.stats.pending).toBe(1);
+    hub.drain();
     expect(cr.stats.workerMeshes).toBe(1);
     expect(cr.stats.staleResults).toBe(0);
     expect(cr.verify().mismatched).toEqual([]);
@@ -388,6 +396,7 @@ describe('ChunkRenderer with mesh workers', () => {
     const w = terrain();
     const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), {
       workers: 2,
+      workerStartFrames: 0,
       spawn: () => {
         throw new Error('no module workers');
       },

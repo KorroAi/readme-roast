@@ -95,6 +95,31 @@ vec3 ambientFrom(vec4 ls, vec3 n) {
   return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y)) + ls.rgb;
 }
 
+// Terrain form: the cool fill and the placed light each scaled by how the face meets them
+// (facing = placedFacing(): x placed light, y open fill) and the placed light falling off faster
+// in recesses (ao) than the all-round fill.
+vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
+  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y) + ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
+}
+
+// Which way the placed light (lamps, crystals, the fall) arrives at a face, from the light
+// volume's gradient along the face normal: one more fetch, one voxel further out. Light that grows
+// away from the face comes from in front of it (up to 1.6x); light that fades away from the face
+// only wraps around to it (down to 0.25x), so the backs of pillars, kerbs and stair cheeks in a
+// warm pool fall to the cool fill instead of an even amber wash, and lamps model form.
+// A solid voxel further out carries no light, so it gives no evidence (1).
+// The same fetch gives the openness gradient: a face that looks into the open hall sees more of
+// the glowing haze than one that looks at a wall a few metres away (y: open-fill factor).
+vec2 placedFacing(vec4 ls, vec3 samplePos, vec3 n) {
+  vec4 l1 = lightSample(samplePos + n);
+  if (l1.a < 0.02) return vec2(1.0);
+  float m0 = max(ls.r, max(ls.g, ls.b));
+  float m1 = max(l1.r, max(l1.g, l1.b));
+  float placed = m0 < 1e-4 ? 1.0 : clamp(1.0 + 2.2 * (m1 - m0) / m0, 0.25, 1.6);
+  float open = clamp(0.75 + 2.5 * (l1.a - ls.a) / max(ls.a, 0.05), 0.4, 1.35);
+  return vec2(placed, open);
+}
+
 // Emitter light + ambient at a sample point that lies in open space next to the surface.
 vec3 worldLight(vec3 samplePos) {
   return ambientFrom(lightSample(samplePos));
@@ -105,20 +130,21 @@ float lanternVisibility(vec3 samplePos) {
 }
 
 // The lantern: a windowed inverse-square falloff, so the flame models form (bright near the
-// explorer, about 5x dimmer 6 m away) and the pool ends softly at uLanternRadius instead of a
+// explorer, about 4x dimmer 6 m away) and the pool ends softly at uLanternRadius instead of a
 // flat floodlight with a cliff edge. The falloff is relative to the radius (k = K / R^2), so a
 // bigger lantern throws a proportionally bigger pool and a dying one shrinks to an ember.
-// R = 11 m: 1 m 0.93, 3 m 0.60, 6 m 0.22, 9 m 0.06 (x LANTERN_GAIN). A hand lantern throws its
+// R = 11 m: 1 m 0.93, 3 m 0.59, 6 m 0.23, 9 m 0.04 (x LANTERN_GAIN). A hand lantern throws its
 // light out through the glass, not down: the fuel tank shades the steep cone below the flame
 // (more than ~25 degrees down), so there is no hot spot at the carrier's feet and the brightest
 // ground is the way ahead.
 // Colour: uLanternColor is the pale-gold core; it deepens to amber toward the rim of the pool
-// (a flame's light reads warmer as it falls off). A diffuse term with a little wrap so the
-// sculpted facets catch it, and a soft bounce (light scattered back by the grey rock around the
-// explorer: cool grey stone, so it is much closer to neutral than the flame) gated by the same visibility, so nothing
-// leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
-// in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
-// who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
+// (a flame's light reads warmer as it falls off). A diffuse term with very little wrap so the
+// sculpted facets catch it, and a soft bounce (light scattered back by the cool grey rock around
+// the explorer, so it is much closer to neutral than the flame), gated by the same visibility so
+// nothing leaks through walls. open: openness at the sample (light volume alpha): the bounce is
+// stronger in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the
+// explorer who carries it) clamp the distance, so the carrier is never the brightest thing on
+// screen.
 const float LANTERN_K = 9.0;
 const float LANTERN_GAIN = 1.85;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
@@ -176,7 +202,7 @@ vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
   float a = 1.0 - exp(-od);
   float lift = smoothstep(-3.0, 10.0, wp.y - uFogPool.x);
   // In-scatter saturates softly: a lamp warms the air around it without a solid glowing cloud.
-  vec3 col = mix(uFogLow, uFogColor, lift) * (0.55 + 0.9 * a) + emit * (uAtmos.x / (1.0 + max(emit.r, max(emit.g, emit.b))));
+  vec3 col = mix(uFogLow, uFogColor, lift) * (0.7 + 0.7 * a) + emit * (uAtmos.x / (1.0 + max(emit.r, max(emit.g, emit.b))));
   return vec4(col, a);
 }
 
@@ -194,8 +220,11 @@ float hash13(vec3 p) {
  *   hollow  blue-black air, haze pooling low under the hall floor (violet-tinged where it
  *           sinks into the chasm), lighter mid-air haze so pillars and stairs silhouette
  *   rift    the deep: violet underglow pooling low, cool violet-grey fill
- * The open-space fill is a desaturated blue-grey (not the old saturated navy), so big spaces read
- * as big without turning the image monochrome.
+ * The open-space fill is a cool hemispheric light (the haze glowing above: strongest on floors,
+ * 40 % on walls, none on overhangs). It is what the unlit side of a form gets, so shadows in the
+ * Hollow, the shrine and the rift go blue-black instead of brown; the camp's fill stays warm-grey.
+ * Exposure is per zone: the tunnel's lantern-lit walls are close and need less, the open Hollow
+ * more (the post chain multiplies it with the player's brightness).
  */
 export interface AtmospherePreset {
   /** Mid-air haze colour. */
@@ -219,17 +248,20 @@ export interface AtmospherePreset {
   bounce: number;
   /** Fraction of emission the fog absorbs at full fog (1 = distant glows vanish into haze). */
   absorb: number;
-  /** Exposure multiplier for the post chain (per-zone grade). */
+  /**
+   * Scene exposure of the zone for the post chain (times the player's brightness, 1.05 at the
+   * default setting). The albedos are real reflectances (palette.ts), so this is about 2.
+   */
   exposure: number;
 }
 
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 0.85 },
-  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 0.62 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 1.08 },
-  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.0 },
+  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.66 },
+  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.21 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.11 },
+  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.95 },
 };
 
 /** Axis-aligned box (world units) used to find the camp. */
@@ -328,7 +360,7 @@ export class LightingRig {
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
       // Pale-gold core (the shader deepens it to amber toward the rim of the pool).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffeacc)).multiplyScalar(1.1) },
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xfff0dc)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },

@@ -232,7 +232,15 @@ void main() {
   float ao = vAo / 3.0;
   float aoCurve = 0.18 + 0.82 * ao;
   float shade = shadeOf(ng);
-  vec3 ambient = ambientFrom(ls, ng) * shade * aoCurve;
+  // Placed lights (lamps, crystals) come from one side (LAMP_DIR: from the light volume's
+  // gradient), so faces turned away and recesses lose them faster than the all-round cool fill: a
+  // crevice inside a warm pool falls to blue-black, not to dark amber.
+#ifdef LAMP_DIR
+  vec2 facing = placedFacing(ls, samplePos, n);
+#else
+  vec2 facing = vec2(1.0);
+#endif
+  vec3 ambient = ambientFrom(ls, ng, facing, ao) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
@@ -289,6 +297,8 @@ export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.D
   const defines: Record<string, string> = { ...extraDefines };
   if (debugClip) defines.DEBUG_CLIP = '';
   if (blend) defines.USE_BLEND = '';
+  // Directional placed light (one extra light-volume fetch); the Battery preset removes it.
+  defines.LAMP_DIR = '';
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines,

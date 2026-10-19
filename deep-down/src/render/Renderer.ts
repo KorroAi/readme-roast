@@ -19,17 +19,24 @@ export interface QualityPreset {
    * faces near a same-family boundary). Off on Battery: boundaries fall back to the voxel edge.
    */
   terrainBlend: boolean;
+  /**
+   * Directional placed light in the terrain shader (LAMP_DIR: one extra light-volume fetch per
+   * fragment, so the backs of forms in a lamp pool fall to the cool fill). Off on Battery.
+   */
+  lampDirection: boolean;
 }
 
 export const QUALITY: Record<QualityLevel, QualityPreset> = {
-  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120, terrainBlend: false },
-  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220, terrainBlend: true },
-  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400, terrainBlend: true },
+  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120, terrainBlend: false, lampDirection: false },
+  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220, terrainBlend: true, lampDirection: true },
+  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400, terrainBlend: true, lampDirection: true },
 };
 
 /** WebGL2 renderer + post chain + resize handling, shared by the game and the Visual Lab. */
-// Exposure for albedos painted as real reflectances (palette.ts) under the round-3 light model.
-const BASE_EXPOSURE = 2.05;
+// Player brightness 1 = this. The scene exposure itself is per zone (ATMOSPHERES[*].exposure in
+// lighting.ts, applied as post.params.zoneExposure), so tools that set their own zone exposure
+// (the Visual Lab's review light) are not affected by it.
+const BASE_EXPOSURE = 1.05;
 
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
@@ -98,32 +105,36 @@ export class Renderer {
   }
 
   /**
-   * The terrain material's USE_BLEND define follows the preset. Terrain materials are found in the
-   * scene on the first frame after a quality change (one traversal; they are the ShaderMaterials
-   * with the material-layer uniforms), so no other module has to forward the preset. A material
-   * built without blending (the viewer's ?blend=0) is never switched on.
+   * The terrain material's USE_BLEND and LAMP_DIR defines follow the preset. Terrain materials are
+   * found in the scene on the first frame after a quality change (one traversal; they are the
+   * ShaderMaterials with the material-layer uniforms), so no other module has to forward the
+   * preset. A define a material was built without (the viewer's ?blend=0) is never switched on.
    */
   private terrainPresetDirty = true;
-  private readonly blendOff = new WeakSet<THREE.Material>();
+  private readonly presetOff: Record<string, WeakSet<THREE.Material>> = { USE_BLEND: new WeakSet(), LAMP_DIR: new WeakSet() };
 
   private applyTerrainPreset(scene: THREE.Scene): void {
     let found = false;
     const seen = new Set<THREE.Material>();
+    const want: Record<string, boolean> = { USE_BLEND: this.preset.terrainBlend, LAMP_DIR: this.preset.lampDirection };
     scene.traverse((o) => {
       const m = (o as THREE.Mesh).material;
       if (!(m instanceof THREE.ShaderMaterial) || seen.has(m) || !('uMatGlow' in m.uniforms)) return;
       seen.add(m);
       found = true;
       const defines = m.defines as Record<string, string>;
-      const on = 'USE_BLEND' in defines;
-      if (!this.preset.terrainBlend && on) {
-        delete defines.USE_BLEND;
-        this.blendOff.add(m);
-        m.needsUpdate = true;
-      } else if (this.preset.terrainBlend && !on && this.blendOff.has(m)) {
-        defines.USE_BLEND = '';
-        this.blendOff.delete(m);
-        m.needsUpdate = true;
+      for (const name of Object.keys(want)) {
+        const on = name in defines;
+        const off = this.presetOff[name];
+        if (!want[name] && on) {
+          delete defines[name];
+          off.add(m);
+          m.needsUpdate = true;
+        } else if (want[name] && !on && off.has(m)) {
+          defines[name] = '';
+          off.delete(m);
+          m.needsUpdate = true;
+        }
       }
     });
     if (found) this.terrainPresetDirty = false;

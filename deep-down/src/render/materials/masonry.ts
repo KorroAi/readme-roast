@@ -89,6 +89,27 @@ function widths(rng: Rng, total: number, lo: number, hi: number, huge = 0): numb
 }
 
 /**
+ * Stones of one 4 m piece of a coursed-ashlar strip: one long block, two uneven stretchers, or
+ * stretcher - header - stretcher (a header is a short, nearly square stone set end-on), so a
+ * course never settles into a regular two-blocks-per-span rhythm (a block bond).
+ */
+function ashlarPiece(rng: Rng, h: number): number[] {
+  const P = COURSE_PIECE;
+  const r = rng.next();
+  if (h <= 8) return r < 0.55 ? [P] : (() => { const a = rng.int(24, 40); return [a, P - a]; })();
+  // Proportions follow the course: stretchers at least 0.9 x its height, headers about 0.75 x.
+  const sMin = Math.max(18, Math.round(h * 0.9));
+  const head = Math.max(10, Math.min(18, Math.round(h * (0.65 + rng.next() * 0.2))));
+  if (r < (h >= 24 ? 0.4 : 0.2)) return [P];
+  if (r < 0.75 || 2 * sMin + head > P) {
+    const a = rng.int(Math.min(sMin, P / 2), P - Math.min(sMin, P / 2));
+    return [a, P - a];
+  }
+  const a = rng.int(sMin, P - head - sMin);
+  return [a, head, P - head - a];
+}
+
+/**
  * Library A, coursed ashlar. Stone width ranges per course height; tall courses are sometimes
  * laid as two thin courses over one stretch (broken bond), each with its own joints.
  */
@@ -98,11 +119,9 @@ function layoutA(rng: Rng): Bond {
   lib.forEach((st, si) => {
     const courseTone = rng.next();
     // Thin courses are long levelling slabs; the tall ones carry the big blocks.
-    // Stones are long for their course (2:1 to 4:1), never brick-sized.
-    const [lo, hi] = st.h <= 8 ? [32, 64] : st.h <= 16 ? [24, 56] : st.h <= 24 ? [28, 56] : [30, 64];
     // Each strip is two 4 m pieces, each starting with a stone and ending on a joint, so the
     // shader can lay pieces in any order (and mirrored) along a course.
-    const ws = [0, 1].flatMap(() => widths(rng, COURSE_PIECE, lo, Math.min(hi, COURSE_PIECE), st.h >= 24 ? 0.12 : 0.05));
+    const ws = [0, 1].flatMap(() => ashlarPiece(rng, st.h));
     let x = 0;
     for (const w of ws) {
       if (st.h >= 24 && w >= 40 && rng.chance(0.15)) {
@@ -318,9 +337,9 @@ function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
     // Foot wear shows as rounded, darker edges (above) and fewer sharp details, not as a lighter
     // dished centre: a lit centre in a dark rim prints a frame on every slab, a tile.
     if (o.worn > 0 && m === 2) v -= STEP * 0.4 * Math.min(1, o.worn);
-    if (st.wear > 1 - o.spalls && m > 1 && m <= 5) {
-      // Spalled edges: small recessed scars along the arrises (where frost and load break the
-      // stone), two steps darker, with a lit lower rim.
+    if (st.wear > 1 - o.spalls && m > 1 && m <= 5 && dD < dU) {
+      // Spalled edges: small recessed scars along the lower arrises (where water sits and frost
+      // breaks the stone; scars on both edges read as a face), two steps darker, lit lower rim.
       const sp = spallN(x, y);
       if (sp > 0.68) {
         v -= STEP * 1.8;

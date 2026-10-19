@@ -203,6 +203,7 @@ results.mining = await page.evaluate(async () => {
     emitterRemovalLightMs: +crystalMs[0].toFixed(2),
     maxChunkRebuildMs: +st.maxRebuildMs.toFixed(2),
     meshWorkers: st.workers ?? 0,
+    meshWorkersWarming: st.warmUpLeft ?? null, // > 0: edits were still meshed on the main thread
     workerMeshMsMax: st.maxWorkerMs !== undefined ? +st.maxWorkerMs.toFixed(2) : null,
     workerRoundTripMsMax: st.maxRoundTripMs !== undefined ? +st.maxRoundTripMs.toFixed(2) : null,
     workerLatencyFramesMax: st.maxLatencyFrames ?? null,

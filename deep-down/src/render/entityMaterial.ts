@@ -97,7 +97,7 @@ void main() {
     vec3 v = normalize(cameraPosition - vWorldPos);
     float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
     vec3 toFlame = uLanternPos - vWorldPos;
-    float away = smoothstep(0.25, -0.35, dot(n, toFlame) / max(length(toFlame), 1e-3));
+    float away = 1.0 - smoothstep(-0.35, 0.25, dot(n, toFlame) / max(length(toFlame), 1e-3));
     float near = 1.0 - smoothstep(0.6, 2.6, length(toFlame));
     vec3 warm = uLanternColor * vec3(1.0, 0.62, 0.36) * uLanternIntensity;
     emissive += albedo * warm * (rim * away * near * 0.15 * uRim);

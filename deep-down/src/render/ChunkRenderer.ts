@@ -15,8 +15,10 @@ export interface ChunkStats {
    *  upload of its result. */
   lastRebuildMs: number;
   maxRebuildMs: number;
-  /** Mesh workers in use; 0 = meshing on the main thread (no workers, or they failed). */
+  /** Mesh workers in use; 0 = meshing on the main thread (not started yet, none, or failed). */
   workers: number;
+  /** Warm-up jobs not answered yet (edits go to the workers once this is 0). */
+  warmUpLeft: number;
   /** Why the workers were given up (null while they work, or when none were started). */
   workerFallback: string | null;
   /** Cumulative main-thread ms in update() and in applying worker results. */
@@ -46,8 +48,11 @@ export interface ChunkRendererOptions {
   spawn?: () => WorkerLike;
   /** Let the workers share buildAll with the main thread (default: `?meshbuild=pool`; off). */
   buildOnWorkers?: boolean;
-  /** Real chunks each worker meshes after the first build to warm up (default 48; 0 = none). */
+  /** Real chunks each worker meshes before it takes edits (default 48; 0 = none). */
   warmUp?: number;
+  /** Frames (update() calls) after the first build before the workers start (default 30; 0 = at
+   *  once), so they do not compete with the rest of loading. */
+  workerStartFrames?: number;
 }
 
 interface Job {
@@ -93,6 +98,8 @@ const BUILD_MAIN_SLICE_MS = 6;
 /** Warm-up after the first build: real chunks per worker (in a measured warm-up curve V8
  *  optimised the mesher after ~10 meshes and re-optimised it around the 25th). */
 const WARM_UP_CHUNKS = 48;
+/** Frames after the first build before the workers start (once the menu is drawing). */
+const WORKER_START_FRAMES = 30;
 /** A job not back after this long (and, in play, this many frames) means the workers are stuck. */
 const WATCHDOG_MS = 8000;
 const WATCHDOG_FRAMES = 60;
@@ -131,7 +138,7 @@ function yieldTask(): Promise<void> {
 export class ChunkRenderer {
   readonly group = new THREE.Group();
   readonly stats: ChunkStats = {
-    chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, bytes: 0, lastRebuildMs: 0, maxRebuildMs: 0, workers: 0, workerFallback: null, mainMs: 0,
+    chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, bytes: 0, lastRebuildMs: 0, maxRebuildMs: 0, workers: 0, warmUpLeft: 0, workerFallback: null, mainMs: 0,
     pending: 0, workerMeshes: 0, syncMeshes: 0, staleResults: 0, lastWorkerMs: 0, maxWorkerMs: 0, lastRoundTripMs: 0, maxRoundTripMs: 0, lastLatencyFrames: 0, maxLatencyFrames: 0,
   };
   private readonly meshes: Array<THREE.Mesh | null>;
@@ -167,6 +174,9 @@ export class ChunkRenderer {
   private readonly workerCount: number;
   private readonly spawn: () => WorkerLike;
   private workersStarted = false;
+  private readonly workerStartFrames: number;
+  /** Frame at which the workers start (-1 = not scheduled). */
+  private startAtFrame = -1;
   private readonly warmUpChunks: number;
   /** Warm-up after the first build: chunks to mesh (densest first, cycled), jobs left, job ids. */
   private warmOrder: number[] = [];
@@ -192,9 +202,10 @@ export class ChunkRenderer {
     this.group.matrixAutoUpdate = false;
     this.buildOnWorkers = options.buildOnWorkers ?? meshBuildOnWorkers();
     this.warmUpChunks = options.warmUp ?? WARM_UP_CHUNKS;
+    this.workerStartFrames = options.workerStartFrames ?? WORKER_START_FRAMES;
     this.workerCount = options.workers === undefined || options.workers === 'auto' ? meshWorkerCount() : options.workers;
     this.spawn = options.spawn ?? spawnMeshWorker;
-    // The workers start after the first build (nothing competes with it), or now to share it.
+    // The workers start after the first build (nothing competes with loading), or now to share it.
     if (this.buildOnWorkers) this.startWorkers();
   }
 
@@ -214,9 +225,9 @@ export class ChunkRenderer {
   /**
    * Mesh every chunk, yielding to the browser periodically. Progress in [0, 1]. Runs on the main
    * thread in time slices, as before the workers existed (a pooled build was not faster on a
-   * loaded CPU, see meshBuildOnWorkers). The mesh workers start after the first build and warm up
-   * on real chunks (warmUp), so the first edits in play are meshed at full speed; until then
-   * (and without workers) update() meshes on the main thread.
+   * loaded CPU, see meshBuildOnWorkers). The mesh workers start `workerStartFrames` frames after
+   * the first build and warm up on real chunks (warmUp); until then (and without workers)
+   * update() meshes on the main thread.
    */
   buildAll(onProgress?: (p: number) => void, sliceMs = 24): Promise<void> {
     // One build at a time (their bookkeeping is shared).
@@ -291,20 +302,29 @@ export class ChunkRenderer {
     }
     w.dirty.fill(0);
     if (this.warmLeft < 0) {
-      this.startWorkers();
-      this.startWarmUp();
+      this.warmLeft = 0;
+      if (this.workersStarted || this.workerStartFrames <= 0) this.startWarmUp();
+      else this.startAtFrame = this.frame + this.workerStartFrames;
     }
     onProgress?.(1);
   }
 
+  /** The workers take edits only once started and warm; until then update() meshes on the main
+   *  thread, exactly as without workers. */
+  private get poolReady(): boolean {
+    return this.pool !== null && this.warmLeft === 0 && this.warmIds.size === 0;
+  }
+
   /**
-   * A fresh worker isolate needs ~10 meshes at 15-90 ms each before V8's optimised mesher runs at
-   * ~1 ms, and it re-optimises on data it has not seen (synthetic blocks were not enough: real
-   * jobs still took up to ~100 ms). So after the first build each worker meshes the zone's densest
-   * chunks once and the results are dropped; one warm-up job per worker at a time, so an edit
-   * waits behind one at most. Skipped when the workers already took part in the build.
+   * Start the workers and warm them up. A fresh worker isolate needs ~10 meshes at 15-90 ms each
+   * before V8's optimised mesher runs at ~1 ms, and it re-optimises on data it has not seen
+   * (synthetic blocks were not enough: real jobs still took up to ~100 ms). So each worker first
+   * meshes the zone's densest chunks once, one job per worker at a time, and the results are
+   * dropped; edits stay on the main thread until that is done. Skipped when the workers already
+   * took part in the build.
    */
   private startWarmUp(): void {
+    this.startWorkers();
     this.warmLeft = 0;
     const pool = this.pool;
     if (!pool || this.buildOnWorkers || this.warmUpChunks <= 0) return;
@@ -314,6 +334,7 @@ export class ChunkRenderer {
     order.sort((a, b) => this.vertexCounts[b] - this.vertexCounts[a]);
     this.warmOrder = order.slice(0, this.warmUpChunks);
     this.warmLeft = this.warmUpChunks * pool.size;
+    this.stats.warmUpLeft = this.warmLeft;
     for (let k = 0; k < pool.size; k++) this.postWarmJob();
   }
 
@@ -341,10 +362,14 @@ export class ChunkRenderer {
     const t0 = now();
     this.frame++;
     this.focus.copy(focus);
+    if (this.startAtFrame >= 0 && this.frame >= this.startAtFrame) {
+      this.startAtFrame = -1;
+      this.startWarmUp();
+    }
     let n: number;
-    if (this.pool) {
+    if (this.poolReady) {
       this.checkPool(false);
-      n = this.pool ? this.pump(budgetMs, false) : this.updateSync(focus, budgetMs);
+      n = this.poolReady ? this.pump(budgetMs, false) : this.updateSync(focus, budgetMs);
     } else n = this.updateSync(focus, budgetMs);
     this.cull(focus);
     this.stats.mainMs += now() - t0;
@@ -358,7 +383,7 @@ export class ChunkRenderer {
   async flush(): Promise<void> {
     for (let pass = 0; pass < 32 && !this.disposed; pass++) {
       await this.buildChain;
-      if (!this.pool) {
+      if (!this.poolReady) {
         this.updateSync(this.focus, Infinity);
         if (!this.world.dirty.includes(1)) return;
         continue;
@@ -423,6 +448,7 @@ export class ChunkRenderer {
     this.stats.pending = 0;
     this.warmIds.clear();
     this.warmLeft = 0;
+    this.stats.warmUpLeft = 0;
     this.wakeSettled();
     for (const m of this.meshes) m?.geometry.dispose();
     this.meshes.fill(null);
@@ -551,6 +577,7 @@ export class ChunkRenderer {
     for (const r of results) {
       if (this.freeVoxels.length < 64 && r.voxels.byteLength === PADDED_VOXELS) this.freeVoxels.push(r.voxels);
       if (this.warmIds.delete(r.id)) {
+        this.stats.warmUpLeft--;
         this.postWarmJob();
         continue;
       }
@@ -564,7 +591,7 @@ export class ChunkRenderer {
     }
     while (this.batches.length && this.batches[0].pending === 0) this.applyBatch(this.batches.shift()!);
     // Refill the workers at once (a seam change may have queued a neighbour).
-    if (!this.building) this.pump(4, false);
+    if (!this.building && this.poolReady) this.pump(4, false);
     this.stats.mainMs += now() - t0;
     if (this.pendingJobs === 0 || this.building) this.wakeSettled();
   }
@@ -618,6 +645,7 @@ export class ChunkRenderer {
     this.stats.pending = 0;
     this.warmIds.clear();
     this.warmLeft = 0;
+    this.stats.warmUpLeft = 0;
     this.wakeSettled();
   }
 

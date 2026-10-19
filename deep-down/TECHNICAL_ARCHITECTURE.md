@@ -80,8 +80,8 @@ Generation and the first full light + openness pass run in a module Web Worker
 (`world/gen/zoneWorker.ts`, loaded by `zoneLoader.ts`); the block and light buffers are
 transferred back, not copied. Measured on the dev container: ~330 ms generation + ~280 ms
 light, off the main thread, so the loading bar keeps moving. If module workers are
-unavailable the same code runs on the main thread. Meshing then runs on the main thread,
-time-sliced (~125 ms total).
+unavailable the same code runs on the main thread. The first whole-zone meshing then runs on
+the main thread, time-sliced; remeshing in play runs in mesh workers (see Meshing).
 
 ### Meshing (`render/mesher.ts`)
 
@@ -114,9 +114,37 @@ Culled faces, one quad per visible face, **sculpted on the CPU** into modelled r
   next to each neighbour); when a re-mesh finds one changed, `ChunkRenderer` queues that
   neighbour (unit-tested: the result is byte-identical to a fresh mesh).
 - Cost: a meshed chunk 0.66–0.88 ms (dense up to ≈1.4 ms; was 0.37–0.48), whole zone unchanged
-  (≈0.26–0.36 s). `ChunkRenderer` rebuilds dirty chunks nearest-first within a 4 ms/frame budget
-  (always at least one, so an edit is never left invisible) and hides chunks beyond the view
-  distance.
+  (≈0.26–0.36 s). `ChunkRenderer` hides chunks beyond the view distance.
+- Remeshing in play runs off the main thread (`render/meshPool.ts`, `render/meshWorker.ts`): 1–2
+  module workers (2 from three hardware threads; `?meshworkers=N` overrides, 0 = main thread).
+  Per dirty chunk, nearest first, the main thread copies its padded voxel block (`copyPadded`:
+  20³ = 8000 bytes, everything the mesher reads) and transfers it; the worker runs the same pure
+  mesher (`meshPadded`, byte-identical to `meshChunk`: unit-tested over every chunk of the zone,
+  and `__DD__.meshCheck()` compares all GPU buffers with fresh main-thread meshes in the browser)
+  and transfers the vertex, index and seam buffers back. A chunk keeps its old mesh until the new
+  one arrives; at most one job per chunk is in flight (an edit meanwhile re-queues it); every
+  result carries a job id and one that is no longer the chunk's latest request is dropped, so an
+  older mesh never replaces a newer one; the chunks posted together (an edit's 1–8 chunks) switch
+  in the same frame, in posting order; seam keys from worker results queue neighbours as before.
+  At most 4 jobs per worker are in flight, so an edit waits behind 3 at most. Measured
+  (`tools/perf.mjs`, production builds, 4 alternating runs each, 20 blocks mined in the frame
+  loop, dev container at load 8–13 on 4 cores): main-thread chunk work per mined block 1.71 →
+  0.82 ms (median), worst block 8.85 → 2.7 ms, worst frame 6.65 → 2.25 ms; the mined chunk is
+  drawn one frame after the edit (was the same frame; 2 frames once in 80 edits).
+- Whole-zone builds (load, New Game after edits, Continue) stay on the main thread, time-sliced,
+  exactly as before: a build shared with the workers (`?meshbuild=pool`: workers take the queue
+  front, the main thread the back, then steals unanswered jobs) measured slower on the loaded
+  container (zone meshing 740 → 870 ms median; equal at load ≈5), so it is opt-in until measured
+  on a device. The workers start 30 frames after the first build (nothing competes with loading)
+  and first mesh the zone's 48 densest chunks once each, results dropped: a fresh V8 isolate needs
+  ~10 meshes at 15–90 ms before its optimised mesher runs at ~1 ms, and synthetic blocks were not
+  enough (real jobs then still took up to ~100 ms). Until that is done, edits mesh on the main
+  thread.
+- Fallback: no module workers (Node, old WebViews), a worker that cannot be constructed, fails to
+  load, throws, or stops answering (8 s and 60 frames) → the same mesher on the main thread
+  within a 4 ms/frame budget, nearest first and always at least one chunk, so an edit is never
+  left invisible; jobs the workers still owed are queued again. `flush()` (`__DD__.meshIdle()`)
+  resolves once every pending mesh is applied.
 
 ## Lighting (the core art system)
 
@@ -302,4 +330,6 @@ build.
 `window.__DD__` (always present, read-mostly): `ready`, `state()`, `report()` (perf stats),
 and test helpers (`teleport`, `aimAt` (visible face through any screen point), `prepareMining`,
 `give`, `setBlock`, `standableNear`, `events`, `save`, `setQuality`, `debugLight`, …) used by
-the e2e tests and tools.
+the e2e tests and tools. Edits change voxels at once and their meshes arrive from the mesh
+workers a frame later: `meshIdle()` waits for pending meshes, `meshCheck()` also compares every
+chunk's GPU data with a fresh main-thread mesh.
