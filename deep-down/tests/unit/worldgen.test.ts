@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { B, isEmitter, SOLID } from '../../src/config/blocks';
+import { B, BLOCKS, isEmitter, SOLID } from '../../src/config/blocks';
 import { generateWorld } from '../../src/world/gen/generateWorld';
 import { minableCount, nearReachable, reachableCells } from '../../src/world/analysis/reachability';
 import type { WorldLayout } from '../../src/world/gen/types';
@@ -108,6 +108,29 @@ describe('world generation', () => {
         expect(isEmitter(id) && !SOLID[id], `${p.id} emitter at ${e.join(',')}`).toBe(true);
       }
       if (p.anchor) expect(SOLID[w.get(...p.anchor)], `${p.id} anchor`).toBe(1);
+    }
+  });
+
+  it('keeps the light budget: little cyan, warm lamps at every navigation point', () => {
+    // Cyan is reserved for crystal and the builders' inscriptions (ART_DIRECTION.md); warm lamps
+    // mark the way. Measured with tools/emission-budget.ts: 86 cyan emitter voxels, lamps <= 6.3 m.
+    const w = layout.world;
+    let cyan = 0;
+    const warm: [number, number, number][] = [];
+    for (let y = 0; y < w.sy; y++)
+      for (let z = 0; z < w.sz; z++)
+        for (let x = 0; x < w.sx; x++) {
+          const e = BLOCKS[w.get(x, y, z)]?.emission;
+          if (!e) continue;
+          if (e[2] > e[0]) cyan++;
+          else warm.push([x + 0.5, y + 0.5, z + 0.5]);
+        }
+    expect(cyan).toBeLessThanOrEqual(120);
+    const L = layout.landmarks;
+    for (const name of ['campfire', 'ledge', 'stairsTop', 'landing', 'stairsBottom', 'bridge', 'seal', 'balcony', 'shrineDoor', 'oldCamp'] as const) {
+      const p = L[name];
+      const near = Math.min(...warm.map((c) => Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2])));
+      expect(near, `warm light near ${name}`).toBeLessThanOrEqual(7);
     }
   });
 });

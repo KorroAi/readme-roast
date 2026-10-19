@@ -1027,6 +1027,9 @@ export class Game {
     const cam = this.cameraRig.camera;
     s.chunks.update(cam.position);
     s.rig.flush(this.renderer.gl);
+    // Zone atmosphere (camp haze, tunnel grey, Hollow blue-black, rift violet) follows the explorer.
+    s.rig.updateAtmosphere(dt, this.player.x, this.player.y, this.player.z, s.layout.camp);
+    this.renderer.post.params.zoneExposure = s.rig.exposure;
     s.props.update(dt, this.time, cam.position);
     this.debris.update(dt);
     this.waterfall?.update(dt, this.particles, this.rng, cam.position);

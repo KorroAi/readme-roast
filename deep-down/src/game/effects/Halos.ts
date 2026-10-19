@@ -13,8 +13,11 @@ out vec3 vColor;
 out float vDepth;
 out float vNear;
 out vec2 vUv;
+out vec3 vWorldPos;
 void main() {
-  vec4 mv = viewMatrix * modelMatrix * vec4(position, 1.0);
+  vec4 wp = modelMatrix * vec4(position, 1.0);
+  vWorldPos = wp.xyz;
+  vec4 mv = viewMatrix * wp;
   vDepth = length(mv.xyz);
   float z = max(0.1, -mv.z);
   // Halos keep a minimum on-screen size so distant lamps still read as points of light.
@@ -37,15 +40,17 @@ in vec3 vColor;
 in float vDepth;
 in float vNear;
 in vec2 vUv;
+in vec3 vWorldPos;
 layout(location = 0) out highp vec4 fragColor;
 void main() {
   float d = length(vUv);
   if (d > 1.0) discard;
   float core = exp(-d * d * 9.0);
   float glow = exp(-d * d * 2.5) * 0.35;
-  float fog = fogFactor(vDepth);
+  // Halos are the breadcrumbs across the dark: the haze dims them but never erases them.
+  float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
   float flicker = 0.92 + 0.08 * sin(uTime * 9.0 + gl_FragCoord.x * 0.01);
-  vec3 col = vColor * (core + glow) * (1.0 - fog * 0.55) * vNear * flicker;
+  vec3 col = vColor * (core + glow) * (1.0 - fog * 0.6) * vNear * flicker;
   fragColor = vec4(col, 1.0);
 }
 `;

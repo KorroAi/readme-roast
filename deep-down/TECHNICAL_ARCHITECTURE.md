@@ -65,6 +65,17 @@ stairs, hall, shrine, chasm, rift, temple gate) is designed by hand in code; noi
 natural irregularity. Output `WorldLayout` = world + spawn + camp region + discovery
 regions + prop specs + marked route + named landmarks.
 
+Building blocks, in the order they run: base rock (dipping strata with marker beds, the weathered
+band and ore bodies), the carved spaces, geology dressing (strata ledges, ribs, erosion pockets,
+dripstone families, flowstone curtains, kept off the routes and away from the built walls), then
+architecture helpers: `column` (octagonal shaft with footing, plinth, base ring and abacus, or a
+fractured top), the stair flights on piers, the portal gate, the corbel-vaulted shrine, the arched
+bridge, and `crystalSeam` (turns only the exposed host-rock faces along a segment into crystal,
+so crystal follows the rock instead of standing as cubes). Lamp posts are placed at every
+navigation point. The light budget is a tested contract (`worldgen.test.ts`): at most 120 cyan
+emitter voxels (glyph stones, crystal, cyan lights) and a warm lamp within 7 m of every
+navigation landmark; `tools/emission-budget.ts` prints the current numbers.
+
 Generation and the first full light + openness pass run in a module Web Worker
 (`world/gen/zoneWorker.ts`, loaded by `zoneLoader.ts`); the block and light buffers are
 transferred back, not copied. Measured on the dev container: ~330 ms generation + ~280 ms
@@ -140,10 +151,15 @@ panels average the cap). Behind the pause and death overlays the game renders at
 ## Materials
 
 - `terrainMaterial` — the terrain material system (`render/materials/*`, `render/terrainRig.ts`):
-  - 23 seamless 128×128 material layers (sRGB + height or emissive alpha) painted procedurally
-    in the zone worker (~0.35 s) and sampled in **world space** (16 texels/m, 8 m period,
+  - 26 seamless 128×128 material layers (sRGB + height or emissive alpha) painted procedurally
+    in the zone worker (~0.4–0.5 s) and sampled in **world space** (16 texels/m, 8 m period,
     RepeatWrapping, nearest magnification, mipmapped minification). Projection per face axis is
-    upright and unmirrored; textures never restart at a voxel edge.
+    upright and unmirrored; textures never restart at a voxel edge. Every ramp lives in
+    `materials/palette.ts`; painters build a value field (`rock.ts`: `rockField`, `floorField`;
+    `paint.ts`: `engrave`, `chip`, `resolve`) and quantize it through a ramp. Each layer's random stream is
+    keyed by its name, and the shared host rock and masonry wall are painted once per pass, so
+    ore and damp stone sit on the same rock as their neighbours and crumbling masonry is the
+    same wall loosening.
   - Boundaries: a face with a same-family neighbour of another material (from `aNb`) compares
     the two materials' heights at the texel; the taller one claims the texel up to ~0.6 m from
     the edge, with a world-space wobble whose sign depends on which side the neighbour is, so

@@ -23,6 +23,7 @@ precision highp float;
 ${LIGHTING_GLSL}
 uniform float uHeight;
 uniform vec3 uColor;
+uniform vec3 uGlint;
 in vec2 vUv;
 in vec3 vWorldPos;
 in vec3 vViewPos;
@@ -35,30 +36,50 @@ float hash12(vec2 p) {
 }
 
 void main() {
-  // Pixel-quantized streaks scrolling downward: a voxel-friendly look for falling light.
-  float cols = 10.0;
-  float cx = floor(vUv.x * cols);
-  float speed = 9.0 + hash12(vec2(cx, 3.0)) * 6.0;
-  float v = vUv.y * uHeight + uTime * speed;
-  float cell = floor(v * 1.5);
-  float streak = step(0.45, hash12(vec2(cx, cell)));
-  float core = 1.0 - abs(vUv.x - 0.5) * 2.0;
-  core = smoothstep(0.0, 0.6, core);
-  float shimmer = 0.75 + 0.25 * sin(uTime * 3.0 + cx * 1.7);
-  float topFade = smoothstep(0.0, 0.06, 1.0 - vUv.y);
-  float a = (0.18 + 0.62 * streak) * core * shimmer * topFade;
-  float vDepth = length(vViewPos);
-  float fog = fogFactor(vDepth);
-  // Fade out right in front of the lens so falling past it never blinds the screen.
-  float nearFade = smoothstep(1.0, 6.0, vDepth);
-  vec3 col = uColor * a * (1.0 - fog * 0.65) * nearFade;
-  fragColor = vec4(col, 1.0); // additive blending scales by source alpha
+  float fall = 1.0 - vUv.y; // 0 at the lip, 1 at the impact
+  // The water leaves the lip as a narrow rope and spreads into broken sheets as it falls.
+  float halfW = mix(0.16, 0.5, smoothstep(0.0, 0.8, fall));
+  float x = (vUv.x - 0.5) / halfW; // -1..1 across the stream
+  float drop = vUv.y * uHeight + uTime * 6.0;
+  // Ragged edges: every 1.6 m of the fall has its own edge on each side, scrolling with the water.
+  float band = floor(drop / 1.6);
+  float rag = hash12(vec2(band, x < 0.0 ? 7.0 : 11.0));
+  float edge = 1.0 - smoothstep(0.35 + 0.5 * rag, 1.0, abs(x));
+  // Lower down the stream breaks into separate falling packets (gaps between sheets of water).
+  float packet = hash12(vec2(floor(drop / 3.1), 5.0));
+  float gaps = mix(1.0, 0.35 + 0.65 * step(0.3, packet), smoothstep(0.25, 0.8, fall));
+  // Falling threads: pixel-quantised columns scrolling down at their own speed, a few glints.
+  float cols = 12.0;
+  float cx = floor(clamp(x * 0.5 + 0.5, 0.0, 0.999) * cols);
+  float speed = 8.0 + hash12(vec2(cx, 3.0)) * 6.0;
+  float cell = floor((vUv.y * uHeight + uTime * speed) * 1.4);
+  float h = hash12(vec2(cx, cell));
+  float thread = step(0.55, h);
+  float glint = step(0.94, h);
+  float core = 1.0 - min(abs(x), 1.0);
+  // It emerges from the dark below the lip (long fade-in) and thins into spray at the foot.
+  float lip = smoothstep(0.0, 0.3, fall);
+  float foot = 1.0 - smoothstep(0.88, 1.0, fall);
+  // A faint glimmer of its own; it brightens a little where lamps or crystals light the air.
+  vec4 ls = lightSample(vWorldPos);
+  float lit = 0.6 + 0.5 * min(dot(ls.rgb, vec3(0.3, 0.5, 0.2)), 1.0);
+  vec3 col = uColor * (0.2 + 0.8 * core * core) * (0.3 + 0.7 * thread) + uGlint * (glint * core);
+  col *= edge * gaps * lip * foot * lit;
+  float depth = length(vViewPos);
+  // The haze takes it fully at distance; fade right in front of the lens so it never blinds.
+  float fog = atmosphere(vWorldPos, depth, ls.rgb).a;
+  col *= (1.0 - fog) * smoothstep(1.0, 6.0, depth);
+  fragColor = vec4(col, 1.0); // additive blending
 }
 `;
 
 /**
  * The Glimmerfall: a thin stream of luminous water falling from the dome into the rift.
- * Two crossed additive ribbons (cheap, readable from every angle) plus mist at the impact.
+ * Two crossed additive ribbons (cheap, readable from every angle) plus mist at the impact. The
+ * stream is shaped in the shader: a narrow rope at the lip that spreads into ragged sheets, a dim
+ * glimmer of its own (brighter where the light volume is lit), a long fade-in from the dark
+ * under the dome, and the zone haze takes it completely at distance. It stays below the bloom
+ * threshold: it is scenery, not a light source competing with the path.
  */
 export class Waterfall {
   readonly group = new THREE.Group();
@@ -74,7 +95,7 @@ export class Waterfall {
     const height = top.y - bottom.y;
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { ...lighting, uHeight: { value: height }, uColor: { value: new THREE.Color(0.55, 1.6, 2.0) } },
+      uniforms: { ...lighting, uHeight: { value: height }, uColor: { value: new THREE.Color(0.06, 0.2, 0.27) }, uGlint: { value: new THREE.Color(0.3, 0.85, 1.0) } },
       vertexShader: vert,
       fragmentShader: frag,
       transparent: true,
@@ -98,8 +119,8 @@ export class Waterfall {
     this.mistTimer -= dt;
     if (this.mistTimer <= 0) {
       this.mistTimer = 0.12;
-      particles.sparkle(this.bottom.x, this.bottom.y + 0.5, this.bottom.z, 0x7ff0ff, 2, rng, 1.4);
-      particles.dust(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0x9fdfff, 1, rng, 0.8);
+      particles.sparkle(this.bottom.x, this.bottom.y + 0.5, this.bottom.z, 0x7ff0ff, 1, rng, 1.2);
+      particles.dust(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0x8fc4d8, 2, rng, 1.0);
     }
   }
 

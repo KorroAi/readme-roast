@@ -195,10 +195,11 @@ void main() {
 #endif
 
   vec3 samplePos = vGrid + n * 0.5;
+  vec4 ls = lightSample(samplePos);
   float ao = vAo / 3.0;
   float aoCurve = 0.42 + 0.58 * ao;
   float shade = shadeOf(ng);
-  vec3 ambient = worldLight(samplePos) * shade * aoCurve;
+  vec3 ambient = ambientFrom(ls) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
@@ -233,9 +234,11 @@ void main() {
     color += rimColor * rim * (0.05 + 0.1 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.25;
   }
 
-  float fog = fogFactor(vDepth);
-  color = mix(color, uFogColor, fog);
-  color += emissive * (1.0 - fog * 0.75);
+  // Zone atmosphere: haze (pooling low, lit by the light volume around the fragment) takes the
+  // surface, and emission fades into it too, so distant glows become glowing air, not specks.
+  vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
+  color = mix(color, atm.rgb, atm.a);
+  color += emissive * (1.0 - atm.a * uAtmos.z);
   fragColor = vec4(color, 1.0);
 }
 `;

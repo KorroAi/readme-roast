@@ -14,16 +14,21 @@ export interface QualityPreset {
   fpsCap: number;
   viewDistance: number;
   particleBudget: number;
+  /**
+   * Natural material boundaries in the terrain shader (USE_BLEND: one extra material fetch on
+   * faces near a same-family boundary). Off on Battery: boundaries fall back to the voxel edge.
+   */
+  terrainBlend: boolean;
 }
 
 export const QUALITY: Record<QualityLevel, QualityPreset> = {
-  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120 },
-  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220 },
-  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400 },
+  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120, terrainBlend: false },
+  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220, terrainBlend: true },
+  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400, terrainBlend: true },
 };
 
 /** WebGL2 renderer + post chain + resize handling, shared by the game and the Visual Lab. */
-const BASE_EXPOSURE = 1.15;
+const BASE_EXPOSURE = 1.05;
 
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
@@ -63,7 +68,9 @@ export class Renderer {
     this.gl.setClearColor(0x05080c, 1);
     this.gl.outputColorSpace = THREE.LinearSRGBColorSpace; // the composite pass encodes sRGB itself
     this.gl.info.autoReset = false;
-    this.post = new PostFX(this.gl, { bloom: this.preset.bloom, msaa: this.preset.msaa });
+    // ?ldr=1 forces the 8-bit fallback targets (devices without EXT_color_buffer_float), to test it.
+    const forceLdr = typeof location !== 'undefined' && /[?&]ldr=1(&|$)/.test(location.search);
+    this.post = new PostFX(this.gl, { bloom: this.preset.bloom, msaa: this.preset.msaa, forceLdr });
     this.resize();
   }
 
@@ -86,6 +93,20 @@ export class Renderer {
 
   private applyPostOptions(): void {
     this.post.setOptions({ bloom: this.preset.bloom && this.userBloom, msaa: this.preset.msaa });
+  }
+
+  /**
+   * Apply the preset's terrain shader options to a terrain material (see createTerrainMaterial):
+   * Battery drops the boundary blending. Returns true if the material had to recompile.
+   */
+  configureTerrainMaterial(material: THREE.ShaderMaterial): boolean {
+    const defines = (material.defines ??= {}) as Record<string, string>;
+    const on = 'USE_BLEND' in defines;
+    if (on === this.preset.terrainBlend) return false;
+    if (this.preset.terrainBlend) defines.USE_BLEND = '';
+    else delete defines.USE_BLEND;
+    material.needsUpdate = true;
+    return true;
   }
 
   get pixelRatio(): number {

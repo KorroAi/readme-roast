@@ -43,11 +43,12 @@ void main() {
   if (d > 1.0) discard;
   float soft = (1.0 - d);
   // Lit by the same light volumes as everything else (no normal: average facing).
-  vec3 light = worldLight(vWorldPos) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos)) * 0.8;
+  vec4 ls = lightSample(vWorldPos);
+  vec3 light = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos)) * 0.8;
   vec3 col = vColor * mix(light, vec3(1.0), vGlow);
-  float fog = fogFactor(vDepth);
-  col = mix(col, uFogColor, fog);
-  float a = vAlpha * soft * (1.0 - fog * 0.8);
+  vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
+  col = mix(col, atm.rgb, atm.a);
+  float a = vAlpha * soft * (1.0 - atm.a * 0.85);
   fragColor = vec4(col * a, a);
 }
 `;

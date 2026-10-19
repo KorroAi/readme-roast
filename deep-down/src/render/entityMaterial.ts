@@ -56,6 +56,7 @@ uniform float uEmissiveScale;
 uniform vec3 uEmissiveColor;
 uniform float uFlash;
 uniform float uFade;
+uniform float uRim;
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -76,13 +77,36 @@ void main() {
   if (!gl_FrontFacing) n = -n;
   vec3 albedo = vColor * uTint;
   vec3 samplePos = vWorldPos + n * 0.35;
+  vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
-  vec3 light = worldLight(samplePos) * shade + lanternLight(samplePos, vWorldPos, n);
-  vec3 color = albedo * light;
+  // Contact darkening: openness is 0 inside solid voxels, so the filtered volume just below the
+  // fragment fades toward floors (and walls) compared with the open voxel the fragment is in.
+  // Crates, barrels and boots sit in the world instead of floating on it.
+  float own = texelFetch(uLightTex, clamp(ivec3(floor(vWorldPos)), ivec3(0), ivec3(uWorldSize) - 1), 0).a;
+  float below = texture(uLightTex, (vWorldPos - vec3(0.0, 0.22, 0.0)) / uWorldSize).a;
+  float contact = own > 0.02 ? clamp(below / own, 0.0, 1.0) : 1.0;
+  contact = 0.42 + 0.58 * smoothstep(0.1, 0.95, contact);
+  vec3 env = ambientFrom(ls);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, n);
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
-  float fog = fogFactor(vDepth);
-  color = mix(color, uFogColor, fog);
-  color += emissive * (1.0 - fog * 0.7);
+  if (uRim > 0.0) {
+    // The explorer keeps its own colours: coloured world light (cyan crystals, violet abyss) is
+    // half desaturated on it, so the ochre coat never turns teal, and a faint warm rim from the
+    // carried lantern wraps the silhouette so it always separates from dark rock.
+    float el = dot(env, vec3(0.2126, 0.7152, 0.0722));
+    env = mix(vec3(el), env, 0.5);
+    vec3 v = normalize(cameraPosition - vWorldPos);
+    float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.5);
+    float near = 1.0 - smoothstep(0.6, 2.6, distance(uLanternPos, vWorldPos));
+    vec3 warm = uLanternColor * vec3(1.0, 0.62, 0.36) * uLanternIntensity;
+    emissive += albedo * warm * (rim * (0.35 + 0.65 * near) * 0.55 * uRim);
+    lantern += warm * (0.05 * uRim * near);
+  }
+  vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
+  vec3 color = albedo * light;
+  vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
+  color = mix(color, atm.rgb, atm.a);
+  color += emissive * (1.0 - atm.a * uAtmos.z);
   color += uFlash * vec3(1.0, 0.95, 0.85);
   fragColor = vec4(color, 1.0);
 }
@@ -94,6 +118,11 @@ export interface EntityMaterialOptions {
   doubleSided?: boolean;
   /** Compile the screen-door fade (uFade). Only for materials that fade: discard costs early-Z. */
   fade?: boolean;
+  /**
+   * Character lighting (warm lantern rim, desaturated environment light), 0..1. Defaults to 1 for
+   * fading materials (only the explorer fades) and 0 otherwise.
+   */
+  rim?: number;
 }
 
 export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMaterialOptions = {}): THREE.ShaderMaterial {
@@ -106,6 +135,7 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uEmissiveColor: { value: new THREE.Color(opts.emissiveColor ?? 0x000000) },
       uFlash: { value: 0 },
       uFade: { value: 1 },
+      uRim: { value: opts.rim ?? (opts.fade ? 1 : 0) },
     },
     defines: opts.fade ? { USE_FADE: '' } : {},
     vertexShader: vertex,

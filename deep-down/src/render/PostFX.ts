@@ -3,9 +3,19 @@ import * as THREE from 'three';
 /**
  * Lightweight HDR post chain tuned for mobile:
  *   scene (HalfFloat, optional MSAA) -> bright pass -> 4-level dual-filter bloom
- *   -> composite: exposure, filmic tone map, split-tone grade, vignette, dither, sRGB.
+ *   -> composite: exposure, hue-preserving tone map, light grade, vignette, dither, sRGB.
  *
  * Bloom is optional; with it disabled the chain is a single fullscreen pass.
+ *
+ * Design notes (art direction: restrained glow, blue-black but navigable shadows):
+ * - Bloom is extracted on luminance above a high threshold, so only true light sources (flames,
+ *   lamp glass, the brightest crystal facets) bloom, not every lit glyph or cyan surface.
+ * - The tone curve is applied to the brightest channel and the colour keeps its ratios, so
+ *   saturated cyan and amber highlights stay cyan and amber instead of bleaching to white.
+ * - Its toe is lifted (slope ~0.46 near black instead of ACES' ~0.21), so dark rock stays
+ *   readable on a phone; the deep blue-black comes from the zone fog, not from crushing.
+ * - The vignette follows the screen shape and is weighted to the top (the ceiling), so the
+ *   bottom corners where the touch controls sit stay clean.
  */
 
 const fullscreenVert = /* glsl */ `
@@ -30,12 +40,13 @@ void main() {
   c += texture(tInput, vUv + uTexel * vec2(-0.5, 0.5)).rgb;
   c += texture(tInput, vUv + uTexel * vec2(0.5, 0.5)).rgb;
   c *= 0.25;
-  float l = max(c.r, max(c.g, c.b));
-  float knee = uThreshold * 0.6;
+  // Luminance, not the max channel: a saturated cyan surface is not a light source.
+  float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  float knee = uThreshold * 0.35;
   float soft = clamp(l - uThreshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / (4.0 * knee + 1e-4);
   float contrib = max(soft, l - uThreshold) / max(l, 1e-4);
-  fragColor = vec4(min(c * contrib, vec3(16.0)), 1.0);
+  fragColor = vec4(min(c * contrib, vec3(12.0)), 1.0);
 }
 `;
 
@@ -89,10 +100,21 @@ uniform vec3 uFlashColor;
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
 
-vec3 filmic(vec3 x) {
-  // ACES fitted (Narkowicz), gentle on saturated emissives.
-  const float a = 2.51; const float b = 0.03; const float c = 2.43; const float d = 0.59; const float e = 0.14;
-  return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+
+// Filmic curve (ACES-fitted shoulder) with a lifted toe: near black the slope is ~0.46 instead
+// of ~0.21, so dark rock is not crushed; white is reached around x = 6.
+float curve(float x) {
+  return clamp((x * (2.51 * x + 0.065)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+}
+
+// Hue-preserving tone map: the curve drives the brightest channel and the other channels keep
+// their ratio to it. Only very hot cores (flame centres, flashes) roll partly toward white.
+vec3 tonemap(vec3 x) {
+  float peak = max(x.r, max(x.g, x.b));
+  vec3 hue = x * (curve(peak) / max(peak, 1e-5));
+  vec3 per = vec3(curve(x.r), curve(x.g), curve(x.b));
+  return mix(hue, per, smoothstep(2.5, 9.0, peak) * 0.6);
 }
 
 vec3 toSrgb(vec3 c) {
@@ -110,15 +132,16 @@ void main() {
   #endif
   hdr *= uExposure;
   hdr += uFlashColor * uFlash;
-  vec3 c = filmic(hdr);
-  // Split tone: cool, slightly teal shadows; warm highlights.
-  float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(c, c * vec3(0.92, 1.0, 1.1), (1.0 - smoothstep(0.0, 0.35, lum)) * 0.35);
-  c = mix(c, c * vec3(1.06, 1.0, 0.92), smoothstep(0.45, 1.0, lum) * 0.3);
+  vec3 c = tonemap(hdr);
+  // Light grade: shadows a touch cooler (blue-black, not teal), highlights a touch warmer.
+  float lum = dot(c, LUMA);
+  c = mix(c, c * vec3(0.94, 0.98, 1.06), (1.0 - smoothstep(0.0, 0.3, lum)) * 0.15);
+  c = mix(c, c * vec3(1.04, 1.0, 0.95), smoothstep(0.5, 1.0, lum) * 0.15);
+  // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
+  // bottom where the joystick and jump button sit.
   vec2 q = vUv - 0.5;
-  q.x *= uResolution.x / uResolution.y;
-  float vig = 1.0 - uVignette * smoothstep(0.35, 1.05, length(q));
-  c *= vig;
+  q.y *= q.y > 0.0 ? 1.25 : 0.7;
+  c *= 1.0 - uVignette * smoothstep(0.42, 0.85, length(q));
   c = toSrgb(c);
   // Dither to hide banding in the dark fog gradients.
   c += (ign(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
@@ -129,6 +152,8 @@ void main() {
 export interface PostFXOptions {
   bloom: boolean;
   msaa: number;
+  /** Debug: use the 8-bit fallback targets even when float targets are renderable. */
+  forceLdr?: boolean;
 }
 
 export class PostFX {
@@ -152,11 +177,15 @@ export class PostFX {
    */
   readonly hdr: boolean;
   private readonly colorType: THREE.TextureDataType;
-  readonly params = { bloomStrength: 0.55, threshold: 0.75, exposure: 1.15, vignette: 0.42, flash: 0, flashColor: new THREE.Color(1, 1, 1) };
+  /**
+   * threshold is scene-linear luminance (lamp glass and flames sit at 1.5-3, lit rock below 0.5);
+   * zoneExposure is the current atmosphere's exposure multiplier (LightingRig.exposure).
+   */
+  readonly params = { bloomStrength: 0.4, threshold: 1.2, exposure: 1.0, zoneExposure: 1, vignette: 0.25, flash: 0, flashColor: new THREE.Color(1, 1, 1) };
 
   constructor(renderer: THREE.WebGLRenderer, options: PostFXOptions) {
     const ext = renderer.extensions;
-    this.hdr = ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float');
+    this.hdr = !options.forceLdr && (ext.has('EXT_color_buffer_float') || ext.has('EXT_color_buffer_half_float'));
     this.colorType = this.hdr ? THREE.HalfFloatType : THREE.UnsignedByteType;
     this.renderer = renderer;
     this.options = { ...options };
@@ -253,7 +282,8 @@ export class PostFX {
       const rts = this.bloomRTs;
       this.bright.uniforms.tInput.value = this.sceneRT.texture;
       this.bright.uniforms.uTexel.value.set(1 / this.width, 1 / this.height);
-      this.bright.uniforms.uThreshold.value = this.params.threshold;
+      // 8-bit targets clamp at 1: lower the threshold so lamps still glow a little.
+      this.bright.uniforms.uThreshold.value = this.hdr ? this.params.threshold : Math.min(this.params.threshold, 0.8);
       this.pass(this.bright, rts[0]);
       for (let i = 1; i < rts.length; i++) {
         this.down.uniforms.tInput.value = rts[i - 1].texture;
@@ -274,7 +304,7 @@ export class PostFX {
     const u = this.composite.uniforms;
     u.tScene.value = this.sceneRT.texture;
     u.uBloomStrength.value = this.params.bloomStrength;
-    u.uExposure.value = this.params.exposure;
+    u.uExposure.value = this.params.exposure * this.params.zoneExposure;
     u.uVignette.value = this.params.vignette;
     u.uTime.value = time;
     u.uFlash.value = this.params.flash;
