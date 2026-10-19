@@ -263,15 +263,23 @@ function hash3(x: number, y: number, z: number, seed: number): number {
   return (h ^ (h >>> 15)) >>> 0;
 }
 
-const NZ = new Float64Array(4);
-/** Value noise in [-1, 1] at (x, y, z); writes [value, d/dx, d/dy, d/dz] into NZ. */
-function vnoise(x: number, y: number, z: number, seed: number): void {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const iz = Math.floor(z);
-  const fx = x - ix;
-  const fy = y - iy;
-  const fz = z - iz;
+// Relief field: two octaves, irrational-ish frequencies so lattice points never alias. The first
+// octave's lattice hashes also carry a 3-channel tangential jitter (bits 16..30), so the jitter
+// costs no extra hashing.
+const F1 = 1 / 2.6;
+const F2 = 1 / 7.3;
+const RH = new Float64Array(4);
+const JX = new Float64Array(3);
+function relief(x: number, y: number, z: number): void {
+  const px = x * F1 + 0.37;
+  const py = y * F1 * 1.3 + 0.11;
+  const pz = z * F1 + 0.73;
+  const ix = Math.floor(px);
+  const iy = Math.floor(py);
+  const iz = Math.floor(pz);
+  const fx = px - ix;
+  const fy = py - iy;
+  const fz = pz - iz;
   const ux = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
   const uy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
   const uz = fz * fz * fz * (fz * (fz * 6 - 15) + 10);
@@ -279,71 +287,65 @@ function vnoise(x: number, y: number, z: number, seed: number): void {
   const duy = 30 * fy * fy * (fy * (fy - 2) + 1);
   const duz = 30 * fz * fz * (fz * (fz - 2) + 1);
   const K = 1 / 32767.5;
-  const a = (hash3(ix, iy, iz, seed) & 0xffff) * K - 1;
-  const b = (hash3(ix + 1, iy, iz, seed) & 0xffff) * K - 1;
-  const c = (hash3(ix, iy + 1, iz, seed) & 0xffff) * K - 1;
-  const d = (hash3(ix + 1, iy + 1, iz, seed) & 0xffff) * K - 1;
-  const e = (hash3(ix, iy, iz + 1, seed) & 0xffff) * K - 1;
-  const f = (hash3(ix + 1, iy, iz + 1, seed) & 0xffff) * K - 1;
-  const g = (hash3(ix, iy + 1, iz + 1, seed) & 0xffff) * K - 1;
-  const h = (hash3(ix + 1, iy + 1, iz + 1, seed) & 0xffff) * K - 1;
-  const k1 = b - a;
-  const k2 = c - a;
-  const k3 = e - a;
-  const k4 = a - b - c + d;
-  const k5 = a - c - e + g;
-  const k6 = a - b - e + f;
-  const k7 = -a + b + c - d + e - f - g + h;
-  NZ[0] = a + k1 * ux + k2 * uy + k3 * uz + k4 * ux * uy + k5 * uy * uz + k6 * uz * ux + k7 * ux * uy * uz;
-  NZ[1] = dux * (k1 + k4 * uy + k6 * uz + k7 * uy * uz);
-  NZ[2] = duy * (k2 + k5 * uz + k4 * ux + k7 * uz * ux);
-  NZ[3] = duz * (k3 + k6 * ux + k5 * uy + k7 * ux * uy);
-}
-
-// Relief field: two octaves, irrational-ish frequencies so lattice points never alias.
-const F1 = 1 / 2.6;
-const F2 = 1 / 7.3;
-const RH = new Float64Array(4);
-function relief(x: number, y: number, z: number): void {
-  vnoise(x * F1 + 0.37, y * F1 * 1.3 + 0.11, z * F1 + 0.73, 0x5ca1ab1e);
-  RH[0] = NZ[0] * 0.6;
-  RH[1] = NZ[1] * 0.6 * F1;
-  RH[2] = NZ[2] * 0.6 * F1 * 1.3;
-  RH[3] = NZ[3] * 0.6 * F1;
-  vnoise(x * F2 + 5.1, y * F2 + 1.7, z * F2 + 3.3, 0x0dd5eed5);
-  RH[0] += NZ[0] * 0.4;
-  RH[1] += NZ[1] * 0.4 * F2;
-  RH[2] += NZ[2] * 0.4 * F2;
-  RH[3] += NZ[3] * 0.4 * F2;
-}
-
-// Tangential jitter: three value-noise channels from one set of lattice hashes (no gradient).
-const JX = new Float64Array(3);
-const JF = 0.43;
-function jitter(x: number, y: number, z: number): void {
-  const px = x * JF + 9.7;
-  const py = y * JF + 2.9;
-  const pz = z * JF + 6.1;
-  const ix = Math.floor(px);
-  const iy = Math.floor(py);
-  const iz = Math.floor(pz);
-  const fx = px - ix;
-  const fy = py - iy;
-  const fz = pz - iz;
-  const ux = fx * fx * (3 - 2 * fx);
-  const uy = fy * fy * (3 - 2 * fy);
-  const uz = fz * fz * (3 - 2 * fz);
-  JX[0] = JX[1] = JX[2] = 0;
+  const J = 1 / 15.5;
+  let v = 0;
+  let gx = 0;
+  let gy = 0;
+  let gz = 0;
+  let j0 = 0;
+  let j1 = 0;
+  let j2 = 0;
   for (let c = 0; c < 8; c++) {
     const cx = c & 1;
     const cy = (c >> 1) & 1;
     const cz = (c >> 2) & 1;
-    const w = (cx ? ux : 1 - ux) * (cy ? uy : 1 - uy) * (cz ? uz : 1 - uz);
-    const h = hash3(ix + cx, iy + cy, iz + cz, 0x7e57ab1e);
-    JX[0] += w * ((h & 1023) / 511.5 - 1);
-    JX[1] += w * (((h >>> 10) & 1023) / 511.5 - 1);
-    JX[2] += w * (((h >>> 20) & 1023) / 511.5 - 1);
+    const h = hash3(ix + cx, iy + cy, iz + cz, 0x5ca1ab1e);
+    const val = (h & 0xffff) * K - 1;
+    const wx = cx ? ux : 1 - ux;
+    const wy = cy ? uy : 1 - uy;
+    const wz = cz ? uz : 1 - uz;
+    const sx = cx ? 1 : -1;
+    const sy = cy ? 1 : -1;
+    const sz = cz ? 1 : -1;
+    const wxy = wx * wy;
+    const w = wxy * wz;
+    v += w * val;
+    gx += sx * wy * wz * val;
+    gy += sy * wx * wz * val;
+    gz += sz * wxy * val;
+    j0 += w * (((h >>> 16) & 31) * J - 1);
+    j1 += w * (((h >>> 21) & 31) * J - 1);
+    j2 += w * (((h >>> 26) & 31) * J - 1);
   }
+  RH[0] = v * 0.6;
+  RH[1] = gx * dux * 0.6 * F1;
+  RH[2] = gy * duy * 0.6 * F1 * 1.3;
+  RH[3] = gz * duz * 0.6 * F1;
+  JX[0] = j0;
+  JX[1] = j1;
+  JX[2] = j2;
+  // Second octave: value only (its slope is a quarter of the first octave's; the normal ignores it).
+  const qx = x * F2 + 5.1;
+  const qy = y * F2 + 1.7;
+  const qz = z * F2 + 3.3;
+  const kx = Math.floor(qx);
+  const ky = Math.floor(qy);
+  const kz = Math.floor(qz);
+  let tx = qx - kx;
+  let ty = qy - ky;
+  let tz = qz - kz;
+  tx = tx * tx * (3 - 2 * tx);
+  ty = ty * ty * (3 - 2 * ty);
+  tz = tz * tz * (3 - 2 * tz);
+  let v2 = 0;
+  for (let c = 0; c < 8; c++) {
+    const cx = c & 1;
+    const cy = (c >> 1) & 1;
+    const cz = (c >> 2) & 1;
+    const w = (cx ? tx : 1 - tx) * (cy ? ty : 1 - ty) * (cz ? tz : 1 - tz);
+    v2 += w * ((hash3(kx + cx, ky + cy, kz + cz, 0x0dd5eed5) & 0xffff) * K - 1);
+  }
+  RH[0] += v2 * 0.4;
 }
 
 // Octahedral normal encoding (two components in [-1, 1]).
@@ -403,6 +405,8 @@ export const AO_SCALE = 85;
 // read as 16 rows of 4 voxels from per-row occupancy bits: per 4-bit row pattern, the tent sum of
 // the signed occupancy (air +1, solid -1) and of its x-moment.
 const TENT = [1 / 3, 1, 1, 1 / 3];
+/** Signed openness above which a window is treated as unoccluded (flat, convex, gentle slopes). */
+const AO_OPEN = 0.25;
 /** Gradient magnitude of the window over a flat half-space: 2 x (8/3)^2. */
 const HALF_SPACE_G = 2 * (8 / 3) ** 2;
 const ROW_T = new Float32Array(16);
@@ -422,11 +426,9 @@ SCULPT_RIGIDITY[B.CRYSTAL] = 3;
 /** Depth of the groove a crystal seam sits in, metres. */
 const CRYSTAL_INSET = 0.2;
 
-/** Occupancy mask of the 2x2x2 voxels around lattice point (lx, ly, lz), lx in -1..17. */
-function latticeMask(lx: number, ly: number, lz: number): number {
-  const sh = lx + PAD - 1;
-  const r0 = (lz + PAD - 1) * P + ly + PAD - 1;
-  return ((rowBits[r0] >>> sh) & 3) | (((rowBits[r0 + 1] >>> sh) & 3) << 2) | (((rowBits[r0 + P] >>> sh) & 3) << 4) | (((rowBits[r0 + P + 1] >>> sh) & 3) << 6);
+/** 2x2x2 occupancy mask from four row-bit words (rows (y,z), (y+1,z), (y,z+1), (y+1,z+1)) at bit x. */
+function mask4(b00: number, b10: number, b01: number, b11: number, x: number): number {
+  return ((b00 >>> x) & 3) | (((b10 >>> x) & 3) << 2) | (((b01 >>> x) & 3) << 4) | (((b11 >>> x) & 3) << 6);
 }
 
 /**
@@ -472,7 +474,8 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
   let gx = 0;
   let gy = 0;
   let gz = 0;
-  if (wide > 0) {
+  let open = 0; // signed tent sum: > 0 when the window is more than half air
+  if (wide > 0 || MESH_OPTIONS.smoothAo) {
     // Window voxels x in lx-2..lx+1 are padded columns lx..lx+3 (PAD = 2).
     for (let k = 0; k < 4; k++) {
       const tk = TENT[k];
@@ -482,6 +485,7 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
         const pt = (rowBits[rk + j] >>> lx) & 15;
         const w = TENT[j] * tk;
         const rt = ROW_T[pt] * w;
+        open += rt;
         gx += ROW_D[pt] * w;
         gy += rt * (j - 1.5);
         gz += rt * ck;
@@ -507,7 +511,7 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
   // A window that is one flat half-space (the gradient is axis-aligned at full strength) has
   // nothing in front of the surface: skip the loop.
   const planar = Math.abs(gl - HALF_SPACE_G) < 1e-3 && (Math.abs(gx) > HALF_SPACE_G - 1e-3 || Math.abs(gy) > HALF_SPACE_G - 1e-3 || Math.abs(gz) > HALF_SPACE_G - 1e-3);
-  if (MESH_OPTIONS.smoothAo && r === 3 && !planar && (nx !== 0 || ny !== 0 || nz !== 0)) {
+  if (MESH_OPTIONS.smoothAo && r === 3 && !planar && open < AO_OPEN && (nx !== 0 || ny !== 0 || nz !== 0)) {
     let occ = 0;
     let tot = 0;
     for (let k = 0; k < 4; k++) {
@@ -542,21 +546,38 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
     // otherwise bevel into the same rounded lump, a quilt. Natural rock only.
     const relax = r >= 2 ? MESH_OPTIONS.relax : 0;
     if (relax > 0) {
+      // Neighbour masks from the row bits: the 2x2 voxel columns of rows (y, z) .. (y+1, z+1),
+      // shifted to x. Rows r0 (y, z), r0 + 1 (y+1, z), r0 + P (y, z+1), r0 + P + 1.
+      const r0 = (lz + PAD - 1) * P + ly + PAD - 1;
+      const sh = lx + PAD - 1;
+      const a1 = rowBits[r0 - P];
+      const a2 = rowBits[r0 - P + 1];
+      const a3 = rowBits[r0 - 1];
+      const a4 = rowBits[r0];
+      const a5 = rowBits[r0 + 1];
+      const a6 = rowBits[r0 + 2];
+      const a7 = rowBits[r0 + P - 1];
+      const a8 = rowBits[r0 + P];
+      const a9 = rowBits[r0 + P + 1];
+      const a10 = rowBits[r0 + P + 2];
+      const a11 = rowBits[r0 + 2 * P];
+      const a12 = rowBits[r0 + 2 * P + 1];
       let ax = 0;
       let ay = 0;
       let az = 0;
       let cnt = 0;
-      for (let k = 0; k < 6; k++) {
-        const ddx = k === 0 ? -1 : k === 1 ? 1 : 0;
-        const ddy = k === 2 ? -1 : k === 3 ? 1 : 0;
-        const ddz = k === 4 ? -1 : k === 5 ? 1 : 0;
-        const nm = latticeMask(lx + ddx, ly + ddy, lz + ddz);
-        if (nm === 0 || nm === 255) continue;
-        ax += ddx + SN_OFF[nm * 3];
-        ay += ddy + SN_OFF[nm * 3 + 1];
-        az += ddz + SN_OFF[nm * 3 + 2];
-        cnt++;
-      }
+      let nm = mask4(a4, a5, a8, a9, sh - 1); // -x
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3] - 1), (ay += SN_OFF[nm * 3 + 1]), (az += SN_OFF[nm * 3 + 2]), cnt++;
+      nm = mask4(a4, a5, a8, a9, sh + 1); // +x
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3] + 1), (ay += SN_OFF[nm * 3 + 1]), (az += SN_OFF[nm * 3 + 2]), cnt++;
+      nm = mask4(a3, a4, a7, a8, sh); // -y
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3]), (ay += SN_OFF[nm * 3 + 1] - 1), (az += SN_OFF[nm * 3 + 2]), cnt++;
+      nm = mask4(a5, a6, a9, a10, sh); // +y
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3]), (ay += SN_OFF[nm * 3 + 1] + 1), (az += SN_OFF[nm * 3 + 2]), cnt++;
+      nm = mask4(a1, a2, a4, a5, sh); // -z
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3]), (ay += SN_OFF[nm * 3 + 1]), (az += SN_OFF[nm * 3 + 2] - 1), cnt++;
+      nm = mask4(a8, a9, a11, a12, sh); // +z
+      if (nm !== 0 && nm !== 255) (ax += SN_OFF[nm * 3]), (ay += SN_OFF[nm * 3 + 1]), (az += SN_OFF[nm * 3 + 2] + 1), cnt++;
       if (cnt) {
         const inv = relax / cnt;
         sx += ax * inv - sx * relax;
@@ -580,7 +601,6 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
     let rx = nx * h;
     let ry = ny * h;
     let rz = nz * h;
-    jitter(wx, wy, wz);
     const jt = JX[0] * nx + JX[1] * ny + JX[2] * nz;
     const ja = JITTER[r];
     rx += (JX[0] - jt * nx) * ja;
@@ -639,25 +659,27 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
 
 /**
  * Seam keys: for each of the 26 neighbour chunks (index (dx+1) + 3 (dy+1) + 9 (dz+1)), a hash of
- * the voxels the lattice points on that shared seam are computed from: occupancy, sculpt class
- * and crystal flag of every padded voxel within two cells of the seam. The wide normal and AO
- * read voxels two cells away, one more than VoxelWorld's dirty marking covers, so the chunk
- * renderer re-meshes a neighbour whose seam key changed.
+ * this chunk's voxels within two cells of the shared seam (occupancy, sculpt class, crystal).
+ * The lattice points on a seam read voxels up to two cells into each chunk, one more than
+ * VoxelWorld's dirty marking covers; when a re-mesh finds a seam key changed, the chunk renderer
+ * re-meshes the neighbour too. Voxels on the neighbour's side are its own: editing them re-meshes it.
  */
 const VOXEL_CODE = new Uint8Array(256);
 for (let id = 0; id < 256; id++) VOXEL_CODE[id] = 1 + OPAQUE[id] + 2 * (SCULPT_RIGIDITY[id] === 255 ? 4 : SCULPT_RIGIDITY[id]) + (id === B.CRYSTAL ? 16 : 0);
+const BAND = 2;
 function seamHashes(): Uint32Array {
   const hs = new Uint32Array(27).fill(2166136261);
-  const lo = 2 * PAD; // padded coords < lo or >= P - lo lie within two cells of a seam
-  for (let z = 0; z < P; z++) {
-    const cz = z < lo ? -1 : z >= P - lo ? 1 : 0;
-    for (let y = 0; y < P; y++) {
-      const cy = y < lo ? -1 : y >= P - lo ? 1 : 0;
+  const lo = PAD + BAND;
+  const hi = P - PAD - BAND;
+  for (let z = PAD; z < P - PAD; z++) {
+    const cz = z < lo ? -1 : z >= hi ? 1 : 0;
+    for (let y = PAD; y < P - PAD; y++) {
+      const cy = y < lo ? -1 : y >= hi ? 1 : 0;
       const row = y * P + z * P2;
-      for (let x = 0; x < P; x++) {
-        const cx = x < lo ? -1 : x >= P - lo ? 1 : 0;
+      for (let x = PAD; x < P - PAD; x++) {
+        const cx = x < lo ? -1 : x >= hi ? 1 : 0;
         if (!cx && !cy && !cz) {
-          x = P - lo - 1; // skip the row's interior
+          x = hi - 1; // skip the row's interior
           continue;
         }
         const v = VOXEL_CODE[pad[row + x]] | ((x + row) << 5);
@@ -788,7 +810,8 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
               const lx = x - PAD + corner[0];
               const ly = y - PAD + corner[1];
               const lz = z - PAD + corner[2];
-              const li = lattice(lx, ly, lz, ox0 + lx, oy0 + ly, oz0 + lz);
+              const lc = lx + ly * L + lz * L * L;
+              const li = lStamp[lc] === stamp ? lc : lattice(lx, ly, lz, ox0 + lx, oy0 + ly, oz0 + lz);
               const r = lRig[li];
               const uv = uvs[c];
               const o = (v0 + c) * VERTEX_BYTES;

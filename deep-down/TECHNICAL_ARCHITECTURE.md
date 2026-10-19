@@ -85,15 +85,38 @@ time-sliced (~125 ms total).
 
 ### Meshing (`render/mesher.ts`)
 
-Culled faces with per-vertex ambient occlusion and anisotropy-safe quad splitting.
-Vertex = 11 bytes in three non-interleaved attributes: `position` Uint8×3 (local corner),
-`aData` Uint8×4 (face, AO, material layer, bits: uv | rigidity << 2 | family << 4 | rune << 6)
-and `aNb` Uint8×4 (material layer of the in-plane neighbour across each face edge, 255 = no
-boundary). Rigidity is the lowest rigidity of the 8 voxels around the vertex, so every face that
-shares a vertex (also across chunks, thanks to the 1-voxel padding) sculpts it identically.
-A 16³ chunk meshes in < 2 ms. `ChunkRenderer` rebuilds dirty chunks nearest-first within a
-4 ms/frame budget (always at least one, so an edit is never left invisible) and hides chunks
-beyond the view distance.
+Culled faces, one quad per visible face, **sculpted on the CPU** into modelled rock:
+- Shape: every quad corner sits on a lattice point, the centre of the 2×2×2 voxels around it (a
+  surface-nets dual cell), and moves toward that cell's surface-nets point (a 256-entry table)
+  weighted by rigidity (natural rock 1.0, firm rock 0.7, masonry 0.12, timber 0). Flat floors and
+  walls move exactly 0, convex edges bevel 0.25 m, convex corners 0.33 m, concave creases fill; a
+  1 m step becomes a slope and a 1-voxel column an octagon. A Laplacian relaxation (0.5) keeps
+  1:2 and 1:3 voxel slopes from bevelling into identical lumps; natural rock then gets CPU
+  value-noise relief along the normal (2.6 m and 7.3 m features, up to 0.36 m) plus a 0.13 m
+  sideways jitter. Gameplay clamps: walkable tops keep 85 % of the bevel's vertical move and 10 %
+  of the noise's (flat interiors 0, edges ≈ 0.21 m, corners ≤ 0.31 m), rock never reaches more
+  than 0.4 m into open space, ceilings sag ≤ 0.12 m; thin features get less relief.
+- Shading: smooth per-corner normals from a 4×4×4 occupancy gradient bent by the noise's analytic
+  gradient (octahedral, 2 bytes) and a smooth depth-weighted AO for natural rock; masonry,
+  crystal and timber keep flat face normals and per-face AO so arrises stay crisp. Quads are
+  split along the diagonal whose corner normals agree most (folds follow the form). Crystal
+  seams keep their host rock's shape, sunk 0.2 m, with flat faces.
+- Vertex: one interleaved 16-byte buffer: `aGeo` (lattice corner xyz + octahedral normal x),
+  `aData` (face, AO, material layer, bits: uv | rigidity << 2 | family << 4 | rune << 6), `aNb`
+  (material layer of the in-plane neighbour across each face edge, 255 = no boundary), `aShape`
+  (sculpted offset xyz + octahedral normal y). The shader keeps the undisplaced lattice position
+  (`vGrid`) for cell picking, world texture coordinates and the boundary blend, so mining
+  cracks, materials and boundaries stay on the right block.
+- Crack-free: everything about a lattice point is a pure function of its world position and
+  the voxels around it, with 2-voxel chunk padding, so a vertex shared by two chunks gets
+  bit-identical bytes from both (unit-tested). Normals and AO read one voxel further than the
+  world's dirty marking covers, so each chunk keeps 26 seam keys (hashes of its two-voxel band
+  next to each neighbour); when a re-mesh finds one changed, `ChunkRenderer` queues that
+  neighbour (unit-tested: the result is byte-identical to a fresh mesh).
+- Cost: a meshed chunk 0.66–0.88 ms (dense up to ≈1.4 ms; was 0.37–0.48), whole zone unchanged
+  (≈0.26–0.36 s). `ChunkRenderer` rebuilds dirty chunks nearest-first within a 4 ms/frame budget
+  (always at least one, so an edit is never left invisible) and hides chunks beyond the view
+  distance.
 
 ## Lighting (the core art system)
 
@@ -178,11 +201,11 @@ panels average the cap). Behind the pause and death overlays the game renders at
     the two materials' heights at the texel; the taller one claims the texel up to ~0.6 m from
     the edge, with a world-space wobble whose sign depends on which side the neighbour is, so
     both faces draw the same curve. Faces without partners do no extra work.
-  - Sculpting (vertex shader): offset = tiling 3D noise (32³ RGBA, two octaves, 38 m / 9 m) ×
-    amplitude by rigidity (0, 0.05, 0.12, 0.19 m), vertical × 0.32 so floors stay under the feet.
-  - Shading: faceted normal from screen-space derivatives of the sculpted position (mixed 85 %
-    with the face normal), smooth hemisphere shade, AO floor 0.42, macro albedo variation from
-    world noise (≈1.2 m and 6 m), crystal faces not lit by their own emission.
+  - Sculpting and normals come from the mesher (see Meshing): the vertex shader only adds the
+    baked offset and decodes the octahedral normal; it does no texture fetch.
+  - Shading: the smooth mesher normal (natural rock) or the face normal (masonry, crystal,
+    timber), smooth hemisphere shade, macro albedo variation from world noise (≈1.2 m and 6 m),
+    crystal faces not lit by their own emission.
   - Runes: glyph blocks get a per-block carved rune decal from the tile atlas (8 runes), eroded by
     world-space noise and brightened as the lantern approaches.
   - Mining cracks and the target rim are drawn here (uniform `uTarget`), on the sculpted face.

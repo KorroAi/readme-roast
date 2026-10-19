@@ -154,7 +154,13 @@ results.memory = await page.evaluate(() => {
     const geo = o.geometry;
     if (!geo || seen.has(geo)) return;
     seen.add(geo);
-    for (const a of Object.values(geo.attributes)) geometryBytes += a.array.byteLength;
+    // Interleaved attributes share one buffer: count each buffer once.
+    for (const a of Object.values(geo.attributes)) {
+      const buf = a.isInterleavedBufferAttribute ? a.data : a;
+      if (seen.has(buf)) continue;
+      seen.add(buf);
+      geometryBytes += buf.array.byteLength;
+    }
     if (geo.index) geometryBytes += geo.index.array.byteLength;
   });
   const w = g.session.world;

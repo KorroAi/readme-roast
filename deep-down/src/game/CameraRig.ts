@@ -8,6 +8,11 @@ import { segmentClear } from '../world/light';
 const BUNDLE_SIDE = [0, 0.2, -0.2];
 const BUNDLE_UP = [0, 0.18, -0.12];
 /**
+ * Distance kept from voxel hits. The mesher sculpts natural rock up to ~0.36 m into voxels the
+ * rays treat as open (bevels, relief), so the lens keeps 0.4 m: it never clips a rendered bevel.
+ */
+const ROCK_MARGIN = 0.4;
+/**
  * Shares of the shoulder tried when the boom is cut short, and how they are scored: boom length
  * counts up to SLIDE_COMFORT metres, and each unit of shoulder share is worth SLIDE_PREFER metres.
  */
@@ -131,11 +136,11 @@ export class CameraRig {
     // 1) Shoulder offset, shortened if a wall is right beside the explorer. When the right side
     //    is walled in and the left is open, swap shoulders so the explorer never sits on the
     //    crosshair in a narrow tunnel.
-    const reach = shoulder + 0.3;
+    const reach = shoulder + ROCK_MARGIN;
     const hitR = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, right.x, 0, right.z, reach);
     const hitL = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, -right.x, 0, -right.z, reach);
-    const roomR = hitR ? Math.max(0, hitR.distance - 0.3) : shoulder;
-    const roomL = hitL ? Math.max(0, hitL.distance - 0.3) : shoulder;
+    const roomR = hitR ? Math.max(0, hitR.distance - ROCK_MARGIN) : shoulder;
+    const roomL = hitL ? Math.max(0, hitL.distance - ROCK_MARGIN) : shoulder;
     // The offset uses the room smoothed: it shrinks at once (the shoulder point must stay out of
     // rock) but grows back slowly, so walking along a rough wall does not jerk the camera sideways.
     // It never exceeds this frame's room.
@@ -233,7 +238,7 @@ export class CameraRig {
     for (const off of BUNDLE_SIDE) {
       for (const offY of BUNDLE_UP) {
         const hit = raycastVoxels(this.world, ox + right.x * off, oy + offY, oz + right.z * off, this.dir.x, this.dir.y, this.dir.z, this.maxDistance + 0.4);
-        if (hit) allowed = Math.min(allowed, hit.distance - 0.3);
+        if (hit) allowed = Math.min(allowed, hit.distance - ROCK_MARGIN);
       }
     }
     return Math.max(0, allowed);

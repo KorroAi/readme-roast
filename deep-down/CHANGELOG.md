@@ -42,6 +42,40 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
 - Cost: on SwiftShader the new terrain renders ~20–35 % slower than the old one in an A/B on the
   same machine (camp 13 → 11 fps, tunnel 8 → 5). GPU cost on a phone is unmeasured.
 
+### Round 3 — sculpted rock geometry (`mesher.ts`, `ChunkRenderer.ts`, terrain vertex shader)
+- The 1 m voxel step and the printed triangle lattice are gone from natural rock: the mesher
+  moves every quad corner toward its surface-nets point (chamfered edges and corners, filled
+  creases, steps become slopes, 1-voxel columns octagons), relaxes slopes, and adds world-space
+  relief; smooth normals and AO from a 4×4×4 occupancy gradient model the rock under the
+  lantern. Masonry keeps a crisp, slightly chiselled arris; timber is exact.
+- Gameplay held: walkable flat interiors move 0, edges ≈ 0.21 m, corners ≤ 0.31 m; rock reaches
+  ≤ 0.4 m into open space (the camera now keeps 0.4 m from voxel hits instead of 0.3 m); cell
+  picking, mining cracks and material boundaries use the undisplaced lattice position.
+- Crack-free across chunks by construction (bit-identical shared vertices, 2-voxel padding,
+  seam keys that re-mesh a neighbour when its seam data changed), unit-tested.
+- Ledge: the flat plane, kerb box and lone cubes became a broken crag parapet; the Hollow's rim
+  terraces wander instead of ringing the floor.
+- Crystal seams follow their host rock, sunk 0.2 m into a groove.
+- Vertex 11 → 16 bytes (one interleaved buffer); the vertex shader no longer fetches textures.
+- Verified: `tsc`, 363 unit tests (new `mesh-sculpt.test.ts`: seam bit-identity, flat floors 0,
+  walkable bounds, intrusion and sag caps, masonry crisp, step → slope, smooth AO, seam
+  re-mesh); SwiftShader FPS within ±10 % of the previous build (6 alternating runs each); terrain
+  GPU geometry 3.6 → 4.9 MB. Cost: dense chunks mesh 2.7× slower, so mining re-mesh rose to ≈2 ms
+  on the main thread (spikes to 10 ms); meshing is moving to a worker (in progress).
+
+### Round 3 — camera framing, fade and a judgeable Visual Lab
+- Camera: 1.15 m shoulder, 4.8 m boom, 67° lens (72° in portrait), the explorer small in the
+  lower-left third so the route and target read; room that shrinks at once and recovers slowly,
+  a critically damped shoulder swap, a shoulder that slides in behind posts.
+- The explorer's near-camera fade is true transparency with a depth pre-pass (no dither pattern
+  over the scene) and only starts when the camera is genuinely close.
+- Visual Lab: a review light (default) makes every view judgeable; a button and `?light=game`
+  switch to the real game lighting; the Transitions overview frames the whole court.
+- Review tour: three new shots (gate frieze, hall columns, the Spindle); a01–a13 unchanged.
+- Verified: camera tests 10/10 (5 new: framing, portrait, shoulder slide and recovery, wall end,
+  alpha fade), 400-pose fuzz unchanged (0 inside, 0 blocked); offline replay of the e2e mining
+  flows hits the intended blocks; lab views mean luma 35–64 with < 25 % below luma 12.
+
 ### Round 2 — architecture, geology and the light budget (`generateWorld.ts`, `blocks.ts`)
 - Cyan budget: the shrine's glyph lattice, the all-glyph floor, glowing inlays, glyph balusters,
   pillar bands and bridge/balcony glyph posts are gone. Four inscriptions remain (22 glyph stones,
