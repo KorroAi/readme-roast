@@ -93,9 +93,16 @@ explorer dithers out when the camera gets close, instead of filling the screen.
 
 ## Explorer
 
-Chunky proportions (large head, ~1.7 m), brown hood/hair, cream shirt, dark trousers, brown
-boots, a big backpack with a bedroll, a lantern in the left hand, the pickaxe in the right.
-Readable silhouette from behind at 4 m: backpack shape + lantern glow.
+A delver of the expedition company, built to read from behind (the gameplay view) at ~80 px:
+a broad felt hat worn tipped back (octagonal brim, low rounded crown, brass goggles pushed up on
+the band, hair in a bun), a thick red knitted scarf pulled up at the nape (the one strong
+accent), a long amber-ochre coat (open over a dark waistcoat, split swallow tails to mid-calf
+that swing with the stride), dark trousers in tall boots. On the back a timber pack frame whose
+poles rise past the hat; a small ember vial hangs from a peg on the left pole like a tiny lantern
+post. Lashed to the frame: a waxed olive duffel, a cream bedroll, a rope coil (right) and a tin
+canteen (left). Hand lantern in the left hand, pickaxe in the right. Chunky proportions (~1.75 m
+to the crown, 1.87 m to the pole tips, under a 2 m tunnel), corners chamfered with crossed boxes,
+nothing cyan. Secondary motion (coat tails, vial) is procedural and never passes through the legs.
 
 ## UI
 

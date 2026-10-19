@@ -113,6 +113,8 @@ function rotYZ(y: number, z: number, a: number, out: { y: number; z: number }): 
 
 const tmpP = { y: 0, z: 0 };
 const tmpK = { y: 0, z: 0 };
+/** Depths below the knee at which the back of the boot shaft is checked. */
+const SHIN_PROBES = [0.12, 0.22] as const;
 
 /** Backward angle (from straight down) of a point seen from the tail joint, or -Infinity if out of reach. */
 function angleFromTail(y: number, z: number): number {
@@ -130,10 +132,12 @@ export function tailFloor(thigh: number, knee: number): number {
   // Back-bottom corner of the thigh.
   rotYZ(-RIG.thigh - 0.02, -0.1, thigh, tmpP);
   let floor = angleFromTail(tmpP.y, tmpP.z);
-  // Back of the shin a little below the knee.
+  // Back of the shin (the boot shaft) below the knee.
   rotYZ(-RIG.thigh, 0, thigh, tmpK);
-  rotYZ(-0.12, -0.095, thigh + knee, tmpP);
-  floor = Math.max(floor, angleFromTail(tmpK.y + tmpP.y, tmpK.z + tmpP.z));
+  for (const d of SHIN_PROBES) {
+    rotYZ(-d, -0.105, thigh + knee, tmpP);
+    floor = Math.max(floor, angleFromTail(tmpK.y + tmpP.y, tmpK.z + tmpP.z));
+  }
   return Math.max(TAIL_MIN, floor + TAIL_CLEARANCE);
 }
 

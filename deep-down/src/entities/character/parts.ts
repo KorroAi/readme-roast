@@ -41,7 +41,7 @@ export const RIG = {
   tailY: 0.06,
   tailZ: -0.125,
   /** Length of a coat tail from its joint to the lowest point of the hem. */
-  tailLength: 0.44,
+  tailLength: 0.5,
   /** Pack frame poles: half the spacing, and their depth in the pack frame. */
   poleX: 0.235,
   poleZ: -0.065,
@@ -160,11 +160,11 @@ export function buildTorso(): THREE.BufferGeometry {
   for (const x of [-0.13, 0.13]) b.box(x - 0.026, 0.02, 0.13, x + 0.026, 0.375, 0.153, LEATHER.dark);
   b.box(-0.156, 0.19, 0.153, 0.156, 0.222, 0.159, LEATHER.mid);
   b.box(-0.02, 0.185, 0.159, 0.02, 0.227, 0.165, BRASS);
-  // Knitted scarf wound thick around the neck, a fold line around it, knotted at the front with
-  // two ends hanging down the chest.
+  // Knitted scarf wound thick around the neck with a fold line, pulled up high at the nape (so it
+  // shows under the hair from behind), knotted at the front with two ends hanging down the chest.
   chamfer(b, -0.178, 0.33, -0.153, 0.178, 0.445, 0.158, 0.032, SCARF);
   b.box(-0.183, 0.362, -0.158, 0.183, 0.394, 0.163, SCARF_DARK);
-  b.box(-0.125, 0.44, -0.166, 0.125, 0.52, -0.07, SCARF);
+  b.box(-0.17, 0.44, -0.182, 0.17, 0.52, -0.06, SCARF);
   b.box(0.032, 0.29, 0.15, 0.118, 0.372, 0.192, SCARF_LIGHT);
   b.box(0.045, 0.1, 0.158, 0.1, 0.3, 0.184, SCARF);
   b.box(0.088, 0.15, 0.154, 0.134, 0.29, 0.177, SCARF_DARK);
@@ -181,12 +181,12 @@ export function buildHead(): THREE.BufferGeometry {
   // Hair: thick at the back and the temples under the brim, a ragged fringe at the front.
   chamfer(b, -0.172, 0.06, -0.176, 0.172, 0.285, -0.04, 0.03, HAIR);
   for (const sx of [-1, 1]) b.box(sx > 0 ? 0.14 : -0.172, 0.18, -0.04, sx > 0 ? 0.172 : -0.14, 0.285, 0.07, HAIR);
-  // Hair tied up in a bun under the hat.
-  chamfer(b, -0.068, 0.1, -0.232, 0.068, 0.2, -0.17, 0.024, HAIR);
-  b.box(-0.072, 0.135, -0.236, 0.072, 0.158, -0.172, LEATHER.dark);
   b.box(-0.13, 0.245, 0.165, 0.13, 0.285, 0.177, HAIR);
   b.box(-0.13, 0.22, 0.165, -0.07, 0.245, 0.177, HAIR);
   b.box(0.03, 0.225, 0.165, 0.09, 0.245, 0.177, HAIR);
+  // Hair tied up in a bun under the hat.
+  chamfer(b, -0.068, 0.1, -0.232, 0.068, 0.2, -0.17, 0.024, HAIR);
+  b.box(-0.072, 0.135, -0.236, 0.072, 0.158, -0.172, LEATHER.dark);
   // Face: eyes with a highlight, brows, nose, mouth and a little blush.
   for (const sx of [-1, 1]) {
     const x0 = sx > 0 ? 0.035 : -0.09;
@@ -237,8 +237,9 @@ export function buildPack(): THREE.BufferGeometry {
   // A leather closing strap down the back with a brass buckle.
   b.box(-0.022, -0.415, -0.323, 0.022, -0.115, -0.3, LEATHER.mid);
   b.box(-0.032, -0.205, -0.332, 0.032, -0.165, -0.32, BRASS);
-  // One rope lashing ties the load to both poles.
-  b.box(-px - 0.024, -0.284, -0.318, px + 0.024, -0.256, pz + 0.012, ROPE.mid);
+  // A dark strap girths the load; short rope ties bind it to each pole.
+  b.box(-0.176, -0.284, -0.318, 0.176, -0.256, -0.04, LEATHER.dark);
+  for (const sx of [-1, 1]) b.box(sx > 0 ? 0.16 : -px - 0.024, -0.286, pz - 0.023, sx > 0 ? px + 0.024 : -0.16, -0.254, pz + 0.023, ROPE.mid);
   // Cream wool bedroll strapped under the load, the roll's spiral showing at the ends.
   rodX(b, -0.22, 0.22, -0.515, -0.19, 0.08, WOOL);
   for (const x of [-0.13, 0.13]) rodX(b, x - 0.022, x + 0.022, -0.515, -0.19, 0.088, LEATHER.dark);
