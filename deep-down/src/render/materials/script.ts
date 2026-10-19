@@ -5,8 +5,8 @@ import { MAT_SIZE, MatCanvas, Rng } from './paint';
  * and 8 m long, wrapping. The terrain shader lays a line along a band of glyph stones in world
  * space, so the band reads as text running along the course, not as one icon per stone.
  *
- * One chisel grammar for every glyph: a 2-texel (12 cm) stroke hanging from a carved headline (the line
- * the whole word hangs from): pendants ending in loops or hooks, hanging rings, vees, zigzags
+ * One chisel grammar for every glyph: a 1.5-texel (10 cm) stroke hanging from a carved headline (the line
+ * the whole word hangs from): pendants ending in diamonds or hooks, pierced rings, vees, zigzags
  * and slanted tails, with the odd dot below the body. Glyph widths vary (5-9 texels, 0.3-0.55 m),
  * glyphs of a word share the headline, words are separated by gaps where it breaks, and a thin
  * baseline groove rules the whole line. Every glyph hangs from the top and none has the side
@@ -47,15 +47,16 @@ function glyph(rng: Rng, w: number): Glyph {
     // Pendant: a stem from the headline ending in a loop or a hook.
     const x = rng.chance(0.5) ? mid : rng.chance(0.5) ? left + 1 : right - 1;
     const end = 3 + rng.next() * 2;
+    const dir = x > mid ? -1 : 1;
     g.segs.push([x, -1.5, x, end]);
-    if (rng.chance(0.6)) g.rings.push([x + (rng.chance(0.5) ? 1.2 : -1.2), end + 2, 2]);
-    else g.segs.push([x, end, x + 2, end + 2.5], [x + 2, end + 2.5, x + 3, end + 1]);
+    // ending in a closed diamond or an angular hook (never a round bowl: that reads as b, d, p, q)
+    if (rng.chance(0.5)) g.segs.push([x, end, x + dir * 1.8, end + 1.8], [x + dir * 1.8, end + 1.8, x, end + 3.6], [x, end + 3.6, x - dir * 1.8, end + 1.8], [x - dir * 1.8, end + 1.8, x, end]);
+    else g.segs.push([x, end, x + dir * 2.5, end + 2.5], [x + dir * 2.5, end + 2.5, x + dir * 3, end + 1]);
   } else if (r < 0.44) {
-    // Hanging ring on a short stem, a tail sweeping down from it.
+    // The eye: a ring hanging from the headline, pierced by a stroke that runs on below it.
     const cx = Math.max(2, Math.min(w - 3, mid));
-    g.segs.push([cx, -1.5, cx, 1]);
-    g.rings.push([cx, 3.4, 2.4]);
-    if (rng.chance(0.6)) g.segs.push([cx + 1.6, 5.2, right + 0.5, 8.5]);
+    g.segs.push([cx, -1.5, cx, rng.chance(0.5) ? 8.5 : 6.5]);
+    g.rings.push([cx, 3.6, 2.4]);
   } else if (r < 0.6) {
     // Vee hanging from the headline, sometimes with a dot inside.
     g.segs.push([left, -1.5, mid, 5.5], [mid, 5.5, right, -1.5]);
@@ -129,9 +130,10 @@ export function script(c: MatCanvas, rng: Rng): void {
             for (const [cx, cy, rr] of gl.rings) d = Math.min(d, Math.abs(Math.hypot(xx - cx, yy - cy) - rr));
             const ay = y0 + BODY + yy;
             if (ay <= y0 + HEAD + 1 || ay >= y0 + RULE) continue;
-            // Strokes about two texels wide (12 cm), so a line reads from across a hall.
-            if (d <= 0.92) mark(gx + xx, ay, 255, INK);
-            else if (d <= 1.55) mark(gx + xx, ay, 140, RIM);
+            // Inked core about 1.5 texels (10 cm) inside a carved edge, so a line reads from across
+            // a hall and rings and diamonds stay open.
+            if (d <= 0.78) mark(gx + xx, ay, 255, INK);
+            else if (d <= 1.45) mark(gx + xx, ay, 140, RIM);
           }
         gx += w + 2;
       }

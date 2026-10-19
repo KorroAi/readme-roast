@@ -93,6 +93,28 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   at the feet is targetable (fails on the unfixed rig, passes at 0.66 rad), and the explorer
   stays left and low at normal pitch.
 
+### Round 4 — surface presentation (`terrainMaterial.ts` sampling, `materials/*`, `Waterfall.ts`)
+- Natural rock is textured from the sculpted surface (top from above, sides from two blended wall
+  planes with level beds, ceilings from below; top/side chosen from the smooth normal), so
+  chamfers no longer stretch and smoothed steps no longer print 1 m top/side stripes.
+- Sharp-bilinear sampling with 2× anisotropy replaces nearest magnification: crisp texel edges
+  without the camouflage grid; a fine near-lens grain without a fetch.
+- Rock painter: world-warped folding (no per-tile sine folds), height-only facets, broken laminae
+  instead of a barcode, long open partings, dark pits; floors two ramp steps under their walls
+  with dark grit (a04 foreground p90 197 → 138, pale-neutral pixels 43 → 0.7 %).
+- Inscriptions read as script: a carved 'script' layer laid along the course (headline, baseline
+  groove, varying glyphs and word gaps).
+- Mining feedback: a soft strike light at the ray hit and growing hairline fractures replace the
+  cube rim and crack stamp.
+- Crystal is a dark druse of faceted points with tip glints; the hearth is soot fieldstones with
+  sparse embers; the Glimmerfall is one draw call — a spreading, breaking sheet with mist and a
+  ripple ring at the foot, below the bloom threshold.
+- Verified: `tsc`, 398 unit tests (new: floors darker than walls, no pale floor speckle, hearth
+  emission bounds, script-layer structure, geology partner tables); tour metrics hold (local
+  contrast 10.1 → 9.7, a deliberate trade: the rejected speckle was part of it). Fetches on rock
+  5–7 (round 3: 6); +45–70 ALU on rock. SwiftShader is slower than round 3 after a rewrite of the
+  projection (feature isolation: software bilinear/anisotropy first); phone GPU cost unmeasured.
+
 ### Round 3 — exposure chain, value and hue structure, key lights (`lighting.ts`, `PostFX.ts`, palette)
 - Albedos are real reflectances (rock and ashlar 1.8–3.1× brighter in linear, darkest steps
   kept low, weathered rock raised less so it never goes pale or beige); the darkness comes from

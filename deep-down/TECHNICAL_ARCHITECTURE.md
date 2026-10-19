@@ -230,10 +230,18 @@ panels average the cap). Behind the pause and death overlays the game renders at
 ## Materials
 
 - `terrainMaterial` — the terrain material system (`render/materials/*`, `render/terrainRig.ts`):
-  - 28 material layers, 128×128 (sRGB + height or emissive alpha), painted procedurally in the
-    zone worker (~0.5–0.6 s cold) and sampled in **world space** (16 texels/m, 8 m period,
-    RepeatWrapping, nearest magnification, mipmapped minification). Projection per face axis is
-    upright and unmirrored; textures never restart at a voxel edge. Every ramp lives in
+  - 29 material layers, 128×128 (sRGB + height or emissive alpha), painted procedurally in the
+    zone worker (~0.5–0.9 s cold depending on load) and sampled in **world space** (16 texels/m,
+    8 m period, RepeatWrapping) with **sharp-bilinear** filtering: texel-snapped bilinear (mag
+    Linear, min LinearMipmapLinear, 2× anisotropy), so texel edges stay crisp about 1 px wide at
+    reading distance without the nearest-filter camouflage grid; rock edges soften only once a
+    texel spans more than ~6 px, while cut stone, cracks and joints stay crisp; a fine ALU grain
+    (no fetch) fades in near the lens. Natural rock (GEOLOGY) is sampled from the **sculpted**
+    position, not the voxel lattice: top layers from above, side layers from the two wall planes
+    blended by the normal (both with v = −y, so beds are level contours on any slope), ceilings
+    from below; the top or side layer is chosen per fragment from the smooth normal (~38°, moved
+    by world noise, the taller layer claims a narrow band). Masonry keeps its course mapping on
+    the face plane. Textures never restart at a voxel edge. Every ramp lives in
     `materials/palette.ts`; painters build a value field (`rock.ts`: `rockField`, `floorField`;
     `paint.ts`: `engrave`, `chip`, `resolve`) and quantize it through a ramp. Each layer's random stream is
     keyed by its name, and the shared host rock and masonry wall are painted once per pass, so
@@ -262,12 +270,17 @@ panels average the cap). Behind the pause and death overlays the game renders at
   - Shading: the smooth mesher normal (natural rock) or the face normal (masonry, crystal,
     timber), smooth hemisphere shade, macro albedo variation from world noise (≈1.2 m and 6 m),
     crystal faces not lit by their own emission.
-  - Runes: glyph blocks get a per-block carved rune decal from the tile atlas (8 runes), eroded by
-    world-space noise and brightened as the lantern approaches.
-  - Mining cracks and the target rim are drawn here (uniform `uTarget`), on the sculpted face.
+  - Inscriptions: glyph stones sample a 'script' material layer (8 procedurally carved lines: a
+    headline, glyphs 0.3–0.55 m wide from pierced rings, vees, zigzags, hooks and diamonds, word
+    gaps, a baseline groove) laid in world space along the course, so a band reads as one line
+    of text; eroded by world-space noise, dim until the lantern comes near.
+  - Mining feedback is drawn here (`uTarget`, `uTargetHit`): a soft warm light centred on the ray
+    hit and world-space hairline fractures with a lit lip that grow with damage (the stone's own
+    joints open first), red when too hard; no cube rim and no crack-tile fetch.
   - Debug defines `NO_DISP`, `NO_MACRO`, `NO_DERIV`, `USE_BLEND` (viewer URL flags) isolate the
     cost of each feature.
-- `textures.ts` keeps the 16×16 tile atlas for icons, drops, crack stages and rune decals.
+- `textures.ts` keeps the 16×16 tile atlas for icons and drops (and the crack stages used where no
+  terrain rig exists).
 - `entityMaterial` — vertex-colored boxes/facets built with `VoxBuilder`
   (`render/voxModel.ts`): position, normal, sRGB color (Uint8), `aEmissive` (Uint8).
   Instancing supported. Uniforms: `uTint`, `uEmissiveScale`, `uEmissiveColor`, `uFlash`,

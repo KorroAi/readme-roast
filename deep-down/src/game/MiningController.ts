@@ -161,7 +161,8 @@ export class MiningController {
     const shown = this.target && this.target.kind === 'block' && this.target.inReach ? this.target : null;
     const progress = shown && this.rules.targetKey === shown.key ? this.rules.progress : 0;
     const blocked = !!shown && (shown.tier > this.hooks.pickaxe().tier || shown.protectedReason !== null);
-    this.marker.set(shown ? { x: shown.x, y: shown.y, z: shown.z } : null, progress, blocked, wantsMine);
+    // The ray hit centres the strike light and the fractures where the pick actually lands.
+    this.marker.set(shown ? { x: shown.x, y: shown.y, z: shown.z, point: shown.point } : null, progress, blocked, wantsMine);
     this.marker.update(dt);
     return this.swingTimer > 0;
   }
