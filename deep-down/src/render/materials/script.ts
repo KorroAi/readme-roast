@@ -5,7 +5,7 @@ import { MAT_SIZE, MatCanvas, Rng } from './paint';
  * and 8 m long, wrapping. The terrain shader lays a line along a band of glyph stones in world
  * space, so the band reads as text running along the course, not as one icon per stone.
  *
- * One chisel grammar for every glyph: a 2-texel stroke hanging from a carved headline (the line
+ * One chisel grammar for every glyph: a 2-texel (12 cm) stroke hanging from a carved headline (the line
  * the whole word hangs from): pendants ending in loops or hooks, hanging rings, vees, zigzags
  * and slanted tails, with the odd dot below the body. Glyph widths vary (5-9 texels, 0.3-0.55 m),
  * glyphs of a word share the headline, words are separated by gaps where it breaks, and a thin
@@ -129,8 +129,9 @@ export function script(c: MatCanvas, rng: Rng): void {
             for (const [cx, cy, rr] of gl.rings) d = Math.min(d, Math.abs(Math.hypot(xx - cx, yy - cy) - rr));
             const ay = y0 + BODY + yy;
             if (ay <= y0 + HEAD + 1 || ay >= y0 + RULE) continue;
-            if (d <= 0.72) mark(gx + xx, ay, 255, INK);
-            else if (d <= 1.35) mark(gx + xx, ay, 140, RIM);
+            // Strokes about two texels wide (12 cm), so a line reads from across a hall.
+            if (d <= 0.92) mark(gx + xx, ay, 255, INK);
+            else if (d <= 1.55) mark(gx + xx, ay, 140, RIM);
           }
         gx += w + 2;
       }

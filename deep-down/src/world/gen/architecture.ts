@@ -127,3 +127,19 @@ export function bridgeIntrados(a: ArchShape, z: number): number {
   if (Math.abs(d) >= (a.zB - a.zA) / 2) return a.spring - 40;
   return yc + Math.sqrt(r * r - d * d);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Stair flight bays: between two piers the flight is carried on a rampant arch, its crown
+// BAY_CROWN under the walking plane, its springings BAY_RISE lower still at both piers.
+
+export const BAY_CROWN = 6.2;
+export const BAY_RISE = 3.0;
+/** Radial depth of a bay's arch ring (its voussoirs). */
+export const BAY_RING = 1.1;
+
+/** Height of a bay's intrados `s` metres down a flight starting at `top`, for the bay [s0, s1]. */
+export function bayIntrados(top: number, s0: number, s1: number, s: number): number {
+  const u = Math.max(0, Math.min(1, (s - s0) / (s1 - s0)));
+  const e = 2 * u - 1;
+  return top - s - BAY_CROWN - BAY_RISE * (1 - Math.sqrt(Math.max(0, 1 - e * e)));
+}

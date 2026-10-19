@@ -292,7 +292,7 @@ export function ironTop(c: MatCanvas, rng: Rng): void {
 
 /**
  * Crystal: a druse, the inside of a crystal-lined vein seen face on: crowded crystal points about
- * 0.3-0.6 m across, each a pyramid of 3-5 facets meeting at its apex, every facet shaded by
+ * 0.2-0.4 m across, each a pyramid of 3-5 facets meeting at its apex, every facet shaded by
  * which way it turns (lit toward the upper left, dark away from it), dark valleys where the
  * points meet and a few cells of rock matrix between them. That is how a crystal surface reads
  * at a glance (faceted, never a flat pane or a speckled ore block). The light is inside: a low
@@ -300,7 +300,7 @@ export function ironTop(c: MatCanvas, rng: Rng): void {
  * away from the light, and a glint at the apex of a few points; the shader sparkles them.
  */
 export function crystal(c: MatCanvas, rng: Rng): void {
-  const points = new PeriodicCells(rng, 15, 15, 0.9);
+  const points = new PeriodicCells(rng, 26, 26, 0.9);
   const glowN = fbm(rng, 4, 2);
   const n = fbm(rng, 16, 1);
   const light = -2.3; // upper left (texture y runs down)
@@ -321,16 +321,17 @@ export function crystal(c: MatCanvas, rng: Rng): void {
       const rot = cell.r2 * Math.PI * 2;
       const sector = Math.floor((((Math.atan2(dy, dx) - rot) / (Math.PI * 2)) % 1 + 1) % 1 * sides);
       const facing = Math.cos(rot + ((sector + 0.5) / sides) * Math.PI * 2 - light);
-      let v = 0.32 + facing * 0.3 + (cell.r2 - 0.5) * 0.08 - (e < 1.6 ? 0.16 : 0) + (n(x, y) - 0.5) * 0.04;
-      if (e < 0.8) v = 0.04;
+      let v = 0.24 + facing * 0.24 + (cell.r2 - 0.5) * 0.08 - (e < 1.3 ? 0.12 : 0) + (n(x, y) - 0.5) * 0.04;
+      if (e < 0.7) v = 0.04;
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
       let alpha = 0;
-      const g = Math.max(0, glowN(x, y) - 0.4) * 2.2 * Math.min(1, e / 2.5) * (0.55 - facing * 0.45);
+      // The glow shows through in a few broad patches only, so the seam stays dark glass.
+      const g = Math.max(0, glowN(x, y) - 0.56) * 3.2 * Math.min(1, e / 2) * (0.6 - facing * 0.4);
       if (g > 0) {
-        alpha = Math.min(150, g * 210);
-        hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.5, alpha / 260));
+        alpha = Math.min(140, g * 220);
+        hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.4, alpha / 300));
       }
-      if (cell.r2 > 0.86 && r < 0.9) {
+      if (cell.r2 > 0.9 && r < 0.75) {
         hex = P.CRYSTAL_EDGE;
         alpha = 230;
       }

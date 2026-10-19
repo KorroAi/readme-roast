@@ -86,6 +86,9 @@ ${LIGHTING_GLSL}
 uniform sampler2DArray uMat;
 uniform sampler3D uNoise;
 uniform float uMatGlow[${MATERIAL_NAMES.length}];
+// Monolith mode: per 8-row band of the masonry layer, the longest joint-free stone of the strip
+// starting there (first texel, width), measured from the painted layer (StructureRenderer).
+uniform vec2 uSpan[16];
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -126,6 +129,10 @@ void main() {
     tex = courseSample(layer, crs, gx, gy);
   } else if (vMode == 1) {
     tex = courseSample(layer, vec4(vSt.x, vSt.y, vRow, -1.0), gx, gy);
+  } else if (vMode == 3) {
+    vec2 sp = uSpan[int(vRow + 0.5) >> 3];
+    float t = mod(vSt.x - sp.x, 2.0 * sp.y);
+    tex = courseSample(layer, vec4(sp.x + sp.y - abs(t - sp.y), vSt.y, vRow, -1.0), gx, gy);
   } else {
     tex = textureGrad(uMat, vec3(sharpUv(uv, gx, gy, SOFT_CUT), vLayer), gx, gy);
   }
@@ -153,7 +160,39 @@ void main() {
 `;
 }
 
-export function createStructureMaterial(lighting: LightingUniforms, terrain: TerrainUniforms): THREE.ShaderMaterial {
+/**
+ * Longest joint-free run of texel columns (wrapping) of each 8-row band's strip in a course
+ * library layer: [first texel + 1, width - 2] per band (joints are the columns whose height is
+ * low through the strip). Strips of library A start at rows 0, 8, 24, 40, 64 and 96.
+ */
+export function stoneSpans(data: ArrayLike<number> | null, size: number, layer: number, strips: ReadonlyArray<readonly [number, number]>): THREE.Vector2[] {
+  const spans = Array.from({ length: 16 }, () => new THREE.Vector2(1, 30));
+  if (!data) return spans;
+  const base = layer * size * size * 4;
+  for (const [y0, h] of strips) {
+    const joint: boolean[] = [];
+    for (let x = 0; x < size; x++) {
+      let mn = 255;
+      for (let y = y0 + 1; y < y0 + h - 2; y++) mn = Math.min(mn, data[base + (x + y * size) * 4 + 3]);
+      joint.push(mn < 40);
+    }
+    let best = 0;
+    let bestStart = 0;
+    for (let x = 0; x < size; x++) {
+      if (joint[x] || !joint[(x + size - 1) % size]) continue;
+      let n = 0;
+      while (n < size && !joint[(x + n) % size]) n++;
+      if (n > best) {
+        best = n;
+        bestStart = x;
+      }
+    }
+    if (best >= 8) for (let r = y0; r < y0 + h; r += 8) spans[r >> 3].set(bestStart + 1, best - 2);
+  }
+  return spans;
+}
+
+export function createStructureMaterial(lighting: LightingUniforms, terrain: TerrainUniforms, spans: THREE.Vector2[] = stoneSpans(null, MAT_SIZE, 0, [])): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     defines: { LAMP_DIR: '' },
@@ -162,6 +201,7 @@ export function createStructureMaterial(lighting: LightingUniforms, terrain: Ter
       uMat: terrain.uMat,
       uNoise: terrain.uNoise,
       uMatGlow: terrain.uMatGlow,
+      uSpan: { value: spans },
     },
     vertexShader: vertex,
     fragmentShader: fragment(),

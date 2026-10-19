@@ -59,11 +59,11 @@ export interface RockMap {
 }
 
 export const STONE_SIDE: RockStyle = {
-  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 2.5, joints: [22, 64], jointChance: 0.24,
+  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.1, fold: 2.5, joints: [22, 64], jointChance: 0.24,
   facets: 7, fractures: 2, grain: 0.022, laminae: 0.3, chips: 16, base: 0.53, macro: 0.08, height: 150, heightSpread: 80,
 };
 export const DEEP_SIDE: RockStyle = {
-  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.11, fold: 2, joints: [22, 64], jointChance: 0.4,
+  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.09, fold: 2, joints: [22, 64], jointChance: 0.4,
   facets: 6, fractures: 2, grain: 0.02, laminae: 0.15, chips: 12, base: 0.54, macro: 0.08, height: 165, heightSpread: 70,
 };
 export const WEATHERED_SIDE: RockStyle = {
@@ -82,7 +82,8 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   const grain = fbm(rng, 32, 2, 0.5);
   const wob = fbm(rng, 8, 2);
   const jitter = new PeriodicNoise(rng, 16, 16);
-  const partingN = new PeriodicNoise(rng, 16, 8);
+  // Partings open in long stretches (about 0.5-1 m), not in dashes.
+  const partingN = new PeriodicNoise(rng, 8, 8);
   const foldN = new PeriodicNoise(rng, 8, 4);
   const laminaN = new PeriodicNoise(rng, 24, 8);
   // Mineral grains: a few round clusters of 2-3 texels (Worley cells, not a thresholded noise,
@@ -130,7 +131,7 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
     for (let k = 0; k < n; k++) rows.push(2.5 + rng.next() * (t - 4));
     return rows;
   });
-  const partingOpen = thick.map(() => 0.58 + rng.next() * 0.26);
+  const partingOpen = thick.map(() => 0.5 + rng.next() * 0.24);
   // Joints: near-vertical cracks inside a bed, ending at its partings (a few stop short).
   const joints = thick.map((t) => {
     const list: Array<{ x: number; tilt: number; from: number; to: number }> = [];
@@ -149,8 +150,8 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   // (cross-bedding), 1.2-4 m long and a few texels thick, so a bed has form without speckle.
   const lenses = thick.map((t) => {
     const list: Array<{ x: number; y: number; hw: number; th: number; dv: number }> = [];
-    if (t < 8) return list;
-    const count = rng.int(0, 2);
+    if (t < 12) return list;
+    const count = rng.chance(0.55) ? 1 : 0;
     for (let k = 0; k < count; k++) list.push({ x: rng.next() * S, y: 2 + rng.next() * (t - 4), hw: 14 + rng.next() * 26, th: 1 + rng.next() * Math.min(2.2, t / 7), dv: rng.chance(0.7) ? 1 : -1 });
     return list;
   });
@@ -280,11 +281,11 @@ export interface FloorStyle {
   heightSpread: number;
 }
 
-// Floors sit a ramp step under their walls: a floor catches the lantern and the open-space
+// Floors sit two ramp steps under their walls: a floor catches the lantern and the open-space
 // fill square on, so with the walls' albedo it read as pale dust or snow under the light.
-export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.07, fractures: 1, chips: 6, base: 0.39, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
-export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.06, fractures: 1, chips: 5, base: 0.41, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
-export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.1, fractures: 2, chips: 8, base: 0.4, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
+export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.07, fractures: 1, chips: 6, base: 0.33, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
+export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.06, fractures: 1, chips: 5, base: 0.35, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
+export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.1, fractures: 2, chips: 8, base: 0.35, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
 
 export interface FloorMap {
   f: Field2;

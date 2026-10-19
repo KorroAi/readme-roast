@@ -1,15 +1,16 @@
 import { Rng } from '../../core/rng';
 import type { StructureSpec } from '../../world/gen/types';
-import { STAIR_COPING } from '../../world/gen/architecture';
+import { BAY_RING, STAIR_COPING, bayIntrados } from '../../world/gen/architecture';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
+import { newel } from './parts';
 
 type Flight = Extract<StructureSpec, { kind: 'stairFlight' }>;
 
 /** Riser height and tread depth (m): four per metre of the flight's 1:1 slope. */
 export const RISER = 0.25;
-/** Library A strip rows (texels) by course height (materials/courses.ts COURSE_LIBRARIES.A). */
-export const STRIP_A = { half: 0, metre: 8, metreB: 24, oneHalf: 40, two: 64, twoB: 96 } as const;
+export { STRIP_A } from './strips';
+import { STRIP_A } from './strips';
 
 /**
  * Height of the tread under the point `s` metres down a flight (its walking plane is top - s):
@@ -48,9 +49,12 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
   // drops to the next tread. The first and last treads run onto the landings (a threshold stone a
   // few cm proud of the terrain floor, covering the bevel where the floor meets the flight).
   const sAt = (j: number) => (j < 0 ? -0.6 : j >= n ? f.run + 0.3 : RISER * j + RISER / 2);
-  const z0 = -hw - 0.02;
-  const z1 = hw + 0.02;
-  const segs = 6;
+  // Between parapets the steps tuck under them; without (a flight in a rock corridor) they run
+  // into the walls.
+  const tuck = f.parapet > 0 ? 0.02 : 0.3;
+  const z0 = -hw - tuck;
+  const z1 = hw + tuck;
+  const segs = 4;
   const zs = Array.from({ length: segs + 1 }, (_, k) => z0 + ((z1 - z0) * k) / segs);
   for (let j = 0; j <= n; j++) {
     const back = sAt(j - 1);
@@ -85,7 +89,7 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
   /** A raking band in the plane z = c between heights lo and hi above the walking plane. */
   const band = (c: number, lo: number, hi: number, out: V3, aoLo = 1, aoHi = 1) =>
     b.quadOut([s0, y(s0, lo), c], [s1, y(s1, lo), c], [s1, y(s1, hi), c], [s0, y(s0, hi), c], out, [aoLo, aoLo, aoHi, aoHi]);
-  for (const side of [-1, 1]) {
+  for (const side of f.parapet > 0 ? [-1, 1] : []) {
     const cIn = side * hw;
     const cOut = side * (hw + f.parapet);
     const cBand = side * (hw + f.parapet + 0.06);
@@ -122,14 +126,70 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
       b.pop();
       s += len;
     }
-    // Newel at the head: a squared post with a cap stone, standing on the landing; the coping
-    // starts from its downhill face.
-    const n1 = Math.min(cIn, cOut) - 0.12;
-    const n2 = Math.max(cIn, cOut) + 0.12;
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.two, axis: X, across: Z, u0: rng.int(0, 1023), top: top + 1.5 };
-    b.box(-0.5, top - 0.3, n1, 0.7, top + 1.5, n2, 0.04, 8);
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: X, across: Z, u0: rng.int(0, 1023), top: top + 1.8, vRef: n1 - 0.1 };
-    b.box(-0.6, top + 1.5, n1 - 0.1, 0.8, top + 1.8, n2 + 0.1, 0.05);
+    // Newel at the head, standing on the landing; the coping starts from its downhill face.
+    newel(b, rng, 0.1, (cIn + cOut) / 2, 0.5, f.parapet / 2 + 0.02, top, 1.85);
   }
+  // Bays: each a rampant arch under the flight, a raking barrel soffit of voussoirs between the
+  // flanks and the arch ring standing proud of both flanks.
+  for (const [s0, s1] of f.bays) bay(b, f, s0, s1, rng);
   b.pop();
+}
+
+function bay(b: StructureBuilder, f: Flight, s0: number, s1: number, rng: Rng): void {
+  const cF = f.width / 2 + f.parapet + 0.06;
+  const y = (s: number) => bayIntrados(f.top, s0, s1, s);
+  const slope = (s: number) => (y(Math.min(s1, s + 0.01)) - y(Math.max(s0, s - 0.01))) / (Math.min(s1, s + 0.01) - Math.max(s0, s - 0.01));
+  // Outward (downward) unit normal of the intrados in the (s, y) plane.
+  const nrm = (s: number): [number, number] => {
+    const d = slope(s);
+    const l = Math.hypot(d, 1);
+    return [d / l, -1 / l];
+  };
+  // Voussoir boundaries: equal arc length, about 0.7 m.
+  const pts: number[] = [s0];
+  let len = 0;
+  for (let s = s0; s < s1; s += 0.02) len += Math.hypot(0.02, y(s + 0.02) - y(s));
+  const nv = Math.max(5, Math.round(len / 0.7));
+  const step = len / nv;
+  let acc = 0;
+  for (let s = s0; s < s1 && pts.length < nv; s += 0.005) {
+    acc += Math.hypot(0.005, y(s + 0.005) - y(s));
+    if (acc >= step * pts.length) pts.push(s);
+  }
+  pts.push(s1);
+  for (let k = 0; k + 1 < pts.length; k++) {
+    const a = pts[k];
+    const c = pts[k + 1];
+    // Soffit: the voussoir's intrados face, across the whole flight, two segments for its curve.
+    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: Z, across: X, u0: rng.int(0, 1023), top: 0, vRef: a };
+    const m = (a + c) / 2;
+    for (const [p, q] of [[a, m], [m, c]]) {
+      const n = nrm((p + q) / 2);
+      b.quadOut([p, y(p), -cF], [q, y(q), -cF], [q, y(q), cF], [p, y(p), cF], [n[0], n[1], 0], [0.75, 0.75, 0.75, 0.75]);
+    }
+    // Ring stones on both flanks.
+    for (const side of [-1, 1]) {
+      const zo = side * (cF + 0.05);
+      const zi = side * (cF - 0.25);
+      const d = 0.012;
+      const pa = a + d;
+      const pc = c - d;
+      const na = nrm(pa);
+      const nc = nrm(pc);
+      const inA: V3 = [pa, y(pa), 0];
+      const inC: V3 = [pc, y(pc), 0];
+      const outA: V3 = [pa - na[0] * BAY_RING, y(pa) - na[1] * BAY_RING, 0];
+      const outC: V3 = [pc - nc[0] * BAY_RING, y(pc) - nc[1] * BAY_RING, 0];
+      const at = (p: V3, z: number): V3 => [p[0], p[1], z];
+      b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIP_A.metre, axis: X, across: Z, u0: rng.int(0, 1023), top: Math.max(outA[1], outC[1]) };
+      const out: V3 = [0, 0, side];
+      b.quadOut(at(inA, zo), at(inC, zo), at(outC, zo), at(outA, zo), out);
+      // Joint faces, extrados and intrados edges back to the flank.
+      // (The radial r = out - in turned a quarter: (-r.y, r.x) points back down the arch.)
+      b.quadOut(at(inA, zo), at(outA, zo), at(outA, zi), at(inA, zi), [-(outA[1] - inA[1]), outA[0] - inA[0], 0]);
+      b.quadOut(at(inC, zo), at(outC, zo), at(outC, zi), at(inC, zi), [outC[1] - inC[1], -(outC[0] - inC[0]), 0]);
+      b.quadOut(at(outA, zo), at(outC, zo), at(outC, zi), at(outA, zi), [-(na[0] + nc[0]), -(na[1] + nc[1]), 0]);
+      b.quadOut(at(inA, zo), at(inC, zo), at(inC, zi), at(inA, zi), [na[0] + nc[0], na[1] + nc[1], 0]);
+    }
+  }
 }

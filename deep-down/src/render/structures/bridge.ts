@@ -3,7 +3,8 @@ import { BRIDGE_NEWEL, archCircle } from '../../world/gen/architecture';
 import type { StructureSpec } from '../../world/gen/types';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
-import { STRIP_A } from './stairs';
+import { newel } from './parts';
+import { STRIP_A } from './strips';
 
 type Bridge = Extract<StructureSpec, { kind: 'bridge' }>;
 
@@ -72,7 +73,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
         const [z, y] = at(phi, rad);
         return [x, y, z];
       };
-      b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.metre, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: at(0, ro)[1] };
+      b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIP_A.metre, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: at((p0 + p1) / 2, ro)[1] };
       const ri = r + 0.012;
       b.quadOut(q(p0, ri, xo), q(p1, ri, xo), q(p1, ro, xo), q(p0, ro, xo), out);
       // Joint faces, extrados and intrados edges (short, back to the wall).
@@ -108,14 +109,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
       b.pop();
       z += len;
     }
-    // Newels at both ends (the lamps stand on the near ones).
-    for (const zn of [br.z0, br.z1 - 1]) {
-      const n0 = side < 0 ? xp0 - 0.18 : xp0 - 0.05;
-      const n1 = side < 0 ? xp1 + 0.05 : xp1 + 0.18;
-      b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.two, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck + BRIDGE_NEWEL - 0.2 };
-      b.box(n0, deck - 0.05, zn + 0.04, n1, deck + BRIDGE_NEWEL - 0.2, zn + 0.96, 0.035, 8);
-      b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck + BRIDGE_NEWEL, vRef: n0 - 0.08 };
-      b.box(n0 - 0.08, deck + BRIDGE_NEWEL - 0.2, zn - 0.04, n1 + 0.08, deck + BRIDGE_NEWEL, zn + 1.04, 0.04);
-    }
+    // Newels at both ends, and the lamp's pedestal at mid-span on the west parapet.
+    for (const zn of side < 0 ? [br.z0, br.mid, br.z1 - 1] : [br.z0, br.z1 - 1]) newel(b, rng, (xp0 + xp1) / 2 + side * 0.06, zn + 0.5, 0.36, 0.36, deck, BRIDGE_NEWEL, zn === br.mid);
   }
 }

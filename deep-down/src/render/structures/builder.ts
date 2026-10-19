@@ -24,6 +24,9 @@ export const enum TexMode {
   Stone = 1,
   /** A seamless layer (timber), in the piece's own frame. */
   Plain = 2,
+  /** One monolithic stone: Stone mode with u folded (mirrored) inside the strip's longest
+   *  joint-free stone, so a drum or a voussoir shows no head joint. */
+  Monolith = 3,
 }
 
 /**
@@ -118,6 +121,20 @@ export class StructureBuilder {
     return this;
   }
 
+  /** Post-multiply a change of basis: local x, y, z become X, Y, Z (orthonormal), origin o. */
+  basis(o: V3, X: V3, Y: V3, Z: V3): this {
+    this.translate(o[0], o[1], o[2]);
+    const m = this.frame;
+    const c = [m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8]];
+    const col = (v: V3, k: number) => {
+      for (let i = 0; i < 3; i++) m[k + i] = c[i] * v[0] + c[3 + i] * v[1] + c[6 + i] * v[2];
+    };
+    col(X, 0);
+    col(Y, 3);
+    col(Z, 6);
+    return this;
+  }
+
   /** Local point to world. */
   toWorld(p: V3): V3 {
     const m = this.frame;
@@ -205,6 +222,7 @@ export class StructureBuilder {
     ao: (y: number) => number = () => 1,
     a0 = 0,
     sweep = Math.PI * 2,
+    wobble?: (angle: number, k: number) => number,
   ): void {
     const m = profile.length;
     // Segment normals in the (r, y) plane, then per-point normals (smoothed unless creased).
@@ -233,14 +251,15 @@ export class StructureBuilder {
       const nB = nAt(k + 1);
       // Two rings of shared vertices per profile segment (smooth around).
       const base = this.vertexCount;
-      for (const [r, y, n] of [[r0, y0, nA], [r1, y1, nB]] as const) {
+      for (const [r, y, n, pk] of [[r0, y0, nA, k], [r1, y1, nB, k + 1]] as const) {
         const a0y = ao(y);
         for (const a of ang) {
           const c = Math.cos(a);
           const sn = -Math.sin(a);
-          const lp: V3 = [c * r, y, sn * r];
+          const rr = wobble ? r * wobble(a, pk) : r;
+          const lp: V3 = [c * rr, y, sn * rr];
           const wn = norm(this.dirToWorld([c * n[0], n[1], sn * n[0]]));
-          this.vertex(this.toWorld(lp), lp, wn, wn, dominantFace(wn), a0y, uv(a, r, y));
+          this.vertex(this.toWorld(lp), lp, wn, wn, dominantFace(wn), a0y, uv(a, rr, y));
         }
       }
       const row = segments + 1;
@@ -272,8 +291,10 @@ export class StructureBuilder {
       } else {
         u = (alongAxis ? dot(lp, ax) : dot(lp, w)) * D + s.u0;
         const dv = dot(lp, w) - (s.vRef ?? 0);
-        v = flat ? (s.mode === TexMode.Stone ? Math.abs(dv) : dv) * D : (s.top - lp[1]) * D;
-        if (s.mode === TexMode.Stone) v = Math.max(0, Math.min(v, 255));
+        // (Stone and Monolith map alike; the shader folds Monolith's u into one stone.)
+        const stone = s.mode === TexMode.Stone || s.mode === TexMode.Monolith;
+        v = flat ? (stone ? Math.abs(dv) : dv) * D : (s.top - lp[1]) * D;
+        if (stone) v = Math.max(0, Math.min(v, 255));
       }
     }
     this.st.push(clampI16(Math.round(u * 8)), clampI16(Math.round(v * 8)));
@@ -345,49 +366,27 @@ export class StructureBuilder {
     if (!(skip & 16)) this.quad(v(1, 1, 3), v(2, 1, 3), v(2, 2, 3), v(1, 2, 3));
     if (!(skip & 32)) this.quad(v(2, 1, 0), v(1, 1, 0), v(1, 2, 0), v(2, 2, 0));
     const has = (f: number) => !(skip & (1 << f));
-    // Edge bevels (each between two faces; drawn if either face is drawn).
+    // Edge bevels (each between two faces; drawn if either face is drawn), turned outward.
     // Edges along x.
     for (const [j, k, fy, fz] of [[0, 0, 3, 5], [3, 0, 2, 5], [3, 3, 2, 4], [0, 3, 3, 4]] as const) {
       if (!has(fy) && !has(fz)) continue;
       const jy = j === 0 ? 1 : 2;
       const kz = k === 0 ? 1 : 2;
-      const a = v(1, j, kz);
-      const b = v(2, j, kz);
-      const cc = v(2, jy, k);
-      const d = v(1, jy, k);
-      // Orientation: outward normal is (0, sy, sz).
-      const sy = j === 0 ? -1 : 1;
-      const sz = k === 0 ? -1 : 1;
-      if (sy * sz > 0) this.quad(a, b, cc, d);
-      else this.quad(d, cc, b, a);
+      this.quadOut(v(1, j, kz), v(2, j, kz), v(2, jy, k), v(1, jy, k), [0, j === 0 ? -1 : 1, k === 0 ? -1 : 1]);
     }
     // Edges along y.
     for (const [i, k, fx, fz] of [[0, 0, 1, 5], [3, 0, 0, 5], [3, 3, 0, 4], [0, 3, 1, 4]] as const) {
       if (!has(fx) && !has(fz)) continue;
       const ix = i === 0 ? 1 : 2;
       const kz = k === 0 ? 1 : 2;
-      const a = v(i, 1, kz);
-      const b = v(i, 2, kz);
-      const cc = v(ix, 2, k);
-      const d = v(ix, 1, k);
-      const sx = i === 0 ? -1 : 1;
-      const sz = k === 0 ? -1 : 1;
-      if (sx * sz < 0) this.quad(a, b, cc, d);
-      else this.quad(d, cc, b, a);
+      this.quadOut(v(i, 1, kz), v(i, 2, kz), v(ix, 2, k), v(ix, 1, k), [i === 0 ? -1 : 1, 0, k === 0 ? -1 : 1]);
     }
     // Edges along z.
     for (const [i, j, fx, fy] of [[0, 0, 1, 3], [3, 0, 0, 3], [3, 3, 0, 2], [0, 3, 1, 2]] as const) {
       if (!has(fx) && !has(fy)) continue;
       const ix = i === 0 ? 1 : 2;
       const jy = j === 0 ? 1 : 2;
-      const a = v(i, jy, 1);
-      const b = v(i, jy, 2);
-      const cc = v(ix, j, 2);
-      const d = v(ix, j, 1);
-      const sx = i === 0 ? -1 : 1;
-      const sy = j === 0 ? -1 : 1;
-      if (sx * sy > 0) this.quad(a, b, cc, d);
-      else this.quad(d, cc, b, a);
+      this.quadOut(v(i, jy, 1), v(i, jy, 2), v(ix, j, 2), v(ix, j, 1), [i === 0 ? -1 : 1, j === 0 ? -1 : 1, 0]);
     }
     // Corners.
     for (let ci = 0; ci < 8; ci++) {
@@ -440,6 +439,62 @@ export class StructureBuilder {
     };
     if (caps.bottom) cap(profile[0][0], profile[0][1], false);
     if (caps.top) cap(profile[profile.length - 1][0], profile[profile.length - 1][1], true);
+  }
+
+  /**
+   * A moulding swept along a horizontal polyline (local x-z points, at least two), mitred at its
+   * corners: `profile` is [out, y] pairs from bottom to top, `out` measured along the path's
+   * outward side (the left of the direction of travel when `left`, else the right). Open ends
+   * are capped. Flat-shaded per profile segment.
+   */
+  sweep(path: Array<[number, number]>, profile: Array<[number, number]>, left: boolean, caps = true): void {
+    const n = path.length;
+    const segN: Array<[number, number]> = [];
+    for (let i = 0; i + 1 < n; i++) {
+      const dx = path[i + 1][0] - path[i][0];
+      const dz = path[i + 1][1] - path[i][1];
+      const l = Math.hypot(dx, dz) || 1;
+      // Left of travel (x right, z down seen from above): (dz, -dx).
+      segN.push(left ? [dz / l, -dx / l] : [-dz / l, dx / l]);
+    }
+    // Mitre offset direction per path point: the bisector, scaled so offsets stay parallel.
+    const mit = path.map((_, i) => {
+      const a = segN[Math.max(0, i - 1)];
+      const c = segN[Math.min(segN.length - 1, i)];
+      let mx = a[0] + c[0];
+      let mz = a[1] + c[1];
+      const l = Math.hypot(mx, mz) || 1;
+      mx /= l;
+      mz /= l;
+      const k = 1 / Math.max(0.3, mx * c[0] + mz * c[1]);
+      return [mx * k, mz * k] as [number, number];
+    });
+    const pt = (i: number, o: number, y: number): V3 => [path[i][0] + mit[i][0] * o, y, path[i][1] + mit[i][1] * o];
+    for (let i = 0; i + 1 < n; i++) {
+      const out: V3 = [segN[i][0], 0, segN[i][1]];
+      for (let k = 0; k + 1 < profile.length; k++) {
+        const [o0, y0] = profile[k];
+        const [o1, y1] = profile[k + 1];
+        const dy = y1 - y0;
+        const dout = o1 - o0;
+        // Outward normal of this profile segment in the (out, y) plane: (dy, -dout).
+        const nrm: V3 = [out[0] * dy, -dout, out[2] * dy];
+        b4(this, pt(i, o0, y0), pt(i + 1, o0, y0), pt(i + 1, o1, y1), pt(i, o1, y1), nrm);
+      }
+    }
+    if (caps) {
+      const capAt = (i: number, dir: number) => {
+        const t: V3 = [path[i][0] - path[i - dir][0], 0, path[i][1] - path[i - dir][1]];
+        // The section, fanned from its top corner at the wall (it sees the whole profile, even a
+        // concave cove).
+        const poly = [pt(i, 0, profile[profile.length - 1][1]), pt(i, 0, profile[0][1]), ...profile.map(([o, y]) => pt(i, o, y))];
+        const nn = faceNormalOf(poly);
+        if (nn && nn[0] * t[0] + nn[2] * t[2] < 0) poly.reverse();
+        this.poly(poly);
+      };
+      capAt(0, -1);
+      capAt(n - 1, 1);
+    }
   }
 
   /**
@@ -513,3 +568,12 @@ export function worldUv(p: V3, face: number): [number, number] {
 
 const clampI16 = (v: number) => Math.max(-32768, Math.min(32767, v));
 const clampI8 = (v: number) => Math.max(-127, Math.min(127, v));
+
+function faceNormalOf(p: V3[]): V3 | null {
+  return faceNormal(p);
+}
+
+/** A quad turned to face `out` (local). */
+function b4(b: StructureBuilder, a: V3, c: V3, d: V3, e: V3, out: V3): void {
+  b.quadOut(a, c, d, e, out);
+}

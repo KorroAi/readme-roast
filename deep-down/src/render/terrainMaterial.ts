@@ -233,29 +233,34 @@ vec3 targetEntry(vec3 c) {
   return cameraPosition + rd * clamp(max(max(lo.x, lo.y), lo.z), 0.0, 1.0);
 }
 
-// Fractures from a strike at the origin of q (metres in the face plane): five cracks that wander
-// as they run out, reach further with damage (0..1) and taper; a small crushed pit at the centre.
-float fracture(vec2 q, float dmg, float seed) {
+// Fractures from a strike at the origin of q (metres in the face plane): five hairline cracks
+// (about one texel) that wander as they run out, reach further with damage (0..1) and taper, a
+// short branch off some of them and a small crushed pit at the centre. Returns the crack core
+// (x) and a lit lip beside it (y), so the cracks read as cut into the stone, not drawn on it.
+vec2 fracture(vec2 q, float dmg, float seed) {
   float r = length(q);
-  float reach = 0.12 + 0.62 * dmg;
-  if (r > reach) return 0.0;
+  float reach = 0.14 + 0.66 * dmg;
+  if (r > reach + 0.07) return vec2(0.0);
   float ang = atan(q.y, q.x);
-  float c = 1.0 - step(0.035 + 0.05 * dmg, r);
+  float c = 1.0 - step(0.03 + 0.035 * dmg, r);
+  float lip = 0.0;
   for (int k = 0; k < 5; k++) {
     float fk = float(k);
     float h1 = fract(seed * 7.13 + fk * 0.618);
     float h2 = fract(seed * 3.71 + fk * 0.377);
-    float len = reach * (0.5 + 0.5 * h2);
-    float a = (fk + 0.2 + 0.6 * h1) * 1.2566 + sin(r * 10.0 + fk * 2.1 + seed * 6.0) * 0.25;
-    float da = abs(mod(ang - a + 3.14159, 6.28318) - 3.14159);
-    float w = 0.05 * (1.0 - r / len);
-    c = max(c, step(da * r, w) * step(r, len));
-    // a short branch off the middle of every other crack
+    float len = reach * (0.45 + 0.55 * h2);
+    float a = (fk + 0.2 + 0.6 * h1) * 1.2566 + sin(r * 9.0 + fk * 2.1 + seed * 6.0) * 0.3;
+    float da = abs(mod(ang - a + 3.14159, 6.28318) - 3.14159) * r;
+    float w = 0.034 * (1.0 - r / len);
+    float on = step(r, len);
+    c = max(c, step(da, w) * on);
+    lip = max(lip, step(da, w + 0.06) * on * step(0.0, sin(ang - a)));
+    // a short branch off the middle of some cracks, bending away
     float ab = a + (h1 > 0.5 ? 1.5 : -1.5) * max(r - len * 0.45, 0.0) / len;
-    float db = abs(mod(ang - ab + 3.14159, 6.28318) - 3.14159);
-    c = max(c, step(db * r, w * 0.8) * step(len * 0.45, r) * step(r, len * 0.8) * step(0.5, fract(h2 * 5.0 + fk * 0.5)));
+    float db = abs(mod(ang - ab + 3.14159, 6.28318) - 3.14159) * r;
+    c = max(c, step(db, w * 0.8) * step(len * 0.45, r) * step(r, len * 0.8) * step(0.5, fract(h2 * 5.0 + fk * 0.5)));
   }
-  return c;
+  return vec2(c, lip * (1.0 - c));
 }
 
 void main() {
@@ -305,7 +310,7 @@ void main() {
     // Loose material and worn floor rest on slopes gentler than about 38 degrees; steeper rock
     // shows its beds. The threshold wanders with the world noise, and inside the band the
     // taller of the two layers at this texel claims it, so the boundary follows the stone.
-    float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.11);
+    float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.13);
     if (topL == sideL) t = ng.y > 0.0 ? 2.0 : -2.0;
     if (t >= 1.0) {
       pl = planesFor(rp, rpDx, rpDy, ng, 1.7);
@@ -319,7 +324,7 @@ void main() {
       Planes ps = planesFor(rp, rpDx, rpDy, ng, 0.55);
       vec4 a = planeSample(pt, float(topL), SOFT_ROCK);
       vec4 b = planeSample(ps, float(sideL), SOFT_ROCK);
-      topShown = (a.a - b.a) * 0.7 + t * 0.55 > 0.0;
+      topShown = (a.a - b.a) * 1.1 + t * 0.6 > 0.0;
       tex = topShown ? a : b;
       if (topShown) pl = pt;
       else pl = ps;
@@ -441,7 +446,9 @@ void main() {
     float erosion = smoothstep(0.3, 0.46, textureLod(uNoise, vGrid * (1.0 / 18.0) + hb * 7.0, 0.0).g);
     float carve = smoothstep(0.24, 0.42, scr.a) * (0.55 + 0.45 * erosion);
     float ink = smoothstep(0.72, 0.95, scr.a) * erosion;
-    float wake = smoothstep(9.0, 2.5, distance(uLanternPos, vGrid));
+    // The wake reaches up: a frieze high over a doorway answers a lantern carried beneath it.
+    vec3 dl = vGrid - uLanternPos;
+    float wake = smoothstep(9.0, 2.5, length(vec3(dl.x, dl.y * 0.35, dl.z)));
     color *= 1.0 - carve * 0.62; // the carved groove
     emissive += scr.rgb * ink * (0.2 + 0.85 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
@@ -460,10 +467,10 @@ void main() {
       // In-plane offset around the hit, snapped to the material texels: crisp pixel cracks.
       vec2 q = worldUv(dh, vFace) * MAT_PERIOD;
       q = (floor(q * ${MAT_DENSITY}.0) + 0.5) * (1.0 / ${MAT_DENSITY}.0);
-      float crack = fracture(q, dmg, hash13(vec3(cell)));
+      vec2 fr = fracture(q, dmg, hash13(vec3(cell)));
       float joints = (1.0 - smoothstep(0.1, 0.17, heightOf(tex, shownLayer))) * (1.0 - smoothstep(0.1 + dmg * 0.55, 0.22 + dmg * 0.55, r));
-      crack = max(crack, joints * smoothstep(0.1, 0.3, dmg));
-      color *= 1.0 - crack * 0.82;
+      float crack = max(fr.x, joints * smoothstep(0.1, 0.3, dmg));
+      color *= (1.0 - crack * 0.78) * (1.0 + fr.y * 0.25);
     }
     vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.82, 0.58);
     color += spotColor * spot * spot * (0.025 + 0.05 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.2 * spot;

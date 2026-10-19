@@ -70,15 +70,19 @@ describe('terrain material layers', () => {
     }
   });
 
-  it('paints no pale speckle on rock floors: texels a step or more above the floor are rare', () => {
+  it('paints no pale speckle on rock floors: isolated texels a step above their neighbours are rare', () => {
+    // Speckle = a small cluster brighter than everything around it (worn plates are broad areas).
     for (const name of ['stoneTop', 'deepTop'] as const) {
       const l = MAT[name];
-      const lums: number[] = [];
-      for (let i = 0; i < S * S; i++) lums.push(px(l, i % S, Math.floor(i / S), 0) + px(l, i % S, Math.floor(i / S), 1) + px(l, i % S, Math.floor(i / S), 2));
-      const sorted = [...lums].sort((a, b) => a - b);
-      const median = sorted[sorted.length >> 1];
-      const pale = lums.filter((v) => v > median * 1.18).length / lums.length;
-      expect(pale, name).toBeLessThan(0.02);
+      const v = (x: number, y: number) => px(l, x, y, 0) + px(l, x, y, 1) + px(l, x, y, 2);
+      let speck = 0;
+      for (let y = 0; y < S; y++)
+        for (let x = 0; x < S; x++) {
+          let ring = 0;
+          for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2], [-2, -2], [2, 2], [-2, 2], [2, -2]]) ring = Math.max(ring, v(x + dx, y + dy));
+          if (v(x, y) > ring * 1.12 + 6) speck++;
+        }
+      expect(speck / (S * S), name).toBeLessThan(0.01);
     }
   });
 

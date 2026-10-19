@@ -5,7 +5,10 @@ import type { LightingUniforms } from '../lighting';
 import type { TerrainUniforms } from '../terrainRig';
 import { StructureBuilder } from './builder';
 import { buildStructure } from './kinds';
-import { createStructureMaterial } from './structureMaterial';
+import { COURSE_LIBRARIES } from '../materials/courses';
+import { MAT } from '../materials';
+import { MAT_SIZE } from '../materials/paint';
+import { createStructureMaterial, stoneSpans } from './structureMaterial';
 
 export interface StructureStats {
   structures: number;
@@ -35,7 +38,16 @@ export class StructureRenderer {
 
   constructor(specs: readonly StructureSpec[], world: VoxelWorld | null, lighting: LightingUniforms, terrain: TerrainUniforms) {
     this.group.name = 'structures';
-    this.material = createStructureMaterial(lighting, terrain);
+    // Monolithic stones take the longest joint-free stone of each masonry strip, read from the
+    // painted layer (so they follow the painter, whatever its seeds).
+    const strips: Array<[number, number]> = [];
+    let row = 0;
+    for (const h of COURSE_LIBRARIES.A) {
+      strips.push([row, h]);
+      row += h;
+    }
+    const img = terrain.uMat.value?.image as { data?: ArrayLike<number> } | undefined;
+    this.material = createStructureMaterial(lighting, terrain, stoneSpans(img?.data ?? null, MAT_SIZE, MAT.masonry, strips));
     const t0 = performance.now();
     const cells = new Map<string, StructureBuilder>();
     for (const spec of specs) {
@@ -107,6 +119,9 @@ export function specCentre(s: StructureSpec): [number, number, number] {
     case 'bridge':
       return [s.x, s.deck, (s.z0 + s.z1) / 2];
     case 'pylon':
-      return [(s.x0 + s.x1) / 2, (s.foot + s.top) / 2, (s.z0 + s.z1) / 2];
+      return [s.path[0][0], (s.foot + s.top) / 2, s.path[0][1]];
+    case 'deck':
+    case 'weathering':
+      return [(s.x0 + s.x1) / 2, s.y, (s.z0 + s.z1) / 2];
   }
 }

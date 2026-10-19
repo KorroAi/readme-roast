@@ -63,6 +63,8 @@ export type StructureSpec =
       width: number;
       /** Parapet (cheek wall) thickness on each side. */
       parapet: number;
+      /** Arched bays between the piers that carry the flight: [s0, s1] along it. */
+      bays: Array<[number, number]>;
       seed: number;
     }
   | {
@@ -116,12 +118,44 @@ export type StructureSpec =
       seed: number;
     }
   | {
-      /** A timber beam from a to b (world points on its axis), square section `size` m. */
+      /** A timber from a to b (world points on its axis), section w x h m (h along the
+       *  beam's up side), optionally splintered at an end where it snapped. */
       kind: 'beam';
       id: string;
       a: [number, number, number];
       b: [number, number, number];
-      size: number;
+      w: number;
+      h: number;
+      /** 0 none, 1 at a, 2 at b. */
+      splinter: 0 | 1 | 2;
+      /** Twist about the axis (radians): a fallen timber does not lie square. */
+      roll: number;
+      seed: number;
+    }
+  | {
+      /** A sloped weathering stone on a set-back (the top of a buttress step): x0..x1 across the
+       *  step (it rises toward +x), z0..z1 along it, sitting on y, rising `rise` m. */
+      kind: 'weathering';
+      id: string;
+      x0: number;
+      x1: number;
+      z0: number;
+      z1: number;
+      y: number;
+      rise: number;
+      seed: number;
+    }
+  | {
+      /** A plank deck on joists over the floor: x0..x1, z0..z1, its walking surface at y; the
+       *  boards run along `along`. */
+      kind: 'deck';
+      id: string;
+      x0: number;
+      x1: number;
+      z0: number;
+      z1: number;
+      y: number;
+      along: 'x' | 'z';
       seed: number;
     }
   | {
@@ -140,19 +174,23 @@ export type StructureSpec =
       zA: number;
       zB: number;
       crown: number;
+      /** z of the cell of the lamp pedestal on the west parapet. */
+      mid: number;
       seed: number;
     }
   | {
-      /** The landing pylon carrying the stair landing: box x0..x1, z0..z1 from `foot` to `top`
-       *  (the landing floor), battered walls, cornice, parapet. */
+      /** The landing pylon's dress over its voxel walls: a cornice under the landing (`top`, the
+       *  landing floor), a socle at its foot (`foot`, the hall floor), corner rolls, along the
+       *  wall faces `path` (horizontal polyline, outward to its left), and frames round its
+       *  recesses. */
       kind: 'pylon';
       id: string;
-      x0: number;
-      x1: number;
-      z0: number;
-      z1: number;
+      path: Array<[number, number]>;
       foot: number;
       top: number;
+      /** Recess openings: in a wall plane z = at ('z') or x = at ('x'), spanning a0..a1 along it
+       *  and y0..y1; `out` = the outward sign of the wall's normal. */
+      recesses: Array<{ face: 'x' | 'z'; at: number; out: number; a0: number; a1: number; y0: number; y1: number }>;
       seed: number;
     };
 

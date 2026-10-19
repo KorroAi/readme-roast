@@ -4,7 +4,7 @@ import { Noise } from '../../core/noise';
 import { Rng } from '../../core/rng';
 import { VoxelWorld } from '../VoxelWorld';
 import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
-import { BRIDGE_NEWEL, STAIR_COPING, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
+import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -28,6 +28,8 @@ import { BRIDGE_NEWEL, STAIR_COPING, bridgeIntrados, columnNeck, columnOutline, 
 type V3 = [number, number, number];
 type Cells = Array<[number, number]>;
 
+/** Walking surface of the camp's plank decks (a hand over the voxel floor at 101). */
+const CAMP_DECK = 101.1;
 /** Half-width of the chasm where the bridge crosses it (m). */
 const CHASM_HALF = 6.2;
 /** The bridge arch: springing height at the chasm walls and the crown of its intrados. */
@@ -284,27 +286,54 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
   for (let z = 34; z <= 39; z++) for (let x = 38; x <= 44; x++) put(x, 100, z, B.PLANK);
   for (let z = 43; z <= 47; z++) for (let x = 29; x <= 34; x++) put(x, 100, z, B.PLANK);
+  // The decks themselves: boards on joists a hand above the floor (structure meshes; the voxel
+  // planks under them are what the explorer walks on).
+  structures.push({ kind: 'deck', id: 'deck_work', x0: 38, x1: 45, z0: 34, z1: 40, y: CAMP_DECK, along: 'x', seed: specRng.int(0, 1 << 30) });
+  structures.push({ kind: 'deck', id: 'deck_sleep', x0: 29, x1: 35, z0: 43, z1: 48, y: CAMP_DECK, along: 'z', seed: specRng.int(0, 1 << 30) });
   // The fire pit: an ember bed under the fire inside a ring of scorched gravel (the stones
   // themselves are part of the campfire prop), not a grid of glowing floor tiles.
   for (let z = 40; z <= 42; z++) for (let x = 35; x <= 37; x++) put(x, 100, z, B.GRAVEL);
   put(36, 100, 41, B.HEARTH);
-  // Support frame; the south-east post has snapped and its crossbeam lies on the floor.
+  // Support frame; the south-east post has snapped and its crossbeam lies on the floor. Squared
+  // timbers in real sections (0.34 m posts, 0.3 x 0.38 m beams, knee braces), drawn as structure
+  // meshes (render/structures/timber.ts) over hidden collision cells: the posts and the beams
+  // (the hanging lanterns hang from them). Braces and the fallen beam have none.
   const posts: V3[] = [[29, 0, 35], [44, 0, 35], [29, 0, 48]];
-  for (const [px, , pz] of posts) for (let y = 101; y <= 107; y++) put(px, y, pz, B.BEAM);
-  for (let y = 101; y <= 103; y++) put(44, y, 48, B.BEAM);
-  for (let x = 29; x <= 44; x++) put(x, 107, 35, B.BEAM);
-  for (let z = 35; z <= 48; z++) put(29, 107, z, B.BEAM);
-  for (let x = 29; x <= 36; x++) put(x, 107, 48, B.BEAM);
-  line([37, 101, 49], [44, 102, 46], (x, y, z) => put(x, y, z, B.BEAM));
+  for (const [px, , pz] of posts) for (let y = 101; y <= 107; y++) put(px, y, pz, B.STRUCTURE_TIMBER);
+  for (let y = 101; y <= 103; y++) put(44, y, 48, B.STRUCTURE_TIMBER);
+  for (let x = 29; x <= 44; x++) put(x, 107, 35, B.STRUCTURE_TIMBER);
+  for (let z = 35; z <= 48; z++) put(29, 107, z, B.STRUCTURE_TIMBER);
+  for (let x = 29; x <= 36; x++) put(x, 107, 48, B.STRUCTURE_TIMBER);
+  {
+    const beam = (id: string, a: V3, b: V3, w: number, h: number, splinter: 0 | 1 | 2 = 0, roll = 0) =>
+      structures.push({ kind: 'beam', id, a, b, w, h, splinter, roll, seed: specRng.int(0, 1 << 30) });
+    const BEAM_Y = 107.19; // beams' undersides at 107, where the lanterns' chains end
+    for (const [px, , pz] of posts) beam(`post_${px}_${pz}`, [px + 0.5, 100.92, pz + 0.5], [px + 0.5, 107.0, pz + 0.5], 0.34, 0.34);
+    beam('post_44_48', [44.5, 100.92, 48.5], [44.5, 103.55, 48.5], 0.34, 0.34, 2, 0.1);
+    beam('beam_z35', [28.85, BEAM_Y, 35.5], [45.15, BEAM_Y, 35.5], 0.3, 0.38);
+    beam('beam_x29', [29.5, BEAM_Y, 35.66], [29.5, BEAM_Y, 49.15], 0.3, 0.38);
+    beam('beam_z48', [29.66, BEAM_Y, 48.5], [36.95, BEAM_Y, 48.5], 0.3, 0.38, 2);
+    // Knee braces between the posts and the beams they carry.
+    const brace = (id: string, px: number, pz: number, dx: number, dz: number) =>
+      beam(id, [px + 0.5 + dx * 0.12, 106.0, pz + 0.5 + dz * 0.12], [px + 0.5 + dx * 1.05, 107.04, pz + 0.5 + dz * 1.05], 0.17, 0.17);
+    brace('brace_44_35', 44, 35, -1, 0);
+    brace('brace_29_35x', 29, 35, 1, 0);
+    brace('brace_29_35z', 29, 35, 0, 1);
+    brace('brace_29_48z', 29, 48, 0, -1);
+    brace('brace_29_48x', 29, 48, 1, 0);
+    // The crossbeam that came down with the snapped post: one timber on the floor, its broken end
+    // on the rubble.
+    beam('beam_fallen', [37.35, 101.17, 49.25], [44.35, 101.98, 46.35], 0.3, 0.36, 1, 0.22);
+  }
   blob([45, 101, 49], 1.6, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.GRAVEL); });
   blob([46, 101, 33], 1.4, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.SLATE); });
   // Make sure the camp ceiling clears the frame everywhere.
   for (let z = 34; z <= 49; z++) for (let x = 28; x <= 45; x++) for (let y = 101; y <= 106; y++) if (get(x, y, z) === B.SLATE || get(x, y, z) === B.UMBER) carve(x, y, z);
 
   addProp({ kind: 'campfire', x: 36.5, y: 101, z: 41.5, emitters: [[36, 101, 41]], interact: 'rest' });
-  addProp({ kind: 'workbench', x: 40.5, y: 101, z: 37.5, rotY: 0, interact: 'craft' });
+  addProp({ kind: 'workbench', x: 40.5, y: CAMP_DECK, z: 37.5, rotY: 0, interact: 'craft' });
   addProp({ kind: 'chest', x: 31.5, y: 101, z: 37.5, rotY: 0.35, interact: 'storage' });
-  addProp({ kind: 'bedroll', x: 32.5, y: 101, z: 45, rotY: 0.2 });
+  addProp({ kind: 'bedroll', x: 32.5, y: CAMP_DECK, z: 45, rotY: 0.2 });
   addProp({ kind: 'crate', x: 42.5, y: 101, z: 45.5, rotY: 0.3 });
   addProp({ kind: 'crate', x: 43.4, y: 101, z: 43.9, rotY: -0.2, scale: 0.8 });
   addProp({ kind: 'crate', x: 42.6, y: 101.82, z: 45.4, rotY: 0.9, scale: 0.7, anchor: [42, 100, 45] });
@@ -444,7 +473,9 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       stairColumn(x, z, t, soffit, z === 71 || z === 76, B.RAMP_PX, B.RAMP_BASE_PX, k === 0);
     }
   }
-  structures.push({ kind: 'stairFlight', id: 'flight1', x0: 96, z0: 74, top: 88, dir: 'x', run: 23, width: 4, parapet: 1, seed: specRng.int(0, 1 << 30) });
+  const bays1: Array<[number, number]> = [[2, 6], [8, 13], [15, 20]];
+  for (const [s0, s1] of bays1) stairBay(96, 74, 'x', 88, s0, s1);
+  structures.push({ kind: 'stairFlight', id: 'flight1', x0: 96, z0: 74, top: 88, dir: 'x', run: 23, width: 4, parapet: 1, bays: bays1, seed: specRng.int(0, 1 << 30) });
   // Landing tower.
   for (let z = 67; z <= 80; z++)
     for (let x = 117; x <= 128; x++) {
@@ -454,7 +485,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         const ring = Math.max(119 - x, x - 126, 69 - z, z - 79);
         const top = ring === 1 ? floorBase + 2 : floorBase;
         if (z <= 79 && z >= 69 || x <= 126 && x >= 119 || ring <= 1) for (let y = FOOT; y <= top; y++) put(x, y, z, M);
-        if (ring === 1 && (x === 127 || z === 68)) put(x, 62, z, M);
+        // The cornice under the landing (a structure mesh, below): hidden cells where it overhangs.
+        if (ring === 1 && (x === 127 || z === 68)) for (let y = 62; y <= 64; y++) put(x, y, z, B.STRUCTURE);
         continue;
       }
       for (let y = FOOT; y < 64; y++) put(x, y, z, M);
@@ -470,6 +502,18 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (let x = 121; x <= 124; x++) for (let y = floorBase + 8; y <= 59; y++) carve(x, y, 69);
   lanternPost(125, 65, 70.5, 0, true);
   lanternPost(120.5, 65, 77.5, Math.PI * 0.75);
+  // The pylon's dress (render/structures/pylon.ts) on the faces the flights leave bare, and the
+  // coping on the landing's parapet.
+  structures.push({
+    kind: 'pylon', id: 'landing', foot: floorBase, top: 65, seed: specRng.int(0, 1 << 30),
+    path: [[119, 70.9], [119, 69], [127, 69], [127, 80], [126.06, 80]],
+    recesses: [
+      { face: 'z', at: 69, out: -1, a0: 121, a1: 125, y0: floorBase + 8, y1: 60 },
+      { face: 'x', at: 127, out: 1, a0: 71, a1: 78, y0: floorBase + 8, y1: 60 },
+    ],
+  });
+  for (const [a, b] of [[[119, 69.5], [127, 69.5]], [[126.5, 69], [126.5, 79]], [[119.5, 70], [119.5, 71]], [[119.5, 76], [119.5, 79]]] as Array<[[number, number], [number, number]]>)
+    structures.push({ kind: 'coping', id: `landing_coping_${a.join('_')}`, a, b, y: 66, width: 1.16, height: 0.26, stone: 1.5, seed: specRng.int(0, 1 << 30) });
   // Flight 2 runs south along x 121..124 from the landing (z 79, level with it) down to the
   // processional way (z 103, y 41).
   const piers2 = [81, 87, 88, 94, 95];
@@ -487,7 +531,9 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       stairColumn(x, z, t, soffit, x === 120 || x === 125, B.RAMP_PZ, B.RAMP_BASE_PZ, false);
     }
   }
-  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 79, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, seed: specRng.int(0, 1 << 30) });
+  const bays2: Array<[number, number]> = [[3, 8], [10, 15]];
+  for (const [s0, s1] of bays2) stairBay(123, 79, 'z', 65, s0, s1);
+  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 79, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, bays: bays2, seed: specRng.int(0, 1 << 30) });
   // Lamps on the parapet coping halfway down each flight: warm pools with dark gaps between.
   lanternPost(106.5, stairCoping(106.5 - 96, 88), 76.5, Math.PI, false, true);
   lanternPost(125.5, stairCoping(91.5 - 79, 65), 91.5, -Math.PI / 2, false, true);
@@ -563,21 +609,26 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     const z0 = Math.floor(zA) - 3;
     const z1 = Math.ceil(zB) + 2;
     for (let z = z0; z <= z1; z++) {
-      // Body cells wholly above the arch's intrados (both faces of the cell).
-      const lo = Math.ceil(Math.max(bridgeIntrados(bridge, z), bridgeIntrados(bridge, z + 1)));
+      // Body cells wholly above the arch's intrados (both faces of the cell); beyond the span, the
+      // abutments down to the springing. Only open cells: rock the chasm's walls push into the
+      // body stays rock, inside the mesh.
+      const lo = Math.max(Math.ceil(BRIDGE_SPRING), Math.ceil(Math.max(bridgeIntrados(bridge, z), bridgeIntrados(bridge, z + 1))));
       for (let x = 120; x <= 124; x++) {
         const walk = x >= 121 && x <= 123;
         put(x, floorBase, z, walk ? B.ANCIENT_TILE : B.STRUCTURE);
-        for (let y = lo; y < floorBase; y++) put(x, y, z, B.STRUCTURE);
+        for (let y = lo; y < floorBase; y++) if (isAir(x, y, z)) put(x, y, z, B.STRUCTURE);
         for (let y = floorBase + 1; y <= floorBase + 5; y++) if (walk) carve(x, y, z);
       }
       put(120, floorBase + 1, z, B.STRUCTURE);
       put(124, floorBase + 1, z, B.STRUCTURE);
     }
-    // Newels at both ends carry the lamps.
+    // Newels at both ends, and a pedestal at mid-span on the west parapet that carries the
+    // bridge's lamp (the span is long: a lamp at its end would leave the crossing dark).
+    const mid = Math.floor((bridge.zA + bridge.zB) / 2);
     for (const nz of [z0, z1]) for (const nx of [120, 124]) put(nx, floorBase + 2, nz, B.STRUCTURE);
-    structures.push({ kind: 'bridge', id: 'bridge', x: 122.5, z0, z1: z1 + 1, deck: floorBase + 1, width: 3, parapet: 1, spring: BRIDGE_SPRING, seed: specRng.int(0, 1 << 30), zA: bridge.zA, zB: bridge.zB, crown: BRIDGE_CROWN });
-    lanternPost(120.5, floorBase + 1 + BRIDGE_NEWEL, z0 + 0.5, Math.PI / 2, true, true);
+    put(120, floorBase + 2, mid, B.STRUCTURE);
+    structures.push({ kind: 'bridge', id: 'bridge', x: 122.5, z0, z1: z1 + 1, deck: floorBase + 1, width: 3, parapet: 1, spring: BRIDGE_SPRING, seed: specRng.int(0, 1 << 30), zA: bridge.zA, zB: bridge.zB, crown: BRIDGE_CROWN, mid });
+    lanternPost(120.5, floorBase + 1 + BRIDGE_NEWEL, mid + 0.5, Math.PI / 2, true, true);
     // The far end runs into the chasm's south wall: a lamp on the deck marks the alcove.
     lanternPost(123.4, floorBase + 1, z1 + 0.4, -Math.PI / 2);
   }
@@ -627,11 +678,17 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         }
         put(x, y, z, M);
       }
-  for (const [z0, z1] of [[87, 90], [111, 114]])
+  for (const [z0, z1] of [[87, 90], [111, 114]]) {
     for (let y = floorBase - 2; y <= 64; y++) {
       const front = y <= floorBase + 7 ? 132 : y <= floorBase + 15 ? 134 : 135;
       for (let x = front; x <= 136; x++) for (let z = z0; z <= z1; z++) put(x, y, z, M);
     }
+    // Weatherings on the buttresses' set-backs and a cap on top (structure meshes; nothing walks
+    // up there, so they need no collision).
+    for (const [x0, x1, y] of [[132, 134, floorBase + 8], [134, 135, floorBase + 16]])
+      structures.push({ kind: 'weathering', id: `weathering_${z0}_${y}`, x0, x1, z0: z0 - 0.04, z1: z1 + 1.04, y, rise: 0.62, seed: specRng.int(0, 1 << 30) });
+    structures.push({ kind: 'weathering', id: `weathering_${z0}_top`, x0: 135, x1: 137, z0: z0 - 0.04, z1: z1 + 1.04, y: 65, rise: 0.45, seed: specRng.int(0, 1 << 30) });
+  }
   // Portal face at x 135 with pilasters, the lintel and two cornice courses stepping out.
   for (let z = 92; z <= 109; z++)
     for (let y = floorBase - 2; y <= floorBase + 12; y++) {
@@ -673,14 +730,20 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     put(x, floorBase, z, z === 100 || z === 101 ? B.ANCIENT_TILE : M);
     for (let y = floorBase + 1; y <= floorBase + 5; y++) carve(x, y, z);
   }
+  // The stair down to the balcony: a fine-stepped flight from wall to wall of its rock corridor
+  // (structure mesh over stair wedges, like the hall's flights; its last column is the landing).
   for (let k = 0; k <= 17; k++) {
     const z = 103 + k;
     const walk = floorBase + 1 - k;
     for (let x = 147; x <= 151; x++) {
-      put(x, walk - 1, z, x >= 148 && x <= 150 ? B.ANCIENT_TILE : M);
+      if (k < 17) {
+        put(x, walk - 1, z, B.RAMP_PZ);
+        put(x, walk - 2, z, B.RAMP_BASE_PZ);
+      } else put(x, walk - 1, z, x >= 148 && x <= 150 ? B.ANCIENT_TILE : M);
       for (let y = walk; y <= walk + 5; y++) carve(x, y, z);
     }
   }
+  structures.push({ kind: 'stairFlight', id: 'gateStair', x0: 149.5, z0: 103, top: floorBase + 1, dir: 'z', run: 17, width: 5, parapet: 0, bays: [], seed: specRng.int(0, 1 << 30) });
   const lowWalk = floorBase + 1 - 17;
   for (let z = 120; z <= 129; z++) for (let x = 141; x <= 151; x++) {
     put(x, lowWalk - 1, z, M);
@@ -697,6 +760,11 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // faces the monolith: the last words of this zone.
   for (const nz of [122, 132]) for (let y = lowWalk; y <= lowWalk + 1; y++) put(132, y, nz, M);
   for (let z = 126; z <= 128; z++) put(132, lowWalk, z, B.GLYPH_STONE);
+  // The parapet's coping and the newels' caps (structure meshes over the voxel parapet).
+  for (const [a, b] of [[[132.5, 123], [132.5, 132]], [[133, 122.5], [142, 122.5]], [[133, 132.5], [142, 132.5]]] as Array<[[number, number], [number, number]]>)
+    structures.push({ kind: 'coping', id: `balcony_coping_${a.join('_')}`, a, b, y: lowWalk + 1, width: 1.16, height: 0.26, stone: 1.6, seed: specRng.int(0, 1 << 30) });
+  for (const nz of [122, 132])
+    structures.push({ kind: 'block', id: `balcony_newel_${nz}`, min: [131.86, lowWalk + 2, nz - 0.14], max: [133.14, lowWalk + 2.3, nz + 1.14], axis: 'z', chamfer: 0.05, seed: specRng.int(0, 1 << 30) });
   lanternPost(149.5, floorBase + 1, 100.5, 0, true);
   lanternPost(140.5, lowWalk, 127.5, 0, true);
   discoveries.push({ id: 'gate', min: [131, lowWalk - 1, 121], max: [142, lowWalk + 6, 133] });
@@ -980,14 +1048,6 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
           const d = Math.hypot(x + 0.5 - c[0], y + 0.5 - c[1], z + 0.5 - c[2]);
           if (d <= r + detail.noise3(x * 0.5, y * 0.5, z * 0.5) * 0.6) fn(x, y, z);
         }
-  }
-
-  function line(a: V3, b: V3, fn: (x: number, y: number, z: number) => void): void {
-    const n = Math.ceil(Math.max(Math.abs(b[0] - a[0]), Math.abs(b[1] - a[1]), Math.abs(b[2] - a[2])));
-    for (let i = 0; i <= n; i++) {
-      const t = n === 0 ? 0 : i / n;
-      fn(Math.round(a[0] + (b[0] - a[0]) * t), Math.round(a[1] + (b[1] - a[1]) * t), Math.round(a[2] + (b[2] - a[2]) * t));
-    }
   }
 
   /** Cells of a disc centred on a grid corner: offsets whose cell centres lie within r. */
@@ -1286,6 +1346,29 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       put(x, t - 1, z, base);
       put(x, t, z, wedge);
       for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
+    }
+  }
+
+  /**
+   * A flight's bay between two piers (s0..s1 along it) on a rampant arch: under the arch's
+   * intrados the stepped voxel soffit is cut away, the cells it crosses become hidden collision
+   * under the soffit mesh (render/structures/stairs.ts), the masonry above stays.
+   */
+  function stairBay(x0: number, z0: number, dir: 'x' | 'z', top: number, s0: number, s1: number): void {
+    for (let s = s0; s < s1; s++) {
+      const a = bayIntrados(top, s0, s1, s);
+      const b = bayIntrados(top, s0, s1, s + 1);
+      const lo = Math.min(a, b, bayIntrados(top, s0, s1, s + 0.5));
+      const hi = Math.max(a, b);
+      for (let c = -3; c <= 2; c++) {
+        const x = dir === 'x' ? x0 + s : x0 + c;
+        const z = dir === 'x' ? z0 + c : z0 + s;
+        for (let y = Math.floor(lo) - 4; y <= Math.ceil(hi); y++) {
+          if (get(x, y, z) !== M) continue; // the flight's masonry only, never the floor below
+          if (y + 1 <= lo) carve(x, y, z);
+          else if (y < hi) put(x, y, z, B.STRUCTURE);
+        }
+      }
     }
   }
 

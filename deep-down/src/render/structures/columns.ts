@@ -3,7 +3,7 @@ import type { StructureSpec } from '../../world/gen/types';
 import { BASE_TOP, CAPITAL_H, columnNeck, echinusRadius, fractureHeight, plinthHalf, shaftRadius } from '../../world/gen/architecture';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
-import { STRIP_A } from './stairs';
+import { STRIP_A } from './strips';
 
 type Column = Extract<StructureSpec, { kind: 'column' }>;
 type Drum = Extract<StructureSpec, { kind: 'drum' }>;
@@ -89,6 +89,7 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
     profile.push(full || y1 < yEnd - 1e-6 ? [r1, y1 - 0.045] : [r1, y1]);
     if (full || y1 < yEnd - 1e-6) profile.push([r1 - g, y1]);
     stone(STRIPS_2M[rng.int(0, 1)], y1);
+    b.surface = { ...b.surface, mode: TexMode.Monolith };
     const u0 = b.surface.u0;
     b.revolve(profile, segs, (a, _r, y) => [around(a, u0), (y1 - y) * D], (y) => (first && y < y0 + 0.2 ? 0.78 : 1), rng.range(0, TAU));
     y0 = y1;
@@ -183,10 +184,25 @@ export function buildDrum(b: StructureBuilder, d: Drum): void {
       [r - ch, h],
       [0, h],
     ];
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIPS_2M[rng.int(0, 1)], axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0 };
+    b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIPS_2M[rng.int(0, 1)], axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0 };
     const u0 = b.surface.u0;
+    // Weathered: the arrises chipped and the faces a little out of round.
+    const p1 = rng.range(0, TAU);
+    const p2 = rng.range(0, TAU);
+    const wob = (a: number, k: number) => {
+      const edge = k === 1 || k === 4 ? 1 : k === 2 || k === 3 ? 0.4 : 0;
+      return 1 + 0.008 * Math.sin(a * 3 + p1) - edge * 0.012 * (1 + Math.sin(a * 11 + p2) * Math.sin(a * 5 + p1));
+    };
     // Side: around x along; ends: the bed face squeezed into the strip.
-    b.revolve(profile, segs, (a, rr, y) => (Math.abs(y) > h - 1e-3 && rr < r - ch + 1e-3 ? [Math.cos(a) * rr * D + u0, ((Math.sin(a) * rr) / r + 1) * 15] : [around(a, u0), Math.min(31, (h - y) * D * (31 / (2 * h * D)))]));
+    b.revolve(
+      profile,
+      segs,
+      (a, rr, y) => (Math.abs(y) > h - 1e-3 && rr < r - ch + 1e-3 ? [Math.cos(a) * rr * D + u0, ((Math.sin(a) * rr) / r + 1) * 15] : [around(a, u0), Math.min(31, (h - y) * D * (31 / (2 * h * D)))]),
+      (y) => (y < -h + 0.3 ? 0.8 : 1),
+      0,
+      TAU,
+      wob,
+    );
     b.pop();
   }
 }
