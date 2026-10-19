@@ -55,6 +55,56 @@ const MAX_ACCEL = 60;
  */
 const CHARM = { length: 0.11, coupling: 0.15, stiffness: 110, damping: 8, maxAngle: 0.8 };
 
+/** Render order of the explorer while it fades: after every opaque surface it blends over. */
+export const FADE_RENDER_ORDER = 1000;
+
+/**
+ * Depth-only pass of the faded explorer. Pushed back a hair (polygon offset) so the colour pass,
+ * a different program, always passes LEQUAL on the surface that wrote the depth.
+ */
+function createFadeDepthMaterial(): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    vertexShader: /* glsl */ `
+void main() {
+  gl_Position = projectionMatrix * (viewMatrix * (modelMatrix * vec4(position, 1.0)));
+}`,
+    fragmentShader: /* glsl */ `
+layout(location = 0) out highp vec4 fragColor;
+void main() {
+  fragColor = vec4(0.0);
+}`,
+    colorWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
+  });
+}
+
+/**
+ * The colour pass blends with a constant alpha (gl.blendColor), so the shader needs no alpha
+ * output and no discard: the screen-door define is removed (tile GPUs keep early depth tests).
+ * Opaque draws use NoBlending; NoBlending and CustomBlending compile the same program.
+ */
+function configureFade(m: THREE.ShaderMaterial): void {
+  delete m.defines.USE_FADE;
+  m.blending = THREE.NoBlending;
+  m.blendEquation = THREE.AddEquation;
+  m.blendSrc = THREE.ConstantAlphaFactor;
+  m.blendDst = THREE.OneMinusConstantAlphaFactor;
+  m.blendSrcAlpha = THREE.ZeroFactor;
+  m.blendDstAlpha = THREE.OneFactor;
+  m.blendAlpha = 1;
+}
+
+/** Two draw groups over the whole geometry: 0 = depth pass, 1 = colour pass. */
+function ensureFadeGroups(g: THREE.BufferGeometry): void {
+  if (g.groups.length === 2 && g.groups[1].materialIndex === 1) return;
+  g.clearGroups();
+  g.addGroup(0, Infinity, 0);
+  g.addGroup(0, Infinity, 1);
+}
+
 /**
  * The explorer: a jointed voxel character (hips -> torso -> head/arms/pack, hips -> legs and coat
  * tails) with one geometry per rigid part and one shared material. The root's origin is the feet
@@ -68,6 +118,10 @@ const CHARM = { length: 0.11, coupling: 0.15, stiffness: 110, damping: 8, maxAng
 export class ExplorerModel {
   readonly root = new THREE.Group();
   private readonly material: THREE.ShaderMaterial;
+  /** Near-camera fade: depth-only pass, the [depth, colour] pair the parts use while fading. */
+  private readonly fadeDepth: THREE.ShaderMaterial;
+  private readonly fadePasses: THREE.Material[];
+  private fading = false;
   private readonly animator = new ExplorerAnimator();
   private readonly geometries: THREE.BufferGeometry[] = [];
   private readonly body = new THREE.Group();
@@ -111,7 +165,12 @@ export class ExplorerModel {
   private readonly tmpQ = new THREE.Quaternion();
 
   constructor(lighting: LightingUniforms) {
+    // The depth pass is created first: its lower material id makes it draw before the colour
+    // pass within the fade's render order (three sorts by renderOrder, then material id).
+    this.fadeDepth = createFadeDepthMaterial();
     this.material = createEntityMaterial(lighting, { emissiveScale: 2, fade: true });
+    configureFade(this.material);
+    this.fadePasses = [this.fadeDepth, this.material];
     this.root.name = 'explorer';
     this.root.add(this.body, this.lanternPivot, this.charmPivot);
     const mesh = (geometry: THREE.BufferGeometry, parent: THREE.Object3D) => {
@@ -286,11 +345,37 @@ export class ExplorerModel {
     return out.setFromMatrixPosition(this.pickTip.matrixWorld);
   }
 
-  /** Screen-door fade (0..1) used when the camera is very close. */
+  /**
+   * Near-camera fade (opacity 0..1) used when the camera is very close. A real alpha fade that
+   * prints no pattern over the scene: while fading, every part first writes its depth (no
+   * colour), then the colour pass blends at a constant alpha (CONSTANT_ALPHA blending, so the
+   * shader is unchanged) where it matches that depth, so only the explorer's nearest surface
+   * shows, never a limb through the coat. Both passes draw after every opaque surface. At full
+   * opacity the parts are ordinary opaque draws (no blending, no extra pass).
+   */
   setFade(alpha: number): void {
     const a = saturate(alpha);
     this.material.uniforms.uFade.value = a;
-    this.body.visible = this.lanternPivot.visible = this.charmPivot.visible = a > 0.01;
+    const visible = a > 0.01;
+    this.body.visible = this.lanternPivot.visible = this.charmPivot.visible = visible;
+    const fading = visible && a < 0.999;
+    if (fading !== this.fading) {
+      this.fading = fading;
+      this.material.blending = fading ? THREE.CustomBlending : THREE.NoBlending;
+      this.root.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || (m.material !== this.material && m.material !== this.fadePasses)) return;
+        m.material = fading ? this.fadePasses : this.material;
+        m.renderOrder = fading ? FADE_RENDER_ORDER : 0;
+      });
+    }
+    if (!fading) return;
+    this.material.blendAlpha = a;
+    // Tool geometry changes with the tier: every drawn geometry needs the two fade groups.
+    this.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && m.material === this.fadePasses) ensureFadeGroups(m.geometry);
+    });
   }
 
   dispose(): void {
@@ -300,6 +385,7 @@ export class ExplorerModel {
     this.pickaxes.clear();
     this.lanterns.clear();
     this.material.dispose();
+    this.fadeDepth.dispose();
     this.root.removeFromParent();
   }
 

@@ -1,30 +1,62 @@
 import * as THREE from 'three';
-import { clamp, damp, dampAngle } from '../core/math';
+import { clamp, damp, dampAngle, lerp, saturate } from '../core/math';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import { raycastVoxels } from '../world/raycast';
 import { segmentClear } from '../world/light';
 
+/** Boom ray bundle: sideways and vertical offsets from the shoulder point (m). */
+const BUNDLE_SIDE = [0, 0.2, -0.2];
+const BUNDLE_UP = [0, 0.18, -0.12];
+/**
+ * Shares of the shoulder tried when the boom is cut short, and how they are scored: boom length
+ * counts up to SLIDE_COMFORT metres, and each unit of shoulder share is worth SLIDE_PREFER metres.
+ */
+const SLIDES = [0.7, 0.4];
+const SLIDE_COMFORT = 3.6;
+const SLIDE_PREFER = 2;
+
 /**
  * Third-person over-the-shoulder camera with voxel collision.
  *
- * Yaw/pitch come from look input. The camera sits behind and slightly right of a pivot at
- * the explorer's upper chest, and is pulled in (quickly) when rock is in the way and eases
- * back out (slowly) when space opens up, so tight tunnels never put rock between the
- * camera and the explorer.
+ * Yaw/pitch come from look input and set the lens direction (the crosshair). The camera sits
+ * behind and to the right of a pivot at the explorer's upper chest: a sideways shoulder offset
+ * plus a boom that is turned a little against the lens (`frameYaw`, `framePitch`), so the
+ * explorer stands low and left of the crosshair and the route ahead stays in view. Because the
+ * framing is an angle, it shrinks with the boom: when rock pulls the boom in, the camera comes
+ * closer and lower on its own. The boom is pulled in (at once) when rock is in the way and eases
+ * back out (slowly) when space opens up, so tight tunnels never put rock between the camera and
+ * the explorer.
  */
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = -0.18;
   /** Smoothed current boom length. */
-  distance = 3.8;
-  maxDistance = 3.8;
-  shoulder = 0.7;
+  distance = 4.8;
+  /** Boom length in open space. */
+  maxDistance = 4.8;
+  /** Sideways shoulder offset in landscape (m); cast first and shortened against walls. */
+  shoulder = 1.15;
+  /**
+   * Boom turned against the lens (rad): the lens looks this far above the line from the camera
+   * to the pivot (about 0.8 m over the explorer's head at the full boom), so the explorer stands
+   * in the lower third and the floor ahead shows above the hat.
+   */
+  framePitch = 0.17;
+  /** ... and this far to the right of it (on top of the shoulder), so the explorer stands left. */
+  frameYaw = 0.06;
+  /** Vertical field of view (deg) in landscape; narrow screens (portrait) get a little more. */
+  fov = 67;
   sensitivity = 1;
   invertY = false;
   shakeScale = 1;
   /** Shoulder side, smoothed: +1 right, -1 left (switches when the right side is walled in). */
   private side = 1;
+  /** Sideways room for the shoulder, smoothed: shrinks at once, grows back slowly (no jitter). */
+  private roomR = 0;
+  private roomL = 0;
+  /** Share of the shoulder in use, smoothed (1, or SLIDE while a post behind it blocks the boom). */
+  private shoulderUse = 1;
   private trauma = 0;
   private shakeTime = 0;
   private readonly pivot = new THREE.Vector3();
@@ -33,7 +65,8 @@ export class CameraRig {
   private readonly tmp = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
 
-  constructor(private readonly world: VoxelWorld, fov = 62) {
+  constructor(private readonly world: VoxelWorld, fov = 67) {
+    this.fov = fov;
     this.camera = new THREE.PerspectiveCamera(fov, 1, 0.05, 320);
     this.camera.rotation.order = 'YXZ';
   }
@@ -56,6 +89,8 @@ export class CameraRig {
     this.pivot.copy(this.pivotTarget);
     this.distance = this.maxDistance;
     this.side = 1;
+    this.roomR = this.roomL = this.shoulder;
+    this.shoulderUse = 1;
     this.initialized = true;
   }
 
@@ -75,38 +110,64 @@ export class CameraRig {
     this.pivot.z = damp(this.pivot.z, this.pivotTarget.z, 22, dt);
     this.pivot.y = damp(this.pivot.y, this.pivotTarget.y, 14, dt);
 
-    const cy = Math.cos(this.pitch);
-    // Backward vector (camera looks along -back).
-    this.dir.set(Math.sin(this.yaw) * cy, -Math.sin(this.pitch), Math.cos(this.yaw) * cy);
+    // Framing follows the screen shape: on a narrow (portrait) screen the landscape shoulder would
+    // push the explorer off the left edge, so the shoulder and the yaw framing shrink and the
+    // lens widens a little. 1 from 16:9 up, 0 at 4:5.
+    const wide = saturate((aspect - 0.8) / 0.9);
+    const shoulder = this.shoulder * lerp(0.45, 1, wide);
+    const frameYaw = this.frameYaw * wide;
+
+    // Boom (lens to pivot, backwards), turned against the lens direction by the framing angles.
+    const bp = this.pitch - this.framePitch;
+    const by = this.yaw + frameYaw;
+    const cy = Math.cos(bp);
+    this.dir.set(Math.sin(by) * cy, -Math.sin(bp), Math.cos(by) * cy);
     const right = this.tmp.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
 
     // 1) Shoulder offset, shortened if a wall is right beside the explorer. When the right side
     //    is walled in and the left is open, swap shoulders so the explorer never sits on the
     //    crosshair in a narrow tunnel.
-    const reach = this.shoulder + 0.3;
+    const reach = shoulder + 0.3;
     const hitR = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, right.x, 0, right.z, reach);
     const hitL = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, -right.x, 0, -right.z, reach);
-    const roomR = hitR ? Math.max(0, hitR.distance - 0.3) : this.shoulder;
-    const roomL = hitL ? Math.max(0, hitL.distance - 0.3) : this.shoulder;
+    const roomR = hitR ? Math.max(0, hitR.distance - 0.3) : shoulder;
+    const roomL = hitL ? Math.max(0, hitL.distance - 0.3) : shoulder;
+    // The offset uses the room smoothed: it shrinks at once (the shoulder point must stay out of
+    // rock) but grows back slowly, so walking along a rough wall does not jerk the camera sideways.
+    // It never exceeds this frame's room.
+    this.roomR = roomR < this.roomR ? roomR : damp(this.roomR, roomR, 4, dt);
+    this.roomL = roomL < this.roomL ? roomL : damp(this.roomL, roomL, 4, dt);
     // Hysteresis: once on the left, return only when the right is clearly open again.
     const want = this.side < 0
-      ? roomR >= this.shoulder * 0.9 || roomR > roomL + 0.2 ? 1 : -1
-      : roomR >= this.shoulder * 0.5 || roomR >= roomL ? 1 : -1;
-    this.side = damp(this.side, want, 5, dt);
-    const lateral = this.side >= 0 ? Math.min(this.shoulder * this.side, roomR) : -Math.min(-this.shoulder * this.side, roomL);
+      ? roomR >= shoulder * 0.9 || roomR > roomL + 0.2 ? 1 : -1
+      : roomR >= shoulder * 0.5 || roomR >= roomL ? 1 : -1;
+    this.side = damp(this.side, want, 4, dt);
+    const full = this.side >= 0 ? Math.min(shoulder * this.side, this.roomR) : -Math.min(-shoulder * this.side, this.roomL);
+
+    // 2) Boom: a small bundle of rays cast back from the (open) shoulder point. If a post or a
+    //    corner behind the shoulder cuts the boom short while a point nearer the explorer's back
+    //    sees clearly further, the shoulder slides in (smoothly) instead of the camera
+    //    crowding the explorer; it slides back out once the full shoulder is clear. Candidates
+    //    are judged at fixed offsets, so the choice does not feed back on itself.
+    const fullRoom = this.boomRoom(right, full);
+    let use = 1;
+    if (fullRoom < this.maxDistance - 0.4) {
+      // Score: boom length up to a comfortable one, plus a preference for the wide shoulder.
+      let best = Math.min(fullRoom, SLIDE_COMFORT) + SLIDE_PREFER;
+      for (const u of SLIDES) {
+        const score = Math.min(this.boomRoom(right, full * u), SLIDE_COMFORT) + SLIDE_PREFER * u;
+        if (score > best + 0.05) {
+          best = score;
+          use = u;
+        }
+      }
+    }
+    this.shoulderUse = damp(this.shoulderUse, use, 2.5, dt);
+    const lateral = full * this.shoulderUse;
     const ox = this.pivot.x + right.x * lateral;
     const oy = this.pivot.y;
     const oz = this.pivot.z + right.z * lateral;
-
-    // 2) Boom: cast a small bundle of rays back from the (open) shoulder point.
-    let allowed = this.maxDistance;
-    for (const off of [0, 0.2, -0.2]) {
-      for (const offY of [0, 0.18, -0.12]) {
-        const hit = raycastVoxels(this.world, ox + right.x * off, oy + offY, oz + right.z * off, this.dir.x, this.dir.y, this.dir.z, this.maxDistance + 0.4);
-        if (hit) allowed = Math.min(allowed, hit.distance - 0.3);
-      }
-    }
-    allowed = Math.max(0, allowed);
+    const allowed = this.shoulderUse > 0.999 ? fullRoom : this.boomRoom(right, lateral);
     // Snap in at once (never let rock come between camera and explorer); ease back out slowly.
     this.distance = allowed < this.distance ? allowed : damp(this.distance, allowed, 3, dt);
 
@@ -116,9 +177,10 @@ export class CameraRig {
     //    the explorer (the straight pivot-to-lens line is not one of the rays). At distance 0 the
     //    lens is the shoulder point, whose line from the pivot was ray-checked in step 1.
     const p = this.pivot;
+    const steps = Math.ceil(this.maxDistance / 0.15) + 1;
     for (
       let i = 0;
-      i < 26 && this.distance > 0 && (this.world.isSolidAt(cam.position.x, cam.position.y, cam.position.z) || !segmentClear(this.world, p.x, p.y, p.z, cam.position.x, cam.position.y, cam.position.z));
+      i < steps && this.distance > 0 && (this.world.isSolidAt(cam.position.x, cam.position.y, cam.position.z) || !segmentClear(this.world, p.x, p.y, p.z, cam.position.x, cam.position.y, cam.position.z));
       i++
     ) {
       this.distance = Math.max(0, this.distance - 0.15);
@@ -133,9 +195,26 @@ export class CameraRig {
     const shakeYaw = s * 0.018 * (Math.sin(t * 1.1) + Math.sin(t * 2.3 + 1.7) * 0.5);
     const shakePitch = s * 0.018 * (Math.sin(t * 1.3 + 0.5) + Math.sin(t * 2.9 + 2.1) * 0.5);
     cam.rotation.set(this.pitch + shakePitch, this.yaw + shakeYaw, 0);
+    // The rig owns the lens in play (the menu sets its own and does not run the rig).
+    cam.fov = lerp(this.fov + 5, this.fov, wide);
     cam.aspect = aspect;
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
+  }
+
+  /** Boom length the rock allows from the shoulder point at `lateral` metres along `right`. */
+  private boomRoom(right: THREE.Vector3, lateral: number): number {
+    const ox = this.pivot.x + right.x * lateral;
+    const oy = this.pivot.y;
+    const oz = this.pivot.z + right.z * lateral;
+    let allowed = this.maxDistance;
+    for (const off of BUNDLE_SIDE) {
+      for (const offY of BUNDLE_UP) {
+        const hit = raycastVoxels(this.world, ox + right.x * off, oy + offY, oz + right.z * off, this.dir.x, this.dir.y, this.dir.z, this.maxDistance + 0.4);
+        if (hit) allowed = Math.min(allowed, hit.distance - 0.3);
+      }
+    }
+    return Math.max(0, allowed);
   }
 
   /** Camera forward direction in the horizontal plane (for movement). */

@@ -1,12 +1,14 @@
 import * as THREE from 'three';
 import type { VoxelWorld } from '../world/VoxelWorld';
-import { meshChunk } from './mesher';
+import { OFFSET_RANGE, VERTEX_BYTES, meshChunk } from './mesher';
 
 export interface ChunkStats {
   chunks: number;
   meshedChunks: number;
   vertices: number;
   triangles: number;
+  /** GPU bytes of all terrain vertex and index buffers. */
+  bytes: number;
   lastRebuildMs: number;
   maxRebuildMs: number;
 }
@@ -17,11 +19,12 @@ export interface ChunkStats {
  */
 export class ChunkRenderer {
   readonly group = new THREE.Group();
-  readonly stats: ChunkStats = { chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, lastRebuildMs: 0, maxRebuildMs: 0 };
+  readonly stats: ChunkStats = { chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, bytes: 0, lastRebuildMs: 0, maxRebuildMs: 0 };
   private readonly meshes: Array<THREE.Mesh | null>;
   private readonly world: VoxelWorld;
   private readonly material: THREE.Material;
   private readonly vertexCounts: Int32Array;
+  private readonly byteCounts: Int32Array;
   viewDistance = 96;
 
   constructor(world: VoxelWorld, material: THREE.Material) {
@@ -30,6 +33,7 @@ export class ChunkRenderer {
     const n = world.cx * world.cy * world.cz;
     this.meshes = new Array(n).fill(null);
     this.vertexCounts = new Int32Array(n);
+    this.byteCounts = new Int32Array(n);
     this.stats.chunks = n;
     this.group.name = 'terrain';
     this.group.matrixAutoUpdate = false;
@@ -111,6 +115,8 @@ export class ChunkRenderer {
     let mesh = this.meshes[i];
     this.stats.vertices -= this.vertexCounts[i];
     this.stats.triangles -= this.vertexCounts[i] / 2;
+    this.stats.bytes -= this.byteCounts[i];
+    this.byteCounts[i] = 0;
     if (data.faceCount === 0) {
       if (mesh) {
         this.group.remove(mesh);
@@ -121,14 +127,20 @@ export class ChunkRenderer {
       this.vertexCounts[i] = 0;
       return;
     }
+    // One interleaved 16-byte vertex (see mesher.ts): aGeo overlaps 'position' (kept for
+    // three.js bookkeeping; the terrain shader reads aGeo).
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
-    geo.setAttribute('aData', new THREE.BufferAttribute(data.data, 4));
-    geo.setAttribute('aNb', new THREE.BufferAttribute(data.nb, 4));
+    const ib = new THREE.InterleavedBuffer(data.vertices, VERTEX_BYTES);
+    geo.setAttribute('position', new THREE.InterleavedBufferAttribute(ib, 3, 0));
+    geo.setAttribute('aGeo', new THREE.InterleavedBufferAttribute(ib, 4, 0));
+    geo.setAttribute('aData', new THREE.InterleavedBufferAttribute(ib, 4, 4));
+    geo.setAttribute('aNb', new THREE.InterleavedBufferAttribute(ib, 4, 8));
+    geo.setAttribute('aShape', new THREE.InterleavedBufferAttribute(ib, 4, 12));
     geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
     const cs = w.chunkSize;
-    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs / 2, cs / 2, cs / 2), (cs * Math.sqrt(3)) / 2 + 0.5);
-    geo.boundingBox = new THREE.Box3(new THREE.Vector3(0, 0, 0), new THREE.Vector3(cs, cs, cs));
+    // Sculpted vertices move at most OFFSET_RANGE per axis.
+    geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs / 2, cs / 2, cs / 2), (cs * Math.sqrt(3)) / 2 + OFFSET_RANGE * Math.sqrt(3));
+    geo.boundingBox = new THREE.Box3(new THREE.Vector3(-OFFSET_RANGE, -OFFSET_RANGE, -OFFSET_RANGE), new THREE.Vector3(cs + OFFSET_RANGE, cs + OFFSET_RANGE, cs + OFFSET_RANGE));
     if (mesh) {
       mesh.geometry.dispose();
       mesh.geometry = geo;
@@ -144,6 +156,8 @@ export class ChunkRenderer {
       this.stats.meshedChunks++;
     }
     this.vertexCounts[i] = data.vertexCount;
+    this.byteCounts[i] = data.vertices.byteLength + data.indices.byteLength;
+    this.stats.bytes += this.byteCounts[i];
     this.stats.vertices += data.vertexCount;
     this.stats.triangles += data.vertexCount / 2;
   }

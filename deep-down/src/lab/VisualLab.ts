@@ -18,6 +18,10 @@ import { ParticleSystem } from '../game/effects/Particles';
 import { DropSystem } from '../game/Drops';
 import { CRACK_STAGES } from '../config/tiles';
 import type { ItemId } from '../config/items';
+import { lanternForTier } from '../config/balance';
+
+/** The explorer's starting lantern (the lab's 'game' lighting uses its pool and intensity). */
+const GAME_LANTERN = lanternForTier(1);
 
 export type LabView = 'materials' | 'transitions' | 'crystal' | 'lantern' | 'cracks' | 'particles' | 'pickup' | 'character' | 'props';
 
@@ -38,20 +42,41 @@ interface Preset {
   target: [number, number, number];
   lantern: [number, number, number];
   lanternRadius: number;
-  ambient: number;
 }
+
+/**
+ * Lab lighting. 'review' (the default) is a neutral studio light so every view can be judged on a
+ * screen: a grey hemisphere fill on every surface (terrain, props and explorers alike), the
+ * preset's lantern as a neutral key with a wider pool, almost no fog and a fixed exposure.
+ * 'game' is the real game lighting: the Hollow atmosphere, the tier-1 oil lantern (radius,
+ * intensity, warm colour), no fill override. Emission (crystals, runes, lamps) is the same in both.
+ */
+export type LabLight = 'review' | 'game';
+export const LAB_LIGHTS: LabLight[] = ['review', 'game'];
+const REVIEW = {
+  /** Linear fill on every surface (shaded by the surface's facing, darkened by AO). */
+  ambient: [0.07, 0.072, 0.078] as const,
+  /** Extra fill in open space (scaled by openness squared, like the zones' open-space fill). */
+  open: [0.03, 0.032, 0.036] as const,
+  /** Neutral key (the preset's lantern): colour (linear), intensity and minimum pool radius. */
+  key: [1.55, 1.5, 1.45] as const,
+  keyIntensity: 1.1,
+  keyRadius: 15,
+  fog: 0.004,
+  exposure: 1.1,
+};
 
 /** Fixed camera + light presets so changes can be compared screenshot to screenshot. */
 const PRESETS: Record<LabView, Preset> = {
-  materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16, ambient: 0.22 },
-  transitions: { cam: [96, 11, 4], target: [96, 3.5, 25], lantern: [96, 4.2, 22], lanternRadius: 12, ambient: 0.16 },
-  crystal: { cam: [10, 4.6, 35.4], target: [15.5, 3.2, 44], lantern: [9.5, 4.5, 35], lanternRadius: 6, ambient: 0 },
-  lantern: { cam: [33, 7.5, 36], target: [40.5, 3, 43], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
-  cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12, ambient: 0.1 },
-  particles: { cam: [51.5, 4.6, 54.6], target: [51.5, 2.8, 59.5], lantern: [51.5, 5, 56], lanternRadius: 12, ambient: 0.06 },
-  pickup: { cam: [11.5, 4.2, 54.2], target: [11.5, 2.6, 59.5], lantern: [11.5, 5, 56], lanternRadius: 12, ambient: 0.06 },
-  character: { cam: [57, 3.6, 25.2], target: [57, 3.0, 30.5], lantern: [57, 4.4, 28], lanternRadius: 11, ambient: 0.05 },
-  props: { cam: [24, 6.5, 22], target: [26, 3.2, 30], lantern: [24, 5.5, 25], lanternRadius: 13, ambient: 0.05 },
+  materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16 },
+  transitions: { cam: [96, 11, 4], target: [96, 3.5, 25], lantern: [96, 4.2, 22], lanternRadius: 12 },
+  crystal: { cam: [10, 4.6, 35.4], target: [15.5, 3.2, 44], lantern: [9.5, 4.5, 35], lanternRadius: 6 },
+  lantern: { cam: [33, 7.5, 36], target: [40.5, 3, 43], lantern: [40, 3.8, 41], lanternRadius: 11 },
+  cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12 },
+  particles: { cam: [51.5, 4.6, 54.6], target: [51.5, 2.8, 59.5], lantern: [51.5, 5, 56], lanternRadius: 12 },
+  pickup: { cam: [11.5, 4.2, 54.2], target: [11.5, 2.6, 59.5], lantern: [11.5, 5, 56], lanternRadius: 12 },
+  character: { cam: [57, 3.6, 25.2], target: [57, 3.0, 30.5], lantern: [57, 4.4, 28], lanternRadius: 11 },
+  props: { cam: [24, 6.5, 22], target: [26, 3.2, 30], lantern: [24, 5.5, 25], lanternRadius: 13 },
 };
 
 /**
@@ -122,6 +147,9 @@ export class VisualLab {
   private trLanternAngle: number | null = null;
   /** Optional fill-light override (?amb=0..1) to inspect albedo without the lantern. */
   ambientOverride: number | null = null;
+  private lighting: LabLight = 'review';
+  /** The real game lighting, captured from the rig before the lab changes anything. */
+  private readonly gameLight: { ambient: THREE.Color; open: THREE.Color; lantern: THREE.Color; fog: number };
   private time = 0;
   private burstTimer = 0;
   frames = 0;
@@ -134,6 +162,8 @@ export class VisualLab {
     this.light.computeAll();
     this.lantern = new LanternField(this.world);
     this.rig = new LightingRig(this.light, this.lantern, this.world.sx, this.world.sy, this.world.sz);
+    const lu = this.rig.uniforms;
+    this.gameLight = { ambient: lu.uAmbient.value.clone(), open: lu.uOpenAmbient.value.clone(), lantern: lu.uLanternColor.value.clone(), fog: lu.uFogDensity.value };
     const atlas = generateTiles();
     const tiles = createTileTexture(atlas);
     this.terrain = new TerrainRig();
@@ -285,14 +315,50 @@ export class VisualLab {
     const p = PRESETS[view];
     this.camera.position.set(...p.cam);
     this.camera.lookAt(...p.target);
-    const u = this.rig.uniforms;
-    u.uLanternPos.value.set(...p.lantern);
-    u.uLanternRadius.value = p.lanternRadius;
-    u.uDebug.value.set(this.ambientOverride ?? p.ambient, 9999, 0);
-    u.uFogDensity.value = TR_FOG.off;
-    this.lantern.compute(p.lantern[0], p.lantern[1], p.lantern[2], p.lanternRadius);
-    this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
+    this.rig.uniforms.uLanternPos.value.set(...p.lantern);
+    this.applyLighting();
     if (view === 'transitions') this.applyTransitionOptions();
+  }
+
+  get lightMode(): LabLight {
+    return this.lighting;
+  }
+
+  /** Switch between the review light and the real game lighting (?light=review|game). */
+  setLighting(mode: LabLight): void {
+    this.lighting = mode;
+    this.applyLighting();
+    if (this.view === 'transitions') this.applyTransitionOptions();
+  }
+
+  /** Lantern pool radius of the current view under the current lighting. */
+  private lanternRadius(): number {
+    const p = PRESETS[this.view];
+    return this.lighting === 'review' ? Math.max(p.lanternRadius, REVIEW.keyRadius) : GAME_LANTERN.radius;
+  }
+
+  private applyLighting(): void {
+    const u = this.rig.uniforms;
+    const review = this.lighting === 'review';
+    const g = this.gameLight;
+    if (review) {
+      u.uAmbient.value.setRGB(...REVIEW.ambient);
+      u.uOpenAmbient.value.setRGB(...REVIEW.open);
+      u.uLanternColor.value.setRGB(...REVIEW.key);
+    } else {
+      u.uAmbient.value.copy(g.ambient);
+      u.uOpenAmbient.value.copy(g.open);
+      u.uLanternColor.value.copy(g.lantern);
+    }
+    u.uLanternIntensity.value = review ? REVIEW.keyIntensity : GAME_LANTERN.intensity;
+    u.uLanternRadius.value = this.lanternRadius();
+    // ?amb= still adds a flat fill on terrain (albedo inspection) in either mode.
+    u.uDebug.value.set(this.ambientOverride ?? 0, 9999, 0);
+    u.uFogDensity.value = review ? REVIEW.fog : g.fog;
+    this.renderer.post.params.zoneExposure = review ? REVIEW.exposure : 1;
+    const lp = u.uLanternPos.value;
+    this.lantern.compute(lp.x, lp.y, lp.z, u.uLanternRadius.value);
+    this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
   }
 
   /** Transitions view options: camera stop, fog on/off, frozen lantern angle (for captures). */
@@ -311,7 +377,7 @@ export class VisualLab {
     const c = TR_CAMS[this.trCam];
     this.camera.position.set(...c.cam);
     this.camera.lookAt(...c.target);
-    this.rig.uniforms.uFogDensity.value = this.trFog ? TR_FOG.on : TR_FOG.off;
+    this.rig.uniforms.uFogDensity.value = this.trFog ? TR_FOG.on : this.lighting === 'review' ? REVIEW.fog : this.gameLight.fog;
     this.placeTransitionLantern(this.trLanternAngle ?? this.time * 0.45, true);
   }
 
@@ -321,7 +387,7 @@ export class VisualLab {
     const lz = o.z + Math.sin(a) * o.rz;
     const ly = o.y + Math.sin(a * 2) * 0.5;
     this.rig.uniforms.uLanternPos.value.set(lx, ly, lz);
-    if (this.lantern.update(lx, ly, lz, PRESETS.transitions.lanternRadius, force)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
+    if (this.lantern.update(lx, ly, lz, this.lanternRadius(), force)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
   }
 
   get currentView(): LabView {
@@ -338,7 +404,7 @@ export class VisualLab {
       const lx = 40 + Math.cos(a) * 4;
       const lz = 42 + Math.sin(a) * 4;
       u.uLanternPos.value.set(lx, 3.8, lz);
-      if (this.lantern.update(lx, 3.8, lz, PRESETS.lantern.lanternRadius)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
+      if (this.lantern.update(lx, 3.8, lz, this.lanternRadius())) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
     }
     if (this.view === 'transitions') this.placeTransitionLantern(this.trLanternAngle ?? this.time * 0.45);
     this.burstTimer -= dt;

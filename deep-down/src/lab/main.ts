@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { t } from '../i18n';
 import { Renderer } from '../render/Renderer';
-import { LAB_VIEWS, TRANSITION_CAMS, VisualLab, type LabView, type TransitionCam } from './VisualLab';
+import { LAB_LIGHTS, LAB_VIEWS, TRANSITION_CAMS, VisualLab, type LabLight, type LabView, type TransitionCam } from './VisualLab';
 import './lab.css';
 
 /** Visual Lab entry: view switcher + a window.__DD__ hook for the screenshot tool. */
@@ -16,6 +16,9 @@ function boot(): void {
   const params = new URLSearchParams(location.search);
   const amb = Number(params.get('amb'));
   if (params.has('amb') && Number.isFinite(amb)) lab.ambientOverride = Math.max(0, Math.min(1, amb));
+  // Lighting: the review light (default) or the real game lighting (?light=game).
+  const lightParam = params.get('light') as LabLight | null;
+  if (lightParam && LAB_LIGHTS.includes(lightParam)) lab.setLighting(lightParam);
   const initial = (params.get('view') as LabView) ?? 'materials';
   // Transitions view options from the URL (repeatable captures): cam, fog=1, lt=<lantern angle>.
   const camParam = params.get('cam') as TransitionCam | null;
@@ -40,6 +43,24 @@ function boot(): void {
     buttons.set(v.id, b);
     bar.appendChild(b);
   }
+  // Lighting toggle (every view): review light <-> real game lighting.
+  const light = document.createElement('button');
+  light.type = 'button';
+  light.className = 'lab-light';
+  const syncLight = () => {
+    const review = lab.lightMode === 'review';
+    light.textContent = t(review ? 'lab.lightReview' : 'lab.lightGame');
+    light.title = t(review ? 'lab.lightReviewHint' : 'lab.lightGameHint');
+    light.setAttribute('aria-pressed', String(review));
+    light.classList.toggle('active', review);
+  };
+  light.addEventListener('click', () => {
+    lab.setLighting(lab.lightMode === 'review' ? 'game' : 'review');
+    syncLight();
+    syncUrl();
+  });
+  syncLight();
+  bar.appendChild(light);
   // Transitions options: cycle the camera stop, toggle fog (shown only in that view).
   const trTools: HTMLButtonElement[] = [];
   const angle = document.createElement('button');
@@ -84,6 +105,8 @@ function boot(): void {
   function syncUrl(): void {
     const url = new URL(location.href);
     url.searchParams.set('view', lab.currentView);
+    if (lab.lightMode === 'game') url.searchParams.set('light', 'game');
+    else url.searchParams.delete('light');
     if (lab.currentView === 'transitions') {
       url.searchParams.set('cam', lab.transitionOptions.cam);
       if (lab.transitionOptions.fog) url.searchParams.set('fog', '1');
@@ -146,11 +169,16 @@ function boot(): void {
       return lab.ready && lab.frames > 5;
     },
     setView: (v: LabView) => select(v),
+    setLighting: (m: LabLight) => {
+      lab.setLighting(m);
+      syncLight();
+      syncUrl();
+    },
     setTransitionOptions: (o: { cam?: TransitionCam; fog?: boolean; lanternAngle?: number | null }) => {
       lab.setTransitionOptions(o);
       syncUrl();
     },
-    report: () => ({ view: lab.currentView, render: { ...lab.renderer.gl.info.render }, frames: lab.frames }),
+    report: () => ({ view: lab.currentView, light: lab.lightMode, render: { ...lab.renderer.gl.info.render }, frames: lab.frames }),
   };
 }
 

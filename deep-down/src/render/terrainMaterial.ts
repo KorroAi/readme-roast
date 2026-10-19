@@ -4,6 +4,7 @@ import { RUNE_COUNT, RUNE_FIRST_LAYER, TILE_NAMES, TILE_SIZE } from '../config/t
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
 import { FAMILY, MATERIAL_NAMES } from './materials';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
+import { OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
 import type { TileAtlas } from './textures';
 
@@ -34,10 +35,14 @@ export function tileGlowTable(): number[] {
 }
 
 const vertex = /* glsl */ `
+// One interleaved 16-byte vertex (render/mesher.ts): the mesher sculpts on the CPU, once per
+// chunk, so the vertex stage only decodes. No texture fetches here.
+in vec4 aGeo;   // lattice corner xyz (chunk-local), octahedral normal x (0..254, 127 = 0)
 in vec4 aData;
 in vec4 aNb;
-uniform highp sampler3D uNoise;
+in vec4 aShape; // sculpted offset xyz (128 = 0), octahedral normal y
 out vec3 vGrid;
+out vec3 vNormal;
 flat out vec4 vNb;
 flat out int vFlags;
 out vec3 vWorldPos;
@@ -47,11 +52,16 @@ out float vDepth;
 flat out int vFace;
 flat out float vLayer;
 
-// Sculpt amplitude per rigidity (timber, masonry, firm rock, natural rock), in metres.
-const float AMP[4] = float[](0.0, 0.05, 0.12, 0.19);
+const float OFF_STEP = ${OFFSET_RANGE.toFixed(4)} / 127.0;
+
+vec3 octDecode(vec2 e) {
+  vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
+  if (v.z < 0.0) v.xy = (1.0 - abs(v.yx)) * vec2(v.x >= 0.0 ? 1.0 : -1.0, v.y >= 0.0 ? 1.0 : -1.0);
+  return normalize(v);
+}
 
 void main() {
-  vec4 g = modelMatrix * vec4(position, 1.0);
+  vec4 g = modelMatrix * vec4(aGeo.xyz, 1.0);
   vGrid = g.xyz;
   vFace = int(aData.x + 0.5);
   vAo = aData.y;
@@ -60,16 +70,14 @@ void main() {
   vUv = vec2(float(bits & 1), 1.0 - float((bits >> 1) & 1));
   vFlags = bits >> 4; // family (2 bits) | rune << 2
   vNb = aNb;
-  // Crack-free sculpting: the offset is a pure function of the vertex's world position and its
-  // rigidity, which every face sharing the vertex computes identically. Vertical motion is
-  // damped so floors stay where the explorer's feet are.
+  // Smooth shading normal from the mesher (chunks are only translated: no normal matrix).
+  vNormal = octDecode((vec2(aGeo.w, aShape.w) - 127.0) * (1.0 / 127.0));
+  // Crack-free sculpting: the offset is a pure function of the lattice point's world position
+  // and the 8 voxels around it, identical in every face and chunk that shares the vertex.
 #ifdef NO_DISP
   vec3 off = vec3(0.0);
 #else
-  float amp = AMP[(bits >> 2) & 3];
-  vec3 n1 = texture(uNoise, g.xyz * (1.0 / 38.0)).rgb * 2.0 - 1.0;
-  vec3 n2 = texture(uNoise, g.xyz * (1.0 / 9.0) + 0.37).rgb * 2.0 - 1.0;
-  vec3 off = (n1 + n2 * 0.45) * amp * vec3(1.0, 0.32, 1.0);
+  vec3 off = (aShape.xyz - 128.0) * OFF_STEP;
 #endif
   vec4 wp = vec4(g.xyz + off, 1.0);
   vWorldPos = wp.xyz;
@@ -92,6 +100,7 @@ uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: no
 uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
 
 in vec3 vGrid;
+in vec3 vNormal;
 flat in vec4 vNb;
 flat in int vFlags;
 in vec3 vWorldPos;
@@ -188,13 +197,12 @@ void main() {
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
 
-  // Faceted normal of the sculpted surface (flat per triangle): lantern light picks out the forms.
+  // Shading normal of the sculpted surface: smooth across natural rock (the mesher's lattice
+  // normal, bent by the relief), flat on masonry, crystal and timber. NO_DERIV: face normal.
 #ifdef NO_DERIV
   vec3 ng = n;
 #else
-  vec3 ng = normalize(cross(dFdx(vWorldPos), dFdy(vWorldPos)));
-  if (dot(ng, n) < 0.0) ng = -ng;
-  ng = normalize(mix(n, ng, 0.85));
+  vec3 ng = normalize(vNormal);
 #endif
 
   vec3 samplePos = vGrid + n * 0.5;
