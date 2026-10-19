@@ -204,7 +204,7 @@ export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x17110c, ambientGain: 0.6, open: 0x3a2f26, openGain: 0.6, scatter: 0.1, bounce: 0.12, absorb: 0.9, exposure: 1.0 },
   tunnel: { fog: 0x17191c, fogLow: 0x0e0f11, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x121418, ambientGain: 0.6, open: 0x3a3e45, openGain: 0.8, scatter: 0.1, bounce: 0.13, absorb: 0.9, exposure: 1.0 },
-  hollow: { fog: 0x15212f, fogLow: 0x0c0b18, density: 0.026, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0c1118, ambientGain: 0.6, open: 0x303c4c, openGain: 0.95, scatter: 0.1, bounce: 0.14, absorb: 0.92, exposure: 1.0 },
+  hollow: { fog: 0x151c26, fogLow: 0x0c0b17, density: 0.026, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0d1117, ambientGain: 0.6, open: 0x343c48, openGain: 0.95, scatter: 0.1, bounce: 0.14, absorb: 0.92, exposure: 1.0 },
   rift: { fog: 0x171428, fogLow: 0x22153c, density: 0.024, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.6, open: 0x353048, openGain: 0.85, scatter: 0.12, bounce: 0.12, absorb: 0.92, exposure: 1.0 },
 };
 
