@@ -9,13 +9,34 @@ Node 22.22, headless Chromium 141 (Playwright 1.56.1) with WebGL 2 through Swift
 | Check | Result |
 |---|---|
 | TypeScript (`npx tsc --noEmit`, strict; src, unit and e2e tests) | 0 errors |
-| Unit tests (`npx vitest run`) | **416 passed**, 27 files (19 Oct 2026, after visual round 4 and the mobile controls) |
-| End-to-end (`npx playwright test`, production build) | **4 / 4 passed** (6.3 min) on a quiet machine on 19 Oct 2026, after visual round 4 and the mobile controls. Under heavy load (load average 11–18 on 4 cores) SwiftShader drops to 0–1 fps and the specs' wall-clock budgets time out; this happens identically on the pre-round-4 baseline (316d7c0). Earlier: 9 consecutive full runs passed. |
-| UI + touch checks (`node tools/ui-check.mjs --no-shots --game`) | **60 / 60 passed**, 0 console problems (4 runs after the slider-check race was fixed; before that fix the slider check failed intermittently, and one audit run also timed out in the game flow while other heavy jobs shared the machine) |
-| APK packaging (`node tools/apk-sim.mjs`) | 8 / 8 passed |
-| Android APK (`android/build-apk.sh`) | built, aligned, signed, signature verified; 293 KB; **not run on a device** |
+| Unit tests (`npx vitest run`) | **488 passed**, 37 files (19 Oct 2026, final-pass wave 1 close) |
+| End-to-end (`npx playwright test`, production build) | **10 / 10 passed** (8.9 min) at the final-pass wave 1 close, 19 Oct 2026: desktop 2, release 6 (crash panel, rejected promise, Android bridge, context loss, quality governor, no WebGL 2), slice, world (black-out cache). The specs now wait on game time, so a loaded machine slows them instead of failing them. Earlier: 4/4 after visual round 4; 9 consecutive full runs passed during the first verification. |
+| UI + touch checks (`node tools/ui-check.mjs --no-shots --game`) | **61 / 61 passed**, 0 console problems (wave 1 close). Sandbox alone 48/48: the hold and joystick checks follow the mobile controls (230 ms hold, a joystick base that follows the thumb) |
+| APK packaging (`node tools/apk-sim.mjs`) | **all checks passed** at wave 1 close (start, save, reload, Continue, offline privacy.html, licenses.txt, crash panel, Back on the panel, Restart, 0 refused requests, 0 page errors) |
+| Android APK (`DD_RELEASE=1 android/build-apk.sh`) | built, aligned, signed: 446,062 B, versionCode 1000000, versionName 1.0.0, minSdk 24, targetSdk 36, adaptive icon; **not run on a device**. The Gradle AAB and CI are written but cannot run here (unverified) |
 | Code review | 5 areas reviewed adversarially, each finding independently verified, every confirmed finding fixed; a final audit of these documents and of the late changes (below) |
 | Mutation checks on the new HUD / desktop tests | freezing the hearts, lantern meter, backpack count, compass or objective, or forcing crosshair aim, makes the intended assertion fail |
+
+## Final pass, wave 1 (loop core + release infrastructure)
+
+W1 loop core, agent A, port 4173, final code: tsc clean; vitest 37 files / 488 tests passed (was 27 / 416). New tests: cold (8), homeField (7, warm recompute 2.03 ms, balcony 191 m walk = 191 m BFS vs 152 m straight), cache (5, fuzz of 200 lethal falls: chasm 30, hollow 150, rift 20, every cache on the reachable set), records (6), genVersion (3, fingerprint 9cbb0a10 for genVersion 1), menuCamera (4), save-v2 (7), gameplay-progression (10), frame guard (2 in session.test). e2e full suite 10/10 passed in 8.8 m (desktop 2, release 6, slice, world rewritten for the cache). ui-check 43/47; the same 4 touch failures appear on HEAD.
+
+Final pass W1 release-infra (2026-10-19):
+- `npx tsc --noEmit`: clean. `npx vitest run`: 37 files, 488 tests passed. New: version.test.ts (7) covers 1.0.0→1000000, 1.2.3+7→1020307, prerelease refused, DD_BUILD parsing, package.json 1.0.0; governor.test.ts (9) covers 16 ms Balanced, 30 ms → Battery after warm-up and window, 50 ms on Battery → 0.65, a 2 s burst is ignored, median vs outliers, 2 fps counts, gaps/reset/disable.
+- e2e on DD_E2E_PORT=4174: 10 passed (15.8 min, load average about 8.6 with another e2e running). New release.spec.ts (6 tests): GPU failure → panel (mode crashed, < 10 console errors, no save after the first error, save byte-equal, Restart → Continue); rejected promise → panel, Copy details = report, DOMException ignored; stubbed Android bridge (setBackHandled false exactly at the menu root, lifecycle pause → one 'background' save + paused, keepScreenOn true while playing / false when paused); context loss notice + 10 s panel; governor with ?autoq=1 and CPU throttling ×6 → Battery, one toast, persisted, manual change → auto off; no-WebGL-2 boot → panel with Restart.
+- Crash timing under SwiftShader: failed frames 0.4–2.3 s apart (normal frames take about 400–500 ms on SwiftShader at 915×412); panel 4–6 ms after dd:crash.
+- APK: `DD_RELEASE=1 ./android/build-apk.sh` → 446,062 B, versionCode 1000000, versionName 1.0.0, sdk 24, targetSdk 36, application-icon-65534 = mipmap-anydpi-v26/ic_launcher.xml, no visuallab/sandbox files; play-icon-512.png 512×512, opaque, 7,075 B. `node tools/apk-sim.mjs` 3/3 consecutive passes (39–64 s each, load 5–8.6), including privacy.html offline, licenses.txt, crash panel, Restart → Continue, 0 refused requests, 0 page errors.
+- `node tools/icon-masks.mjs`: all four masks PASS (0 mark pixels cut); preview read by eye.
+- `node tools/play.mjs tools/tours/first-five.json`: menu → new game → tunnel → copper broken in 4 hits → camp (storage copperOre 2) → workbench screen open; screenshots read.
+- Not covered: the Gradle AAB and CI (not runnable here); all native shell behaviour on a device; governor thresholds, haptics and audio on phones.
+
+Wave close (orchestrator, quiet machine):
+- `tsc` clean.
+- `vitest` 488/488.
+- e2e 10/10.
+- `ui-check --game` 61/61.
+- `DD_RELEASE=1 build-apk.sh` built, then apk-sim passed all checks.
+- `tools/tours/first-five.json`: no FAIL, 7 screenshots read. Copper broke in 4 hits, it was banked at camp (storage copperOre 2), and the workbench opened.
 
 ## Automated tests
 
