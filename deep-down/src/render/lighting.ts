@@ -98,14 +98,18 @@ vec3 ambientFrom(vec4 ls, vec3 n) {
 // Terrain form: the cool fill and the placed light each scaled by how the face meets them
 // (facing = placedFacing(): x placed light, y open fill) and the placed light falling off faster
 // in recesses (ao) than the all-round fill. Warm against cold per face: where a lamp lights a face
-// it owns it (the cool fill there is halved), so faces turned to a lamp read amber and only the
+// it owns it (the cool fill there is cut by up to 75 %), so faces turned to a lamp read amber and the
 // faces turned away go blue, instead of amber plus sky blue mixing into lavender on every face.
 // lantern: the explorer's lantern light at the face (computed first), which owns the faces it
-// lights in the same way, so the pool reads amber on charcoal, not lilac.
+// lights in the same way, so the pool reads amber on charcoal, not lilac. Ownership goes by how the
+// warm light compares with the fill at the face (from about 0.6x to 1.8x), so a face is either
+// warm or cool and the neutral band where the two meet stays narrow.
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
   vec3 placed = ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
-  float own = 1.0 - 0.6 * smoothstep(0.02, 0.22, dot(placed + lantern, vec3(0.2126, 0.7152, 0.0722)));
-  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y * own) + placed;
+  vec3 fill = uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y);
+  const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
+  float own = 1.0 - 0.75 * smoothstep(0.6, 1.8, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004));
+  return uAmbient + fill * own + placed;
 }
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
   return ambientFrom(ls, n, facing, ao, vec3(0.0));
@@ -145,17 +149,17 @@ float lanternVisibility(vec3 samplePos) {
 // R = 11 m: 1 m 0.95, 3 m 0.68, 6 m 0.30, 9 m 0.06 (x LANTERN_GAIN): flatter than a bare inverse
 // square, so the pool carries out to the way ahead instead of peaking at the carrier. A hand
 // lantern throws its light out through the glass, not down: the fuel tank shades the cone below
-// the flame (from ~15 degrees down, 80 % at ~45 degrees), and ground near the carrier takes it at
-// a grazing angle, so the pool is a ring on the way ahead, not a disc at the boots (no snowfield
-// under the explorer).
+// the flame (from ~17 degrees down, 90 % at ~50 degrees: a dark disc about 1 m across under the
+// flame, where the cool fill shows), and ground near the carrier takes it at a grazing angle, so
+// the pool is a warm ring on the way ahead, not a white disc at the boots.
 // Colour: uLanternColor is the warm-pale core (pale gold, never white); it deepens to amber by
 // ~1.8 m (a flame's light reads warmer as it falls off), so the pool reads amber on charcoal. A
-// diffuse term with very little wrap so the sculpted facets catch it, and a soft bounce (light
-// scattered back by the cool grey rock around the explorer, so it is much closer to neutral than
-// the flame, and not shaded by the tank), gated by the same visibility so nothing leaks through
-// walls. open: openness at the sample (light volume alpha): the bounce is stronger in enclosed
-// spaces and weaker in open halls. minDist: entities next to the flame (the explorer who carries
-// it) clamp the distance, so the carrier is never the brightest thing on screen.
+// diffuse term with very little wrap on walls so the sculpted facets catch it, and a soft bounce
+// (light scattered back by the cool grey rock around the explorer, so it is much closer to neutral
+// than the flame, and only partly shaded by the tank), gated by the same visibility so nothing
+// leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
+// in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
+// who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
 const float LANTERN_K = 6.0;
 const float LANTERN_GAIN = 1.6;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
@@ -165,16 +169,19 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float x = max(dist, minDist) / max(uLanternRadius, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
-  float tank = 1.0 - 0.8 * smoothstep(0.25, 0.7, -l.y);
-  float diff = clamp(dot(n, l) * 0.95 + 0.05, 0.0, 1.0);
-  // Ground within ~4 m of the flame: up-facing surfaces take less (they are seen at a grazing
-  // angle around the carrier, and would otherwise be the largest bright area of the frame).
-  diff *= 1.0 - 0.45 * smoothstep(0.5, 0.9, n.y) * (1.0 - smoothstep(2.5, 4.5, dist));
-  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.73, 0.43), smoothstep(0.05, 0.18, x));
+  float tank = 1.0 - 0.9 * smoothstep(0.3, 0.75, -l.y);
+  // Ground (up-facing) takes the light with more wrap, as rough rubble does, so the pool still
+  // reads 3-6 m out where the flame grazes it (the flame hangs only ~0.7 m above the floor); within
+  // ~4 m it takes less, so the ground at the carrier's feet is never the largest bright area.
+  float up = smoothstep(0.5, 0.9, n.y);
+  float wrap = 0.05 + 0.2 * up;
+  float diff = clamp(dot(n, l) * (1.0 - wrap) + wrap, 0.0, 1.0);
+  diff *= 1.0 - 0.6 * up * (1.0 - smoothstep(2.5, 4.5, dist));
+  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
-  return uLanternColor * (tint * (LANTERN_GAIN * diff * tank) + bounceTint * bounce) * (uLanternIntensity * vis * att);
+  return uLanternColor * (tint * (LANTERN_GAIN * diff * tank) + bounceTint * (bounce * (0.3 + 0.7 * tank))) * (uLanternIntensity * vis * att);
 }
 
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open) {
@@ -228,7 +235,8 @@ float hash13(vec3 p) {
 
 /**
  * Atmosphere presets, one per kind of space. Colours are sRGB hex; gains scale them in linear.
- *   camp    warm umber haze, a warm fill: people live here
+ *   camp    warm light from the fire and lamps in cool charcoal air (the warmth is the light, not
+ *           the cave): people live here
  *   tunnel  neutral grey stone haze, denser (short sight lines), no pooling
  *   hollow  blue-black air, haze pooling low under the hall floor (violet-tinged where it
  *           sinks into the chasm), lighter mid-air haze so pillars and stairs silhouette
@@ -274,9 +282,9 @@ export interface AtmospherePreset {
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 0.5, open: 0x3e4a60, openGain: 0.6, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
+  camp: { fog: 0x1b1a1c, fogLow: 0x101116, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 1.6, open: 0x3e4a60, openGain: 1.4, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
   tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.36 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.55, open: 0x8a9ab5, openGain: 0.85, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.2 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x8a9ab5, openGain: 0.95, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.25 },
   rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 2.1 },
 };
 

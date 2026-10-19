@@ -115,7 +115,8 @@ describe('world generation', () => {
     // Cyan is reserved for crystal and the builders' inscriptions (ART_DIRECTION.md); warm lamps
     // mark the way. Measured with tools/emission-budget.ts: 103 cyan/violet emitter voxels (86 plus
     // the 17 round-3 key lights: the Spindle's foot and shaft, the seal, the frieze, the shrine dais
-    // and tablet, violet in the chasm), lamps <= 6.3 m.
+    // and tablet, violet in the chasm), lamps <= 6.3 m. The round-4 warm practicals (a lamp in the
+    // shrine's first bay, one at the Spindle's foot) are warm and do not count against it.
     // The 120 cap is unchanged.
     const w = layout.world;
     let cyan = 0;
@@ -155,5 +156,17 @@ describe('world generation', () => {
     expect(nearest([134.5, 51.5, 100.5], B.LIGHT_CYAN, 5), 'frieze light').toBeLessThanOrEqual(3.5);
     expect(nearest(L.tablet!, B.LIGHT_CYAN, 6), 'shrine dais light').toBeLessThanOrEqual(5.5);
     expect(nearest([122.5, 35, 128.5], B.LIGHT_ABYSS, 14), 'violet low in the chasm').toBeLessThanOrEqual(8);
+    // Warm against cold: each cyan-keyed space also holds one warm practical (a lamp the earlier
+    // expedition left), close enough to share the frame with the cold key light but not on it.
+    const warmNear = (p: readonly number[], r: number) => Math.min(nearest(p, B.LIGHT_LAMP, r), nearest(p, B.LIGHT_AMBER, r));
+    const shrineWarm = warmNear(L.tablet!, 8);
+    expect(shrineWarm, 'warm practical in the shrine').toBeLessThanOrEqual(7);
+    expect(shrineWarm, 'shrine lamp clear of the dais key').toBeGreaterThanOrEqual(2.5);
+    const spindleWarm = warmNear(L.spindle!, 14);
+    expect(spindleWarm, "warm practical at the Spindle's foot").toBeLessThanOrEqual(12);
+    expect(spindleWarm, 'Spindle lamp clear of the shaft').toBeGreaterThanOrEqual(4);
+    const lamps = layout.props.filter((p) => p.kind === 'lanternPost');
+    const inShrine = lamps.filter((p) => p.x > 52 && p.x < 62 && p.z > 98 && p.z < 111);
+    expect(inShrine.length, 'one lamp post inside the shrine').toBe(1);
   });
 });

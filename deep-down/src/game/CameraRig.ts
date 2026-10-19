@@ -246,8 +246,8 @@ export class CameraRig {
     const d0 = saturate((-this.pitch - 0.3) / 0.7);
     const down = d0 * d0 * (3 - 2 * d0);
     const shoulder = this.shoulder * lerp(0.45, 1, wide) * lerp(1, LOOK_DOWN_SHOULDER, down);
-    // ... and the boom comes in (to 62 %), so the boots are not seen from a lens 6 m overhead.
-    // In a passage (ROOF_*) the boom is shorter.
+    // ... and the boom comes in (to 62 %), so the boots are not seen from a lens 7 m overhead.
+    // In a passage (ROOF_*, FREE_*) the boom is shorter.
     let roof = ROOF_HIGH;
     for (const back of [0, 2, 4]) {
       const hit = raycastVoxels(this.world, this.pivot.x + Math.sin(this.yaw) * back, this.pivot.y, this.pivot.z + Math.cos(this.yaw) * back, 0, 1, 0, ROOF_HIGH);
