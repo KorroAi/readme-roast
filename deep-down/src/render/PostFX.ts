@@ -117,8 +117,8 @@ layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
-const float CONTRAST = 1.22;
-const float CONTRAST_PIVOT = 0.16;
+const float CONTRAST = 1.3;
+const float CONTRAST_PIVOT = 0.1;
 
 // Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep
 // and the lit mids carry the contrast; white is reached around x = 6. Navigable darks come from
@@ -160,7 +160,7 @@ void main() {
   // highlights; the mids keep the light's own colour (warm pools stay warm, haze stays blue).
   // Weights are in display-linear luminance: 0.03 ~ sRGB 48, 0.12 ~ sRGB 97, 0.5 ~ sRGB 188.
   float lum = dot(c, LUMA);
-  // Contrast: an S-curve on luminance around a pivot (display-linear 0.16 ~ sRGB 110), a power
+  // Contrast: an S-curve on luminance around a pivot (display-linear 0.1 ~ sRGB 89), a power
   // below it and a mirrored power above it, so black and white stay fixed and the hue is kept.
   // It separates the mid-tones where the stone's texture and form live.
   float sl = lum < CONTRAST_PIVOT

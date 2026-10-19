@@ -6,6 +6,7 @@ import type { LightingUniforms } from '../../src/render/lighting';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 import { CameraRig } from '../../src/game/CameraRig';
 import { segmentClear } from '../../src/world/light';
+import { raycastVoxels } from '../../src/world/raycast';
 import { generateWorld } from '../../src/world/gen/generateWorld';
 import { standable } from '../../src/world/analysis/reachability';
 import { Rng } from '../../src/core/rng';
@@ -275,5 +276,52 @@ describe('explorer near-camera fade', () => {
     });
     expect(shown).toBe(0);
     e.dispose();
+  });
+});
+
+describe('CameraRig aim', () => {
+  /** A big open room: floor at y 4, explorer standing on it, one block at its feet in front. */
+  function room(): VoxelWorld {
+    const w = new VoxelWorld(48, 32, 48);
+    w.fill(0, 0, 0, 47, 4, 47, B.SLATE);
+    w.setRaw(21, 5, 20, B.SLATE); // at the feet, directly in front (+x)
+    return w;
+  }
+
+  it('can put the crosshair on a block at the feet directly in front when looking down', () => {
+    // The landscape framing aims above the explorer; looking down it must ease back toward a
+    // plain over-the-shoulder view, or blocks at the boots cannot be targeted (mining regression
+    // found by the touch e2e at the deep seal).
+    const w = room();
+    const rig = new CameraRig(w);
+    const px = 20.5, py = 5, pz = 20.5;
+    const o = new THREE.Vector3();
+    const d = new THREE.Vector3();
+    let best = Infinity;
+    for (let yi = -20; yi <= 20; yi++) {
+      for (let pi = 0; pi <= 30; pi++) {
+        rig.snapTo(px, py + 1.45, pz);
+        rig.yaw = -Math.PI / 2 + yi * 0.02; // facing +x
+        rig.pitch = -0.3 - pi * 0.03;
+        for (let f = 0; f < 120; f++) rig.update(1 / 30, px, py + 1.45, pz, 915 / 412);
+        rig.rayThrough(0, 0, o, d);
+        const hit = raycastVoxels(w, o.x, o.y, o.z, d.x, d.y, d.z, 12);
+        if (hit && hit.x === 21 && hit.y === 5 && hit.z === 20) best = Math.min(best, -rig.pitch);
+      }
+    }
+    // Reachable, and well before the -1.2 rad pitch limit.
+    expect(best).toBeLessThan(1.1);
+  });
+
+  it('keeps the landscape framing at normal pitch (the explorer stays left and low)', () => {
+    const w = room();
+    const rig = new CameraRig(w);
+    rig.snapTo(20.5, 6.45, 20.5);
+    rig.yaw = 0;
+    rig.pitch = -0.18;
+    for (let f = 0; f < 120; f++) rig.update(1 / 30, 20.5, 6.45, 20.5, 915 / 412);
+    const head = new THREE.Vector3(20.5, 6.9, 20.5).project(rig.camera);
+    expect(head.x).toBeLessThan(-0.05); // left of centre
+    expect(head.y).toBeLessThan(-0.05); // below centre
   });
 });

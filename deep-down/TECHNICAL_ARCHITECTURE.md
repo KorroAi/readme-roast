@@ -269,6 +269,12 @@ lens in landscape (up to 72° in portrait, where the shoulder also shrinks), and
 against the lens (0.17 rad pitch, 0.06 rad yaw) with the look target about 0.8 m above the chest,
 so the explorer stands in the lower-left third and the route ahead stays visible. Because the
 framing is an angle, it shrinks with the boom as rock pulls it in, so tunnels behave as before.
+Looking down (pitch −0.3 → −1.0 rad, smoothstep) the framing eases toward a plain
+over-the-shoulder view: the pitch tilt and yaw framing fade out and the shoulder comes in to
+55 %. Without it, a block at the boots could not be put under the crosshair at all (the lens
+would have to pitch past its −1.2 rad limit); a unit test guards it, and over 260 sampled
+mining spots the aim success equals the round-2 rig (50.4 % vs 49.6 %; the rest are blocks with
+no face toward the camera).
 The shoulder offset is cast sideways first and shortened against walls: room shrinks at once and
 grows back slowly (no jerks along rough walls); when the right side is walled in and the left is
 open, the rig swaps shoulders through a critically damped spring (no overshoot, with

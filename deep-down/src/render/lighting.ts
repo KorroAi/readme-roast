@@ -259,10 +259,10 @@ export interface AtmospherePreset {
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.66 },
-  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.21 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.11 },
-  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.95 },
+  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
+  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.36 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.3 },
+  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 2.1 },
 };
 
 /** Axis-aligned box (world units) used to find the camp. */

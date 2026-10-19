@@ -82,6 +82,17 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   shoulder-swap spring an unsettled aim drifted ~0.3 m sideways a second later and the touch e2e
   mined the stone next to its copper target (reproduced in the browser, fixed, re-verified).
 
+### Round 3 — mining-aim regression found and fixed (`CameraRig.ts`)
+- The touch e2e then failed at the deep seal: with the new framing (lens aimed 0.8 m over the
+  explorer, boom tilted 0.17 rad) a block at the boots needed a pitch past the −1.2 rad limit,
+  so it could not be targeted at all. Looking down, the framing now eases toward a plain
+  over-the-shoulder view (pitch tilt and yaw framing fade out, shoulder to 55 %, smoothstep
+  over −0.3 → −1.0 rad); normal-pitch framing is unchanged.
+- Measured offline over 260 sampled mining spots with a damped, settle-aware aim: round-2 rig
+  49.6 %, round-3 rig 36.9 % (feet 41/131), fixed 50.4 % (feet 69/131). New unit tests: a block
+  at the feet is targetable (fails on the unfixed rig, passes at 0.66 rad), and the explorer
+  stays left and low at normal pitch.
+
 ### Round 3 — masonry vocabulary, grooved cracks, no texture repeat (`materials/*`, sampling)
 - Masonry is laid in world space from course libraries: 2 m of height becomes one 2 m course,
   two 1 m courses or 1.5 + 0.5 m (thin courses never stack — what made the old wall read as

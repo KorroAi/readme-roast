@@ -12,6 +12,8 @@ const BUNDLE_UP = [0, 0.18, -0.12];
  * rays treat as open (bevels, relief), so the lens keeps 0.4 m: it never clips a rendered bevel.
  */
 const ROCK_MARGIN = 0.4;
+/** Share of the shoulder offset kept when looking straight down (see update). */
+const LOOK_DOWN_SHOULDER = 0.55;
 /**
  * Shares of the shoulder tried when the boom is cut short, and how they are scored: boom length
  * counts up to SLIDE_COMFORT metres, and each unit of shoulder share is worth SLIDE_PREFER metres.
@@ -123,11 +125,18 @@ export class CameraRig {
     // push the explorer off the left edge, so the shoulder and the yaw framing shrink and the
     // lens widens a little. 1 from 16:9 up, 0 at 4:5.
     const wide = saturate((aspect - 0.8) / 0.9);
-    const shoulder = this.shoulder * lerp(0.45, 1, wide);
-    const frameYaw = this.frameYaw * wide;
+    // Looking down (to mine at the feet) the framing eases toward a classic over-the-shoulder
+    // view: the pitch tilt fades out and the shoulder comes in, so the aim line comes back to the
+    // explorer (with the full framing, ground right in front of the boots would need the lens to
+    // pitch past its limit). Full framing down to -0.3 rad, none from -1.0, smoothly, so the
+    // camera never swings faster than the look input.
+    const d0 = saturate((-this.pitch - 0.3) / 0.7);
+    const down = d0 * d0 * (3 - 2 * d0);
+    const shoulder = this.shoulder * lerp(0.45, 1, wide) * lerp(1, LOOK_DOWN_SHOULDER, down);
+    const frameYaw = this.frameYaw * wide * (1 - down);
 
     // Boom (lens to pivot, backwards), turned against the lens direction by the framing angles.
-    const bp = this.pitch - this.framePitch;
+    const bp = this.pitch - this.framePitch * (1 - down);
     const by = this.yaw + frameYaw;
     const cy = Math.cos(bp);
     this.dir.set(Math.sin(by) * cy, -Math.sin(bp), Math.cos(by) * cy);
