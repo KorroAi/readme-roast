@@ -22,18 +22,24 @@ export interface StructureStats {
 
 /** Structures are merged into one mesh per cell of this size (m, horizontal). */
 const CELL = 32;
+/** Main-thread time per frame spent building cells that are still pending (ms; >= 1 cell). */
+const BUILD_BUDGET_MS = 6;
 
 /**
  * Built forms (stair flights, columns, the bridge, coping, timber) drawn as meshes over their
  * voxel collision (B.STRUCTURE, B.RAMP_*): see world/gen (the generator writes both) and
  * structureMaterial.ts. They are static (unbreakable), so they are built once per zone and merged
  * into one draw call per 32 m cell; cells beyond the view distance are hidden like terrain chunks.
+ * Cells are built in the first frames after the zone loads (cull(): the nearest first, at least
+ * one per frame, then while under BUILD_BUDGET_MS), not during the load itself.
  */
 export class StructureRenderer {
   readonly group = new THREE.Group();
   readonly material: THREE.ShaderMaterial;
   readonly stats: StructureStats = { structures: 0, meshes: 0, vertices: 0, triangles: 0, bytes: 0, buildMs: 0 };
   private readonly meshes: THREE.Mesh[] = [];
+  private readonly pending: Array<{ specs: StructureSpec[]; centre: THREE.Vector3 }> = [];
+  private readonly world: VoxelWorld | null;
   viewDistance = 96;
 
   constructor(specs: readonly StructureSpec[], world: VoxelWorld | null, lighting: LightingUniforms, terrain: TerrainUniforms) {
@@ -48,20 +54,55 @@ export class StructureRenderer {
     }
     const img = terrain.uMat.value?.image as { data?: ArrayLike<number> } | undefined;
     this.material = createStructureMaterial(lighting, terrain, stoneSpans(img?.data ?? null, MAT_SIZE, MAT.masonry, strips));
-    const t0 = performance.now();
-    const cells = new Map<string, StructureBuilder>();
+    const cells = new Map<string, { specs: StructureSpec[]; centre: THREE.Vector3 }>();
     for (const spec of specs) {
       const c = specCentre(spec);
       const key = `${Math.floor(c[0] / CELL)},${Math.floor(c[2] / CELL)}`;
-      let b = cells.get(key);
-      if (!b) cells.set(key, (b = new StructureBuilder(world)));
+      let cell = cells.get(key);
+      if (!cell) cells.set(key, (cell = { specs: [], centre: new THREE.Vector3() }));
+      cell.specs.push(spec);
+      cell.centre.add(new THREE.Vector3(c[0], c[1], c[2]));
+    }
+    for (const cell of cells.values()) {
+      cell.centre.divideScalar(cell.specs.length);
+      this.pending.push(cell);
+    }
+    this.world = world;
+  }
+
+  /** Cells still to build. */
+  get pendingCells(): number {
+    return this.pending.length;
+  }
+
+  /** Build every pending cell now. */
+  buildAll(): void {
+    while (this.pending.length) this.buildCell(this.pending.pop()!);
+  }
+
+  /** Build pending cells, the nearest to `focus` first: at least one, then while under budget. */
+  private buildPending(focus: THREE.Vector3): void {
+    if (!this.pending.length) return;
+    const t0 = performance.now();
+    this.pending.sort((a, b) => b.centre.distanceToSquared(focus) - a.centre.distanceToSquared(focus));
+    do this.buildCell(this.pending.pop()!);
+    while (this.pending.length && performance.now() - t0 < BUILD_BUDGET_MS);
+  }
+
+  private buildCell(cell: { specs: StructureSpec[] }): void {
+    const t0 = performance.now();
+    const b = new StructureBuilder(this.world);
+    for (const spec of cell.specs) {
       const before = b.vertexCount;
       buildStructure(b, spec);
       if (b.vertexCount > before) this.stats.structures++;
     }
-    for (const b of cells.values()) {
-      if (!b.vertexCount) continue;
+    if (b.vertexCount) {
       const mesh = new THREE.Mesh(toGeometry(b), this.material);
+      // Drawn before the terrain: a structure stands in front of the voxel faces next to its
+      // hidden cells (a flank behind a parapet band, a wall behind a column), so the depth test
+      // rejects those instead of shading them and then overdrawing them.
+      mesh.renderOrder = -1;
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
       mesh.geometry.computeBoundingSphere();
@@ -70,13 +111,15 @@ export class StructureRenderer {
       this.stats.vertices += b.vertexCount;
       this.stats.triangles += b.idx.length / 3;
       this.stats.bytes += b.vertexCount * 28 + b.idx.length * (b.vertexCount > 65535 ? 4 : 2);
+      this.stats.meshes = this.meshes.length;
     }
-    this.stats.meshes = this.meshes.length;
-    this.stats.buildMs = Math.round((performance.now() - t0) * 10) / 10;
+    this.stats.buildMs = Math.round((this.stats.buildMs + performance.now() - t0) * 10) / 10;
   }
 
-  /** Hide cells beyond the view distance (as ChunkRenderer.cull does for chunks). */
+  /** Build what is pending (within budget), then hide cells beyond the view distance (as
+   *  ChunkRenderer.cull does for chunks). */
   cull(focus: THREE.Vector3): void {
+    this.buildPending(focus);
     for (const m of this.meshes) {
       const s = m.geometry.boundingSphere!;
       m.visible = s.center.distanceTo(focus) - s.radius < this.viewDistance;
@@ -84,6 +127,7 @@ export class StructureRenderer {
   }
 
   dispose(): void {
+    this.pending.length = 0;
     for (const m of this.meshes) m.geometry.dispose();
     this.material.dispose();
     this.meshes.length = 0;

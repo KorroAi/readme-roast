@@ -361,11 +361,12 @@ export class StructureBuilder {
   }
 
   /** Light-volume sample point for a surface point (see the class comment). */
+  private readonly solidAt = (x: number, y: number, z: number): boolean => SOLID[this.world!.get(Math.floor(x), Math.floor(y), Math.floor(z))] === 1;
+
   private lightPoint(p: V3, n: V3): V3 {
     const q: V3 = [p[0] + n[0] * 0.5, p[1] + n[1] * 0.5, p[2] + n[2] * 0.5];
-    const w = this.world;
-    if (!w) return q;
-    const solid = (x: number, y: number, z: number) => SOLID[w.get(Math.floor(x), Math.floor(y), Math.floor(z))] === 1;
+    if (!this.world) return q;
+    const solid = this.solidAt;
     for (let k = 0; k < 4 && solid(q[0], q[1], q[2]); k++) {
       q[0] += n[0] * 0.5;
       q[1] += n[1] * 0.5;
