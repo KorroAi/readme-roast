@@ -9,8 +9,8 @@ Node 22.22, headless Chromium 141 (Playwright 1.56.1) with WebGL 2 through Swift
 | Check | Result |
 |---|---|
 | TypeScript (`npx tsc --noEmit`, strict; src, unit and e2e tests) | 0 errors |
-| Unit tests (`npx vitest run`) | **340 passed**, 20 files |
-| End-to-end (`npx playwright test`, production build) | **4 / 4 passed**, 0 console errors; 9 consecutive full runs passed during verification |
+| Unit tests (`npx vitest run`) | **416 passed**, 27 files (19 Oct 2026, after visual round 4 and the mobile controls) |
+| End-to-end (`npx playwright test`, production build) | **4 / 4 passed** (6.3 min) on a quiet machine on 19 Oct 2026, after visual round 4 and the mobile controls. Under heavy load (load average 11–18 on 4 cores) SwiftShader drops to 0–1 fps and the specs' wall-clock budgets time out; this happens identically on the pre-round-4 baseline (316d7c0). Earlier: 9 consecutive full runs passed. |
 | UI + touch checks (`node tools/ui-check.mjs --no-shots --game`) | **60 / 60 passed**, 0 console problems (4 runs after the slider-check race was fixed; before that fix the slider check failed intermittently, and one audit run also timed out in the game flow while other heavy jobs shared the machine) |
 | APK packaging (`node tools/apk-sim.mjs`) | 8 / 8 passed |
 | Android APK (`android/build-apk.sh`) | built, aligned, signed, signature verified; 293 KB; **not run on a device** |
