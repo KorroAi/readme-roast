@@ -77,6 +77,7 @@ export class Renderer {
   setQuality(level: QualityLevel): void {
     this.quality = level;
     this.preset = QUALITY[level];
+    this.terrainPresetDirty = true;
     this.applyPostOptions();
     this.resize();
   }
@@ -96,17 +97,35 @@ export class Renderer {
   }
 
   /**
-   * Apply the preset's terrain shader options to a terrain material (see createTerrainMaterial):
-   * Battery drops the boundary blending. Returns true if the material had to recompile.
+   * The terrain material's USE_BLEND define follows the preset. Terrain materials are found in the
+   * scene on the first frame after a quality change (one traversal; they are the ShaderMaterials
+   * with the material-layer uniforms), so no other module has to forward the preset. A material
+   * built without blending (the viewer's ?blend=0) is never switched on.
    */
-  configureTerrainMaterial(material: THREE.ShaderMaterial): boolean {
-    const defines = (material.defines ??= {}) as Record<string, string>;
-    const on = 'USE_BLEND' in defines;
-    if (on === this.preset.terrainBlend) return false;
-    if (this.preset.terrainBlend) defines.USE_BLEND = '';
-    else delete defines.USE_BLEND;
-    material.needsUpdate = true;
-    return true;
+  private terrainPresetDirty = true;
+  private readonly blendOff = new WeakSet<THREE.Material>();
+
+  private applyTerrainPreset(scene: THREE.Scene): void {
+    let found = false;
+    const seen = new Set<THREE.Material>();
+    scene.traverse((o) => {
+      const m = (o as THREE.Mesh).material;
+      if (!(m instanceof THREE.ShaderMaterial) || seen.has(m) || !('uMatGlow' in m.uniforms)) return;
+      seen.add(m);
+      found = true;
+      const defines = m.defines as Record<string, string>;
+      const on = 'USE_BLEND' in defines;
+      if (!this.preset.terrainBlend && on) {
+        delete defines.USE_BLEND;
+        this.blendOff.add(m);
+        m.needsUpdate = true;
+      } else if (this.preset.terrainBlend && !on && this.blendOff.has(m)) {
+        defines.USE_BLEND = '';
+        this.blendOff.delete(m);
+        m.needsUpdate = true;
+      }
+    });
+    if (found) this.terrainPresetDirty = false;
   }
 
   get pixelRatio(): number {
@@ -130,6 +149,7 @@ export class Renderer {
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera, time: number): void {
+    if (this.terrainPresetDirty) this.applyTerrainPreset(scene);
     this.gl.info.reset();
     this.post.render(scene, camera, time);
   }

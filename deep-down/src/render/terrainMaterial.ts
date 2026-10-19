@@ -203,7 +203,7 @@ void main() {
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
-  vec3 lantern = lanternLight(samplePos, vWorldPos, ng) * (0.55 + 0.45 * ao);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.55 + 0.45 * ao);
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
 
   float glow = tex.a * uMatGlow[shownLayer];
@@ -239,7 +239,7 @@ void main() {
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
   color += emissive * (1.0 - atm.a * uAtmos.z);
-  fragColor = vec4(color, 1.0);
+  fragColor = vec4(sceneOut(color), 1.0);
 }
 `;
 

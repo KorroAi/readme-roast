@@ -49,7 +49,7 @@ void main() {
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   col = mix(col, atm.rgb, atm.a);
   float a = vAlpha * soft * (1.0 - atm.a * 0.85);
-  fragColor = vec4(col * a, a);
+  fragColor = vec4(sceneOut(col) * a, a);
 }
 `;
 

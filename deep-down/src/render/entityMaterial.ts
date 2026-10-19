@@ -87,14 +87,15 @@ void main() {
   float contact = own > 0.02 ? clamp(below / own, 0.0, 1.0) : 1.0;
   contact = 0.42 + 0.58 * smoothstep(0.1, 0.95, contact);
   vec3 env = ambientFrom(ls);
-  vec3 lantern = lanternLight(samplePos, vWorldPos, n);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a);
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
   if (uRim > 0.0) {
-    // The explorer keeps its own colours: coloured world light (cyan crystals, violet abyss) is
-    // half desaturated on it, so the ochre coat never turns teal, and a faint warm rim from the
-    // carried lantern wraps the silhouette so it always separates from dark rock.
+    // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half
+    // desaturated on it (warm lamp light is not), so the ochre coat never turns teal, and a faint
+    // warm rim from the carried lantern wraps the silhouette so it separates from dark rock.
     float el = dot(env, vec3(0.2126, 0.7152, 0.0722));
-    env = mix(vec3(el), env, 0.5);
+    float cool = smoothstep(0.0, 0.35, (env.b - env.r) / max(el, 1e-4));
+    env = mix(env, vec3(el), 0.55 * cool);
     vec3 v = normalize(cameraPosition - vWorldPos);
     float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.5);
     float near = 1.0 - smoothstep(0.6, 2.6, distance(uLanternPos, vWorldPos));
@@ -108,7 +109,7 @@ void main() {
   color = mix(color, atm.rgb, atm.a);
   color += emissive * (1.0 - atm.a * uAtmos.z);
   color += uFlash * vec3(1.0, 0.95, 0.85);
-  fragColor = vec4(color, 1.0);
+  fragColor = vec4(sceneOut(color), 1.0);
 }
 `;
 

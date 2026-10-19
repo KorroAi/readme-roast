@@ -18,6 +18,14 @@ import { hexToLinear } from '../core/math';
  * per-zone preset blended by where the explorer is (see atmosphere.ts and updateAtmosphere).
  */
 
+/**
+ * How lit materials write the scene target, shared by every material (one object, set by PostFX):
+ * 0 = linear HDR (half-float target); 1 = the 8-bit fallback, where colours are stored as
+ * sqrt(x / (1 + x)) so values above 1 (crystals, flames) survive the 8-bit clamp and the darks
+ * get far finer steps than linear 8-bit. The post chain decodes it.
+ */
+export const SCENE_ENCODE: THREE.IUniform<number> = { value: 0 };
+
 export interface LightingUniforms {
   [name: string]: THREE.IUniform;
   uLightTex: THREE.IUniform<THREE.Data3DTexture>;
@@ -61,6 +69,12 @@ uniform vec4 uAtmos;
 uniform float uFogDensity;
 uniform float uTime;
 uniform vec3 uDebug; // x: fullbright amount, y: clip height (discard above), z: unused
+uniform float uSceneEncode;
+
+// Final write of a lit colour into the scene target (see SCENE_ENCODE).
+vec3 sceneOut(vec3 c) {
+  return uSceneEncode > 0.5 ? sqrt(c / (1.0 + c)) : c;
+}
 
 // One fetch of the world light volume: rgb = emitter light (linear, gained), a = openness.
 vec4 lightSample(vec3 samplePos) {
@@ -88,7 +102,9 @@ float lanternVisibility(vec3 samplePos) {
 // sculpted facets catch it, and a soft directionless bounce (light scattered back by the rock
 // around the explorer) so surfaces turned away from the flame stay readable instead of black.
 // Bounce is gated by the same visibility as the direct light, so nothing leaks through walls.
-vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n) {
+// open: openness at the sample (light volume alpha). Bounce is stronger in enclosed spaces
+// (a lantern fills a small room with scattered light) and weaker in open halls.
+vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open) {
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
   float x = clamp(dist / uLanternRadius, 0.0, 1.0);
@@ -99,9 +115,14 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n) {
   float core = 0.9 / (1.0 + dist * dist * 0.35);
   float ndl = dot(n, d / max(dist, 1e-3));
   float diff = clamp(ndl * 0.85 + 0.15, 0.0, 1.0);
-  vec3 tint = mix(vec3(1.0, 0.66, 0.42), vec3(1.0), smoothstep(0.05, 0.75, att));
+  vec3 tint = mix(vec3(1.0, 0.6, 0.36), vec3(1.0, 0.94, 0.86), smoothstep(0.05, 0.8, att));
   float vis = lanternVisibility(samplePos);
-  return uLanternColor * tint * (uLanternIntensity * vis * att * ((1.0 + core) * diff + uAtmos.y));
+  float bounce = uAtmos.y * (1.5 - open);
+  return uLanternColor * tint * (uLanternIntensity * vis * att * ((1.0 + core) * diff + bounce));
+}
+
+vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n) {
+  return lanternLight(samplePos, fragPos, n, 0.5);
 }
 
 float fogFactor(float depth) {
@@ -181,10 +202,10 @@ export interface AtmospherePreset {
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x17110c, ambientGain: 0.6, open: 0x3a2f26, openGain: 0.6, scatter: 0.1, bounce: 0.08, absorb: 0.9, exposure: 1.0 },
-  tunnel: { fog: 0x17191c, fogLow: 0x0e0f11, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x121418, ambientGain: 0.6, open: 0x3a3e45, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.9, exposure: 1.0 },
-  hollow: { fog: 0x131e2b, fogLow: 0x0b0a16, density: 0.02, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0c1118, ambientGain: 0.6, open: 0x303c4c, openGain: 0.95, scatter: 0.1, bounce: 0.08, absorb: 0.92, exposure: 1.0 },
-  rift: { fog: 0x151225, fogLow: 0x22153c, density: 0.02, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.6, open: 0x353048, openGain: 0.8, scatter: 0.12, bounce: 0.08, absorb: 0.92, exposure: 1.0 },
+  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x17110c, ambientGain: 0.6, open: 0x3a2f26, openGain: 0.6, scatter: 0.1, bounce: 0.12, absorb: 0.9, exposure: 1.0 },
+  tunnel: { fog: 0x17191c, fogLow: 0x0e0f11, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x121418, ambientGain: 0.6, open: 0x3a3e45, openGain: 0.8, scatter: 0.1, bounce: 0.13, absorb: 0.9, exposure: 1.0 },
+  hollow: { fog: 0x15212f, fogLow: 0x0c0b18, density: 0.026, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0c1118, ambientGain: 0.6, open: 0x303c4c, openGain: 0.95, scatter: 0.1, bounce: 0.14, absorb: 0.92, exposure: 1.0 },
+  rift: { fog: 0x171428, fogLow: 0x22153c, density: 0.024, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.6, open: 0x353048, openGain: 0.85, scatter: 0.12, bounce: 0.12, absorb: 0.92, exposure: 1.0 },
 };
 
 /** Axis-aligned box (world units) used to find the camp. */
@@ -279,7 +300,7 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffd2a6)).multiplyScalar(1.6) },
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffd2a6)).multiplyScalar(1.85) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
@@ -292,6 +313,7 @@ export class LightingRig {
       uFogDensity: { value: 0.02 },
       uTime: { value: 0 },
       uDebug: { value: new THREE.Vector3(0, 9999, 0) },
+      uSceneEncode: SCENE_ENCODE,
     };
     // Default atmosphere (Visual Lab, viewer): the Hollow's.
     this.applyAtmosphere();

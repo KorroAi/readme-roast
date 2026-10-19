@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { SCENE_ENCODE } from './lighting';
 
 /**
  * Lightweight HDR post chain tuned for mobile:
@@ -26,6 +27,18 @@ void main() {
 }
 `;
 
+// Inverse of sceneOut() in lighting.ts for the 8-bit fallback (ENCODED define).
+const decodeGlsl = /* glsl */ `
+vec3 sceneIn(vec3 c) {
+#ifdef ENCODED
+  vec3 y = min(c * c, vec3(0.995));
+  return y / (1.0 - y);
+#else
+  return c;
+#endif
+}
+`;
+
 const brightFrag = /* glsl */ `
 precision highp float;
 uniform sampler2D tInput;
@@ -33,12 +46,13 @@ uniform vec2 uTexel;
 uniform float uThreshold;
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
+${decodeGlsl}
 void main() {
   // 4-tap box downsample while extracting, to avoid fireflies.
-  vec3 c = texture(tInput, vUv + uTexel * vec2(-0.5, -0.5)).rgb;
-  c += texture(tInput, vUv + uTexel * vec2(0.5, -0.5)).rgb;
-  c += texture(tInput, vUv + uTexel * vec2(-0.5, 0.5)).rgb;
-  c += texture(tInput, vUv + uTexel * vec2(0.5, 0.5)).rgb;
+  vec3 c = sceneIn(texture(tInput, vUv + uTexel * vec2(-0.5, -0.5)).rgb);
+  c += sceneIn(texture(tInput, vUv + uTexel * vec2(0.5, -0.5)).rgb);
+  c += sceneIn(texture(tInput, vUv + uTexel * vec2(-0.5, 0.5)).rgb);
+  c += sceneIn(texture(tInput, vUv + uTexel * vec2(0.5, 0.5)).rgb);
   c *= 0.25;
   // Luminance, not the max channel: a saturated cyan surface is not a light source.
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -99,6 +113,7 @@ uniform float uFlash;
 uniform vec3 uFlashColor;
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
+${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
@@ -108,13 +123,17 @@ float curve(float x) {
   return clamp((x * (2.51 * x + 0.065)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 
-// Hue-preserving tone map: the curve drives the brightest channel and the other channels keep
-// their ratio to it. Only very hot cores (flame centres, flashes) roll partly toward white.
+// Hue-preserving tone map: in the highlights the curve drives the brightest channel and the
+// other channels keep their ratio to it, so cyan and amber lights stay cyan and amber. In the
+// shadows and mids half of the per-channel curve is kept (its toe deepens the weaker channels,
+// which keeps dark stone and cloth rich instead of milky). Only very hot cores (flame centres,
+// flashes) roll partly toward white.
 vec3 tonemap(vec3 x) {
   float peak = max(x.r, max(x.g, x.b));
   vec3 hue = x * (curve(peak) / max(peak, 1e-5));
   vec3 per = vec3(curve(x.r), curve(x.g), curve(x.b));
-  return mix(hue, per, smoothstep(2.5, 9.0, peak) * 0.6);
+  float w = 0.5 * (1.0 - smoothstep(0.35, 1.5, peak)) + 0.6 * smoothstep(2.5, 9.0, peak);
+  return mix(hue, per, w);
 }
 
 vec3 toSrgb(vec3 c) {
@@ -126,7 +145,7 @@ float ign(vec2 p) {
 }
 
 void main() {
-  vec3 hdr = texture(tScene, vUv).rgb;
+  vec3 hdr = sceneIn(texture(tScene, vUv).rgb);
   #ifdef USE_BLOOM
   hdr += texture(tBloom, vUv).rgb * uBloomStrength;
   #endif
@@ -140,7 +159,7 @@ void main() {
   // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
   // bottom where the joystick and jump button sit.
   vec2 q = vUv - 0.5;
-  q.y *= q.y > 0.0 ? 1.25 : 0.7;
+  q.y *= q.y > 0.0 ? 1.25 : 0.55;
   c *= 1.0 - uVignette * smoothstep(0.42, 0.85, length(q));
   c = toSrgb(c);
   // Dither to hide banding in the dark fog gradients.
@@ -194,7 +213,10 @@ export class PostFX {
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     const mk = (frag: string, uniforms: Record<string, THREE.IUniform>, defines: Record<string, string> = {}) =>
       new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: fullscreenVert, fragmentShader: frag, uniforms, defines, depthTest: false, depthWrite: false });
-    this.bright = mk(brightFrag, { tInput: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1 } });
+    // 8-bit fallback: lit materials encode the scene (SCENE_ENCODE), the passes reading it decode.
+    SCENE_ENCODE.value = this.hdr ? 0 : 1;
+    const enc: Record<string, string> = this.hdr ? {} : { ENCODED: '' };
+    this.bright = mk(brightFrag, { tInput: { value: null }, uTexel: { value: new THREE.Vector2() }, uThreshold: { value: 1 } }, enc);
     this.down = mk(downFrag, { tInput: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.up = mk(upFrag, { tInput: { value: null }, tBase: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.composite = mk(
@@ -210,7 +232,7 @@ export class PostFX {
         uFlash: { value: 0 },
         uFlashColor: { value: new THREE.Color() },
       },
-      options.bloom ? { USE_BLOOM: '' } : {},
+      { ...enc, ...(options.bloom ? { USE_BLOOM: '' } : {}) },
     );
     this.quad = new THREE.Mesh(geo, this.composite);
     this.quad.frustumCulled = false;
@@ -240,7 +262,7 @@ export class PostFX {
       this.sceneRT = this.makeSceneRT(this.width, this.height);
     }
     if (bloomChanged) {
-      this.composite.defines = options.bloom ? { USE_BLOOM: '' } : {};
+      this.composite.defines = { ...(this.hdr ? {} : { ENCODED: '' }), ...(options.bloom ? { USE_BLOOM: '' } : {}) };
       this.composite.needsUpdate = true;
       this.setSize(this.width, this.height);
     }
@@ -282,8 +304,7 @@ export class PostFX {
       const rts = this.bloomRTs;
       this.bright.uniforms.tInput.value = this.sceneRT.texture;
       this.bright.uniforms.uTexel.value.set(1 / this.width, 1 / this.height);
-      // 8-bit targets clamp at 1: lower the threshold so lamps still glow a little.
-      this.bright.uniforms.uThreshold.value = this.hdr ? this.params.threshold : Math.min(this.params.threshold, 0.8);
+      this.bright.uniforms.uThreshold.value = this.params.threshold;
       this.pass(this.bright, rts[0]);
       for (let i = 1; i < rts.length; i++) {
         this.down.uniforms.tInput.value = rts[i - 1].texture;

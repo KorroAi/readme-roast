@@ -38,9 +38,12 @@ float hash12(vec2 p) {
 void main() {
   float fall = 1.0 - vUv.y; // 0 at the lip, 1 at the impact
   // The water leaves the lip as a narrow rope and spreads into broken sheets as it falls.
-  float halfW = mix(0.16, 0.5, smoothstep(0.0, 0.8, fall));
-  float x = (vUv.x - 0.5) / halfW; // -1..1 across the stream
-  float drop = vUv.y * uHeight + uTime * 6.0;
+  float halfW = mix(0.16, 0.42, smoothstep(0.0, 0.8, fall));
+  // Drafts make the stream waver: a slow sideways drift that grows with the fall.
+  float h0 = vUv.y * uHeight;
+  float wander = (sin(h0 * 0.11 + uTime * 0.6) * 0.06 + sin(h0 * 0.37 - uTime * 1.1) * 0.025) * smoothstep(0.05, 0.6, fall);
+  float x = (vUv.x - 0.5 - wander) / halfW; // -1..1 across the stream
+  float drop = h0 + uTime * 6.0;
   // Ragged edges: every 1.6 m of the fall has its own edge on each side, scrolling with the water.
   float band = floor(drop / 1.6);
   float rag = hash12(vec2(band, x < 0.0 ? 7.0 : 11.0));
@@ -69,7 +72,7 @@ void main() {
   // The haze takes it fully at distance; fade right in front of the lens so it never blinds.
   float fog = atmosphere(vWorldPos, depth, ls.rgb).a;
   col *= (1.0 - fog) * smoothstep(1.0, 6.0, depth);
-  fragColor = vec4(col, 1.0); // additive blending
+  fragColor = vec4(sceneOut(col), 1.0); // additive blending
 }
 `;
 
