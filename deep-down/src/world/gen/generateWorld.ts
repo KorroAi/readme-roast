@@ -344,14 +344,21 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       const depth = Math.round((1 - d) * 9 + 1);
       for (let y = 87 - depth; y <= 87; y++) put(x, y, z, y === 87 && d < 0.85 ? B.SLATE : B.DEEP_SLATE);
       for (let y = 88; y <= 93; y++) carve(x, y, z);
-      // Crags on the rim that faces the Hollow (south and east), leaving the stairs head open.
-      const facing = (x - 91) * 0.55 + (z - 76) * 0.85;
-      if (d > lim - 0.17 && facing > 2.2 && !(x >= 93 && z >= 70 && z <= 77)) {
-        const c = detail.noise2(x * 0.47 + 3.3, z * 0.47 - 1.1);
-        if (c > -0.05) put(x, 88, z, B.SLATE);
-        if (c > 0.38) put(x, 89, z, B.SLATE);
-      }
     }
+  // Crags on the rim frame the view: rounded rocks to the east and south, a low gap toward
+  // the south-east where the Hollow opens, and the stairs head left clear.
+  for (const [deg, r, hmax] of [[14, 1.5, 2.6], [32, 1.0, 1.4], [68, 1.1, 1.6], [92, 1.6, 3.2], [118, 1.3, 2.2], [146, 1.5, 2.8], [170, 1.0, 1.5]]) {
+    const a = (deg * Math.PI) / 180;
+    const cx = 91 + Math.cos(a) * 8.5 * 0.9;
+    const cz = 76 + Math.sin(a) * 7.5 * 0.9;
+    for (let z = Math.floor(cz) - 3; z <= cz + 3; z++)
+      for (let x = Math.floor(cx) - 3; x <= cx + 3; x++) {
+        if (isAir(x, 87, z)) continue;
+        const d = Math.hypot(x + 0.5 - cx, z + 0.5 - cz);
+        const h = Math.round(hmax * (1 - (d / (r + 0.8)) ** 2) + detail.noise2(x * 0.8 + 5, z * 0.8) * 0.6);
+        for (let y = 88; y < 88 + h; y++) put(x, y, z, B.SLATE);
+      }
+  }
   lanternPost(94.5, 88, 73.5, 0.2, true);
   discoveries.push({ id: 'hollow', min: [84, 86, 68], max: [100, 96, 84] });
   landmarks.ledge = [92, 88, 76];
@@ -470,7 +477,6 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   lyingDrum('x', 85, 117, 3, 2.9, 1);
   slab(79, 114, 4, 5, B.ANCIENT_BRICK, 1);
   slab(80, 115, 2, 3, B.ANCIENT_BRICK, 0, 1);
-  column(110, 119, 'stump', false);
   column(82, 128, 'broken', false);
   lyingDrum('z', 87, 130, 2, 1.95, 1);
   slab(81, 98, 3, 2, B.ANCIENT_TILE, 0);
@@ -546,8 +552,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   }
   // Beside it the Spindle: a flowstone column grown from floor to dome, the Hollow's
   // landmark silhouette from the ledge.
-  naturalColumn(100, 135, 6.2, 2.4, 7.5);
-  landmarks.spindle = [100.5, floorHeight(100, 135), 135.5];
+  naturalColumn(104, 122, 6.0, 2.3, 7.5);
+  landmarks.spindle = [104.5, floorHeight(104, 122), 122.5];
   landmarks.bridge = [122.5, floorBase + 1, 128.5];
   landmarks.monolith = [123.5, 6, 135.5];
   mark('rift');
@@ -569,15 +575,17 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       const front = y <= floorBase + 7 ? 132 : y <= floorBase + 15 ? 134 : 135;
       for (let x = front; x <= 136; x++) for (let z = z0; z <= z1; z++) put(x, y, z, M);
     }
-  for (let z = 94; z <= 107; z++)
-    for (let y = floorBase - 2; y <= floorBase + 12; y++)
-      for (let x = 133; x <= 136; x++) {
-        const pilaster = z <= 95 || z >= 106;
-        if (x === 133 && !pilaster && y !== floorBase + 9 && y !== floorBase + 11) continue;
-        put(x, y, z, M);
+  // Portal face at x 135 with pilasters, the lintel and two cornice courses stepping out.
+  for (let z = 92; z <= 109; z++)
+    for (let y = floorBase - 2; y <= floorBase + 12; y++) {
+      if (z >= 94 && z <= 107) {
+        put(135, y, z, M);
+        put(136, y, z, M);
       }
-  // Cornice: a second course projecting over the frieze.
-  for (let z = 93; z <= 108; z++) put(132, floorBase + 12, z, M);
+      const pilaster = (z >= 93 && z <= 94) || (z >= 107 && z <= 108);
+      if (pilaster || (y === floorBase + 9 && z >= 95 && z <= 106) || (y === floorBase + 11 && z >= 93 && z <= 108)) put(134, y, z, M);
+      if (y === floorBase + 12) put(133, y, z, M);
+    }
   const doorway = (y: number, z: number) =>
     (y >= floorBase + 1 && y <= floorBase + 6 && z >= 98 && z <= 103) ||
     (y === floorBase + 7 && z >= 99 && z <= 102) ||
@@ -585,19 +593,19 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (let z = 98; z <= 103; z++)
     for (let y = floorBase + 1; y <= floorBase + 8; y++) {
       if (!doorway(y, z)) continue;
-      for (let x = 132; x <= 136; x++) carve(x, y, z);
+      for (let x = 133; x <= 136; x++) carve(x, y, z);
       put(137, y, z, B.HARDENED_SLATE);
       put(138, y, z, B.HARDENED_SLATE);
     }
   // The frieze: one course of inscription between the lintel and the cornice; two stones
   // have weathered blank.
-  for (let z = 96; z <= 105; z++) put(134, floorBase + 10, z, z === 97 || z === 104 ? M : B.GLYPH_STONE);
+  for (let z = 96; z <= 105; z++) put(135, floorBase + 10, z, z === 97 || z === 104 ? M : B.GLYPH_STONE);
   // Forecourt and threshold.
   for (let z = 96; z <= 105; z++)
     for (let x = 126; x <= 136; x++) {
-      if (x >= 133 && !doorway(floorBase + 1, z)) continue;
+      if (x >= 135 && !doorway(floorBase + 1, z)) continue;
       put(x, floorBase, z, z === 96 || z === 105 ? M : B.ANCIENT_TILE);
-      for (let y = floorBase + 1; y <= floorBase + 4; y++) if (x < 133 || doorway(y, z)) carve(x, y, z);
+      for (let y = floorBase + 1; y <= floorBase + 4; y++) if (x < 135 || doorway(y, z)) carve(x, y, z);
     }
   landmarks.seal = [136.5, floorBase + 1, 100.5];
   // Corridor east, stairs down south, then west onto the balcony.
@@ -760,6 +768,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   lanternPost(133.5, floorBase + 1, 104.5, 0, true);
   const oldCamp: V3 = [101, floorHeight(101, 104), 103.5];
   lanternPost(oldCamp[0], oldCamp[1], oldCamp[2], 0.7);
+  lanternPost(84.5, floorHeight(84, 105), 105.5, 0.3);
+  lanternPost(108.5, floorHeight(108, 115), 115.5, -0.6);
   addProp({ kind: 'brokenCart', x: oldCamp[0] + 2.2, y: floorHeight(103, 105), z: oldCamp[2] + 1.6, rotY: 2.1 });
   addProp({ kind: 'crate', x: oldCamp[0] - 1.4, y: floorHeight(100, 103), z: oldCamp[2] - 0.8, rotY: 0.6, scale: 0.85 });
   addProp({ kind: 'ropeCoil', x: oldCamp[0] + 0.6, y: floorHeight(101, 102), z: oldCamp[2] - 1.5 });
@@ -1006,24 +1016,28 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
   }
 
-  /** A low spill of rubble against one tunnel wall (side = +1 right, -1 left of travel). */
+  /** A heap of rubble from an old collapse against one tunnel wall (side = +1 / -1). */
   function rubble(a: V3, b: V3, t: number, side: number): void {
     const dx = b[0] - a[0];
     const dz = b[2] - a[2];
     const l = Math.hypot(dx, dz);
-    const cx = a[0] + dx * t + (-dz / l) * side * 1.9;
-    const cz = a[2] + dz * t + (dx / l) * side * 1.9;
-    const floor = Math.round(a[1] + (b[1] - a[1]) * t);
+    const nx = (-dz / l) * side;
+    const nz = (dx / l) * side;
     const px = a[0] + dx * t;
     const pz = a[2] + dz * t;
-    blob([cx, floor, cz], 1.5, (x, y, z) => {
-      if (y < floor || !isAir(x, y, z)) return;
-      // Keep the walking line clear.
-      const along = ((x + 0.5 - px) * dx + (z + 0.5 - pz) * dz) / l;
-      const across = Math.hypot(x + 0.5 - px - (dx / l) * along, z + 0.5 - pz - (dz / l) * along);
-      if (across < 1.3) return;
-      put(x, y, z, (x + z) % 4 === 0 ? B.SLATE : B.GRAVEL);
-    });
+    const cx = px + nx * 2.4;
+    const cz = pz + nz * 2.4;
+    const floor = Math.round(a[1] + (b[1] - a[1]) * t);
+    for (let z = Math.floor(cz) - 4; z <= cz + 4; z++)
+      for (let x = Math.floor(cx) - 4; x <= cx + 4; x++) {
+        // Keep the walking line clear.
+        const across = (x + 0.5 - px) * nx + (z + 0.5 - pz) * nz;
+        if (across < 1.2) continue;
+        const along = ((x + 0.5 - cx) * dx + (z + 0.5 - cz) * dz) / l;
+        const d = Math.hypot(along / 1.6, across - 2.4);
+        const h = Math.round(2.6 * (1 - d / 2.6) + detail.noise2(x * 0.7, z * 0.7) * 0.7);
+        for (let y = floor; y < floor + h; y++) if (isAir(x, y, z)) put(x, y, z, detail.noise3(x * 0.8, y * 0.8, z * 0.8) > 0.25 ? B.SLATE : B.GRAVEL);
+      }
   }
 
   /**
