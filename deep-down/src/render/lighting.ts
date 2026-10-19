@@ -116,7 +116,7 @@ vec2 placedFacing(vec4 ls, vec3 samplePos, vec3 n) {
   float m0 = max(ls.r, max(ls.g, ls.b));
   float m1 = max(l1.r, max(l1.g, l1.b));
   float placed = m0 < 1e-4 ? 1.0 : clamp(1.0 + 2.2 * (m1 - m0) / m0, 0.25, 1.6);
-  float open = clamp(0.75 + 2.5 * (l1.a - ls.a) / max(ls.a, 0.05), 0.4, 1.35);
+  float open = clamp(0.9 + 2.5 * (l1.a - ls.a) / max(ls.a, 0.05), 0.45, 1.4);
   return vec2(placed, open);
 }
 
@@ -137,8 +137,9 @@ float lanternVisibility(vec3 samplePos) {
 // light out through the glass, not down: the fuel tank shades the steep cone below the flame
 // (more than ~25 degrees down), so there is no hot spot at the carrier's feet and the brightest
 // ground is the way ahead.
-// Colour: uLanternColor is the pale-gold core; it deepens to amber toward the rim of the pool
-// (a flame's light reads warmer as it falls off). A diffuse term with very little wrap so the
+// Colour: uLanternColor is the pale-gold core (near neutral, so stone under it stays grey, not
+// beige); it deepens to amber from ~2.5 m to the rim of the pool (a flame's light reads warmer as
+// it falls off). A diffuse term with very little wrap so the
 // sculpted facets catch it, and a soft bounce (light scattered back by the cool grey rock around
 // the explorer, so it is much closer to neutral than the flame), gated by the same visibility so
 // nothing leaks through walls. open: openness at the sample (light volume alpha): the bounce is
@@ -157,7 +158,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   att *= 1.0 - 0.6 * smoothstep(0.42, 0.9, below);
   float ndl = dot(n, d / max(dist, 1e-3));
   float diff = clamp(ndl * 0.95 + 0.05, 0.0, 1.0);
-  vec3 tint = mix(vec3(1.0, 0.6, 0.34), vec3(1.0), 1.0 - smoothstep(0.06, 0.5, x));
+  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.6, 0.34), smoothstep(0.22, 0.7, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
@@ -360,7 +361,7 @@ export class LightingRig {
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
       // Pale-gold core (the shader deepens it to amber toward the rim of the pool).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xfff0dc)).multiplyScalar(1.1) },
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xfff2e2)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
