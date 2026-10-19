@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import * as THREE from 'three';
 import { B } from '../../src/config/blocks';
+import { ExplorerModel, FADE_RENDER_ORDER } from '../../src/entities/character/ExplorerModel';
+import type { LightingUniforms } from '../../src/render/lighting';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 import { CameraRig } from '../../src/game/CameraRig';
 import { segmentClear } from '../../src/world/light';
@@ -74,6 +77,94 @@ describe('CameraRig collision', () => {
     expect(rig.distance).toBeGreaterThan(rig.maxDistance - 0.05);
   });
 
+  it('frames the explorer low and left of the crosshair in open space (phone landscape)', () => {
+    const w = new VoxelWorld(48, 48, 48);
+    const rig = new CameraRig(w);
+    const feet = new THREE.Vector3(24.5, 20, 24.5);
+    rig.snapTo(feet.x, feet.y + 1.45, feet.z);
+    rig.yaw = 0.7;
+    rig.pitch = -0.2;
+    for (let i = 0; i < 120; i++) rig.update(1 / 60, feet.x, feet.y + 1.45, feet.z, 915 / 412);
+    const screen = (y: number) => new THREE.Vector3(feet.x, feet.y + y, feet.z).project(rig.camera);
+    const head = screen(1.87);
+    const toes = screen(0);
+    // Left of centre, clear of the crosshair, and wholly in the lower half: the route ahead (the
+    // centre of the frame and above) is not behind the explorer.
+    expect(head.x).toBeLessThan(-0.1);
+    expect(head.x).toBeGreaterThan(-0.5);
+    expect(head.y).toBeLessThan(-0.05);
+    expect(toes.y).toBeGreaterThan(-0.95);
+    // Smaller on screen than the round-2 framing (3.8 m boom, 62 degrees): about 35 % of the height.
+    expect(head.y - toes.y).toBeLessThan(0.75);
+    expect(rig.camera.fov).toBeCloseTo(rig.fov, 5);
+  });
+
+  it('keeps the explorer on screen on a portrait phone (smaller shoulder, wider lens)', () => {
+    const w = new VoxelWorld(48, 48, 48);
+    const rig = new CameraRig(w);
+    rig.snapTo(24.5, 21.45, 24.5);
+    rig.pitch = -0.2;
+    for (let i = 0; i < 120; i++) rig.update(1 / 60, 24.5, 21.45, 24.5, 390 / 844);
+    const pivot = new THREE.Vector3(24.5, 21.45, 24.5).project(rig.camera);
+    expect(pivot.x).toBeLessThan(-0.05);
+    expect(pivot.x).toBeGreaterThan(-0.6);
+    expect(rig.camera.fov).toBeGreaterThan(rig.fov);
+  });
+
+  it('slides the shoulder in to see past a post behind it, and back out once clear', () => {
+    // A post 2.5 m behind and right of the explorer, at boom height: the full shoulder runs into it.
+    const w = new VoxelWorld(48, 48, 48);
+    const rig = new CameraRig(w);
+    const px = 24.5;
+    const py = 21.45;
+    const pz = 24.5;
+    rig.yaw = 0; // lens looks along -Z, right is +X, the boom runs back along +Z
+    rig.pitch = -0.1;
+    rig.snapTo(px, py, pz);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60, px, py, pz, 915 / 412);
+    const free = rig.distance;
+    w.fill(26, 20, 27, 26, 23, 27, B.SLATE);
+    rig.snapTo(px, py, pz);
+    for (let i = 0; i < 120; i++) rig.update(1 / 60, px, py, pz, 915 / 412);
+    const c = rig.camera.position;
+    expect(w.isSolidAt(c.x, c.y, c.z)).toBe(false);
+    expect(segmentClear(w, px, py, pz, c.x, c.y, c.z)).toBe(true);
+    // A longer boom than the full shoulder allows, with the explorer still right of the lens line.
+    expect(rig.distance).toBeGreaterThan(3.5);
+    expect(c.x).toBeGreaterThan(px + 0.2);
+    expect(free).toBeGreaterThan(rig.maxDistance - 0.05);
+    // The post goes (mined away): the shoulder slides back out to its full width.
+    w.fill(26, 20, 27, 26, 23, 27, B.AIR);
+    for (let i = 0; i < 180; i++) rig.update(1 / 60, px, py, pz, 915 / 412);
+    expect(rig.camera.position.x).toBeGreaterThan(px + 1.0);
+    expect(rig.distance).toBeGreaterThan(rig.maxDistance - 0.05);
+  });
+
+  it('eases the shoulder back out without a jump when a wall beside the explorer ends', () => {
+    // Walk along a wall on the right that stops: the lateral offset must not jump in one frame.
+    const w = new VoxelWorld(64, 32, 32);
+    w.fill(0, 10, 18, 30, 16, 18, B.SLATE); // wall at z = 18 for x <= 30
+    const rig = new CameraRig(w);
+    rig.yaw = -Math.PI / 2; // lens looks along +X: right is +Z, the wall side
+    rig.pitch = -0.1;
+    // 1 m from the wall: the right shoulder fits, shortened to 0.7 m (no swap).
+    let x = 20.5;
+    rig.snapTo(x, 11.45, 17);
+    let last = rig.camera.position.z;
+    let maxStep = 0;
+    for (let i = 0; i < 240; i++) {
+      x += 4 / 60;
+      rig.update(1 / 60, x, 11.45, 17, 915 / 412);
+      const z = rig.camera.position.z;
+      if (i > 0) maxStep = Math.max(maxStep, Math.abs(z - last));
+      last = z;
+    }
+    // At 4 m/s past the wall's end the camera drifts out instead of popping 0.45 m sideways
+    // (the forward motion is 0.067 m per frame along X, not Z).
+    expect(maxStep).toBeLessThan(0.05);
+    expect(rig.camera.position.z).toBeGreaterThan(17 + 1.0);
+  });
+
   it('keeps a clear line to the explorer at random poses all over the real zone (fuzz)', () => {
     const { world, landmarks } = generateWorld();
     const rng = new Rng(4242);
@@ -107,4 +198,82 @@ describe('CameraRig collision', () => {
     expect(inside).toBe(0);
     expect(blocked).toBe(0);
   }, 60_000);
+});
+
+/** Lighting uniforms with tiny placeholder volumes: enough to construct materials in Node. */
+function lighting(): LightingUniforms {
+  const tex = (n: number) => new THREE.Data3DTexture(new Uint8Array(n * n * n * 4), n, n, n);
+  return {
+    uLightTex: { value: tex(2) },
+    uLanternTex: { value: tex(2) },
+    uWorldSize: { value: new THREE.Vector3(16, 16, 16) },
+    uLanternOrigin: { value: new THREE.Vector3() },
+    uLanternPos: { value: new THREE.Vector3() },
+    uLanternColor: { value: new THREE.Color(1, 0.7, 0.4) },
+    uLanternRadius: { value: 11 },
+    uLanternIntensity: { value: 1 },
+    uAmbient: { value: new THREE.Color() },
+    uOpenAmbient: { value: new THREE.Color() },
+    uEmitGain: { value: 1.7 },
+    uFogColor: { value: new THREE.Color() },
+    uFogDensity: { value: 0.02 },
+    uTime: { value: 0 },
+    uDebug: { value: new THREE.Vector3() },
+  };
+}
+
+function explorerMeshes(e: ExplorerModel): THREE.Mesh[] {
+  const out: THREE.Mesh[] = [];
+  e.root.traverse((o) => {
+    if ((o as THREE.Mesh).isMesh) out.push(o as THREE.Mesh);
+  });
+  return out;
+}
+
+describe('explorer near-camera fade', () => {
+  it('is a true alpha fade with a depth pass, not a screen-door pattern', () => {
+    const e = new ExplorerModel(lighting());
+    const meshes = explorerMeshes(e);
+    const colour = meshes[0].material as THREE.ShaderMaterial;
+    // Opaque by default: plain opaque draws, no discard compiled in (early depth tests stay on).
+    expect(colour.defines.USE_FADE).toBeUndefined();
+    expect(colour.blending).toBe(THREE.NoBlending);
+    e.setFade(0.4);
+    for (const m of meshes) {
+      const passes = m.material as THREE.Material[];
+      expect(Array.isArray(passes)).toBe(true);
+      const [depth, col] = passes;
+      expect(col).toBe(colour);
+      // Depth first: same render order, lower material id (three sorts by order, then id).
+      expect(depth.colorWrite).toBe(false);
+      const id = (mat: THREE.Material) => (mat as unknown as { id: number }).id;
+      expect(id(depth)).toBeLessThan(id(col));
+      expect(m.renderOrder).toBe(FADE_RENDER_ORDER);
+      expect(m.geometry.groups.map((g) => g.materialIndex)).toEqual([0, 1]);
+    }
+    expect(colour.blending).toBe(THREE.CustomBlending);
+    expect(colour.blendSrc).toBe(THREE.ConstantAlphaFactor);
+    expect(colour.blendDst).toBe(THREE.OneMinusConstantAlphaFactor);
+    // Eased: see-through only when genuinely close (0.4 requested -> 0.352 drawn).
+    expect(colour.blendAlpha).toBeCloseTo(0.352, 3);
+    // Tool swaps while faded: the new geometry gets its draw groups too.
+    e.setEquipment(2, 2);
+    e.setFade(0.5);
+    for (const m of explorerMeshes(e)) expect(m.geometry.groups.length).toBe(2);
+    // Back to full opacity: ordinary opaque draws again.
+    e.setFade(1);
+    for (const m of explorerMeshes(e)) {
+      expect(m.material).toBe(colour);
+      expect(m.renderOrder).toBe(0);
+    }
+    expect(colour.blending).toBe(THREE.NoBlending);
+    // Hidden entirely when the opacity reaches zero.
+    e.setFade(0);
+    let shown = 0;
+    e.root.traverseVisible((o) => {
+      if ((o as THREE.Mesh).isMesh) shown++;
+    });
+    expect(shown).toBe(0);
+    e.dispose();
+  });
 });

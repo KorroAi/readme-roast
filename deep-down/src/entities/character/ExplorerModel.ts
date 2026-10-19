@@ -370,7 +370,10 @@ export class ExplorerModel {
       });
     }
     if (!fading) return;
-    this.material.blendAlpha = a;
+    // Smoothstep: nearly opaque while the camera is merely near (the request falls from 1 at a
+    // 2 m camera distance), see-through only when it is genuinely close (a 0.25 request draws at
+    // 0.16 opacity, so the faint ghost of the pack does not sit over what the player looks at).
+    this.material.blendAlpha = a * a * (3 - 2 * a);
     // Tool geometry changes with the tier: every drawn geometry needs the two fade groups.
     this.root.traverse((o) => {
       const m = o as THREE.Mesh;

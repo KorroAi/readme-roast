@@ -346,19 +346,53 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       for (let y = 87 - depth; y <= 87; y++) put(x, y, z, y === 87 && d < 0.85 ? B.SLATE : B.DEEP_SLATE);
       for (let y = 88; y <= 93; y++) carve(x, y, z);
     }
-  // A broken lip of rock along the drop, so the edge reads; open toward the south-east where
-  // the Hollow is revealed, and at the stairs head.
+  // A broken parapet of crags along the drop, so the edge reads and frames the view; open toward
+  // the south-east where the Hollow is revealed, and at the stairs head. Crags are 3-6 m long and
+  // 1-4 m tall, tallest at the brink, and thicken inward behind the tall ones (a sloping back).
+  // The ledge plane itself swells gently away from the path. No lone voxels: the mesher bevels a
+  // single voxel into a pebble, so every crag or swell column keeps a neighbour.
+  const ledgePath: Array<[number, number]> = [[80, 70], [85, 73], [90, 76], [96.5, 73.5]];
+  const pathDist = (x: number, z: number) => {
+    let best = Infinity;
+    for (let k = 1; k < ledgePath.length; k++) {
+      const [ax, az] = ledgePath[k - 1];
+      const [bx, bz] = ledgePath[k];
+      const t = Math.max(0, Math.min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / ((bx - ax) ** 2 + (bz - az) ** 2)));
+      best = Math.min(best, Math.hypot(x - ax - t * (bx - ax), z - az - t * (bz - az)));
+    }
+    return best;
+  };
+  const lipH = new Map<number, number>();
   for (let z = 66; z <= 86; z++)
     for (let x = 82; x <= 100; x++) {
+      if (isAir(x, 87, z)) continue;
       const d = Math.hypot((x - 91) / 8.5, (z - 76) / 7.5);
       const lim = 1 + detail.noise2(x * 0.3, z * 0.3) * 0.12;
-      if (d > lim || d < lim - 0.2 || isAir(x, 87, z)) continue;
+      if (d > lim) continue;
       const a = (Math.atan2(z - 76, x - 91) * 180) / Math.PI;
-      if (!((a > 66 && a < 176) || (a > -70 && a < 14))) continue;
-      if (x >= 93 && z >= 70 && z <= 77) continue;
-      // Long runs with a few breaks read as a natural kerb, not a row of loose blocks.
-      if (detail.noise2(x * 0.22 + 3.3, z * 0.22 - 1.1) > -0.25) put(x, 88, z, B.SLATE);
+      const brinkSide = (a > 66 && a < 176) || (a > -70 && a < 14);
+      const stairsHead = x >= 92 && z >= 69 && z <= 78;
+      const n = detail.noise2(x * 0.16 + 3.3, z * 0.16 - 1.1);
+      const band = (d - (lim - 0.34)) / 0.34; // 0 at the inner edge of the brink band, 1 at the brink
+      let h = 0;
+      if (brinkSide && !stairsHead && band >= 0 && n > -0.3) {
+        h = Math.min(4, Math.round(0.7 + (n + 0.3) * 3.6 * (0.35 + 0.65 * band)));
+        if (band < 0.45 && h < 2) h = 0; // the inner band only backs tall crags
+        else if (band < 0.45) h -= 1;
+      } else if (!brinkSide && !stairsHead && band >= 0.5 && a > 14 && a < 66 && detail.noise2(x * 0.3 - 4.2, z * 0.3 + 6.6) > 0.15) {
+        h = 1; // low broken rock at the brink of the reveal, below the sightline
+      } else if (band < 0.3 && !stairsHead && pathDist(x, z) > 2.2 && detail.noise2(x * 0.27 + 7.1, z * 0.27 + 2.3) > 0.02) {
+        h = 1; // a low swell of the ledge rock
+      }
+      if (h > 0) lipH.set(x + z * 256, h);
     }
+  for (const [k, h] of lipH) {
+    const x = k % 256;
+    const z = (k / 256) | 0;
+    const neighbours = [1, -1, 256, -256].filter((o) => lipH.has(k + o)).length;
+    if (!neighbours) continue;
+    for (let y = 88; y < 88 + h; y++) put(x, y, z, y === 88 && h === 1 ? B.SLATE : B.DEEP_SLATE);
+  }
   lanternPost(94.5, 88, 73.5, 0.2, true);
   discoveries.push({ id: 'hollow', min: [84, 86, 68], max: [100, 96, 84] });
   landmarks.ledge = [92, 88, 76];

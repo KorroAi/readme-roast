@@ -60,7 +60,8 @@ function boot(): void {
     syncUrl();
   });
   syncLight();
-  bar.appendChild(light);
+  // First after the title, so it is on screen even when the bar scrolls on a phone.
+  bar.insertBefore(light, title.nextSibling);
   // Transitions options: cycle the camera stop, toggle fog (shown only in that view).
   const trTools: HTMLButtonElement[] = [];
   const angle = document.createElement('button');

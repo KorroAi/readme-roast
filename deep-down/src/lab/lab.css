@@ -4,10 +4,20 @@
   left: calc(8px + var(--safe-left));
   right: calc(8px + var(--safe-right));
   display: flex;
-  flex-wrap: wrap;
+  /* One row that scrolls sideways on a phone, so the bar never covers a fifth of the view. */
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
   gap: 6px;
   align-items: center;
   font: 600 13px/1 var(--font);
+}
+.lab-bar::-webkit-scrollbar {
+  display: none;
+}
+.lab-bar > * {
+  flex: 0 0 auto;
 }
 .lab-title {
   letter-spacing: 0.18em;

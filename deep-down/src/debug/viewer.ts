@@ -6,6 +6,7 @@ import { generateTiles } from '../render/textures';
 import { createTerrainMaterial, createTileTexture } from '../render/terrainMaterial';
 import { TerrainRig } from '../render/terrainRig';
 import { ChunkRenderer } from '../render/ChunkRenderer';
+import { MESH_OPTIONS } from '../render/mesher';
 import { Renderer } from '../render/Renderer';
 import { Waterfall } from '../game/effects/Waterfall';
 import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
@@ -14,6 +15,9 @@ import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
  * Developer world viewer (not shipped in the game UI): renders the generated zone from a
  * camera given in the URL, for composition work and screenshots.
  *   ?cam=x,y,z,yaw,pitch  &ortho=1  &bright=0.6  &clip=47  &fog=0.02  &props=1
+ * Terrain isolation flags: no_disp (no sculpt offset in the shader), no_deriv (flat face
+ * normals), no_macro, blend=0, lantern=0; mesher: sculpt=0 (plain cubes), wide=0..1 (share of
+ * the 4x4x4 occupancy gradient in the smooth rock normal).
  */
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -26,6 +30,8 @@ async function boot(): Promise<void> {
   const rig = new LightingRig(field, lantern, layout.world.sx, layout.world.sy, layout.world.sz);
   const tiles = createTileTexture(generateTiles());
   const terrain = new TerrainRig();
+  if (params.get('sculpt') === '0') MESH_OPTIONS.sculpt = false;
+  if (params.has('wide')) MESH_OPTIONS.wide = Number(params.get('wide'));
   const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, terrain.uniforms, params.has('clip'), params.get('blend') !== '0', Object.fromEntries(['NO_DISP', 'NO_MACRO', 'NO_DERIV'].filter((d) => params.has(d.toLowerCase())).map((d) => [d, '']))));
   await chunks.buildAll();
   const scene = new THREE.Scene();

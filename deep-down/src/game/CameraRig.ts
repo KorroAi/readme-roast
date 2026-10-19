@@ -14,6 +14,8 @@ const BUNDLE_UP = [0, 0.18, -0.12];
 const SLIDES = [0.7, 0.4];
 const SLIDE_COMFORT = 3.6;
 const SLIDE_PREFER = 2;
+/** Time scale of a shoulder swap (s): critically damped, about 1 s from one side to the other. */
+const SIDE_SMOOTH_TIME = 0.32;
 
 /**
  * Third-person over-the-shoulder camera with voxel collision.
@@ -39,8 +41,8 @@ export class CameraRig {
   shoulder = 1.15;
   /**
    * Boom turned against the lens (rad): the lens looks this far above the line from the camera
-   * to the pivot (about 0.8 m over the explorer's head at the full boom), so the explorer stands
-   * in the lower third and the floor ahead shows above the hat.
+   * to the pivot (at the full boom its aim passes 0.8 m over the chest, half a metre over the
+   * hat), so the explorer stands in the lower third and the floor ahead shows above the hat.
    */
   framePitch = 0.17;
   /** ... and this far to the right of it (on top of the shoulder), so the explorer stands left. */
@@ -55,8 +57,9 @@ export class CameraRig {
   /** Sideways room for the shoulder, smoothed: shrinks at once, grows back slowly (no jitter). */
   private roomR = 0;
   private roomL = 0;
-  /** Share of the shoulder in use, smoothed (1, or SLIDE while a post behind it blocks the boom). */
+  /** Share of the shoulder in use, smoothed (1, or one of SLIDES while a post blocks the boom). */
   private shoulderUse = 1;
+  private sideVel = 0;
   private trauma = 0;
   private shakeTime = 0;
   private readonly pivot = new THREE.Vector3();
@@ -89,6 +92,7 @@ export class CameraRig {
     this.pivot.copy(this.pivotTarget);
     this.distance = this.maxDistance;
     this.side = 1;
+    this.sideVel = 0;
     this.roomR = this.roomL = this.shoulder;
     this.shoulderUse = 1;
     this.initialized = true;
@@ -141,7 +145,8 @@ export class CameraRig {
     const want = this.side < 0
       ? roomR >= shoulder * 0.9 || roomR > roomL + 0.2 ? 1 : -1
       : roomR >= shoulder * 0.5 || roomR >= roomL ? 1 : -1;
-    this.side = damp(this.side, want, 4, dt);
+    // Critically damped, so a swap starts and ends gently (no jolt) and never overshoots.
+    this.side = this.smoothSide(want, dt);
     const full = this.side >= 0 ? Math.min(shoulder * this.side, this.roomR) : -Math.min(-shoulder * this.side, this.roomL);
 
     // 2) Boom: a small bundle of rays cast back from the (open) shoulder point. If a post or a
@@ -200,6 +205,23 @@ export class CameraRig {
     cam.aspect = aspect;
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
+  }
+
+  /** One step of a critically damped spring toward `target` (stable at any dt; ~1 s to settle). */
+  private smoothSide(target: number, dt: number): number {
+    const omega = 2 / SIDE_SMOOTH_TIME;
+    const x = omega * dt;
+    const k = 1 / (1 + x + 0.48 * x * x + 0.235 * x * x * x);
+    const change = this.side - target;
+    const temp = (this.sideVel + omega * change) * dt;
+    this.sideVel = (this.sideVel - omega * temp) * k;
+    let out = target + (change + temp) * k;
+    // No overshoot past the target.
+    if ((target - this.side > 0) === (out > target)) {
+      out = target;
+      this.sideVel = 0;
+    }
+    return clamp(out, -1, 1);
   }
 
   /** Boom length the rock allows from the shoulder point at `lateral` metres along `right`. */

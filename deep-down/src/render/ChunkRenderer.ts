@@ -25,6 +25,10 @@ export class ChunkRenderer {
   private readonly material: THREE.Material;
   private readonly vertexCounts: Int32Array;
   private readonly byteCounts: Int32Array;
+  /** Per chunk: seam hashes of its last mesh (27 slots) and the world revision it was meshed at. */
+  private readonly seams: Uint32Array;
+  private readonly meshRevision: Float64Array;
+  private building = false;
   viewDistance = 96;
 
   constructor(world: VoxelWorld, material: THREE.Material) {
@@ -34,6 +38,8 @@ export class ChunkRenderer {
     this.meshes = new Array(n).fill(null);
     this.vertexCounts = new Int32Array(n);
     this.byteCounts = new Int32Array(n);
+    this.seams = new Uint32Array(n * 27);
+    this.meshRevision = new Float64Array(n).fill(-1);
     this.stats.chunks = n;
     this.group.name = 'terrain';
     this.group.matrixAutoUpdate = false;
@@ -45,6 +51,7 @@ export class ChunkRenderer {
     const total = w.cx * w.cy * w.cz;
     let done = 0;
     let sliceStart = performance.now();
+    this.building = true;
     for (let cz = 0; cz < w.cz; cz++)
       for (let cy = 0; cy < w.cy; cy++)
         for (let cx = 0; cx < w.cx; cx++) {
@@ -56,6 +63,7 @@ export class ChunkRenderer {
             sliceStart = performance.now();
           }
         }
+    this.building = false;
     w.dirty.fill(0);
     onProgress?.(1);
   }
@@ -112,6 +120,7 @@ export class ChunkRenderer {
     const w = this.world;
     const i = w.chunkIndex(cx, cy, cz);
     const data = meshChunk(w, cx, cy, cz);
+    this.propagateSeams(i, cx, cy, cz, data.seams);
     let mesh = this.meshes[i];
     this.stats.vertices -= this.vertexCounts[i];
     this.stats.triangles -= this.vertexCounts[i] / 2;
@@ -160,6 +169,30 @@ export class ChunkRenderer {
     this.stats.bytes += this.byteCounts[i];
     this.stats.vertices += data.vertexCount;
     this.stats.triangles += data.vertexCount / 2;
+  }
+
+  /**
+   * The mesher's smooth normals and AO read two voxels around a corner, one more than
+   * VoxelWorld's dirty marking covers: when the data on a seam changed, re-mesh the neighbour
+   * that shares it unless it was already meshed from the current world state.
+   */
+  private propagateSeams(i: number, cx: number, cy: number, cz: number, seams: Uint32Array): void {
+    const w = this.world;
+    const prev = this.seams;
+    const first = this.meshRevision[i] < 0;
+    for (let k = 0; k < 27; k++) {
+      if (k === 13) continue;
+      const changed = prev[i * 27 + k] !== seams[k];
+      prev[i * 27 + k] = seams[k];
+      if (!changed || first || this.building) continue;
+      const nx = cx + (k % 3) - 1;
+      const ny = cy + (((k / 3) | 0) % 3) - 1;
+      const nz = cz + ((k / 9) | 0) - 1;
+      if (nx < 0 || ny < 0 || nz < 0 || nx >= w.cx || ny >= w.cy || nz >= w.cz) continue;
+      const j = w.chunkIndex(nx, ny, nz);
+      if (this.meshRevision[j] !== w.revision) w.markDirty(nx, ny, nz);
+    }
+    this.meshRevision[i] = w.revision;
   }
 
   dispose(): void {

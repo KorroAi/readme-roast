@@ -55,15 +55,15 @@ export type LabLight = 'review' | 'game';
 export const LAB_LIGHTS: LabLight[] = ['review', 'game'];
 const REVIEW = {
   /** Linear fill on every surface (shaded by the surface's facing, darkened by AO). */
-  ambient: [0.07, 0.072, 0.078] as const,
+  ambient: [0.95, 0.95, 1.0] as const,
   /** Extra fill in open space (scaled by openness squared, like the zones' open-space fill). */
-  open: [0.03, 0.032, 0.036] as const,
+  open: [0.2, 0.2, 0.22] as const,
   /** Neutral key (the preset's lantern): colour (linear), intensity and minimum pool radius. */
   key: [1.55, 1.5, 1.45] as const,
   keyIntensity: 1.1,
   keyRadius: 15,
   fog: 0.004,
-  exposure: 1.1,
+  exposure: 1.15,
 };
 
 /** Fixed camera + light presets so changes can be compared screenshot to screenshot. */
@@ -88,7 +88,9 @@ export type TransitionCam = 'overview' | 'geology' | 'minerals' | 'masonry' | 'c
 export const TRANSITION_CAMS: TransitionCam[] = ['overview', 'geology', 'minerals', 'masonry', 'crumble', 'seam'];
 /** Camera stops, each with the lantern orbit it is judged under (centre, radii, height). */
 const TR_CAMS: Record<TransitionCam, { cam: [number, number, number]; target: [number, number, number]; orbit: { x: number; z: number; rx: number; rz: number; y: number } }> = {
-  overview: { cam: [96, 12, 11], target: [96, 4.5, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
+  // The whole court (x 70..124) in one frame on a phone-shaped screen, the seam wall and the steps
+  // in front, the labels above the back wall.
+  overview: { cam: [96, 9, 5.5], target: [96, 5.5, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
   geology: { cam: [83, 5.2, 21.5], target: [83, 4.8, 30], orbit: { x: 83, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   minerals: { cam: [96, 5.6, 21.5], target: [96, 5.4, 30], orbit: { x: 96, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   masonry: { cam: [112, 5.2, 21.5], target: [112, 4.8, 30], orbit: { x: 112, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
@@ -98,12 +100,12 @@ const TR_CAMS: Record<TransitionCam, { cam: [number, number, number]; target: [n
 const TR_FOG = { off: 0.012, on: 0.055 };
 
 const TRANSITION_LABELS: Array<{ text: TextKey; x: number; y: number; z: number }> = [
-  { text: 'lab.tr.stoneSoil', x: 75.5, y: 15, z: 30 },
-  { text: 'lab.tr.stoneWeathered', x: 83.5, y: 15, z: 30 },
-  { text: 'lab.tr.stoneOre', x: 92, y: 15, z: 30 },
-  { text: 'lab.tr.stoneCrystal', x: 100.5, y: 15, z: 30 },
-  { text: 'lab.tr.masonryCrumbling', x: 108.5, y: 15, z: 30 },
-  { text: 'lab.tr.masonryRock', x: 117.5, y: 15, z: 30 },
+  { text: 'lab.tr.stoneSoil', x: 75.5, y: 12, z: 29.5 },
+  { text: 'lab.tr.stoneWeathered', x: 83.5, y: 12, z: 29.5 },
+  { text: 'lab.tr.stoneOre', x: 92, y: 12, z: 29.5 },
+  { text: 'lab.tr.stoneCrystal', x: 100.5, y: 12, z: 29.5 },
+  { text: 'lab.tr.masonryCrumbling', x: 108.5, y: 12, z: 29.5 },
+  { text: 'lab.tr.masonryRock', x: 117.5, y: 12, z: 29.5 },
   { text: 'lab.tr.seam', x: 96, y: 6.5, z: 12.5 },
   { text: 'lab.tr.steps', x: 108, y: 7, z: 14 },
 ];
@@ -220,7 +222,9 @@ export class VisualLab {
     w.fill(33, 2, 32, 35, 6, 35, B.AIR);
     for (const [x, z] of [[37, 39], [43, 39], [37, 45], [43, 45], [40, 47]]) w.fill(x, 2, z, x, 7, z, B.ANCIENT_BRICK);
     w.fill(44, 2, 41, 48, 3, 43, B.COPPER_ORE);
-    // Crack row and particle / pickup pads.
+    // Crack row and particle / pickup pads, in front of a backdrop wall (so the views are judged
+    // against stone, not the void past the lab's edge).
+    w.fill(4, 2, 62, 58, 9, 63, B.SLATE);
     w.fill(19, 2, 59, 28, 2, 59, B.SLATE);
     w.fill(50, 2, 59, 53, 2, 59, B.COPPER_ORE);
     w.fill(10, 2, 59, 13, 2, 59, B.UMBER);
