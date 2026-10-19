@@ -1,5 +1,5 @@
 import { COURSE_PIECE, strips, type CourseLibrary, type Strip } from './courses';
-import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, cached, chip, cloneField, crackCurve, fbm, groove, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, cached, chip, cloneField, crackCurve, fbm, groove, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
 import * as P from './palette';
 
 /**
@@ -585,33 +585,53 @@ export function crumblingB(c: MatCanvas, rng: Rng): void {
   paintCrumbling(c, rng, 'B');
 }
 
-/** Hearth stones: soot-black, heat-cracked, ash packed in the joints, a few live embers. */
+/**
+ * Hearth stones: rounded fieldstones blackened by soot (their tops a little greyer, where the
+ * soot wears), packed in pale ash; a handful of small live embers deep in the ash, not a network
+ * of glowing cracks (that reads as a magma block). The fire itself is a prop with its own flame.
+ */
 export function hearth(c: MatCanvas, rng: Rng): void {
-  const stones = new PeriodicCells(rng, 13, 13, 0.8);
+  const stones = new PeriodicCells(rng, 18, 18, 0.85);
   const n = fbm(rng, 16, 2);
-  const emberN = fbm(rng, 16, 1);
-  const size = S / 13;
+  const ashN = fbm(rng, 32, 1);
+  const size = S / 18;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const q = stones.query(x, y);
       const cell = stones.cells[q.id];
       const e = q.d2 - q.d1;
-      if (e < 1.6) {
-        // Ash in the joints; very rarely a live ember (emissive).
-        const em = emberN(x, y);
-        if (em > 0.85 && hash2(x, y) < 0.45) c.set(x, y, ramp(P.EMBER, (em - 0.85) * 6, x, y, 0), 120 + (em - 0.85) * 600);
-        else c.set(x, y, ramp(P.ASH, n(x, y), x, y, 0), 0);
-        continue;
-      }
       const dx = wrapDelta(cell.x, x) / size;
       const dy = wrapDelta(cell.y, y) / size;
-      let v = 0.36 + (cell.r - 0.5) * 0.25 - ((cell.r2 - 0.5) * dx + (cell.r3 - 0.4) * dy) * 0.4 + (n(x, y) - 0.5) * 0.15;
-      if (e < 2.6) v += dx + dy < 0 ? 0.08 : -0.1;
+      // Rounded: the stone's edge falls into the ash, the joint width varies per stone.
+      const joint = 1.3 + cell.r2 * 1.4;
+      if (e < joint) {
+        c.set(x, y, ramp(P.ASH, 0.15 + ashN(x, y) * 0.55 - (e / joint) * 0.2, x, y, 0), 0);
+        continue;
+      }
+      // Lit from the upper left, soot darkest low on the stone, a greyer worn crown.
+      const crown = Math.max(0, 1 - (dx * dx + dy * dy) * 2.2);
+      let v = 0.22 + (cell.r - 0.5) * 0.22 + crown * 0.22 - (dx + dy) * 0.08 + (n(x, y) - 0.5) * 0.1;
+      if (e < joint + 1.2) v -= 0.1;
       c.set(x, y, ramp(P.SOOT, v, x, y, 0), 0);
     }
-  // Heat cracks: short, dark.
-  for (let k = 0; k < 14; k++) {
-    const pts = crackCurve(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(3, 7), 0.4, 0.2);
+  // Heat cracks across a few stones: short, dark.
+  for (let k = 0; k < 9; k++) {
+    const pts = crackCurve(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(3, 6), 0.4, 0.2);
     for (const [x, y] of pts) if (c.a[c.idx(x, y)] === 0) c.set(x, y, P.SOOT[0]);
+  }
+  // A few small embers glowing in the ash between the stones (emissive alpha).
+  for (let k = 0, placed = 0; k < 400 && placed < 7; k++) {
+    const x = rng.int(0, S - 1);
+    const y = rng.int(0, S - 1);
+    const q = stones.query(x, y);
+    if (q.d2 - q.d1 > 1.1) continue;
+    placed++;
+    const r = rng.int(1, 2);
+    for (let j = -r; j <= r; j++)
+      for (let i = -r; i <= r; i++) {
+        if (i * i + j * j > r * r + 0.5 || rng.chance(0.25)) continue;
+        const hot = i === 0 && j === 0;
+        c.set(x + i, y + j, hot ? P.EMBER[2] : P.EMBER[rng.int(0, 1)], hot ? 150 : 70 + rng.next() * 40);
+      }
   }
 }

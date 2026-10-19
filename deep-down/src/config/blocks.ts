@@ -30,6 +30,28 @@ export const B = {
   LIGHT_ABYSS: 22,
   /** Dimmer amber for route lanterns: pools of warmth with darkness between them. */
   LIGHT_LAMP: 23,
+  /**
+   * Collision of built forms drawn as structure meshes (render/structures): solid, invisible
+   * (the chunk mesher draws no faces for them), unbreakable. Masonry and timber variants.
+   */
+  STRUCTURE: 24,
+  STRUCTURE_TIMBER: 25,
+  /**
+   * Stair flights drawn as structure meshes. A wedge (RAMP_*) is solid below its cell's diagonal,
+   * descending toward +x, -x, +z or -z; the explorer walks on that plane (PlayerController), so
+   * the fine stair mesh (0.25 m risers) never floats over 1 m voxel steps. A base cell
+   * (RAMP_BASE_*) is the full cube under a wedge: it takes the wedge's plane (its own diagonal one
+   * metre up) for the explorer's footing. Everything else (light, camera, mining rays,
+   * reachability) sees solid cubes.
+   */
+  RAMP_PX: 26,
+  RAMP_NX: 27,
+  RAMP_PZ: 28,
+  RAMP_NZ: 29,
+  RAMP_BASE_PX: 30,
+  RAMP_BASE_NX: 31,
+  RAMP_BASE_PZ: 32,
+  RAMP_BASE_NZ: 33,
 } as const;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
@@ -109,6 +131,11 @@ def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, hardn
 // separate islands of warmth.
 def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.58, 0.27] });
 def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
+// Built forms drawn as structure meshes: collision only (no chunk faces), never mined.
+const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;
+def({ id: B.STRUCTURE, name: 'block.ancientBrick', ...structureStone });
+def({ id: B.STRUCTURE_TIMBER, name: 'block.beam', solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
+for (const id of [B.RAMP_PX, B.RAMP_NX, B.RAMP_PZ, B.RAMP_NZ, B.RAMP_BASE_PX, B.RAMP_BASE_NX, B.RAMP_BASE_PZ, B.RAMP_BASE_NZ]) def({ id, name: 'block.ancientTile', ...structureStone });
 
 export const BLOCKS: readonly BlockDef[] = defs;
 export const BLOCK_COUNT = defs.length;
@@ -152,6 +179,31 @@ setVariants(B.GLYPH_STONE, [TILE.glyphStone, TILE.glyphStoneB, TILE.glyphStoneC]
 setVariants(B.ANCIENT_BRICK, [TILE.ancientBrick, TILE.ancientBrick, TILE.ancientBrick, TILE.ancientBrickCarved]);
 
 export const isEmitter = (id: number): boolean => (EMIT_R[id] | EMIT_G[id] | EMIT_B[id]) !== 0;
+
+/**
+ * Stair footing per block id (PlayerController): 0 = an ordinary cube; otherwise
+ * direction (1 +x, 2 -x, 3 +z, 4 -z, the way the flight descends) + 4 x the height of the plane
+ * above the cell's own diagonal (0 for a wedge, 1 for the base cell under it). The plane rises
+ * one metre per metre: at the uphill face of the cell it is at y + 1 + lift, at the downhill
+ * face at y + lift.
+ */
+export const RAMP = new Uint8Array(256);
+RAMP[B.RAMP_PX] = 1;
+RAMP[B.RAMP_NX] = 2;
+RAMP[B.RAMP_PZ] = 3;
+RAMP[B.RAMP_NZ] = 4;
+RAMP[B.RAMP_BASE_PX] = 5;
+RAMP[B.RAMP_BASE_NX] = 6;
+RAMP[B.RAMP_BASE_PZ] = 7;
+RAMP[B.RAMP_BASE_NZ] = 8;
+
+/** Height of the stair plane of ramp cell (cx, cy, cz) with RAMP code `r` at the point (x, z). */
+export function rampPlane(r: number, cx: number, cy: number, cz: number, x: number, z: number): number {
+  const dir = ((r - 1) & 3) + 1;
+  const lift = (r - 1) >> 2;
+  const f = dir === 1 ? x - cx : dir === 2 ? cx + 1 - x : dir === 3 ? z - cz : cz + 1 - z;
+  return cy + lift + 1 - f;
+}
 
 export function blockDef(id: number): BlockDef {
   return defs[id] ?? defs[B.AIR];

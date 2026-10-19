@@ -5,11 +5,16 @@ import * as P from './palette';
  * Geology: ancient dark stone, deep stone, weathered rock, damp stone, the dense seal stone
  * and abyssal bedrock.
  *
- * Walls are painted as rock is built: folded beds of varying thickness, bedding-plane partings
- * with a lit lip and a shadowed underside, joints that cross a bed and stop at the next parting,
- * a few long fractures through several beds, chipped flakes along the edges, and conchoidal
- * facets inside each block. Floors are worn bedding surfaces: broad plates, broken cracks and
- * grit that collects in them. All texel colours come from one palette ramp per family.
+ * Walls are painted as rock is built: beds of varying thickness (their large-scale folding is
+ * a world-space warp in the terrain shader, so it never repeats with the texture), bedding-plane
+ * partings with a lit lip and a shadowed underside, joints that cross a bed and stop at the next
+ * parting, a few long fractures through several beds, chipped flakes along the edges, and a few
+ * finely bedded layers whose laminae are broken and irregularly spaced. Conchoidal facets shape
+ * the height only (boundaries), not the colour: as colour they read as stamped wedges. Floors are
+ * worn bedding surfaces, darker than the walls (worn, damp and shadowed, never dusty pale): broad
+ * plates, broken cracks and dark grit that collects in them. All texel colours come from one
+ * palette ramp per family, and every visible change is a whole ramp step (pixel-art discipline):
+ * noise stays under half a step, so it never prints quantization speckle.
  */
 
 const S = MAT_SIZE;
@@ -21,20 +26,18 @@ export interface RockStyle {
   /** Bed thickness range in texels (16 = 1 m). */
   beds: [number, number];
   bedTone: number;
-  /** Folding of the beds: amplitude in texels and waves per 8 m period. */
+  /** Local waviness of the beds (texels); the large folds are the shader's world warp. */
   fold: number;
-  folds: number;
   /** Joint spacing (texels) and the chance that a bed is jointed at all. */
   joints: [number, number];
   jointChance: number;
-  /** Facet cells across the texture (chipped, conchoidal faces) and their shading strength. */
+  /** Facet cells across the texture (chipped, conchoidal faces: height only). */
   facets: number;
-  facetStrength: number;
   /** Long fractures crossing several beds. */
   fractures: number;
-  /** Clustered grain amplitude (2-4 texel clusters; never single-pixel speckle). */
+  /** Share of 2-3 texel mineral grain clusters (mostly dark pits; never single-pixel speckle). */
   grain: number;
-  /** Chance that a bed is finely laminated. */
+  /** Chance that a bed is finely laminated (1-3 broken laminae at irregular spacing). */
   laminae: number;
   chips: number;
   /** Mean value (0..1) and macro variation. */
@@ -56,20 +59,20 @@ export interface RockMap {
 }
 
 export const STONE_SIDE: RockStyle = {
-  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 5, folds: 1, joints: [22, 64], jointChance: 0.24,
-  facets: 7, facetStrength: 0.1, fractures: 2, grain: 0.06, laminae: 0.25, chips: 30, base: 0.53, macro: 0.08, height: 150, heightSpread: 80,
+  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 2.5, joints: [22, 64], jointChance: 0.24,
+  facets: 7, fractures: 2, grain: 0.022, laminae: 0.3, chips: 16, base: 0.53, macro: 0.08, height: 150, heightSpread: 80,
 };
 export const DEEP_SIDE: RockStyle = {
-  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.11, fold: 3, folds: 1, joints: [22, 64], jointChance: 0.4,
-  facets: 6, facetStrength: 0.12, fractures: 2, grain: 0.05, laminae: 0.1, chips: 22, base: 0.54, macro: 0.08, height: 165, heightSpread: 70,
+  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.11, fold: 2, joints: [22, 64], jointChance: 0.4,
+  facets: 6, fractures: 2, grain: 0.02, laminae: 0.15, chips: 12, base: 0.54, macro: 0.08, height: 165, heightSpread: 70,
 };
 export const WEATHERED_SIDE: RockStyle = {
-  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.13, fold: 3, folds: 2, joints: [16, 44], jointChance: 0.45,
-  facets: 9, facetStrength: 0.1, fractures: 4, grain: 0.07, laminae: 0.55, chips: 40, base: 0.52, macro: 0.08, height: 115, heightSpread: 80,
+  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.13, fold: 2, joints: [26, 70], jointChance: 0.22,
+  facets: 9, fractures: 4, grain: 0.028, laminae: 0.45, chips: 22, base: 0.52, macro: 0.08, height: 115, heightSpread: 80,
 };
 export const BEDROCK_SIDE: RockStyle = {
-  pal: P.BEDROCK, crack: 0x030304, beds: [20, 44], bedTone: 0.08, fold: 2, folds: 1, joints: [24, 64], jointChance: 0.35,
-  facets: 6, facetStrength: 0.13, fractures: 3, grain: 0.05, laminae: 0, chips: 14, base: 0.52, macro: 0.2, height: 170, heightSpread: 60,
+  pal: P.BEDROCK, crack: 0x030304, beds: [20, 44], bedTone: 0.08, fold: 1.5, joints: [24, 64], jointChance: 0.35,
+  facets: 6, fractures: 3, grain: 0.02, laminae: 0, chips: 8, base: 0.52, macro: 0.2, height: 170, heightSpread: 60,
 };
 
 /** Build the rock structure of a wall. Every random draw happens here, so the same rng gives the same rock. */
@@ -80,8 +83,8 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   const wob = fbm(rng, 8, 2);
   const jitter = new PeriodicNoise(rng, 16, 16);
   const partingN = new PeriodicNoise(rng, 16, 8);
-  const foldN = new PeriodicNoise(rng, 4, 4);
-  const phase = rng.next() * TAU;
+  const foldN = new PeriodicNoise(rng, 8, 4);
+  const laminaN = new PeriodicNoise(rng, 24, 8);
   // Mineral grains: a few round clusters of 2-3 texels (Worley cells, not a thresholded noise,
   // which leaves single texels and plus-shaped peaks that alias into a stipple).
   const grains = new PeriodicCells(rng, 32, 32, 0.95);
@@ -89,7 +92,8 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   for (const gc of grains.cells) {
     if (gc.r >= st.grain) continue;
     const r = 0.9 + gc.r2 * 0.9;
-    const sign = gc.r3 > 0.45 ? 1 : -1;
+    // Mostly dark pits (weathered-out grains); a few pale grains.
+    const sign = gc.r3 > 0.78 ? 1 : -1;
     for (let dy = -2; dy <= 2; dy++)
       for (let dx = -2; dx <= 2; dx++) {
         const px = Math.round(gc.x) + dx;
@@ -117,7 +121,15 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   });
   const bedTone = thick.map(() => (rng.next() - 0.5) * st.bedTone);
   const bedHard = thick.map(() => rng.next());
-  const laminated = thick.map(() => rng.chance(st.laminae));
+  // Laminae: 1-3 thin partings at irregular depths inside a few beds (never a regular hatching),
+  // each one only where its own noise lets it show, so they break up along the bed.
+  const laminae = thick.map((t) => {
+    if (t < 7 || !rng.chance(st.laminae)) return [] as number[];
+    const n = rng.int(1, Math.min(3, Math.floor(t / 4)));
+    const rows: number[] = [];
+    for (let k = 0; k < n; k++) rows.push(2.5 + rng.next() * (t - 4));
+    return rows;
+  });
   const partingOpen = thick.map(() => 0.58 + rng.next() * 0.26);
   // Joints: near-vertical cracks inside a bed, ending at its partings (a few stop short).
   const joints = thick.map((t) => {
@@ -133,12 +145,20 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
     }
     return list;
   });
+  // Lenses: long, thin lens-shaped bodies of slightly lighter or darker sediment inside a bed
+  // (cross-bedding), 1.2-4 m long and a few texels thick, so a bed has form without speckle.
+  const lenses = thick.map((t) => {
+    const list: Array<{ x: number; y: number; hw: number; th: number; dv: number }> = [];
+    if (t < 8) return list;
+    const count = rng.int(0, 2);
+    for (let k = 0; k < count; k++) list.push({ x: rng.next() * S, y: 2 + rng.next() * (t - 4), hw: 10 + rng.next() * 22, th: 1.2 + rng.next() * Math.min(3, t / 6), dv: rng.chance(0.55) ? 1 : -1 });
+    return list;
+  });
   const facets = new PeriodicCells(rng, st.facets, Math.round(st.facets * 1.25), 0.9);
   const cellSize = S / st.facets;
 
   // Pixel-art discipline: each bed sits in the middle of one ramp step and the noise inside it
-  // stays under half a step, so beds read as clean bands and facets as defined plates, not as
-  // quantized camouflage blotches.
+  // stays under half a step, so beds read as clean bands, not as quantized camouflage blotches.
   const step = 1 / st.pal.length;
   const bedBase = thick.map((_, b) => (Math.floor((st.base + bedTone[b] * 1.6 + (bedHard[b] - 0.5) * 0.05) / step) + 0.5) * step);
   const bedY = new Float32Array(S * S);
@@ -146,7 +166,7 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const i = x + y * S;
-      const fold = Math.sin((x / S) * TAU * st.folds + phase) * st.fold + (foldN.at(x, 0) - 0.5) * st.fold * 1.4;
+      const fold = (foldN.at(x, y * 0.25) - 0.5) * st.fold * 2;
       const yy = wrap(y - fold + (wob(x, y) - 0.5) * 2.4);
       const bed = bedOfRow[Math.floor(yy)];
       const dy = yy - bedStart[bed];
@@ -161,12 +181,15 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
       const ddy = wrapDelta(cell.y, y) / cellSize;
       const fade = Math.min(1, (q.d2 - q.d1) / 5);
       const facet = ((-(cell.r - 0.5) * ddx - (cell.r2 - 0.5) * ddy) * 1.1 + (cell.r3 - 0.5) * 0.6) * fade;
-      const facetStep = facet > 0.26 ? step : facet < -0.3 ? -step : 0;
-      // Grain as defined pixel clusters: lighter mineral grains and darker pits, a step apart.
+      // Grain as defined pixel clusters (mostly darker pits), a step apart.
       const g = grain(x, y);
       const speck = speckMask[i] * step;
-      let v = bedBase[bed] + ((m - 0.5) * st.macro + (g - 0.5) * st.grain) * 0.6 + facetStep + speck;
-      if (laminated[bed] && Math.floor(dy) % 3 === 2) v -= step * 0.9;
+      let v = bedBase[bed] + ((m - 0.5) * st.macro + (g - 0.5) * 0.05) * 0.6 + speck;
+      for (const row of laminae[bed]) if (Math.abs(dy - row) < 0.5 && laminaN.at(x + row * 9, bed * 16) > 0.48) v -= step * 0.85;
+      for (const l of lenses[bed]) {
+        const u = wrapDelta(l.x, x) / l.hw;
+        if (Math.abs(u) < 1 && Math.abs(dy - l.y) < l.th * (1 - u * u)) v += l.dv * step;
+      }
       let h = st.height + (bedHard[bed] - 0.5) * st.heightSpread * 0.7 + facet * st.heightSpread * 0.35 + (m - 0.5) * st.heightSpread * 0.4;
       let code = 0;
       // Bedding-plane parting at the top of each bed, broken where the beds are welded.
@@ -175,11 +198,11 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
         code = 1;
         v -= 0.2;
         h = 16;
-      } else if (dy < 2.5) {
-        // The top of each bed is a small ledge that catches the light (strongest where the
-        // parting is open); the bottom of the bed above overhangs it in shadow.
+      } else if (dy < 1.5 && open > -0.15) {
+        // The top of a bed is a small ledge that catches the light where the parting is open;
+        // the bottom of the bed above overhangs it in shadow.
         code = 2;
-        v += (open > -0.15 ? 0.1 : 0.05) * (dy < 1.5 ? 1 : 0.5);
+        v += 0.08;
         h += 12;
       } else if (thick[bed] - dy < 1.5) {
         code = 3;
@@ -253,9 +276,11 @@ export interface FloorStyle {
   heightSpread: number;
 }
 
-export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.2, fractures: 1, chips: 10, base: 0.5, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
-export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.16, fractures: 1, chips: 8, base: 0.5, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
-export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.28, fractures: 2, chips: 12, base: 0.5, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
+// Floors sit 1-2 ramp steps under their walls: a floor catches the lantern and the open-space
+// fill square on, so with the walls' albedo it read as pale dust or snow under the light.
+export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.07, fractures: 1, chips: 6, base: 0.33, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
+export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.06, fractures: 1, chips: 5, base: 0.36, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
+export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.1, fractures: 2, chips: 8, base: 0.36, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
 
 export interface FloorMap {
   f: Field2;
@@ -300,18 +325,19 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
         v -= 0.12;
         h = 25;
       }
-      // Grit and small stones gather near the borders (2-3 texel stones with a lit top).
+      // Dark grit and small stones gather near the borders: 2-3 texel stones a step darker than
+      // the floor (wet, shadowed chips), the lit top only a little lighter, never pale flecks.
       if (code === 0) {
         const near = Math.max(0, 1 - e / 7);
         const g = grit.query(x, y);
         const gc = grit.cells[g.id];
         if (gc.r < st.grit * (0.35 + near) && g.d1 < 1.25 + gc.r2) {
-          const lit = wrapDelta(gc.x, x) + wrapDelta(gc.y, y) < 0;
-          v += lit ? 0.13 : 0.02;
+          const lit = wrapDelta(gc.x, x) + wrapDelta(gc.y, y) < -0.6;
+          v += lit ? 0.02 : -step;
           h = 175 + gc.r2 * 50;
-          code = lit ? 2 : 0;
-        } else if (gc.r < st.grit * (0.35 + near) && g.d1 < 2.4 + gc.r2) {
-          v -= 0.05; // contact shadow around the stone
+          code = lit ? 2 : 3;
+        } else if (gc.r < st.grit * (0.35 + near) && g.d1 < 2.0 + gc.r2) {
+          v -= step * 0.35; // contact shadow around the stone (shows only where the floor is low)
         }
       }
       f.v[i] = v;

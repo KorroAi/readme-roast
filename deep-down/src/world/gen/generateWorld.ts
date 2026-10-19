@@ -3,7 +3,7 @@ import { WORLD } from '../../config/balance';
 import { Noise } from '../../core/noise';
 import { Rng } from '../../core/rng';
 import { VoxelWorld } from '../VoxelWorld';
-import type { PropSpec, Region, WorldLayout } from './types';
+import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -26,6 +26,9 @@ import type { PropSpec, Region, WorldLayout } from './types';
 
 type V3 = [number, number, number];
 type Cells = Array<[number, number]>;
+
+/** Height of a stair flight's parapet coping above its walking plane (render/structures/stairs.ts). */
+export const STAIR_COPING = 1.15;
 
 export interface GenTimings {
   totalMs: number;
@@ -52,6 +55,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   const props: PropSpec[] = [];
   const discoveries: Region[] = [];
   const landmarks: Record<string, V3> = {};
+  const structures: StructureSpec[] = [];
   let propSeq = 0;
   const discCache = new Map<number, Cells>();
   const plateCache = new Map<number, Cells>();
@@ -413,6 +417,11 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // steps down with the treads and drops in corbelled haunches toward each pier, so the
   // Hollow shows through beneath the stairs instead of a solid wall.
   const haunch = (v: number, piers: number[]) => Math.max(0, 3 - Math.min(...piers.map((p) => Math.abs(v - p))));
+  // The treads and parapets are a structure mesh (render/structures/stairs.ts: 0.25 m risers,
+  // monolithic steps, raking coping) over collision cells: the walk is a run of stair wedges
+  // (B.RAMP_*: the explorer walks the flight's plane, one metre down per metre, through the
+  // inner corners of the old 1 m steps) on base cells, the parapets hidden masonry with a wedge on
+  // top. The flight mass, piers and soffit below stay voxel masonry.
   const piers1 = [97, 102, 103, 109, 110, 116];
   for (let k = 0; k <= 22; k++) {
     const x = 96 + k;
@@ -425,17 +434,10 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         if (pier) for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
         continue;
       }
-      for (let y = soffit; y < t; y++) put(x, y, z, M);
-      if (z === 71 || z === 76) {
-        put(x, t, z, M);
-        // The lip starts below the ledge: at the head it would stand on the ledge as a lone cube.
-        if (k > 0) put(x, t + 1, z, M);
-      } else {
-        put(x, t, z, B.ANCIENT_TILE);
-        for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
-      }
+      stairColumn(x, z, t, soffit, z === 71 || z === 76, B.RAMP_PX, B.RAMP_BASE_PX, k === 0);
     }
   }
+  structures.push({ kind: 'stairFlight', id: 'flight1', x0: 96, z0: 74, top: 88, dir: 'x', run: 23, width: 4, parapet: 1, seed: archRng.int(0, 1 << 30) });
   // Landing tower.
   for (let z = 67; z <= 80; z++)
     for (let x = 117; x <= 128; x++) {
@@ -461,11 +463,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (let x = 121; x <= 124; x++) for (let y = floorBase + 8; y <= 59; y++) carve(x, y, 69);
   lanternPost(125, 65, 70.5, 0, true);
   lanternPost(120.5, 65, 77.5, Math.PI * 0.75);
-  // Flight 2 runs south along x 121..124 from the landing (z 80, tread 63) to the floor.
+  // Flight 2 runs south along x 121..124 from the landing (z 80, level with it) down to the
+  // processional way (z 104, y 41).
   const piers2 = [81, 87, 88, 94, 95];
-  for (let k = 0; k <= 22; k++) {
+  for (let k = 0; k <= 23; k++) {
     const z = 80 + k;
-    const t = 63 - k;
+    const t = 64 - k;
     const pier = z <= 81 || (z >= 87 && z <= 88) || z >= 94;
     const soffit = pier ? FOOT : t - 6 - haunch(z, piers2);
     for (let x = 118; x <= 127; x++) {
@@ -474,19 +477,13 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         if (pier && z <= 96) for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
         continue;
       }
-      for (let y = soffit; y < t; y++) put(x, y, z, M);
-      if (x === 120 || x === 125) {
-        put(x, t, z, M);
-        put(x, t + 1, z, M);
-      } else {
-        put(x, t, z, B.ANCIENT_TILE);
-        for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
-      }
+      stairColumn(x, z, t, soffit, x === 120 || x === 125, B.RAMP_PZ, B.RAMP_BASE_PZ, false);
     }
   }
-  // Lamps on the cheek walls halfway down each flight: warm pools with dark gaps between.
-  lanternPost(106.5, 79, 76.5, Math.PI);
-  lanternPost(125.5, 54, 91.5, -Math.PI / 2);
+  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 80, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, seed: archRng.int(0, 1 << 30) });
+  // Lamps on the parapet coping halfway down each flight: warm pools with dark gaps between.
+  lanternPost(106.5, stairCoping(106.5 - 96, 88), 76.5, Math.PI, false, true);
+  lanternPost(125.5, stairCoping(91.5 - 80, 65), 91.5, -Math.PI / 2, false, true);
   lanternPost(119.5, floorBase + 1, 103.5, 0.4);
   landmarks.stairsTop = [96.5, 88, 73.5];
   landmarks.landing = [122.5, 65, 74.5];
@@ -945,7 +942,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   mark('seal');
 
   const totalMs = Math.round(performance.now() - t0);
-  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, timings: { totalMs, phases } };
+  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, timings: { totalMs, phases } };
 
   // ------------------------------------------------------------------------------------
   // helpers (hoisted)
@@ -1223,13 +1220,42 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     for (let z = z0; z < z0 + dz; z++) for (let x = x0; x < x0 + wx; x++) put(x, fy - sink + lift, z, id);
   }
 
-  function lanternPost(x: number, y: number, z: number, rotY: number, bright = false): void {
+  /**
+   * One column of a stair flight (collision for the structure mesh): masonry from the soffit up
+   * to two cells under the tread, then on the walk a base cell and the stair wedge (whose diagonal
+   * is the flight's plane), on a parapet two hidden cells and a wedge (the coping's plane, one
+   * metre above the walk's). `head`: the parapet's first column carries the newel (full cells).
+   */
+  function stairColumn(x: number, z: number, t: number, soffit: number, parapet: boolean, wedge: number, base: number, head: boolean): void {
+    for (let y = soffit; y < t - 1; y++) put(x, y, z, M);
+    if (parapet) {
+      put(x, t - 1, z, B.STRUCTURE);
+      put(x, t, z, B.STRUCTURE);
+      put(x, t + 1, z, head ? B.STRUCTURE : wedge);
+      if (head) put(x, t + 2, z, B.STRUCTURE);
+    } else {
+      put(x, t - 1, z, base);
+      put(x, t, z, wedge);
+      for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
+    }
+  }
+
+  /** Top of a flight's parapet coping, `s` metres down a flight that starts at `top`. */
+  function stairCoping(s: number, top: number): number {
+    return top - s + STAIR_COPING;
+  }
+
+  function lanternPost(x: number, y: number, z: number, rotY: number, bright = false, exact = false): void {
     const ex = Math.floor(x);
     const ez = Math.floor(z);
-    // Stand on the real floor: terraces and rubble may have moved it since layout time.
+    // Stand on the real floor: terraces and rubble may have moved it since layout time. A lamp on
+    // a structure (`exact`) stands where its mesh is, over hidden collision cells.
     let fy = Math.floor(y) + 4;
-    while (fy > Math.floor(y) - 5 && !(isAir(ex, fy, ez) && !isAir(ex, fy - 1, ez))) fy--;
-    if (fy <= Math.floor(y) - 5) return; // no floor nearby (e.g. over the chasm): skip this lamp
+    if (exact) fy = y;
+    else {
+      while (fy > Math.floor(y) - 5 && !(isAir(ex, fy, ez) && !isAir(ex, fy - 1, ez))) fy--;
+      if (fy <= Math.floor(y) - 5) return; // no floor nearby (e.g. over the chasm): skip this lamp
+    }
     y = fy;
     const spec = addProp({ kind: 'lanternPost', x, y, z, rotY, emitters: [] });
     const ey = Math.floor(y) + 1;

@@ -8,7 +8,12 @@ import { MATERIAL_INFO, MATERIAL_NAMES, generateMaterials, type MaterialAtlas } 
  *   uMat       seamless material layers (sRGB + height/emissive alpha), sampled in world space
  *   uNoise     32^3 RGBA tiling noise for sculpting, boundary wobble and macro variation
  *   uTarget    the block being mined (crack stage and highlight are drawn in the terrain
- *              shader so they follow the sculpted surface exactly)
+ *              shader so they follow the sculpted surface exactly); uTargetHit the point the
+ *              mining ray strikes (w = 0: unknown, the shader takes the line of sight)
+ *
+ * Material layers are linear-filtered with mipmaps and 4x anisotropy: the shader snaps its
+ * samples to the texel grid ("sharp bilinear", terrainMaterial.ts), so texels keep crisp pixel
+ * edges at reading distance without nearest sampling's shimmer and staircase up close.
  *
  * Material boundaries need each face's in-plane neighbours; the mesher bakes those into the
  * vertex data, so no world-sized volume is needed here.
@@ -21,6 +26,7 @@ export interface TerrainUniforms {
   uMatGlow: THREE.IUniform<number[]>;
   uTarget: THREE.IUniform<THREE.Vector4>;
   uTargetFx: THREE.IUniform<THREE.Vector4>;
+  uTargetHit: THREE.IUniform<THREE.Vector4>;
 }
 
 export const NOISE_SIZE = 32;
@@ -35,8 +41,10 @@ export class TerrainRig {
     m.format = THREE.RGBAFormat;
     m.type = THREE.UnsignedByteType;
     m.colorSpace = THREE.SRGBColorSpace;
-    m.magFilter = THREE.NearestFilter;
-    m.minFilter = THREE.NearestMipmapLinearFilter;
+    m.magFilter = THREE.LinearFilter;
+    m.minFilter = THREE.LinearMipmapLinearFilter;
+    // Grazing floors keep their texture a little further (clamped to what the GPU supports).
+    m.anisotropy = 4;
     m.wrapS = m.wrapT = THREE.RepeatWrapping;
     m.generateMipmaps = true;
     m.unpackAlignment = 1;
@@ -49,15 +57,21 @@ export class TerrainRig {
       uMatGlow: { value: MATERIAL_NAMES.map((n) => MATERIAL_INFO[n].glow) },
       uTarget: { value: new THREE.Vector4(-9999, -9999, -9999, -1) },
       uTargetFx: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uTargetHit: { value: new THREE.Vector4(0, 0, 0, 0) },
     };
   }
 
-  /** Mining feedback drawn by the terrain shader. `crackLayer` < 0 hides the cracks. */
-  setTarget(cell: { x: number; y: number; z: number } | null, crackLayer: number, flash: number, active: boolean, blocked: boolean): void {
+  /**
+   * Mining feedback drawn by the terrain shader. `crackLayer` < 0 hides the cracks. `hit`: where
+   * the mining ray strikes the block, if known (the highlight and the fractures centre on it).
+   */
+  setTarget(cell: { x: number; y: number; z: number } | null, crackLayer: number, flash: number, active: boolean, blocked: boolean, hit: { x: number; y: number; z: number } | null = null): void {
     const t = this.uniforms.uTarget.value;
     if (!cell) t.set(-9999, -9999, -9999, -1);
     else t.set(cell.x, cell.y, cell.z, crackLayer);
     this.uniforms.uTargetFx.value.set(flash, active ? 1 : 0, blocked ? 1 : 0, 0);
+    if (cell && hit) this.uniforms.uTargetHit.value.set(hit.x, hit.y, hit.z, 1);
+    else this.uniforms.uTargetHit.value.set(0, 0, 0, 0);
   }
 
   dispose(): void {

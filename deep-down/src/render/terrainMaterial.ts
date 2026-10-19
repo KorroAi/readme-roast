@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { BLOCKS, SIDE_VARIANTS, VARIANT_COUNT } from '../config/blocks';
-import { RUNE_COUNT, RUNE_FIRST_LAYER, TILE_NAMES, TILE_SIZE } from '../config/tiles';
+import { CRACK_FIRST_LAYER, CRACK_STAGES, TILE_NAMES, TILE_SIZE } from '../config/tiles';
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
-import { FAMILY, MAT, MATERIAL_NAMES } from './materials';
+import { FAMILY, GEO_SIDE_OF, GEO_TOP_OF, MAT, MATERIAL_NAMES } from './materials';
 import { courseGlsl } from './materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
 import { AO_SCALE, OFFSET_RANGE } from './mesher';
@@ -99,6 +99,7 @@ uniform sampler3D uNoise;
 uniform float uMatGlow[${MATERIAL_NAMES.length}];
 uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: none)
 uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
+uniform vec4 uTargetHit; // xyz = where the mining ray hits the block, w = 1 when known
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -114,8 +115,6 @@ layout(location = 0) out highp vec4 fragColor;
 
 const vec3 FACE_N[6] = vec3[](vec3(1,0,0), vec3(-1,0,0), vec3(0,1,0), vec3(0,-1,0), vec3(0,0,1), vec3(0,0,-1));
 const float MAT_PERIOD = ${MAT_SIZE / MAT_DENSITY}.0;
-const float RUNE0 = ${RUNE_FIRST_LAYER}.0;
-const int RUNES = ${RUNE_COUNT};
 
 // World-space projection per face axis, upright and unmirrored as seen from outside.
 vec2 worldUv(vec3 p, int face) {
@@ -129,10 +128,78 @@ vec2 worldUv(vec3 p, int face) {
   return uv / MAT_PERIOD;
 }
 
-// Natural rock: the projection is bent by a slow world-space warp (about 6 m features, up to
-// +-0.8 m along and +-1.5 m across the beds), so the 8 m period never lines up along a wall and
-// the strata undulate. n = the macro noise texel already fetched for albedo variation.
-const vec2 ROCK_WARP = vec2(1.6, 3.0) / MAT_PERIOD;
+// Sharp bilinear (texel-snapped bilinear magnification, uMat is linear-filtered): inside a texel
+// the sample stays on the texel centre and it crosses to the next texel over max(one screen pixel,
+// soft texels). Pixel art keeps crisp texel edges at reading distance, without the shimmer of raw
+// nearest sampling and without 10-15 px hard-edged blocks right in front of the lens. The
+// gradients are the continuous ones, so mip selection is unchanged.
+vec2 sharpUv(vec2 uv, vec2 gx, vec2 gy, float soft) {
+  vec2 t = uv * ${MAT_SIZE}.0;
+  vec2 c = floor(t + 0.5);
+  vec2 w = max((abs(gx) + abs(gy)) * ${MAT_SIZE}.0, vec2(soft));
+  return (c + clamp((t - c) / w, -0.5, 0.5)) * (1.0 / ${MAT_SIZE}.0);
+}
+vec4 matGrad(vec2 uv, float layer, vec2 gx, vec2 gy, float soft) {
+  return textureGrad(uMat, vec3(sharpUv(uv, gx, gy, soft), layer), gx, gy);
+}
+
+// Natural rock is sampled where the sculpted surface really is (vWorldPos, not the voxel lattice)
+// with a biplanar projection: the two axis planes the smooth normal faces most, blended by it.
+// The third plane weighs 0 wherever the choice switches, so there is no seam, and chamfers and
+// smoothed steps take the texture at its true scale instead of a stretched face projection.
+// Projections are upright (v = -y on walls) and unmirrored as seen from outside, like worldUv.
+// bias scales n.y against the horizontal components: side layers (< 1) keep horizontal beds on
+// the wall planes, which draws them as the level contours they are on any slope.
+struct Planes { vec2 uv0; vec2 gx0; vec2 gy0; vec2 uv1; vec2 gx1; vec2 gy1; float w1; };
+
+void projectAxis(int ax, vec3 p, vec3 dx, vec3 dy, vec3 n, out vec2 uv, out vec2 gx, out vec2 gy) {
+  if (ax == 0) {
+    float s = n.x >= 0.0 ? 1.0 : -1.0;
+    uv = vec2(-p.z * s, -p.y); gx = vec2(-dx.z * s, -dx.y); gy = vec2(-dy.z * s, -dy.y);
+  } else if (ax == 1) {
+    float s = n.y >= 0.0 ? 1.0 : -1.0;
+    uv = vec2(p.x, p.z * s); gx = vec2(dx.x, dx.z * s); gy = vec2(dy.x, dy.z * s);
+  } else {
+    float s = n.z >= 0.0 ? 1.0 : -1.0;
+    uv = vec2(p.x * s, -p.y); gx = vec2(dx.x * s, -dx.y); gy = vec2(dy.x * s, -dy.y);
+  }
+  uv *= 1.0 / MAT_PERIOD;
+  gx *= 1.0 / MAT_PERIOD;
+  gy *= 1.0 / MAT_PERIOD;
+}
+
+Planes planesFor(vec3 p, vec3 dx, vec3 dy, vec3 n, float bias) {
+  vec3 a = normalize(abs(n) * vec3(1.0, bias, 1.0) + 1e-4);
+  int ma = a.x >= a.y ? (a.x >= a.z ? 0 : 2) : (a.y >= a.z ? 1 : 2);
+  int o1 = ma == 0 ? 1 : 0;
+  int o2 = ma == 2 ? 1 : 2;
+  int me = a[o1] >= a[o2] ? o1 : o2;
+  vec2 w = clamp((vec2(a[ma], a[me]) - 0.5773) * (1.0 / 0.4227), 0.0, 1.0);
+  w.x = max(w.x, 1e-3);
+  Planes q;
+  projectAxis(ma, p, dx, dy, n, q.uv0, q.gx0, q.gy0);
+  projectAxis(me, p, dx, dy, n, q.uv1, q.gx1, q.gy1);
+  q.w1 = w.y / (w.x + w.y);
+  return q;
+}
+
+// One layer through the planes: one fetch on most of the rock, two only near a 45-degree normal.
+vec4 planeSample(Planes q, float layer, float soft) {
+  vec4 c = matGrad(q.uv0, layer, q.gx0, q.gy0, soft);
+  if (q.w1 > 0.03) c = mix(c, matGrad(q.uv1, layer, q.gx1, q.gy1, soft), q.w1);
+  return c;
+}
+
+// Geology top / side layer of the rock a face carries (materials/index.ts GEO_TOP_OF, GEO_SIDE_OF).
+const int GEO_TOP[${MATERIAL_NAMES.length}] = int[](${Array.from(GEO_TOP_OF).join(', ')});
+const int GEO_SIDE[${MATERIAL_NAMES.length}] = int[](${Array.from(GEO_SIDE_OF).join(', ')});
+const float SCRIPT_LAYER = ${MAT.script}.0;
+const float CRACK0 = ${CRACK_FIRST_LAYER}.0;
+const float CRACKS = ${CRACK_STAGES}.0;
+// Texel softness of the sharp-bilinear edge per family (texels): rock and earth soften a little
+// up close, dressed stone stays crisp.
+const float SOFT_ROCK = 0.32;
+const float SOFT_CUT = 0.12;
 ${courseGlsl({ masonry: MAT.masonry, masonryB: MAT.masonryB, crumbling: MAT.crumbling, crumblingB: MAT.crumblingB })}
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
@@ -151,6 +218,42 @@ float shadeOf(vec3 n) {
   return dot(w, mix(neg, pos, step(0.0, n)));
 }
 
+// Where the line of sight from the camera to the target block's centre enters the block (the
+// mining highlight's centre when the ray hit is not given).
+vec3 targetEntry(vec3 c) {
+  vec3 rd = c + 0.5 - cameraPosition;
+  rd = vec3(abs(rd.x) < 1e-4 ? 1e-4 : rd.x, abs(rd.y) < 1e-4 ? 1e-4 : rd.y, abs(rd.z) < 1e-4 ? 1e-4 : rd.z);
+  vec3 a = (c - cameraPosition) / rd;
+  vec3 b = (c + 1.0 - cameraPosition) / rd;
+  vec3 lo = min(a, b);
+  return cameraPosition + rd * clamp(max(max(lo.x, lo.y), lo.z), 0.0, 1.0);
+}
+
+// Fractures from a strike at the origin of q (metres in the face plane): five cracks that wander
+// as they run out, reach further with damage (0..1) and taper; a small crushed pit at the centre.
+float fracture(vec2 q, float dmg, float seed) {
+  float r = length(q);
+  float reach = 0.12 + 0.62 * dmg;
+  if (r > reach) return 0.0;
+  float ang = atan(q.y, q.x);
+  float c = 1.0 - step(0.035 + 0.05 * dmg, r);
+  for (int k = 0; k < 5; k++) {
+    float fk = float(k);
+    float h1 = fract(seed * 7.13 + fk * 0.618);
+    float h2 = fract(seed * 3.71 + fk * 0.377);
+    float len = reach * (0.5 + 0.5 * h2);
+    float a = (fk + 0.2 + 0.6 * h1) * 1.2566 + sin(r * 10.0 + fk * 2.1 + seed * 6.0) * 0.25;
+    float da = abs(mod(ang - a + 3.14159, 6.28318) - 3.14159);
+    float w = 0.05 * (1.0 - r / len);
+    c = max(c, step(da * r, w) * step(r, len));
+    // a short branch off the middle of every other crack
+    float ab = a + (h1 > 0.5 ? 1.5 : -1.5) * max(r - len * 0.45, 0.0) / len;
+    float db = abs(mod(ang - ab + 3.14159, 6.28318) - 3.14159);
+    c = max(c, step(db * r, w * 0.8) * step(len * 0.45, r) * step(r, len * 0.8) * step(0.5, fract(h2 * 5.0 + fk * 0.5)));
+  }
+  return c;
+}
+
 void main() {
 #ifdef DEBUG_CLIP
   if (vWorldPos.y > uDebug.y) discard; // debug section view only: discard would disable early-Z
@@ -159,36 +262,77 @@ void main() {
   ivec3 cell = ivec3(floor(vGrid - n * 0.5));
   int family = vFlags & 3;
   int layer = int(vLayer + 0.5);
+  // Shading normal of the sculpted surface: smooth across natural rock (the mesher's lattice
+  // normal, bent by the relief), flat on masonry, crystal and timber. NO_DERIV: face normal.
+#ifdef NO_DERIV
+  vec3 ng = n;
+#else
+  vec3 ng = normalize(vNormal);
+#endif
   vec2 uv = worldUv(vGrid, vFace);
-  // Material fetch. Rock: warped projection (no 8 m repeat). Masonry: courses laid in world
-  // space from the course libraries (materials/courses.ts); its fetch uses the continuous
-  // projection's gradients, so mip selection does not jump at course joints.
-  vec4 macroN = texture(uNoise, vGrid * (1.0 / 190.0));
-  if (family == ${FAMILY.GEOLOGY}) uv += (macroN.rg - 0.5) * ROCK_WARP;
   vec2 uvDx = dFdx(uv);
   vec2 uvDy = dFdy(uv);
+  // Natural rock: the sculpted position bent by a slow world-space warp (about 6 m features, up
+  // to +-0.8 m along and +-1.5 m across the beds), so the 8 m period never lines up and the beds
+  // undulate through the world, not once per texture tile. One fetch, also the macro variation.
+  vec4 macroN = textureLod(uNoise, vWorldPos * (1.0 / 190.0), 0.0);
+  vec3 rp = vWorldPos + (macroN.rga - 0.5) * vec3(1.6, 3.0, 1.6);
+  vec3 rpDx = dFdx(rp);
+  vec3 rpDy = dFdy(rp);
+  bool natural = family == ${FAMILY.GEOLOGY} || layer == ${MAT.sealStone};
+  // Material fetch. Masonry: courses laid in world space from the course libraries
+  // (materials/courses.ts) on the voxel face (it is cut stone, nearly unsculpted); its fetch uses
+  // the continuous projection's gradients, so mip selection does not jump at course joints.
+  // Natural rock: biplanar from the sculpted surface, top or side layer from the smooth normal.
   vec4 crs = vec4(0.0);
   vec4 tex;
+  int shownLayer = layer;
+  Planes pl;
+  bool topShown = false;
   if (family == ${FAMILY.MASONRY}) {
     // The face's plane from its solid cell (half a voxel inside), not the interpolated vGrid:
     // on a plane that is a multiple of the vocabulary cell, interpolation noise would flip the
     // region hash per pixel.
     crs = masonryCourse(uv * MAT_PERIOD, vFace, dot(vec3(cell), abs(n)) + 0.5);
     tex = courseSample(layer, crs, uvDx, uvDy);
-  } else tex = texture(uMat, vec3(uv, float(layer)));
-  int shownLayer = layer;
+  } else if (natural) {
+    int topL = GEO_TOP[layer];
+    int sideL = GEO_SIDE[layer];
+    // Loose material and worn floor rest on slopes gentler than about 38 degrees; steeper rock
+    // shows its beds. The threshold wanders with the world noise, and inside the band the
+    // taller of the two layers at this texel claims it, so the boundary follows the stone.
+    float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.11);
+    Planes pt = planesFor(rp, rpDx, rpDy, ng, 1.7);
+    Planes ps = planesFor(rp, rpDx, rpDy, ng, 0.55);
+    if (topL == sideL) t = ng.y > 0.0 ? 2.0 : -2.0;
+    if (t >= 1.0) {
+      tex = planeSample(pt, float(topL), SOFT_ROCK);
+      topShown = true;
+    } else if (t <= -1.0) {
+      tex = planeSample(ps, float(sideL), SOFT_ROCK);
+    } else {
+      vec4 a = planeSample(pt, float(topL), SOFT_ROCK);
+      vec4 b = planeSample(ps, float(sideL), SOFT_ROCK);
+      topShown = (a.a - b.a) * 0.7 + t * 0.55 > 0.0;
+      tex = topShown ? a : b;
+    }
+    if (topShown) pl = pt;
+    else pl = ps;
+    shownLayer = topShown ? topL : sideL;
+  } else tex = matGrad(uv, vLayer, uvDx, uvDy, SOFT_CUT);
 
 #ifdef USE_BLEND
   // Natural boundaries: near an edge shared with a different material of the same family (the
   // mesher lists those partners per face edge), the material that is "taller" at this texel
   // (rock nubs, pebbles, vein metal) pushes across. Both faces evaluate the same world-space
-  // test, so they agree exactly. Faces without partners pay nothing.
+  // test, so they agree exactly. Faces without partners pay nothing. Rock partners are mapped to
+  // the same top or side layer as the shown one and sampled through the same projection.
   if (family != 0 && min(min(vNb.x, vNb.y), min(vNb.z, vNb.w)) < 254.5) {
     int ax = vFace >> 1;
     vec3 t1 = ax == 0 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 t2 = ax == 2 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
-    float wobble = texture(uNoise, vGrid * (1.0 / 3.1)).a - 0.5;
-    float hs = heightOf(tex, layer);
+    float wobble = textureLod(uNoise, vGrid * (1.0 / 3.1), 0.0).a - 0.5;
+    float hs = heightOf(tex, shownLayer);
     for (int k = 0; k < 2; k++) {
       float l = dot(fract(vGrid), k == 0 ? t1 : t2);
       int side = l < 0.5 ? -1 : 1;
@@ -196,7 +340,9 @@ void main() {
       float nlf = k == 0 ? (side < 0 ? vNb.x : vNb.y) : (side < 0 ? vNb.z : vNb.w);
       if (nlf > 254.5 || d > 0.6) continue;
       int nl = int(nlf + 0.5);
-      vec4 ntex = family == ${FAMILY.MASONRY} ? courseSample(nl, crs, uvDx, uvDy) : textureGrad(uMat, vec3(uv, nlf), uvDx, uvDy);
+      if (natural) nl = topShown ? GEO_TOP[nl] : GEO_SIDE[nl];
+      if (nl == shownLayer) continue;
+      vec4 ntex = family == ${FAMILY.MASONRY} ? courseSample(nl, crs, uvDx, uvDy) : natural ? matGrad(pl.uv0, float(nl), pl.gx0, pl.gy0, SOFT_ROCK) : matGrad(uv, float(nl), uvDx, uvDy, SOFT_CUT);
       // Antisymmetric by construction (the neighbour's face computes exactly -claim at the same
       // point), so the two faces draw one boundary curve. No constant bias: it would let both
       // sides claim a strip at the edge and swap the materials there.
@@ -210,22 +356,16 @@ void main() {
   }
 #endif
 
-  // Macro variation (about 1.2 m and 6 m features) instead of a per-block brightness jitter,
-  // which used to reveal the cube grid.
+  // Macro variation instead of a per-block brightness jitter, which used to reveal the cube
+  // grid: about 6 m features from the warp fetch on natural rock (its texture carries the finer
+  // variation), plus about 1.2 m features elsewhere.
 #ifdef NO_MACRO
   float macro = 0.5;
 #else
-  float macro = texture(uNoise, vGrid * (1.0 / 38.0)).a * 0.65 + macroN.b * 0.35;
+  float macro = macroN.b;
+  if (!natural) macro = textureLod(uNoise, vGrid * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
-
-  // Shading normal of the sculpted surface: smooth across natural rock (the mesher's lattice
-  // normal, bent by the relief), flat on masonry, crystal and timber. NO_DERIV: face normal.
-#ifdef NO_DERIV
-  vec3 ng = n;
-#else
-  vec3 ng = normalize(vNormal);
-#endif
 
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
@@ -250,34 +390,62 @@ void main() {
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
 
-  // Carved runes: decals in the builders' script, eroded by world-space noise, dim until the
-  // explorer's lantern comes close ("the inscriptions answer the light"). Inscriptions are
-  // horizontal bands, so the rune follows the position along the band (x + z; stride 3 is
-  // coprime with 8, so no rune repeats within 8 stones) from a per-course start: it reads as
-  // a line of text, not a scatter of stickers. A slow pulse travels along the line.
-  if ((vFlags & 4) != 0 && vFace != 2 && vFace != 3) {
-    float h = hash13(vec3(cell));
-    int along = cell.x + cell.z;
-    int start = int(hash13(vec3(0.5, float(cell.y), 0.5)) * float(RUNES));
-    float rl = RUNE0 + float((along * 3 + start) % RUNES);
-    vec4 rune = texture(uTiles, vec3(vUv, rl));
-    float erosion = smoothstep(0.32, 0.62, texture(uNoise, vGrid * (1.0 / 2.3) + h * 7.0).g);
-    float ink = rune.a * erosion;
-    float wake = smoothstep(9.0, 2.5, distance(uLanternPos, vGrid));
-    color = mix(color, color * 0.45, ink * 0.8); // carved: the groove is darker
-    emissive += rune.rgb * ink * (0.12 + 0.9 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - float(along) * 0.8));
+  // Crystal reads as a druse of facets, not a pane: every 2x2-texel facet has its own tilt, and
+  // the lantern's reflection flares on the facets that mirror it toward the eye (strongest on
+  // the painted tip glints), so the seam sparkles as the explorer moves.
+  if (family == ${FAMILY.CRYSTAL}) {
+    vec2 fc = floor(uv * 64.0);
+    vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
+    vec3 fn = normalize(n + tilt * 1.1);
+    vec3 toEye = normalize(cameraPosition - vWorldPos);
+    vec3 toLamp = normalize(uLanternPos - vWorldPos);
+    float sp = pow(max(dot(reflect(-toLamp, fn), toEye), 0.0), 20.0);
+    float glint = smoothstep(0.75, 0.9, tex.a);
+    color += vec3(0.28, 0.75, 0.84) * sp * luma(lantern) * (0.25 + 2.2 * glint);
   }
 
-  // Mining feedback on the exact sculpted surface.
+  // Inscriptions: the builders' script (materials/script.ts) laid in world space along the band,
+  // so a row of glyph stones reads as one carved line of text (a headline the glyphs hang from,
+  // glyphs of varying width, word gaps, a baseline groove), not one icon per stone. Each band
+  // (course and plane) takes its own line of text and starting point. Carved: the groove is
+  // dark, eroded in places by world-space noise; the ink is dim until the explorer's lantern
+  // comes close ("the inscriptions answer the light"), and a slow pulse travels along the line.
+  if ((vFlags & 4) != 0 && vFace != 2 && vFace != 3) {
+    float plane = dot(vec3(cell), abs(n));
+    float hb = hash13(vec3(float(cell.y) + 0.5, plane * 1.7 + float(vFace), 3.1));
+    float line = floor(hb * 8.0);
+    float row = clamp(float(cell.y + 1) - vGrid.y, 0.0, 0.999);
+    vec2 su = vec2(uv.x + fract(hb * 13.7), (line + row) * (1.0 / 8.0));
+    vec4 scr = matGrad(su, SCRIPT_LAYER, uvDx, uvDy, SOFT_CUT);
+    float erosion = smoothstep(0.3, 0.58, textureLod(uNoise, vGrid * (1.0 / 2.3) + hb * 7.0, 0.0).g);
+    float carve = smoothstep(0.24, 0.42, scr.a) * (0.55 + 0.45 * erosion);
+    float ink = smoothstep(0.72, 0.95, scr.a) * erosion;
+    float wake = smoothstep(9.0, 2.5, distance(uLanternPos, vGrid));
+    color *= 1.0 - carve * 0.62; // the carved groove
+    emissive += scr.rgb * ink * (0.14 + 0.9 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
+  }
+
+  // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around
+  // the point the pick strikes (the ray hit, or where the line of sight to the block enters it),
+  // spreading over the block's own faces, and fractures radiate from it as the damage grows
+  // (stage 0-9), the stone's own joints and partings opening first. Red when too hard.
   if (all(equal(cell, ivec3(uTarget.xyz)))) {
+    vec3 hit = uTargetHit.w > 0.5 ? uTargetHit.xyz : targetEntry(uTarget.xyz);
+    vec3 dh = vWorldPos - hit;
+    float r = length(dh);
+    float spot = 1.0 - smoothstep(0.06, 0.7, r);
     if (uTarget.w >= 0.0) {
-      float crack = texture(uTiles, vec3(vUv, uTarget.w)).a;
-      color *= 1.0 - crack * 0.85;
+      float dmg = (uTarget.w - CRACK0 + 1.0) / CRACKS;
+      // In-plane offset around the hit, snapped to the material texels: crisp pixel cracks.
+      vec2 q = worldUv(dh, vFace) * MAT_PERIOD;
+      q = (floor(q * ${MAT_DENSITY}.0) + 0.5) * (1.0 / ${MAT_DENSITY}.0);
+      float crack = fracture(q, dmg, hash13(vec3(cell)));
+      float joints = (1.0 - smoothstep(0.1, 0.17, heightOf(tex, shownLayer))) * (1.0 - smoothstep(0.1 + dmg * 0.55, 0.22 + dmg * 0.55, r));
+      crack = max(crack, joints * smoothstep(0.1, 0.3, dmg));
+      color *= 1.0 - crack * 0.82;
     }
-    vec2 lf = abs(vUv - 0.5);
-    float rim = smoothstep(0.43, 0.5, max(lf.x, lf.y));
-    vec3 rimColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.86, 0.64);
-    color += rimColor * rim * (0.05 + 0.1 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.25;
+    vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.82, 0.58);
+    color += spotColor * spot * spot * (0.025 + 0.05 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.2 * spot;
   }
 
   // Zone atmosphere: haze (pooling low, lit by the light volume around the fragment) takes the

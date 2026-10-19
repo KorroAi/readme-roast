@@ -4,6 +4,7 @@ import { gravel, soil, soilSide } from './earth';
 import { copperTop, copperVein, crystal, ironTop, ironVein } from './minerals';
 import { crumbling, crumblingB, floorSlab, hearth, masonry, masonryB, masonryTop } from './masonry';
 import { beamEnd, beamSide, plank } from './timber';
+import { script } from './script';
 
 export type MaterialPainter = (c: MatCanvas, rng: Rng) => unknown;
 
@@ -37,4 +38,5 @@ export const PAINTERS = {
   bedrock,
   masonryB,
   crumblingB,
+  script,
 } satisfies Record<string, MaterialPainter>;

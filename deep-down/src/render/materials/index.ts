@@ -48,6 +48,9 @@ export const MATERIAL_NAMES = [
   // stretch (see courses.ts).
   'masonryB',
   'crumblingB',
+  // The builders' script: eight carved lines of inscription (alpha = groove / ink mask), laid
+  // along an inscription band by the terrain shader. Never on a block face by itself.
+  'script',
 ] as const;
 
 export type MaterialName = (typeof MATERIAL_NAMES)[number];
@@ -89,6 +92,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   bedrock: { glow: 0 },
   masonryB: { glow: 0 },
   crumblingB: { glow: 0.9 },
+  script: { glow: 0 },
 };
 
 /**
@@ -155,6 +159,23 @@ for (const [idStr, s] of Object.entries(BLOCK_SURFACES)) {
   MAT_TOP[id] = MAT[s.top];
   MAT_SIDE[id] = MAT[s.side];
   MAT_BOTTOM[id] = MAT[s.bottom];
+}
+
+/**
+ * Natural rock chooses its top or side layer per fragment from the sculpted normal (a chamfer or
+ * a smoothed step is not a voxel face), so the shader needs both layers of the rock a face
+ * carries: GEO_TOP_OF[layer] and GEO_SIDE_OF[layer] for every geology top or side layer
+ * (identity elsewhere). Bottom layers that differ from the side (damp stone's dry underside) are
+ * another rock's side layer and map within that rock.
+ */
+export const GEO_TOP_OF = new Uint8Array(MATERIAL_NAMES.length).map((_, i) => i);
+export const GEO_SIDE_OF = new Uint8Array(MATERIAL_NAMES.length).map((_, i) => i);
+for (const s of Object.values(BLOCK_SURFACES)) {
+  if (s.family !== FAMILY.GEOLOGY) continue;
+  const top = MAT[s.top];
+  const side = MAT[s.side];
+  GEO_TOP_OF[top] = GEO_TOP_OF[side] = top;
+  GEO_SIDE_OF[top] = GEO_SIDE_OF[side] = side;
 }
 
 export interface MaterialAtlas {

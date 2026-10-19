@@ -102,7 +102,8 @@ function hasExpr(lib: CourseLibrary): string {
 
 /**
  * The course mapping for the terrain fragment shader. `layers` are the material layer indices.
- * Defines: `masonryCourse(st, face, plane)` and `courseSample(layer, crs, gx, gy)`.
+ * Defines: `masonryCourse(st, face, plane)` and `courseSample(layer, crs, gx, gy)` (expects
+ * `sharpUv` and `SOFT_CUT` from the terrain shader).
  * Cost per masonry fragment: 4 integer hashes and about 60 ALU operations, no extra fetch
  * (the one material fetch becomes a textureGrad with the continuous world-space gradients, so
  * mip selection does not jump at course joints).
@@ -179,7 +180,8 @@ vec4 courseSample(int layer, vec4 crs, vec2 gx, vec2 gy) {
   bool b = crs.w >= 0.0 && (layer == ${layers.masonry} || layer == ${layers.crumbling});
   int l = b ? (layer == ${layers.masonry} ? ${layers.masonryB} : ${layers.crumblingB}) : layer;
   vec2 uv = vec2(crs.x, (b ? crs.w : crs.z) + crs.y) * (1.0 / ${f1(MAT_SIZE)});
-  return textureGrad(uMat, vec3(uv, float(l)), gx, gy);
+  // Crisp cut-stone texels (sharp bilinear: sharpUv in terrainMaterial.ts).
+  return textureGrad(uMat, vec3(sharpUv(uv, gx, gy, SOFT_CUT), float(l)), gx, gy);
 }
 `;
 }

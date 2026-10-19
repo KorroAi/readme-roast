@@ -38,12 +38,13 @@ void main() {
 `;
 
 /**
- * Feedback on the block being mined: crack stages that grow with damage, a soft rim
- * highlight and a short flash on every impact; red rim when the block is too hard.
+ * Feedback on the block being mined: fractures that spread with damage, a soft warm light
+ * around the point the pick strikes and a short flash on every impact; red when the block is
+ * too hard.
  *
  * With a TerrainRig (the game) the terrain shader draws all of it on the sculpted surface
- * itself, so nothing floats off or sinks into the displaced faces. Without one (tools), a
- * crack box and outline are drawn instead.
+ * itself (no cube frame), centred on the ray hit when the caller passes `point`, else on where
+ * the line of sight enters the block. Without one (tools), a crack box and outline are drawn.
  */
 export class TargetMarker {
   readonly group = new THREE.Group();
@@ -59,6 +60,7 @@ export class TargetMarker {
   private blocked = false;
   private active = false;
   private cell: { x: number; y: number; z: number } | null = null;
+  private hit: { x: number; y: number; z: number } | null = null;
 
   constructor(tiles: THREE.DataArrayTexture, private readonly terrain: TerrainRig | null = null) {
     const mat = new THREE.ShaderMaterial({
@@ -85,24 +87,29 @@ export class TargetMarker {
     this.group.visible = false;
   }
 
-  /** Show the marker on voxel (x,y,z) with damage progress in [0,1]. Pass null to hide. */
-  set(target: { x: number; y: number; z: number } | null, progress: number, blocked: boolean, active: boolean): void {
+  /**
+   * Show the marker on voxel (x,y,z) with damage progress in [0,1]. Pass null to hide.
+   * `target.point`: where the mining ray strikes the block (optional; centres the highlight).
+   */
+  set(target: { x: number; y: number; z: number; point?: { x: number; y: number; z: number } | null } | null, progress: number, blocked: boolean, active: boolean): void {
     if (!target) {
       this.visibleTarget = false;
       this.group.visible = false;
       this.cell = null;
+      this.hit = null;
       this.terrain?.setTarget(null, -1, 0, false, false);
       return;
     }
     this.visibleTarget = true;
     const stage = progress <= 0 ? -1 : Math.min(CRACK_STAGES - 1, Math.floor(progress * CRACK_STAGES));
     this.cell = target;
+    this.hit = target.point ?? null;
     this.stage = stage;
     this.blocked = blocked;
     this.active = active;
     if (this.terrain) {
       this.group.visible = false;
-      this.terrain.setTarget(target, stage < 0 ? -1 : CRACK_LAYER(stage), this.flash, active, blocked);
+      this.terrain.setTarget(target, stage < 0 ? -1 : CRACK_LAYER(stage), this.flash, active, blocked, this.hit);
       return;
     }
     this.group.visible = true;
@@ -125,7 +132,7 @@ export class TargetMarker {
     const s = 1 + this.punch * 0.045;
     this.crack.scale.setScalar(s);
     this.crack.material.uniforms.uFlash.value = this.flash;
-    if (this.terrain && this.cell) this.terrain.setTarget(this.cell, this.stage < 0 ? -1 : CRACK_LAYER(this.stage), this.flash, this.active, this.blocked);
+    if (this.terrain && this.cell) this.terrain.setTarget(this.cell, this.stage < 0 ? -1 : CRACK_LAYER(this.stage), this.flash, this.active, this.blocked, this.hit);
   }
 
   dispose(): void {

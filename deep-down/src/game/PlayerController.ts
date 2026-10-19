@@ -1,5 +1,5 @@
 import { PLAYER } from '../config/balance';
-import { SOLID } from '../config/blocks';
+import { RAMP, SOLID, rampPlane } from '../config/blocks';
 import { damp, dampAngle } from '../core/math';
 import type { VoxelWorld } from '../world/VoxelWorld';
 
@@ -19,6 +19,11 @@ export interface PlayerFrameEvents {
  * axis-separated AABB collision against voxels, automatic step-up onto 1-block ledges
  * (essential on touch screens), and a safety net that rescues the player if they ever
  * end up inside rock or outside the world.
+ *
+ * Stair flights (RAMP cells, config/blocks.ts) are walked as the plane of the flight under the
+ * centre of the feet, not as 1 m voxel steps: a stair cell blocks only while the feet are below
+ * that plane, walking up lifts the explorer onto it and walking down keeps the feet on it, so
+ * the body glides along the 0.25 m risers of the stair mesh without hopping.
  */
 export class PlayerController {
   /** Feet center position. */
@@ -45,6 +50,8 @@ export class PlayerController {
   private safeZ = 0;
   private safeTimer = 0;
   private readonly hw = PLAYER.width / 2;
+  /** Highest stair plane among the stair cells that blocked the last test() (see test()). */
+  private rampTop = -Infinity;
   readonly events: PlayerFrameEvents = { jumped: false, landedSpeed: 0, footstep: false, footBlock: 0, rescued: false };
 
   constructor(private readonly world: VoxelWorld) {}
@@ -163,6 +170,19 @@ export class PlayerController {
         this.vy = 0;
       }
     }
+    // Walking down a stair flight: keep the feet on its plane instead of falling off every
+    // step. A continuous descent needs no smoothing; a larger drop (stepping off a landing's
+    // edge onto the flight) is eased like an auto-step.
+    if (!groundedNow && wasGrounded && this.vy <= 0 && !ev.jumped) {
+      const ry = this.rampBelow(this.x, this.y, this.z, 0.75);
+      if (ry > -Infinity) {
+        const drop = this.y - ry;
+        if (drop > Math.hypot(this.vx, this.vz) * dt + 0.03) this.stepOffset -= drop;
+        this.y = ry;
+        this.vy = 0;
+        groundedNow = true;
+      }
+    }
     // Floor within 5 cm below the feet: settle onto it. If we were airborne this is a landing,
     // so it must report the fall speed (otherwise fall damage would be skipped at random).
     if (!groundedNow && this.vy <= 0 && this.collides(this.x, this.y - 0.05, this.z)) {
@@ -195,6 +215,15 @@ export class PlayerController {
 
   /** True if the player box at feet position (x,y,z) overlaps a solid voxel. */
   collides(x: number, y: number, z: number): boolean {
+    return this.test(x, y, z) !== 0;
+  }
+
+  /**
+   * Overlap of the player box at feet position (x,y,z): 0 = free, 1 = a solid cube, 2 = only stair
+   * cells whose plane (at the centre of the feet) is above the feet; the highest such plane is
+   * left in `rampTop`.
+   */
+  private test(x: number, y: number, z: number): number {
     const hw = this.hw;
     const x0 = Math.floor(x - hw);
     const x1 = Math.floor(x + hw);
@@ -202,10 +231,45 @@ export class PlayerController {
     const y1 = Math.floor(y + PLAYER.height);
     const z0 = Math.floor(z - hw);
     const z1 = Math.floor(z + hw);
+    let hit = 0;
+    let top = -Infinity;
     for (let yy = y0; yy <= y1; yy++)
       for (let zz = z0; zz <= z1; zz++)
-        for (let xx = x0; xx <= x1; xx++) if (SOLID[this.world.get(xx, yy, zz)]) return true;
-    return false;
+        for (let xx = x0; xx <= x1; xx++) {
+          const id = this.world.get(xx, yy, zz);
+          if (!SOLID[id]) continue;
+          const r = RAMP[id];
+          if (!r) {
+            this.rampTop = -Infinity;
+            return 1;
+          }
+          const p = rampPlane(r, xx, yy, zz, x, z);
+          if (y < p - 1e-5) {
+            hit = 2;
+            if (p > top) top = p;
+          }
+        }
+    this.rampTop = top;
+    return hit;
+  }
+
+  /**
+   * Highest stair plane under the centre of the feet within `maxDrop` below them (-Infinity if
+   * none), where the box fits.
+   */
+  private rampBelow(x: number, y: number, z: number, maxDrop: number): number {
+    const cx = Math.floor(x);
+    const cz = Math.floor(z);
+    for (let cy = Math.floor(y); cy >= Math.floor(y - maxDrop) - 1; cy--) {
+      const id = this.world.get(cx, cy, cz);
+      if (!SOLID[id]) continue;
+      const r = RAMP[id];
+      if (!r) return -Infinity; // a floor comes first: ordinary falling and settling handle it
+      const p = rampPlane(r, cx, cy, cz, x, z);
+      if (p > y + 1e-6 || p < y - maxDrop) return -Infinity;
+      return this.test(x, p, z) === 0 ? p : -Infinity;
+    }
+    return -Infinity;
   }
 
   /** Move along one axis; returns true if blocked. Horizontal moves may auto-step up. */
@@ -214,11 +278,29 @@ export class PlayerController {
     const nx = axis === 0 ? this.x + d : this.x;
     const ny = axis === 1 ? this.y + d : this.y;
     const nz = axis === 2 ? this.z + d : this.z;
-    if (!this.collides(nx, ny, nz)) {
+    const hit = this.test(nx, ny, nz);
+    if (hit === 0) {
       this.x = nx;
       this.y = ny;
       this.z = nz;
       return false;
+    }
+    // Up a stair flight: onto its plane, continuously (no step smoothing needed).
+    if (hit === 2 && axis !== 1 && canStep && this.vy <= 0.5) {
+      const ry = this.rampTop;
+      if (ry - this.y <= PLAYER.stepHeight && this.test(nx, ry, nz) === 0) {
+        this.x = nx;
+        this.z = nz;
+        this.y = ry;
+        this.vy = Math.max(0, this.vy);
+        return false;
+      }
+    }
+    // Falling onto a stair flight: land on its plane.
+    if (hit === 2 && axis === 1 && d < 0) {
+      const ry = this.rampTop;
+      if (ry <= this.y + 1e-6 && ry >= ny && this.test(this.x, ry, this.z) === 0) this.y = ry;
+      return true;
     }
     // Auto step-up onto a ledge at most PLAYER.stepHeight high.
     if (axis !== 1 && canStep && this.vy <= 0.5) {

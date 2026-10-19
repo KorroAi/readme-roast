@@ -291,40 +291,51 @@ export function ironTop(c: MatCanvas, rng: Rng): void {
 }
 
 /**
- * Crystal: dark teal glass in long prismatic facets with growth zoning. The light is inside:
- * a low, slow internal glow deep in the facets (emissive alpha), and bright glints on only a
- * few lit facet edges, so a crystal reads as a faceted object, never as a lit cube.
+ * Crystal: a druse of small prisms (about 0.3 x 0.8 m) grown in the host rock, not a pane of
+ * glass. Each prism has its own facet tone (some face the light, most fall dark) with a lighter
+ * ridge along its axis; prisms are parted by dark hairline seams (never a lit outline), a share
+ * of the cells is dark rock matrix between the prisms, and the light is inside: a low glow deep
+ * in some prisms (emissive alpha) and a few small glints at prism tips. The terrain shader makes
+ * the glints sparkle with the view.
  */
 export function crystal(c: MatCanvas, rng: Rng): void {
-  const facets = new PeriodicCells(rng, 8, 4, 0.9);
+  const prisms = new PeriodicCells(rng, 24, 10, 0.9);
   const glowN = fbm(rng, 4, 2);
-  const glintN = fbm(rng, 16, 1);
   const n = fbm(rng, 8, 2);
+  const w = S / 24;
+  const hgt = S / 10;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const q = facets.query(x, y, 1, 0.2);
-      const cell = facets.cells[q.id];
+      const q = prisms.query(x, y, 1, 0.3);
+      const cell = prisms.cells[q.id];
       const e = q.d2 - q.d1;
-      const dx = wrapDelta(cell.x, x) / 16;
-      const dy = wrapDelta(cell.y, y) / 32;
-      const facesLight = cell.r > 0.45;
-      let v = 0.3 + (cell.r - 0.5) * 0.3 - ((cell.r2 - 0.5) * dx + (cell.r3 - 0.3) * dy) * 0.35 + (n(x, y) - 0.5) * 0.1;
-      // Growth zoning: faint lines parallel to the facet border.
-      if (e > 3 && Math.floor(e) % 5 === 2) v += 0.06;
-      let alpha = 0;
-      if (e < 1) v = facesLight ? 0.64 : 0.08;
-      else {
-        // Internal glow: strongest deep inside a facet, in slow broad patches.
-        const depth = Math.min(1, (e - 1) / 7);
-        const g = Math.max(0, glowN(x, y) - 0.5) * 2.4 * depth;
-        alpha = Math.min(170, g * 190);
+      const dx = wrapDelta(cell.x, x) / w;
+      const dy = wrapDelta(cell.y, y) / hgt;
+      if (cell.r3 < 0.2) {
+        // Host-rock matrix between the prisms.
+        c.set(x, y, ramp(P.DEEP, 0.2 + (n(x, y) - 0.5) * 0.25 + (e < 1 ? -0.1 : 0), x, y, 0), 0);
+        continue;
       }
+      if (e < 0.9) {
+        c.set(x, y, P.CRYSTAL[0], 0);
+        continue;
+      }
+      // Facet tone of the prism, a ridge along its axis, darker toward its root (below).
+      const tone = cell.r < 0.22 ? 0.72 : cell.r < 0.6 ? 0.42 : 0.2;
+      const v = tone - Math.abs(dx) * 0.25 + Math.min(0, -dy) * 0.15 + (n(x, y) - 0.5) * 0.08;
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
-      if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.6, alpha / 220));
-      // Glints: short broken sparks on a few lit edges (never a continuous neon outline).
-      if (e < 1 && facesLight && glintN(x, y) > 0.72 && hash2(x >> 1, y >> 1) < 0.5) {
+      // Inner glow deep inside some prisms, in slow broad patches.
+      let alpha = 0;
+      if (cell.r2 < 0.55) {
+        const depth = Math.min(1, (e - 0.9) / 4);
+        const g = Math.max(0, glowN(x, y) - 0.42) * 2.2 * depth * (1 - Math.abs(dx));
+        alpha = Math.min(160, g * 200);
+        if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.55, alpha / 240));
+      }
+      // Glints: a few small sparks at the tip of lit prisms.
+      if (tone > 0.6 && dy < -0.55 && Math.abs(dx) < 0.3 && hash2(x >> 1, y >> 1) < 0.35) {
         hex = P.CRYSTAL_EDGE;
-        alpha = 220;
+        alpha = 230;
       }
       c.set(x, y, hex, alpha);
     }
