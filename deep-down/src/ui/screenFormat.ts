@@ -11,10 +11,13 @@ export function inAndroidShell(): boolean {
   return typeof window !== 'undefined' && 'DeepDownAndroid' in window;
 }
 
-/** A touch-first device (phone or tablet): coarse pointer and no fine one as the primary. */
+/**
+ * A touch-first device (phone or tablet): the primary pointer is coarse and cannot hover.
+ * Touch-screen laptops (a fine, hovering primary pointer) keep their window.
+ */
 export function touchFirst(): boolean {
   if (typeof matchMedia !== 'function') return false;
-  return matchMedia('(pointer: coarse)').matches || (navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches);
+  return matchMedia('(pointer: coarse) and (hover: none)').matches;
 }
 
 interface LockableOrientation {
@@ -23,7 +26,8 @@ interface LockableOrientation {
 
 /** Call from a tap handler. Fullscreen + landscape where the browser allows it; never throws. */
 export function enterGameScreen(): void {
-  if (!touchFirst() || inAndroidShell()) return;
+  // Automated browsers (end-to-end tests, captures) keep their fixed viewport.
+  if (!touchFirst() || inAndroidShell() || navigator.webdriver) return;
   const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
   const lock = () => {
     const o = (screen as Screen & { orientation?: LockableOrientation }).orientation;

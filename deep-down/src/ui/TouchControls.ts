@@ -387,9 +387,12 @@ export class TouchControls {
     window.clearTimeout(this.holdTimer);
     window.clearTimeout(this.aimResetTimer);
     this.look = null;
+    // Only release mining this layer started (the Mine button or a finger on the world): the
+    // desktop mouse writes the same flag and a window blur must not cancel its swing.
+    const touchMining = this.mineHeld || this.ownsMining;
     this.mineHeld = false;
     this.endMining();
-    this.input.mining = false;
+    if (touchMining) this.input.mining = false;
     this.hideRing();
     this.input.jumpHeld = false;
     for (const b of this.el.querySelectorAll('.pressed')) b.classList.remove('pressed');
