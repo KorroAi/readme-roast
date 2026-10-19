@@ -377,8 +377,8 @@ void main() {
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
   // Near the lens a rock texel spans many pixels: a fine grain (64 per metre, ALU value noise on
-  // the main projection, no fetch) fades in there, so close rock reads as stone, not as a
-  // magnified pixel. Skipped wherever a texel is under 5 px.
+  // the main projection, no fetch, about 25 ALU) fades in there, so close rock reads as stone,
+  // not as a magnified pixel. Skipped wherever a texel is under 5 px.
   if (natural) {
     vec2 fwr = (abs(pl.gx0) + abs(pl.gy0)) * ${MAT_SIZE}.0;
     float ppt = 1.0 / max(max(fwr.x, fwr.y), 1e-4);
@@ -387,7 +387,11 @@ void main() {
       vec2 i = floor(dq);
       vec2 f = fract(dq);
       f = f * f * (3.0 - 2.0 * f);
-      float g = mix(mix(hash13(vec3(i, 7.0)), hash13(vec3(i + vec2(1.0, 0.0), 7.0)), f.x), mix(hash13(vec3(i + vec2(0.0, 1.0), 7.0)), hash13(vec3(i + 1.0, 7.0)), f.x), f.y);
+      // Four lattice values from one dot product each (cheap sine hash; precision is ample at
+      // these magnitudes after the wrap to the texture period).
+      i = mod(i, 1024.0);
+      vec4 hv = fract(sin(vec4(dot(i, vec2(12.9898, 78.233)), dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233)), dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233)), dot(i + 1.0, vec2(12.9898, 78.233)))) * 43758.5453);
+      float g = mix(mix(hv.x, hv.y, f.x), mix(hv.z, hv.w, f.x), f.y);
       albedo *= 1.0 + (g - 0.5) * 0.2 * smoothstep(5.0, 12.0, ppt);
     }
   }

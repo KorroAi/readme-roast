@@ -30,7 +30,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
   const phi0 = Math.asin(Math.min(1, half / r));
   const nv = Math.max(9, Math.round((2 * phi0 * r) / 0.75) | 1);
   const at = (phi: number, rad: number): [number, number] => [zc + Math.sin(phi) * rad, yc + Math.cos(phi) * rad];
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
 
   // Soffit: the intrados face of each voussoir, across the whole width.
   for (let k = 0; k < nv; k++) {

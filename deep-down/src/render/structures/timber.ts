@@ -27,7 +27,7 @@ export function buildBeam(b: StructureBuilder, t: Beam): void {
     Z = [Z[0] * c - Y[0] * s, Z[1] * c - Y[1] * s, Z[2] * c - Y[2] * s];
     Y = y2;
   }
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   b.push();
   b.basis(t.a, X, Y, Z);
   const hy = t.h / 2;
@@ -84,7 +84,7 @@ export function buildDeck(b: StructureBuilder, k: Deck): void {
   const L1 = alongX ? k.x1 : k.z1;
   const C0 = alongX ? k.z0 : -k.x1;
   const C1 = alongX ? k.z1 : -k.x0;
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   b.push();
   // Boards along z: local x = world z, local z = -world x (a proper rotation).
   if (!alongX) b.basis([0, 0, 0], [0, 0, 1], [0, 1, 0], [-1, 0, 0]);

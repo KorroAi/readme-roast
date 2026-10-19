@@ -8,6 +8,9 @@ import { buildBeam, buildDeck } from './timber';
 
 /** Build one structure spec into the builder (world coordinates). */
 export function buildStructure(b: StructureBuilder, spec: StructureSpec): void {
+  // Every piece starts from contact occlusion against the terrain (a builder may override it).
+  b.aoAt = b.contactAo();
+  b.aoFixed = null;
   switch (spec.kind) {
     case 'stairFlight':
       buildStairFlight(b, spec);

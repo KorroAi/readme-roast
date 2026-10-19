@@ -1,4 +1,4 @@
-import { SOLID } from '../../config/blocks';
+import { SOLID, VISIBLE } from '../../config/blocks';
 import { MAT_DENSITY } from '../materials/paint';
 import type { VoxelWorld } from '../../world/VoxelWorld';
 
@@ -81,6 +81,38 @@ export class StructureBuilder {
 
   get vertexCount(): number {
     return this.pos.length / 3;
+  }
+
+  /**
+   * Contact occlusion from the terrain under a vertex, for `aoAt`: a side or underside within
+   * `reach` metres above a visible solid top darkens towards `min` at contact (smoothstep), so a
+   * plinth, a parapet foot or a post sits in its own shadow like the terrain's inner corners.
+   * Faces looking up are open and keep their light; hidden structure cells (the piece itself)
+   * do not count as floor.
+   */
+  contactAo(min = 0.5, reach = 0.8): (p: V3, n: V3) => number {
+    const w = this.world;
+    if (!w) return () => 1;
+    return (p, n) => {
+      const up = Math.max(0, n[1]);
+      if (up > 0.95) return 1;
+      const qx = p[0] + n[0] * 0.2;
+      const qy = p[1] + 0.02;
+      const qz = p[2] + n[2] * 0.2;
+      const x = Math.floor(qx);
+      const z = Math.floor(qz);
+      let d = reach;
+      for (let y = Math.floor(qy); y >= Math.floor(qy - reach) - 1; y--) {
+        const id = w.get(x, y, z);
+        if (SOLID[id] && VISIBLE[id]) {
+          d = Math.min(reach, Math.max(0, qy - (y + 1)));
+          break;
+        }
+      }
+      const t = d / reach;
+      const k = 1 - (1 - min) * (1 - t * t * (3 - 2 * t));
+      return k + (1 - k) * up;
+    };
   }
 
   // -------------------------------------------------------------------------------------------
@@ -213,13 +245,13 @@ export class StructureBuilder {
    * `profile` [radius, y] from bottom to top (radius may vary per angle through `radiusAt`),
    * `segments` around from angle a0 over `sweep`. Profile points whose segments turn by less than
    * ~40 degrees share a normal (rounded mouldings), sharper turns crease. uv(angle, y) gives the
-   * texels; ao(y) the occlusion.
+   * texels; ao(y, radius, world point, world normal) the occlusion.
    */
   revolve(
     profile: Array<[number, number]>,
     segments: number,
     uv: (angle: number, r: number, y: number) => [number, number],
-    ao: (y: number) => number = () => 1,
+    ao: (y: number, r: number, p: V3, n: V3) => number = () => 1,
     a0 = 0,
     sweep = Math.PI * 2,
     wobble?: (angle: number, k: number) => number,
@@ -252,14 +284,14 @@ export class StructureBuilder {
       // Two rings of shared vertices per profile segment (smooth around).
       const base = this.vertexCount;
       for (const [r, y, n, pk] of [[r0, y0, nA, k], [r1, y1, nB, k + 1]] as const) {
-        const a0y = ao(y);
         for (const a of ang) {
           const c = Math.cos(a);
           const sn = -Math.sin(a);
           const rr = wobble ? r * wobble(a, pk) : r;
           const lp: V3 = [c * rr, y, sn * rr];
           const wn = norm(this.dirToWorld([c * n[0], n[1], sn * n[0]]));
-          this.vertex(this.toWorld(lp), lp, wn, wn, dominantFace(wn), a0y, uv(a, rr, y));
+          const wp = this.toWorld(lp);
+          this.vertex(wp, lp, wn, wn, dominantFace(wn), ao(y, r, wp, wn), uv(a, rr, y));
         }
       }
       const row = segments + 1;

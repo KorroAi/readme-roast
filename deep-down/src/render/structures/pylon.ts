@@ -22,7 +22,7 @@ export const CORNICE_H = 4.05;
 export function buildPylon(b: StructureBuilder, p: Pylon): void {
   const rng = new Rng(p.seed);
   const path = p.path;
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   const masonry = (row: number, top: number) => {
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row, axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top };
   };
@@ -121,7 +121,7 @@ export function buildCoping(b: StructureBuilder, c: Coping): void {
   const dz = c.b[1] - c.a[1];
   const len = Math.hypot(dx, dz);
   if (len < 0.1) return;
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   b.push();
   // Local x along the run, z across it, y up (a proper rotation about y).
   const ang = Math.atan2(-dz, dx);
@@ -152,7 +152,7 @@ export function buildCoping(b: StructureBuilder, c: Coping): void {
  */
 export function buildWeathering(b: StructureBuilder, w: Weathering): void {
   const rng = new Rng(w.seed);
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   let z = w.z0;
   while (z < w.z1 - 0.05) {
     const l = Math.min(w.z1 - z, rng.range(1.0, 2.0));
@@ -169,7 +169,7 @@ export function buildWeathering(b: StructureBuilder, w: Weathering): void {
  */
 export function buildKerbSlope(b: StructureBuilder, k: KerbSlope): void {
   const rng = new Rng(k.seed);
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   let x = k.x0;
   while (x < k.x1 - 0.05) {
     const l = Math.min(k.x1 - x, rng.range(1.1, 2.1));

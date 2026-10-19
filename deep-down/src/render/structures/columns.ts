@@ -36,7 +36,7 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
   const neck = full ? columnNeck(c) : 0;
   b.push();
   b.translate(c.x, 0, c.z);
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   const stone = (row: number, top: number, vRef = 0) => {
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row, axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top, vRef };
   };
@@ -157,7 +157,11 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
   b.pop();
 }
 
-/** A fallen drum (or two, rolled a little apart), its ends dressed bed faces. */
+/**
+ * A fallen drum (or two, rolled a little apart). Its ends are bed faces as the masons left them
+ * (anathyrosis): a smooth band at the rim, the centre a little sunk and rough, and the socket of
+ * the dowel that tied it to the next drum, so it reads as a piece of a column, not a barrel.
+ */
 export function buildDrum(b: StructureBuilder, d: Drum): void {
   const rng = new Rng(d.seed);
   const pieces = d.length > 2.5 ? 2 : 1;
@@ -165,7 +169,7 @@ export function buildDrum(b: StructureBuilder, d: Drum): void {
   const around = aroundUv(r);
   const segs = r > 2.5 ? 40 : 32;
   const len = d.length / pieces;
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   for (let i = 0; i < pieces; i++) {
     const c = -d.length / 2 + len * (i + 0.5);
     const off = pieces > 1 ? (i === 0 ? -1 : 1) * rng.range(0.04, 0.12) : 0;
@@ -176,33 +180,49 @@ export function buildDrum(b: StructureBuilder, d: Drum): void {
     b.rotate(0, rng.range(-0.025, 0.025)).rotate(1, d.roll + i * 1.7);
     const h = len / 2 - 0.04;
     const ch = 0.07;
-    const profile: Array<[number, number]> = [
-      [0, -h],
+    const rc = r * 0.8; // the sunk centre
+    const so = Math.max(0.09, r * 0.06); // the dowel socket
+    // Side: the drum's face and its chamfered arrises, one monolithic stone.
+    const side: Array<[number, number]> = [
       [r - ch, -h],
       [r, -h + ch],
       [r, h - ch],
       [r - ch, h],
-      [0, h],
     ];
-    b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIPS_2M[rng.int(0, 1)], axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0 };
-    const u0 = b.surface.u0;
-    // Weathered: the arrises chipped and the faces a little out of round.
+    // Bed faces, from the arris inward (rim band, the sunk centre, the dowel socket).
+    const bed = (sg: number): Array<[number, number]> => {
+      const pts: Array<[number, number]> = [
+        [r - ch, -h],
+        [rc + 0.012, -h],
+        [rc, -h + 0.012],
+        [so, -h + 0.012],
+        [so, -h + 0.16],
+        [0, -h + 0.16],
+      ];
+      return sg < 0 ? pts.reverse() : pts.map(([pr, py]) => [pr, -py] as [number, number]);
+    };
+    const contact = b.aoAt;
+    const endAo = (y: number, rr: number) => {
+      if (rr > rc + 1e-3) return 1;
+      const e = h - Math.abs(y);
+      return e > 0.05 ? 0.3 : e > 0.006 ? (rr < so + 0.01 ? 0.5 : 0.74) : 1;
+    };
+    const ao = (y: number, rr: number, p: V3, n: V3) => contact(p, n) * endAo(y, rr);
+    // Weathered: the arrises chipped and the faces a little out of round (the same function on
+    // both sides of an arris, so the side and the bed faces meet without a crack).
     const p1 = rng.range(0, TAU);
     const p2 = rng.range(0, TAU);
-    const wob = (a: number, k: number) => {
-      const edge = k === 1 || k === 4 ? 1 : k === 2 || k === 3 ? 0.4 : 0;
-      return 1 + 0.008 * Math.sin(a * 3 + p1) - edge * 0.012 * (1 + Math.sin(a * 11 + p2) * Math.sin(a * 5 + p1));
-    };
-    // Side: around x along; ends: the bed face squeezed into the strip.
-    b.revolve(
-      profile,
-      segs,
-      (a, rr, y) => (Math.abs(y) > h - 1e-3 && rr < r - ch + 1e-3 ? [Math.cos(a) * rr * D + u0, ((Math.sin(a) * rr) / r + 1) * 15] : [around(a, u0), Math.min(31, (h - y) * D * (31 / (2 * h * D)))]),
-      (y) => (y < -h + 0.3 ? 0.8 : 1),
-      0,
-      TAU,
-      wob,
-    );
+    const w = (a: number, edge: number) => 1 + 0.008 * Math.sin(a * 3 + p1) - edge * 0.012 * (1 + Math.sin(a * 11 + p2) * Math.sin(a * 5 + p1));
+    b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIPS_2M[rng.int(0, 1)], axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0 };
+    const u0 = b.surface.u0;
+    b.revolve(side, segs, (a, _rr, y) => [around(a, u0), Math.min(31, (h - y) * (31 / (2 * h)))], ao, 0, TAU, (a, k) => w(a, k === 0 || k === 3 ? 1 : 0.4));
+    // The bed faces in the raw stone layer, planar at its natural scale.
+    for (const sg of [-1, 1]) {
+      b.surface = { mode: TexMode.Plain, layer: MAT.stoneSide, row: 0, axis: [1, 0, 0], across: [0, 0, 1], u0: 0, top: 0 };
+      const ue = rng.int(0, 127);
+      const ve = rng.int(0, 127);
+      b.revolve(bed(sg), segs, (a, rr) => [Math.cos(a) * rr * D + ue, Math.sin(a) * rr * D + ve], ao, 0, TAU, (a, k) => w(a, (sg < 0 ? k === 5 : k === 0) ? 1 : 0));
+    }
     b.pop();
   }
 }
@@ -212,7 +232,7 @@ export function buildBlock(b: StructureBuilder, k: Block): void {
   const rng = new Rng(k.seed);
   const [x0, y0, z0] = k.min;
   const [x1, y1, z1] = k.max;
-  b.aoAt = () => 1;
+  b.aoAt = b.contactAo();
   b.push();
   b.translate((x0 + x1) / 2, 0, (z0 + z1) / 2).rotate(1, rng.range(-0.05, 0.05));
   const hx = (x1 - x0) / 2 - 0.03;
