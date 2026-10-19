@@ -17,7 +17,8 @@ import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
  *   ?cam=x,y,z,yaw,pitch  &ortho=1  &bright=0.6  &clip=47  &fog=0.02  &props=1
  * Terrain isolation flags: no_disp (no sculpt offset in the shader), no_deriv (flat face
  * normals), no_macro, blend=0, lantern=0; mesher: sculpt=0 (plain cubes), wide=0..1 (share of
- * the 4x4x4 occupancy gradient in the smooth rock normal).
+ * the 4x4x4 occupancy gradient in the smooth rock normal), relax=0..1 (Laplacian relaxation of the
+ * bevel points on natural rock).
  */
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -32,6 +33,7 @@ async function boot(): Promise<void> {
   const terrain = new TerrainRig();
   if (params.get('sculpt') === '0') MESH_OPTIONS.sculpt = false;
   if (params.has('wide')) MESH_OPTIONS.wide = Number(params.get('wide'));
+  if (params.has('relax')) MESH_OPTIONS.relax = Number(params.get('relax'));
   const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, terrain.uniforms, params.has('clip'), params.get('blend') !== '0', Object.fromEntries(['NO_DISP', 'NO_MACRO', 'NO_DERIV'].filter((d) => params.has(d.toLowerCase())).map((d) => [d, '']))));
   await chunks.buildAll();
   const scene = new THREE.Scene();

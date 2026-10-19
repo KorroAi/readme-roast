@@ -348,8 +348,8 @@ function octDecode(ex: number, ey: number, out: number[]): number[] {
   return out;
 }
 
-/** Byte pair (0..254, 127 = 0) for a unit normal. */
-function octEncode(x: number, y: number, z: number, out: Uint8Array, o: number): void {
+/** Byte pair (0..254, 127 = 0) for a unit normal, written to out[ox] and out[oy]. */
+function octEncode(x: number, y: number, z: number, out: Uint8Array, ox: number, oy: number): void {
   const s = Math.abs(x) + Math.abs(y) + Math.abs(z) || 1;
   let ex = x / s;
   let ey = y / s;
@@ -358,9 +358,13 @@ function octEncode(x: number, y: number, z: number, out: Uint8Array, o: number):
     ey = (1 - Math.abs(ex)) * (ey >= 0 ? 1 : -1);
     ex = tx;
   }
-  out[o] = Math.round(ex * 127) + 127;
-  out[o + 1] = Math.round(ey * 127) + 127;
+  out[ox] = Math.round(ex * 127) + 127;
+  out[oy] = Math.round(ey * 127) + 127;
 }
+
+/** Octahedral bytes of the six face normals. */
+const FACE_OCT = new Uint8Array(12);
+for (let f = 0; f < 6; f++) octEncode(FACE_NORMALS[f][0], FACE_NORMALS[f][1], FACE_NORMALS[f][2], FACE_OCT, f * 2, f * 2 + 1);
 
 // ---------------------------------------------------------------------------------------------
 // Per-lattice-point cache (17^3 points per chunk), valid for one meshChunk call.
@@ -372,36 +376,37 @@ const lNrm = new Float32Array(L * L * L * 3);
 const lOct = new Uint8Array(L * L * L * 2);
 const lRig = new Uint8Array(L * L * L);
 let stamp = 0;
-const octTmp = new Uint8Array(2);
 
 /** Mesher options (debug viewer): `sculpt: false` meshes plain cubes with face normals. */
-export const MESH_OPTIONS = { sculpt: true, wide: 1 };
+export const MESH_OPTIONS = { sculpt: true, wide: 1, relax: 0.5 };
 
-// 4x4x4 voxel window around a corner with tent weights (1/3, 1, 1, 1/3 per axis): padded-index
-// delta from the window origin, weight, and weight x centre offset for the gradient.
-const WIDE_DELTA = new Int32Array(64);
-const WIDE_GX = new Float32Array(64);
-const WIDE_GY = new Float32Array(64);
-const WIDE_GZ = new Float32Array(64);
-{
-  const TENT = [1 / 3, 1, 1, 1 / 3];
-  let t = 0;
-  for (let k = 0; k < 4; k++)
-    for (let j = 0; j < 4; j++)
-      for (let i = 0; i < 4; i++, t++) {
-        const wgt = TENT[i] * TENT[j] * TENT[k];
-        WIDE_DELTA[t] = i + j * P + k * P2;
-        WIDE_GX[t] = wgt * (i - 1.5);
-        WIDE_GY[t] = wgt * (j - 1.5);
-        WIDE_GZ[t] = wgt * (k - 1.5);
-      }
-}
+// 4x4x4 voxel window around a corner with tent weights (1/3, 1, 1, 1/3 per axis). The window is
+// read as 16 rows of 4 voxels from per-row occupancy bits: per 4-bit row pattern, the tent sum of
+// the signed occupancy (air +1, solid -1) and of its x-moment.
+const TENT = [1 / 3, 1, 1, 1 / 3];
+const ROW_T = new Float32Array(16);
+const ROW_D = new Float32Array(16);
+for (let pt = 0; pt < 16; pt++)
+  for (let i = 0; i < 4; i++) {
+    const sgn = (pt >> i) & 1 ? -1 : 1;
+    ROW_T[pt] += TENT[i] * sgn;
+    ROW_D[pt] += TENT[i] * (i - 1.5) * sgn;
+  }
+/** Per padded row (y + z * P): bit x set when voxel x of that row is opaque. */
+const rowBits = new Uint32Array(P * P);
 
 /** Sculpt rigidity per block id: crystal is shaped like its host rock (its faces stay flat). */
 const SCULPT_RIGIDITY = new Uint8Array(RIGIDITY);
 SCULPT_RIGIDITY[B.CRYSTAL] = 3;
 /** Depth of the groove a crystal seam sits in, metres. */
 const CRYSTAL_INSET = 0.2;
+
+/** Occupancy mask of the 2x2x2 voxels around lattice point (lx, ly, lz), lx in -1..17. */
+function latticeMask(lx: number, ly: number, lz: number): number {
+  const sh = lx + PAD - 1;
+  const r0 = (lz + PAD - 1) * P + ly + PAD - 1;
+  return ((rowBits[r0] >>> sh) & 3) | (((rowBits[r0 + 1] >>> sh) & 3) << 2) | (((rowBits[r0 + P] >>> sh) & 3) << 4) | (((rowBits[r0 + P + 1] >>> sh) & 3) << 6);
+}
 
 /**
  * Compute offset, smooth normal, AO and rigidity of lattice point (lx, ly, lz) (chunk-local
@@ -446,25 +451,27 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
   let gy = 0;
   let gz = 0;
   if (wide > 0) {
-    const b0 = base - 1 - P - P2;
-    for (let t = 0; t < 64; t++) {
-      if (OPAQUE[pad[b0 + WIDE_DELTA[t]]]) {
-        gx -= WIDE_GX[t];
-        gy -= WIDE_GY[t];
-        gz -= WIDE_GZ[t];
-      } else {
-        gx += WIDE_GX[t];
-        gy += WIDE_GY[t];
-        gz += WIDE_GZ[t];
+    // Window voxels x in lx-2..lx+1 are padded columns lx..lx+3 (PAD = 2).
+    for (let k = 0; k < 4; k++) {
+      const tk = TENT[k];
+      const ck = k - 1.5;
+      const rk = (lz + k) * P + ly;
+      for (let j = 0; j < 4; j++) {
+        const pt = (rowBits[rk + j] >>> lx) & 15;
+        const w = TENT[j] * tk;
+        const rt = ROW_T[pt] * w;
+        gx += ROW_D[pt] * w;
+        gy += rt * (j - 1.5);
+        gz += rt * ck;
       }
     }
   }
-  const gl = Math.hypot(gx, gy, gz);
+  const gl = Math.sqrt(gx * gx + gy * gy + gz * gz);
   if (wide > 0 && gl > 1e-3 && (nx !== 0 || ny !== 0 || nz !== 0)) {
     nx = nx * (1 - wide) + (gx / gl) * wide;
     ny = ny * (1 - wide) + (gy / gl) * wide;
     nz = nz * (1 - wide) + (gz / gl) * wide;
-    const l = Math.hypot(nx, ny, nz) || 1;
+    const l = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1;
     nx /= l;
     ny /= l;
     nz /= l;
@@ -474,13 +481,47 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
   let oz = 0;
   if (MESH_OPTIONS.sculpt && mask !== FLAT_FLOOR && r > 0) {
     const ch = CHAMFER[r];
-    ox = SN_OFF[m3] * ch;
-    oy = SN_OFF[m3 + 1] * ch * (WALK[mask] ? WALK_CHAMFER_Y : 1);
-    oz = SN_OFF[m3 + 2] * ch;
+    let sx = SN_OFF[m3];
+    let sy = SN_OFF[m3 + 1];
+    let sz = SN_OFF[m3 + 2];
+    // One Laplacian relaxation toward the surface-nets points of the 6 neighbouring lattice
+    // points: on a wall that curves across the voxel grid (1:2, 1:3 steps) every step would
+    // otherwise bevel into the same rounded lump, a quilt. Natural rock only.
+    const relax = r >= 2 ? MESH_OPTIONS.relax : 0;
+    if (relax > 0) {
+      let ax = 0;
+      let ay = 0;
+      let az = 0;
+      let cnt = 0;
+      for (let k = 0; k < 6; k++) {
+        const ddx = k === 0 ? -1 : k === 1 ? 1 : 0;
+        const ddy = k === 2 ? -1 : k === 3 ? 1 : 0;
+        const ddz = k === 4 ? -1 : k === 5 ? 1 : 0;
+        const nm = latticeMask(lx + ddx, ly + ddy, lz + ddz);
+        if (nm === 0 || nm === 255) continue;
+        ax += ddx + SN_OFF[nm * 3];
+        ay += ddy + SN_OFF[nm * 3 + 1];
+        az += ddz + SN_OFF[nm * 3 + 2];
+        cnt++;
+      }
+      if (cnt) {
+        const inv = relax / cnt;
+        sx += ax * inv - sx * relax;
+        // Walkable tops relax only sideways: their height stays the bevel's (feet on the floor).
+        if (!WALK[mask]) sy += ay * inv - sy * relax;
+        sz += az * inv - sz * relax;
+      }
+    }
+    ox = sx * ch;
+    oy = sy * ch * (WALK[mask] ? WALK_CHAMFER_Y : 1);
+    oz = sz * ch;
     const hasN = nx !== 0 || ny !== 0 || nz !== 0;
-    // Noise relief along the normal, plus a tangential jitter.
+    // Noise relief along the normal, plus a tangential jitter. Thin convex features (a lone
+    // voxel, a 1-voxel fin) get less, so the relief cannot turn them inside out.
     relief(wx, wy, wz);
-    let amp = RELIEF[r];
+    let solids = 0;
+    for (let m = mask; m; m &= m - 1) solids++;
+    let amp = RELIEF[r] * (solids <= 1 ? 0.35 : solids <= 2 ? 0.7 : 1);
     if (CEIL[mask] && ny < -0.5) amp *= CEIL_RELIEF;
     const h = RH[0] * amp;
     let rx = nx * h;
@@ -495,8 +536,6 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
     if (WALK[mask]) ry *= WALK_NOISE_Y;
     // A crystal seam sits sunk in a groove of its host rock, not proud of it as a box.
     if (crystals && hasN) {
-      let solids = 0;
-      for (let m = mask; m; m &= m - 1) solids++;
       const d = CRYSTAL_INSET * Math.min(1, (2 * crystals) / solids);
       rx -= nx * d;
       ry -= ny * d * (WALK[mask] ? WALK_NOISE_Y : 1);
@@ -514,7 +553,7 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
       nx -= hx - hn * nx;
       ny -= hy - hn * ny;
       nz -= hz - hn * nz;
-      const l = Math.hypot(nx, ny, nz);
+      const l = Math.sqrt(nx * nx + ny * ny + nz * nz);
       nx /= l;
       ny /= l;
       nz /= l;
@@ -526,7 +565,7 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
   lNrm[o3] = nx;
   lNrm[o3 + 1] = ny;
   lNrm[o3 + 2] = nz;
-  if (nx !== 0 || ny !== 0 || nz !== 0) octEncode(nx, ny, nz, lOct, li * 2);
+  if (nx !== 0 || ny !== 0 || nz !== 0) octEncode(nx, ny, nz, lOct, li * 2, li * 2 + 1);
   else lOct[li * 2] = lOct[li * 2 + 1] = 127;
   return li;
 }
@@ -565,30 +604,8 @@ function seamHashes(ox0: number, oy0: number, oz0: number): Uint32Array {
   return hs;
 }
 
-// Scratch for the per-face corners (positions in metres and shading normals).
-const cp = new Float64Array(12);
+/** Shading normals of the current face's corners (for the fold-aware split). */
 const cn = new Float64Array(12);
-
-/** Normal of triangle (a, b, c) of the current face corners, dotted with the sum of their normals. */
-function triAgreement(a: number, b: number, c: number): number {
-  const ux = cp[b * 3] - cp[a * 3];
-  const uy = cp[b * 3 + 1] - cp[a * 3 + 1];
-  const uz = cp[b * 3 + 2] - cp[a * 3 + 2];
-  const vx = cp[c * 3] - cp[a * 3];
-  const vy = cp[c * 3 + 1] - cp[a * 3 + 1];
-  const vz = cp[c * 3 + 2] - cp[a * 3 + 2];
-  let tx = uy * vz - uz * vy;
-  let ty = uz * vx - ux * vz;
-  let tz = ux * vy - uy * vx;
-  const l = Math.hypot(tx, ty, tz) || 1;
-  tx /= l;
-  ty /= l;
-  tz /= l;
-  const sx = cn[a * 3] + cn[b * 3] + cn[c * 3];
-  const sy = cn[a * 3 + 1] + cn[b * 3 + 1] + cn[c * 3 + 1];
-  const sz = cn[a * 3 + 2] + cn[b * 3 + 2] + cn[c * 3 + 2];
-  return tx * sx + ty * sy + tz * sz;
-}
 
 export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: number): ChunkMeshData {
   const cs = world.chunkSize;
@@ -598,63 +615,92 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
   const bz = ccz * cs - PAD;
   stamp++;
 
-  // Copy the chunk plus a one-voxel border so the inner loop needs no bounds checks.
+  // Copy the chunk plus a PAD-voxel border so the inner loops need no bounds checks. Outside
+  // the world reads as bedrock: opaque, never meshed, only occludes.
   const { sx, sy, sz, blocks } = world;
-  let anyVisible = false;
+  const x0 = Math.max(0, bx);
+  const x1 = Math.min(sx, bx + P);
   for (let z = 0; z < P; z++) {
     const wz = bz + z;
     for (let y = 0; y < P; y++) {
       const wy = by + y;
       const row = y * P + z * P2;
-      const inside = wz >= 0 && wz < sz && wy >= 0 && wy < sy;
-      for (let x = 0; x < P; x++) {
-        const wx = bx + x;
-        let id: number;
-        if (inside && wx >= 0 && wx < sx) id = blocks[wx + sx * (wy + sy * wz)];
-        else id = B.BEDROCK; // Outside the world: opaque, never meshed, only occludes.
-        pad[x + row] = id;
-        if (!anyVisible && x >= PAD && y >= PAD && z >= PAD && x < P - PAD && y < P - PAD && z < P - PAD && VISIBLE[id]) anyVisible = true;
+      if (wz < 0 || wz >= sz || wy < 0 || wy >= sy || x1 <= x0) {
+        pad.fill(B.BEDROCK, row, row + P);
+        continue;
       }
+      let x = 0;
+      for (; x < x0 - bx; x++) pad[row + x] = B.BEDROCK;
+      const src = x0 + sx * (wy + sy * wz) - (x0 - bx);
+      for (; x < x1 - bx; x++) pad[row + x] = blocks[src + x];
+      for (; x < P; x++) pad[row + x] = B.BEDROCK;
     }
   }
+  let anyVisible = false;
+  scan: for (let z = PAD; z < P - PAD; z++)
+    for (let y = PAD; y < P - PAD; y++) {
+      const row = y * P + z * P2;
+      for (let x = PAD; x < P - PAD; x++)
+        if (VISIBLE[pad[row + x]]) {
+          anyVisible = true;
+          break scan;
+        }
+    }
 
   const ox0 = ccx * cs;
   const oy0 = ccy * cs;
   const oz0 = ccz * cs;
   const out = scratchVerts;
+  const sculpt = MESH_OPTIONS.sculpt;
   let faces = 0;
   if (anyVisible) {
+    // Occupancy bits per padded row, for the wide normal window.
+    for (let r = 0; r < P * P; r++) {
+      let bits = 0;
+      const row = r * P;
+      for (let x = 0; x < P; x++) if (OPAQUE[pad[row + x]]) bits |= 1 << x;
+      rowBits[r] = bits;
+    }
     for (let z = PAD; z < P - PAD; z++)
       for (let y = PAD; y < P - PAD; y++)
         for (let x = PAD; x < P - PAD; x++) {
           const i = x + y * P + z * P2;
           const id = pad[i];
           if (!VISIBLE[id]) continue;
+          const family = FAMILY_OF[id];
+          const flags = (family << 4) | (RUNE_FLAG[id] << 6);
+          const flat = !sculpt || family === FAMILY.CRYSTAL;
           for (let f = 0; f < 6; f++) {
             const front = i + FACE_DELTA[f];
             if (OPAQUE[pad[front]]) continue;
             const matOf = f === 2 ? MAT_TOP : f === 3 ? MAT_BOTTOM : MAT_SIDE;
             const layer = matOf[id];
-            const family = FAMILY_OF[id];
             // Boundary partners: solid neighbours in the face plane of the same family with a
             // different material on this face orientation.
-            const [d1, d2] = TANGENT_DELTA[f >> 1];
+            const td = TANGENT_DELTA[f >> 1];
+            const d1 = td[0];
+            const d2 = td[1];
             let nb0 = 255;
             let nb1 = 255;
             let nb2 = 255;
             let nb3 = 255;
             if (family !== 0) {
-              const pick = (n: number) => (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer ? matOf[n] : 255);
-              nb0 = pick(pad[i - d1]);
-              nb1 = pick(pad[i + d1]);
-              nb2 = pick(pad[i - d2]);
-              nb3 = pick(pad[i + d2]);
+              let n = pad[i - d1];
+              if (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer) nb0 = matOf[n];
+              n = pad[i + d1];
+              if (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer) nb1 = matOf[n];
+              n = pad[i - d2];
+              if (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer) nb2 = matOf[n];
+              n = pad[i + d2];
+              if (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer) nb3 = matOf[n];
             }
-            const flags = (family << 4) | (RUNE_FLAG[id] << 6);
             const ao = AO_OFFSETS[f];
             const corners = FACE_CORNERS[f];
             const uvs = FACE_UVS[f];
             const fn = FACE_NORMALS[f];
+            const fx = fn[0];
+            const fy = fn[1];
+            const fz = fn[2];
             const v0 = faces * 4;
             let a0 = 0;
             let a1 = 0;
@@ -675,60 +721,64 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
               const lz = z - PAD + corner[2];
               const li = lattice(lx, ly, lz, ox0 + lx, oy0 + ly, oz0 + lz);
               const r = lRig[li];
+              const uv = uvs[c];
               const o = (v0 + c) * VERTEX_BYTES;
               out[o] = lx;
               out[o + 1] = ly;
               out[o + 2] = lz;
               out[o + 4] = f;
               out[o + 5] = occ;
-              // Shading: natural rock takes the smooth lattice normal; built and crystalline
-              // faces keep the flat face normal.
-              const s = MESH_OPTIONS.sculpt && family !== FAMILY.CRYSTAL ? SMOOTH[r] : 0;
               out[o + 6] = layer;
-              out[o + 7] = uvs[c][0] | (uvs[c][1] << 1) | (r << 2) | flags;
+              out[o + 7] = uv[0] | (uv[1] << 1) | (r << 2) | flags;
               out[o + 8] = nb0;
               out[o + 9] = nb1;
               out[o + 10] = nb2;
               out[o + 11] = nb3;
-              out[o + 12] = lOff[li * 3];
-              out[o + 13] = lOff[li * 3 + 1];
-              out[o + 14] = lOff[li * 3 + 2];
-              // The shading normal never faces away from its face.
-              let nx = lNrm[li * 3];
-              let ny = lNrm[li * 3 + 1];
-              let nz = lNrm[li * 3 + 2];
-              const d = nx * fn[0] + ny * fn[1] + nz * fn[2];
+              const l3 = li * 3;
+              out[o + 12] = lOff[l3];
+              out[o + 13] = lOff[l3 + 1];
+              out[o + 14] = lOff[l3 + 2];
+              // Shading: natural rock takes the smooth lattice normal; built and crystalline
+              // faces keep the flat face normal. The normal never faces away from its face.
+              const s = flat ? 0 : SMOOTH[r];
+              let nx = lNrm[l3];
+              let ny = lNrm[l3 + 1];
+              let nz = lNrm[l3 + 2];
+              const d = nx * fx + ny * fy + nz * fz;
               if (s === 1 && d >= 0.05) {
                 out[o + 3] = lOct[li * 2];
                 out[o + 15] = lOct[li * 2 + 1];
               } else {
-                let w = s;
-                if (d < 0.05) w = Math.min(w, d > 0 ? d / 0.05 : 0);
-                nx = fn[0] + (nx - fn[0]) * w;
-                ny = fn[1] + (ny - fn[1]) * w;
-                nz = fn[2] + (nz - fn[2]) * w;
-                const l = Math.hypot(nx, ny, nz) || 1;
-                nx /= l;
-                ny /= l;
-                nz /= l;
-                octEncode(nx, ny, nz, octTmp, 0);
-                out[o + 3] = octTmp[0];
-                out[o + 15] = octTmp[1];
+                const w = d < 0.05 ? Math.min(s, d > 0 ? d / 0.05 : 0) : s;
+                if (w === 0) {
+                  nx = fx;
+                  ny = fy;
+                  nz = fz;
+                  out[o + 3] = FACE_OCT[f * 2];
+                  out[o + 15] = FACE_OCT[f * 2 + 1];
+                } else {
+                  nx = fx + (nx - fx) * w;
+                  ny = fy + (ny - fy) * w;
+                  nz = fz + (nz - fz) * w;
+                  const il = 1 / Math.sqrt(nx * nx + ny * ny + nz * nz);
+                  nx *= il;
+                  ny *= il;
+                  nz *= il;
+                  octEncode(nx, ny, nz, out, o + 3, o + 15);
+                }
               }
-              cp[c * 3] = lx + (out[o + 12] - 128) * OFF_STEP;
-              cp[c * 3 + 1] = ly + (out[o + 13] - 128) * OFF_STEP;
-              cp[c * 3 + 2] = lz + (out[o + 14] - 128) * OFF_STEP;
               cn[c * 3] = nx;
               cn[c * 3 + 1] = ny;
               cn[c * 3 + 2] = nz;
             }
             const k = faces * 6;
-            // Split a folded quad along the diagonal whose triangles agree with the shading
-            // normals (the fold follows the form, no saddles); a flat quad along the diagonal
-            // joining the brighter pair, so AO gradients stay symmetric.
-            const sa = triAgreement(0, 1, 2) + triAgreement(0, 2, 3);
-            const sb = triAgreement(1, 2, 3) + triAgreement(1, 3, 0);
-            const splitA = Math.abs(sa - sb) > 0.004 ? sa > sb : a0 + a2 >= a1 + a3;
+            // Split a quad whose shading normals vary along the diagonal whose end normals agree
+            // most: the fold then follows the form (a bevelled corner folds convex, a filled
+            // crease concave) instead of cutting across it. Quads with one normal keep the split
+            // along the diagonal joining the brighter AO pair, so AO gradients stay symmetric.
+            const dA = cn[0] * cn[6] + cn[1] * cn[7] + cn[2] * cn[8];
+            const dB = cn[3] * cn[9] + cn[4] * cn[10] + cn[5] * cn[11];
+            const splitA = Math.abs(dA - dB) > 0.002 ? dA > dB : a0 + a2 >= a1 + a3;
             if (splitA) {
               scratchIdx[k] = v0;
               scratchIdx[k + 1] = v0 + 1;

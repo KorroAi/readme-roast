@@ -155,7 +155,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     const dx = (x - H.cx) / H.rx;
     const dz = (z - H.cz) / H.rz;
     const rim = Math.max(0, Math.sqrt(dx * dx + dz * dz) - 0.7) * 14;
-    return floorBase + terraces + Math.round(rim);
+    // Where the floor climbs to the wall, a finer noise wanders each ring by about 2 m, so the
+    // climb reads as broken outcrops instead of concentric stairs. Heights stay whole voxels
+    // (collision is exact); the mesher bevels each 1 m step into a rounded slope. The open
+    // floor (rim < 1) is left as it was: the processional way and its masonry stand on it.
+    const wob = rim > 1 ? detail.noise2(x * 0.19 + 11.3, z * 0.19 - 7.7) * Math.min(1, rim - 1) * 0.7 : 0;
+    return floorBase + terraces + Math.round(rim + wob);
   };
   for (let z = H.cz - H.rz - 2; z <= H.cz + H.rz + 2; z++)
     for (let x = H.cx - H.rx - 2; x <= H.cx + H.rx + 2; x++) {
