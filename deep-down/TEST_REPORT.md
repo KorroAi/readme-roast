@@ -73,6 +73,38 @@ Judged not reachable in this game but hardened anyway: ghost light from removing
 open emitter (no removable emitter raises another on the shipped seed); `data:` icon URLs reaching
 the shell's request filter (Chromium resolves image `data:` URLs in the renderer).
 
+## Visual identity audit (October 2026)
+
+Method: the running game was captured at 915×412 (phone landscape, Balanced, SwiftShader) on a
+fixed 12-shot tour (`tools/play.mjs` with the same teleports and camera angles every time:
+camp, tunnel, crystals, ledge vista, stairs, hall pillars, seal/temple, shrine, Hollow crystals,
+old camp, bridge, balcony) plus Visual Lab views, with discovery banners and hints hidden.
+Three independent critics (originality/geometry, materials/seams, lighting/readability) read
+every image and the responsible code and scored each category 1–10. The same tour and panel are
+re-run after each round, so scores are comparable. Screenshots live in `artifacts/audit-*`,
+`artifacts/iter*` (git-ignored).
+
+| Round | Geometry | Materials | Transitions | Lighting | Cyan/glyphs | Originality | Readability | Character/props | Post |
+|---|---|---|---|---|---|---|---|---|---|
+| Baseline (pre-refactor) | 3 / 3 / 3 | 3 / 3 / 3 | 2 / 1 / 2 | 5 / 6 / 4 | 3 / 3 / 2 | 2 / 2 / 2 | 5 / 6 / 5 | 5 / 5 / 5 | 5 / 5 / 4 |
+
+(three critics' scores per cell; later rounds are added below as they are run)
+
+### Terrain renderer cost (A/B on the same machine, SwiftShader, Balanced, 915×412)
+
+| Location | Before (wall FPS) | After material system |
+|---|---|---|
+| Camp | 13 | 11 |
+| Tunnel | 8 | 5 |
+| Ledge vista | 9 | 6 |
+| Hollow floor | 9 | 8 |
+| Bridge | 12 | 9 |
+
+Feature isolation in the world viewer (frames in the same 6 s window, vista camera): all
+features 56, without sculpting 57, without macro noise 58, without faceted normals 59, without
+boundary blending 57, none of them 60; the old renderer 61. SwiftShader is a CPU rasterizer, so
+these are relative numbers only; GPU cost on a phone is unmeasured.
+
 ## Visual inspection log (real WebGL screenshots, inspected and iterated)
 
 | Iteration | Found | Fixed |
