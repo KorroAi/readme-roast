@@ -359,7 +359,7 @@ export class VisualLab {
     // ?amb= still adds a flat fill on terrain (albedo inspection) in either mode.
     u.uDebug.value.set(this.ambientOverride ?? 0, 9999, 0);
     u.uFogDensity.value = review ? REVIEW.fog : g.fog;
-    this.renderer.post.params.zoneExposure = review ? REVIEW.exposure : 1;
+    this.renderer.post.params.zoneExposure = review ? REVIEW.exposure : this.rig.exposure;
     const lp = u.uLanternPos.value;
     this.lantern.compute(lp.x, lp.y, lp.z, u.uLanternRadius.value);
     this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });

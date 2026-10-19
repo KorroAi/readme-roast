@@ -29,7 +29,7 @@ export const DAMP = [0x0f141a, 0x161c23, 0x1c252d, 0x252f38, 0x2d3945, 0x384553,
 /** Wet sheen and water traces (used sparingly, on streak edges). */
 export const WET_SHEEN = 0x5d728b;
 /** Lichen crust: muted grey-olive, a step above the rock it grows on. */
-export const LICHEN = [0x2a352f, 0x35433a, 0x415347, 0x506453, 0x607762] as const;
+export const LICHEN = [0x2a352f, 0x35433a, 0x404c44, 0x4c5a4e, 0x5a6a5b] as const;
 
 /** Stones that weathered out into the soil: warm-neutral, between rock and soil. */
 export const PEBBLE = [0x252423, 0x322f2c, 0x403b37, 0x4e4843, 0x5f5750, 0x71665d] as const;

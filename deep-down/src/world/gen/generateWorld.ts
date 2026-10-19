@@ -428,7 +428,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       for (let y = soffit; y < t; y++) put(x, y, z, M);
       if (z === 71 || z === 76) {
         put(x, t, z, M);
-        put(x, t + 1, z, M);
+        // The lip starts below the ledge: at the head it would stand on the ledge as a lone cube.
+        if (k > 0) put(x, t + 1, z, M);
       } else {
         put(x, t, z, B.ANCIENT_TILE);
         for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
