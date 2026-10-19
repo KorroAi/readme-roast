@@ -1,7 +1,7 @@
 import { B } from '../../config/blocks';
-import { Rng } from '../../core/rng';
-import { MAT_SIZE, MatCanvas } from './paint';
+import { MAT_SIZE, MatCanvas, rngFor } from './paint';
 import { PAINTERS } from './painters';
+import { beginHostCache, endHostCache } from './rock';
 
 /**
  * Terrain material library.
@@ -26,9 +26,12 @@ export const MATERIAL_NAMES = [
   'dampSide',
   'dampTop',
   'soil',
+  'soilSide',
   'gravel',
   'copperVein',
+  'copperTop',
   'ironVein',
+  'ironTop',
   'crystal',
   'sealStone',
   'masonry',
@@ -57,12 +60,17 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   deepTop: { glow: 0 },
   weatheredSide: { glow: 0 },
   weatheredTop: { glow: 0 },
-  dampSide: { glow: 0.22 },
-  dampTop: { glow: 0.22 },
+  // Damp stone does not glow: lichen is a muted crust, so cyan stays rare (minerals, the
+  // builders' script, progression) and its alpha keeps working as a height for boundaries.
+  dampSide: { glow: 0 },
+  dampTop: { glow: 0 },
   soil: { glow: 0 },
+  soilSide: { glow: 0 },
   gravel: { glow: 0 },
   copperVein: { glow: 0 },
+  copperTop: { glow: 0 },
   ironVein: { glow: 0 },
+  ironTop: { glow: 0 },
   crystal: { glow: 0.75 },
   sealStone: { glow: 0 },
   masonry: { glow: 0 },
@@ -72,7 +80,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   plank: { glow: 0 },
   beamSide: { glow: 0 },
   beamEnd: { glow: 0 },
-  hearth: { glow: 0.9 },
+  hearth: { glow: 0.8 },
   bedrock: { glow: 0 },
 };
 
@@ -100,11 +108,11 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   [B.SLATE]: rock('stoneTop', 'stoneSide'),
   [B.DEEP_SLATE]: rock('deepTop', 'deepSide'),
   [B.UMBER]: rock('weatheredTop', 'weatheredSide'),
-  [B.SOIL]: rock('soil', 'soil'),
+  [B.SOIL]: rock('soil', 'soilSide'),
   [B.GRAVEL]: rock('gravel', 'gravel'),
   [B.MOSS]: rock('dampTop', 'dampSide', 'stoneSide'),
-  [B.COPPER_ORE]: rock('copperVein', 'copperVein'),
-  [B.IRON_ORE]: rock('ironVein', 'ironVein'),
+  [B.COPPER_ORE]: rock('copperTop', 'copperVein'),
+  [B.IRON_ORE]: rock('ironTop', 'ironVein'),
   [B.BEDROCK]: rock('bedrock', 'bedrock'),
   [B.CRYSTAL]: { top: 'crystal', side: 'crystal', bottom: 'crystal', family: FAMILY.CRYSTAL, rigidity: 1 },
   [B.HARDENED_SLATE]: { top: 'sealStone', side: 'sealStone', bottom: 'sealStone', family: FAMILY.NONE, rigidity: 2 },
@@ -147,11 +155,16 @@ export interface MaterialAtlas {
 export function generateMaterials(): MaterialAtlas {
   const layers = MATERIAL_NAMES.length;
   const data = new Uint8Array(MAT_SIZE * MAT_SIZE * 4 * layers);
-  MATERIAL_NAMES.forEach((name, layer) => {
-    const c = new MatCanvas();
-    PAINTERS[name](c, new Rng(7000 + layer * 104729));
-    c.toBytes(data, layer * MAT_SIZE * MAT_SIZE * 4);
-  });
+  beginHostCache();
+  try {
+    MATERIAL_NAMES.forEach((name, layer) => {
+      const c = new MatCanvas();
+      PAINTERS[name](c, rngFor(name));
+      c.toBytes(data, layer * MAT_SIZE * MAT_SIZE * 4);
+    });
+  } finally {
+    endHostCache();
+  }
   return { size: MAT_SIZE, layers, data };
 }
 

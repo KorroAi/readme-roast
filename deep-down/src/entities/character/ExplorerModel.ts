@@ -2,9 +2,12 @@ import * as THREE from 'three';
 import type { LightingUniforms } from '../../render/lighting';
 import { createEntityMaterial } from '../../render/entityMaterial';
 import { clamp, lerp, saturate } from '../../core/math';
-import { ExplorerAnimator, type ExplorerAnimState } from './pose';
+import { ExplorerAnimator, type ExplorerAnimState, type ExplorerPose } from './pose';
+import { CoatTails, MotionProbe, Pendulum } from './secondary';
 import {
   RIG,
+  buildCharm,
+  buildCoatTail,
   buildForearm,
   buildHead,
   buildHips,
@@ -45,14 +48,22 @@ const LANTERN_DAMPING = 11;
 const LANTERN_MAX_ANGLE = 0.7;
 /** Ignore pivot accelerations above this (teleports, respawns). */
 const MAX_ACCEL = 60;
+/**
+ * The ember vial on its short cord: a lighter, livelier pendulum than the lantern, so it sways
+ * with the stride and swings out on starts, stops and turns, but stays clear of resonance with
+ * the ~1.7 Hz stride (natural frequency ~2.3 Hz) and settles within a second.
+ */
+const CHARM = { length: 0.11, coupling: 0.15, stiffness: 110, damping: 8, maxAngle: 0.8 };
 
 /**
- * The explorer: a jointed voxel character (hips -> torso -> head/arms, hips -> legs) with one
- * geometry per rigid part and one shared material. The root's origin is the feet center on the
- * ground and the model faces local +Z; the caller positions and rotates `root`.
+ * The explorer: a jointed voxel character (hips -> torso -> head/arms/pack, hips -> legs and coat
+ * tails) with one geometry per rigid part and one shared material. The root's origin is the feet
+ * center on the ground and the model faces local +Z; the caller positions and rotates `root`.
  *
  * The hand lantern hangs from the left fist on a damped pendulum driven by the fist's real
- * motion in world space, so it swings when the explorer starts, stops, turns or lands.
+ * motion in world space, so it swings when the explorer starts, stops, turns or lands. The same
+ * kind of secondary motion drives the ember vial hanging from the pack frame and the coat tails,
+ * which are also pushed back by the thighs so the stride never passes through them.
  */
 export class ExplorerModel {
   readonly root = new THREE.Group();
@@ -64,6 +75,14 @@ export class ExplorerModel {
   private readonly torso = new THREE.Group();
   private readonly head = new THREE.Group();
   private readonly pack = new THREE.Group();
+  private readonly tailL = new THREE.Group();
+  private readonly tailR = new THREE.Group();
+  private readonly hook = new THREE.Object3D();
+  private readonly charmPivot = new THREE.Group();
+  private readonly tails = new CoatTails();
+  private readonly charm = new Pendulum(CHARM);
+  private readonly hipsProbe = new MotionProbe();
+  private readonly hookProbe = new MotionProbe();
   private readonly armL: Arm;
   private readonly armR: Arm;
   private readonly legL: Leg;
@@ -94,7 +113,7 @@ export class ExplorerModel {
   constructor(lighting: LightingUniforms) {
     this.material = createEntityMaterial(lighting, { emissiveScale: 2, fade: true });
     this.root.name = 'explorer';
-    this.root.add(this.body, this.lanternPivot);
+    this.root.add(this.body, this.lanternPivot, this.charmPivot);
     const mesh = (geometry: THREE.BufferGeometry, parent: THREE.Object3D) => {
       this.geometries.push(geometry);
       const m = new THREE.Mesh(geometry, this.material);
@@ -115,6 +134,23 @@ export class ExplorerModel {
     this.pack.position.set(0, RIG.packY, RIG.packZ);
     this.torso.add(this.pack);
     mesh(buildPack(), this.pack);
+    // Coat tails hang from the back of the hips on their own joints.
+    for (const [tail, side] of [
+      [this.tailL, 1],
+      [this.tailR, -1],
+    ] as const) {
+      tail.name = side > 0 ? 'coatTailL' : 'coatTailR';
+      tail.position.set(side * RIG.tailX, RIG.tailY, RIG.tailZ);
+      this.hips.add(tail);
+      mesh(buildCoatTail(side), tail);
+    }
+    // The ember vial hangs from the frame's peg; like the lantern its pivot lives in the root's
+    // frame so it always hangs straight down.
+    this.hook.name = 'charmHook';
+    this.hook.position.set(RIG.hookX, RIG.hookY, RIG.hookZ);
+    this.pack.add(this.hook);
+    this.charmPivot.name = 'charmPivot';
+    mesh(buildCharm(), this.charmPivot);
 
     // Mirrored limbs share one geometry per segment.
     const upperArm = buildUpperArm();
@@ -236,6 +272,7 @@ export class ExplorerModel {
     this.legR.knee.rotation.x = p.kneeR;
     this.root.updateMatrixWorld(true);
     this.updateLantern(dt);
+    this.updateSecondary(dt, s, p);
   }
 
   /** World position of the lantern flame (valid after update). */
@@ -253,7 +290,7 @@ export class ExplorerModel {
   setFade(alpha: number): void {
     const a = saturate(alpha);
     this.material.uniforms.uFade.value = a;
-    this.body.visible = this.lanternPivot.visible = a > 0.01;
+    this.body.visible = this.lanternPivot.visible = this.charmPivot.visible = a > 0.01;
   }
 
   dispose(): void {
@@ -264,6 +301,22 @@ export class ExplorerModel {
     this.lanterns.clear();
     this.material.dispose();
     this.root.removeFromParent();
+  }
+
+  /** Coat tails and the ember vial, after the body's matrices are up to date. */
+  private updateSecondary(dt: number, s: ExplorerAnimState, p: ExplorerPose): void {
+    const rootInverse = this.root.getWorldQuaternion(this.tmpQ).invert();
+    const tailRoot = this.hips.localToWorld(this.tmpV.set(0, RIG.tailY, RIG.tailZ));
+    this.tails.step(dt, this.hipsProbe.sample(tailRoot, dt, rootInverse), s, p);
+    this.tailL.rotation.set(this.tails.left, 0, this.tails.roll);
+    this.tailR.rotation.set(this.tails.right, 0, this.tails.roll);
+    this.tailL.updateMatrixWorld(true);
+    this.tailR.updateMatrixWorld(true);
+    const hook = this.hook.getWorldPosition(this.tmpV);
+    this.charm.step(dt, this.hookProbe.sample(hook, dt, rootInverse));
+    this.charmPivot.position.copy(this.root.worldToLocal(hook));
+    this.charmPivot.rotation.set(this.charm.x, 0, this.charm.z);
+    this.charmPivot.updateMatrixWorld(true);
   }
 
   /**

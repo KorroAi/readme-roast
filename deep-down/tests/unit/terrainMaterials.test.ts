@@ -14,7 +14,9 @@ describe('terrain material layers', () => {
   it('paints one layer per material, deterministically', () => {
     expect(atlas.layers).toBe(MATERIAL_NAMES.length);
     const again = generateMaterials();
-    expect(Buffer.compare(Buffer.from(atlas.data), Buffer.from(again.data))).toBe(0);
+    let diff = 0;
+    for (let i = 0; i < atlas.data.length; i++) if (atlas.data[i] !== again.data[i]) diff++;
+    expect(diff).toBe(0);
   });
 
   it('tiles seamlessly: the wrap seam is no rougher than any boundary inside the texture', () => {

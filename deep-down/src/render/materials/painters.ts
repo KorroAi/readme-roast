@@ -1,11 +1,11 @@
 import type { MatCanvas, Rng } from './paint';
 import { bedrock, dampSide, dampTop, deepSide, deepTop, sealStone, stoneSide, stoneTop, weatheredSide, weatheredTop } from './rock';
-import { gravel, soil } from './earth';
-import { copperVein, crystal, ironVein } from './minerals';
+import { gravel, soil, soilSide } from './earth';
+import { copperTop, copperVein, crystal, ironTop, ironVein } from './minerals';
 import { crumbling, floorSlab, hearth, masonry, masonryTop } from './masonry';
 import { beamEnd, beamSide, plank } from './timber';
 
-export type MaterialPainter = (c: MatCanvas, rng: Rng) => void;
+export type MaterialPainter = (c: MatCanvas, rng: Rng) => unknown;
 
 /** One painter per material layer (keys must match MATERIAL_NAMES). */
 export const PAINTERS = {
@@ -18,9 +18,12 @@ export const PAINTERS = {
   dampSide,
   dampTop,
   soil,
+  soilSide,
   gravel,
   copperVein,
+  copperTop,
   ironVein,
+  ironTop,
   crystal,
   sealStone,
   masonry,

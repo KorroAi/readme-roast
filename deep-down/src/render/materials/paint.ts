@@ -8,8 +8,12 @@ import { Rng } from '../../core/rng';
  * seam at its border and no seam at any voxel boundary. At 16 texels per metre a layer spans
  * 8 m, so a single block never shows a frame of its own.
  *
+ * Painters work in two steps: build a *value field* (0..1, one float per texel) out of geology,
+ * stones and wear, then quantize it through a hand-picked palette ramp. Colour therefore always
+ * stays on the family palette (pixel-art discipline) and shading never drifts off-hue.
+ *
  * Channels: RGB = sRGB albedo, A = height (0..255) for ordinary materials or emissive mask
- * for glowing ones (see MaterialInfo.emissive). Height drives material boundaries: where two
+ * for glowing ones (see MaterialInfo.glow). Height drives material boundaries: where two
  * materials meet, the one that is "taller" at that texel pushes into the other.
  */
 
@@ -17,14 +21,26 @@ export const MAT_SIZE = 128;
 /** Texels per metre in world space (matches the 16-px pixel-art density of props and UI). */
 export const MAT_DENSITY = 16;
 
+const S = MAT_SIZE;
+
+/** Wrap a texel coordinate into 0..S-1. */
+export const wrap = (v: number): number => ((v % S) + S) % S;
+
+/** Signed shortest distance from a to b on the periodic axis (b - a). */
+export const wrapDelta = (a: number, b: number): number => {
+  let d = (b - a) % S;
+  if (d > S / 2) d -= S;
+  else if (d < -S / 2) d += S;
+  return d;
+};
+
 export class MatCanvas {
   readonly size = MAT_SIZE;
   readonly rgb = new Float32Array(MAT_SIZE * MAT_SIZE * 3);
   readonly a = new Float32Array(MAT_SIZE * MAT_SIZE);
 
   idx(x: number, y: number): number {
-    const s = this.size;
-    return (((x % s) + s) % s) + (((y % s) + s) % s) * s;
+    return wrap(Math.round(x)) + wrap(Math.round(y)) * S;
   }
 
   set(x: number, y: number, hex: number, alpha?: number): void {
@@ -35,24 +51,9 @@ export class MatCanvas {
     if (alpha !== undefined) this.a[i] = alpha;
   }
 
-  setRgb(x: number, y: number, r: number, g: number, b: number): void {
-    const i = this.idx(x, y) * 3;
-    this.rgb[i] = r;
-    this.rgb[i + 1] = g;
-    this.rgb[i + 2] = b;
-  }
-
   getHex(x: number, y: number): number {
     const i = this.idx(x, y) * 3;
     return (Math.round(this.rgb[i]) << 16) | (Math.round(this.rgb[i + 1]) << 8) | Math.round(this.rgb[i + 2]);
-  }
-
-  /** Multiply brightness of one texel. */
-  shade(x: number, y: number, f: number): void {
-    const i = this.idx(x, y) * 3;
-    this.rgb[i] *= f;
-    this.rgb[i + 1] *= f;
-    this.rgb[i + 2] *= f;
   }
 
   /** Blend one texel toward a colour. */
@@ -85,128 +86,184 @@ export class MatCanvas {
 
 const clampByte = (v: number): number => (v <= 0 ? 0 : v >= 255 ? 255 : Math.round(v));
 
+/** Stable 0..1 hash of a (wrapped) texel, for choices that must not form a regular pattern. */
+export function hash2(x: number, y: number): number {
+  let h = Math.imul(wrap(Math.round(x)) + 1, 374761393) ^ Math.imul(wrap(Math.round(y)) + 1, 668265263);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+/** Deterministic per-material random stream, keyed by name (stable when layers are reordered). */
+export function rngFor(name: string): Rng {
+  let h = 2166136261;
+  for (let i = 0; i < name.length; i++) h = Math.imul(h ^ name.charCodeAt(i), 16777619);
+  return new Rng(h >>> 0);
+}
+
 // ---------------------------------------------------------------------------------------
 // Periodic noise
 
-/** Value noise with an integer lattice of `cells` per texture edge; wraps exactly. */
+/**
+ * Value noise on an integer lattice of `cx` x `cy` cells per texture edge; wraps exactly.
+ * Different cell counts per axis give stretched grain (wood, wet streaks) that stays seamless.
+ */
 export class PeriodicNoise {
   private readonly lattice: Float32Array;
 
-  constructor(rng: Rng, readonly cells: number) {
-    this.lattice = new Float32Array(cells * cells);
+  constructor(rng: Rng, readonly cx: number, readonly cy: number = cx) {
+    this.lattice = new Float32Array(cx * cy);
     for (let i = 0; i < this.lattice.length; i++) this.lattice[i] = rng.next();
   }
 
   /** x, y in texels (any range); returns 0..1. */
   at(x: number, y: number): number {
-    const c = this.cells;
-    const fx = (x / MAT_SIZE) * c;
-    const fy = (y / MAT_SIZE) * c;
-    const x0 = Math.floor(fx);
-    const y0 = Math.floor(fy);
-    const tx = fx - x0;
-    const ty = fy - y0;
+    const cx = this.cx;
+    const cy = this.cy;
+    const fx = (x / S) * cx;
+    const fy = (y / S) * cy;
+    const fx0 = Math.floor(fx);
+    const fy0 = Math.floor(fy);
+    const tx = fx - fx0;
+    const ty = fy - fy0;
     const sx = tx * tx * (3 - 2 * tx);
     const sy = ty * ty * (3 - 2 * ty);
-    const v = (xx: number, yy: number) => this.lattice[(((xx % c) + c) % c) + (((yy % c) + c) % c) * c];
-    const a = v(x0, y0) + (v(x0 + 1, y0) - v(x0, y0)) * sx;
-    const b = v(x0, y0 + 1) + (v(x0 + 1, y0 + 1) - v(x0, y0 + 1)) * sx;
-    return a + (b - a) * sy;
+    const x0 = ((fx0 % cx) + cx) % cx;
+    const y0 = ((fy0 % cy) + cy) % cy;
+    const x1 = x0 + 1 === cx ? 0 : x0 + 1;
+    const y1 = y0 + 1 === cy ? 0 : y0 + 1;
+    const l = this.lattice;
+    const a = l[x0 + y0 * cx];
+    const b = l[x1 + y0 * cx];
+    const c = l[x0 + y1 * cx];
+    const d = l[x1 + y1 * cx];
+    const top = a + (b - a) * sx;
+    return top + (c + (d - c) * sx - top) * sy;
   }
 }
 
-/** Fractal sum of periodic octaves; `base` lattice cells for the first octave (power of 2 keeps it seamless). */
-export function fbm(rng: Rng, base: number, octaves: number, gain = 0.5): (x: number, y: number) => number {
+export type Field = (x: number, y: number) => number;
+
+/**
+ * Fractal sum of periodic octaves. `base` lattice cells across x for the first octave
+ * (`baseY` across y, default = base); each octave doubles both, so it stays seamless.
+ */
+export function fbm(rng: Rng, base: number, octaves: number, gain = 0.5, baseY = base): Field {
   const layers: Array<{ n: PeriodicNoise; amp: number }> = [];
   let amp = 1;
   let total = 0;
   for (let o = 0; o < octaves; o++) {
-    layers.push({ n: new PeriodicNoise(rng, base << o), amp });
+    layers.push({ n: new PeriodicNoise(rng, base << o, baseY << o), amp });
     total += amp;
     amp *= gain;
   }
   return (x, y) => {
     let v = 0;
-    for (const l of layers) v += l.n.at(x, y) * l.amp;
+    for (let i = 0; i < layers.length; i++) v += layers[i].n.at(x, y) * layers[i].amp;
     return v / total;
   };
 }
 
-/** Domain-warped field: wobbles straight features (strata, joints) so they read as geology. */
-export function warp(field: (x: number, y: number) => number, wx: (x: number, y: number) => number, wy: (x: number, y: number) => number, amount: number) {
-  return (x: number, y: number) => field(x + (wx(x, y) - 0.5) * amount, y + (wy(x, y) - 0.5) * amount);
+/** Bake a field into a texel array (fields are sampled many times by some painters). */
+export function bake(field: Field): Float32Array {
+  const out = new Float32Array(S * S);
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) out[x + y * S] = field(x, y);
+  return out;
 }
 
 // ---------------------------------------------------------------------------------------
-// Periodic cells (stones, slabs, cobbles)
+// Periodic cells (stones, slabs, facets)
 
 export interface Cell {
   x: number;
   y: number;
-  /** Per-cell random value in [0,1). */
+  /** Per-cell random values in [0,1). */
   r: number;
+  r2: number;
+  r3: number;
+}
+
+export interface CellHit {
+  id: number;
+  d1: number;
+  d2: number;
 }
 
 /**
- * Periodic Worley cells: returns nearest-cell id, distance to it, and distance to the second
- * nearest (edge = d2 - d1 small near borders). Points are jittered on a grid of
- * `count` x `count` cells over the texture.
+ * Periodic Worley cells: nearest-cell id, distance to it, and distance to the second
+ * nearest (edge = d2 - d1 small near borders). Points are jittered on an `nx` x `ny` grid.
  */
 export class PeriodicCells {
   readonly cells: Cell[] = [];
+  private readonly hit: CellHit = { id: 0, d1: 0, d2: 0 };
 
-  /** `nx` x `ny` jittered points over the texture (use nx != ny for elongated stones). */
   constructor(rng: Rng, readonly nx: number, readonly ny: number = nx, jitter = 0.85) {
-    const sx = MAT_SIZE / nx;
-    const sy = MAT_SIZE / ny;
+    const sx = S / nx;
+    const sy = S / ny;
     for (let j = 0; j < ny; j++)
       for (let i = 0; i < nx; i++) {
-        this.cells.push({ x: (i + 0.5 + (rng.next() - 0.5) * jitter) * sx, y: (j + 0.5 + (rng.next() - 0.5) * jitter) * sy, r: rng.next() });
+        this.cells.push({ x: (i + 0.5 + (rng.next() - 0.5) * jitter) * sx, y: (j + 0.5 + (rng.next() - 0.5) * jitter) * sy, r: rng.next(), r2: rng.next(), r3: rng.next() });
       }
   }
 
   /**
-   * Nearest / second-nearest search with wrap-around; `ax`/`ay` weight the axes (anisotropic
-   * stones). Points are jittered within their grid cell, so only the surrounding 5x5 grid cells
-   * can hold the two nearest points.
+   * Nearest / second-nearest search with wrap-around; `ax`/`ay` weight the axes (elongated
+   * cells search further along the stretched axis). Returns a shared object: copy the fields
+   * if you need two hits at once.
    */
-  query(x: number, y: number, ax = 1, ay = 1): { id: number; d1: number; d2: number } {
+  query(x: number, y: number, ax = 1, ay = 1): CellHit {
     let d1 = Infinity;
     let d2 = Infinity;
     let id = 0;
-    const W = MAT_SIZE;
-    const gx = Math.floor((((x % W) + W) % W) / (W / this.nx));
-    const gy = Math.floor((((y % W) + W) % W) / (W / this.ny));
-    for (let j = -2; j <= 2; j++)
-      for (let i = -2; i <= 2; i++) {
-        const k = ((gx + i + this.nx) % this.nx) + ((gy + j + this.ny) % this.ny) * this.nx;
-        const c = this.cells[k];
-        let dx = Math.abs(x - c.x) % W;
-        let dy = Math.abs(y - c.y) % W;
-        dx = Math.min(dx, W - dx);
-        dy = Math.min(dy, W - dy);
-        const d = Math.sqrt(dx * dx * ax + dy * dy * ay);
+    const px = wrap(x);
+    const py = wrap(y);
+    const nx = this.nx;
+    const ny = this.ny;
+    const gx = Math.floor(px / (S / nx));
+    const gy = Math.floor(py / (S / ny));
+    const rx = ax < 0.5 ? 2 : 1;
+    const ry = ay < 0.5 ? 2 : 1;
+    const half = S / 2;
+    const cells = this.cells;
+    for (let j = -ry; j <= ry; j++) {
+      const row = ((gy + j + ny) % ny) * nx;
+      for (let i = -rx; i <= rx; i++) {
+        const c = cells[((gx + i + nx) % nx) + row];
+        let dx = c.x - px;
+        if (dx > half) dx -= S;
+        else if (dx < -half) dx += S;
+        let dy = c.y - py;
+        if (dy > half) dy -= S;
+        else if (dy < -half) dy += S;
+        const d = dx * dx * ax + dy * dy * ay;
         if (d < d1) {
           d2 = d1;
           d1 = d;
-          id = k;
+          id = ((gx + i + nx) % nx) + row;
         } else if (d < d2) d2 = d;
       }
-    return { id, d1, d2 };
+    }
+    this.hit.id = id;
+    this.hit.d1 = Math.sqrt(d1);
+    this.hit.d2 = Math.sqrt(d2);
+    return this.hit;
   }
 }
 
 // ---------------------------------------------------------------------------------------
 // Colour helpers
 
-/** Pick from a dark->light ramp with an ordered-dither offset (keeps the pixel-art look). */
-export function ramp(colors: readonly number[], v: number, x: number, y: number, dither = 0.5): number {
-  const bayer = BAYER4[(x & 3) + (y & 3) * 4] / 16 - 0.5;
-  const t = Math.max(0, Math.min(0.999, v + bayer * dither / colors.length));
+const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+/**
+ * Pick from a dark->light ramp. By default there is no dither: the value fields are smooth, so
+ * quantizing them gives clean pixel-art clusters with crisp contours. An ordered dither (only
+ * where explicitly asked) would print a regular screen pattern over every mid-tone.
+ */
+export function ramp(colors: readonly number[], v: number, x: number, y: number, dither = 0): number {
+  const bayer = BAYER4[(x & 3) + (y & 3) * 4] / 16 - 0.47;
+  const t = Math.max(0, Math.min(0.999, v + (bayer * dither) / colors.length));
   return colors[Math.floor(t * colors.length)];
 }
-
-const BAYER4 = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
 
 export function mixHex(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 255;
@@ -226,41 +283,133 @@ export function scaleHex(a: number, f: number): number {
 }
 
 // ---------------------------------------------------------------------------------------
-// Features
+// Value / height fields with geological features
 
-/** A wandering hairline fracture that wraps around the texture edges. Returns its pixels. */
-export function fracture(c: MatCanvas, rng: Rng, color: number, len: number, opts: { x?: number; y?: number; dir?: number; turn?: number; heightCut?: number } = {}): Array<[number, number]> {
-  let x = opts.x ?? rng.int(0, MAT_SIZE - 1);
-  let y = opts.y ?? rng.int(0, MAT_SIZE - 1);
-  let dir = opts.dir ?? rng.int(0, 7);
-  const turn = opts.turn ?? 0.3;
-  const dirs = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
-  const pts: Array<[number, number]> = [];
+/**
+ * A float value field + height field painted before quantization. Feature codes record what
+ * each texel is (rock, crack, lip...) so overlays (veins, lichen, wet streaks) can follow the
+ * geology instead of being scattered on top of it.
+ */
+export class Field2 {
+  readonly v = new Float32Array(S * S);
+  readonly h = new Float32Array(S * S);
+  /** 0 = surface, 1 = crack / joint (recessed), 2 = lit lip, 3 = shadowed side. */
+  readonly code = new Uint8Array(S * S);
+
+  i(x: number, y: number): number {
+    return wrap(Math.round(x)) + wrap(Math.round(y)) * S;
+  }
+  add(x: number, y: number, dv: number): void {
+    this.v[this.i(x, y)] += dv;
+  }
+}
+
+export type Pt = [number, number];
+
+/**
+ * A crack that runs mostly straight (joints and fractures are planar in rock), with a small
+ * wander and occasional kinks. Returns 8-connected texel points (wrapped later on draw).
+ */
+export function crackPath(rng: Rng, x: number, y: number, angle: number, len: number, wander = 0.12, kink = 0.04): Pt[] {
+  const pts: Pt[] = [];
+  let a = angle;
+  let fx = x;
+  let fy = y;
+  let lx = Math.round(x);
+  let ly = Math.round(y);
+  pts.push([lx, ly]);
   for (let i = 0; i < len; i++) {
-    c.set(x, y, color);
-    if (opts.heightCut !== undefined) c.setHeight(x, y, opts.heightCut);
-    pts.push([x, y]);
-    if (rng.chance(turn)) dir = (dir + (rng.chance(0.5) ? 1 : 7)) % 8;
-    x += dirs[dir][0];
-    y += dirs[dir][1];
+    a += (rng.next() - 0.5) * wander + (angle - a) * 0.1;
+    if (rng.chance(kink)) a += (rng.next() - 0.5) * 0.9;
+    fx += Math.cos(a);
+    fy += Math.sin(a);
+    const nx = Math.round(fx);
+    const ny = Math.round(fy);
+    if (nx !== lx || ny !== ly) {
+      pts.push([nx, ny]);
+      lx = nx;
+      ly = ny;
+    }
   }
   return pts;
 }
 
-/** Light the texel above/left of each fracture pixel and darken below/right: an engraved edge. */
-export function engraveEdges(c: MatCanvas, pts: Array<[number, number]>, light = 1.12, dark = 0.8): void {
+/**
+ * Engrave a crack into a value field: the crack itself is recessed (code 1, low height). Light
+ * comes from the upper left, so the groove's far wall (below / right of it) catches a lit lip
+ * and the near side (above / left) falls into shadow. `depth` darkens the crack.
+ */
+export function engrave(f: Field2, pts: Pt[], opts: { depth?: number; lip?: number; shadow?: number; height?: number; widen?: number; rng?: Rng } = {}): void {
+  const depth = opts.depth ?? 0.32;
+  const lip = opts.lip ?? 0.09;
+  const shadow = opts.shadow ?? 0.08;
+  const hCut = opts.height ?? 18;
+  const mark = (x: number, y: number) => {
+    const i = f.i(x, y);
+    if (f.code[i] !== 1) {
+      f.code[i] = 1;
+      f.v[i] -= depth;
+      f.h[i] = Math.min(f.h[i], hCut);
+    }
+  };
   for (const [x, y] of pts) {
-    c.shade(x, y - 1, light);
-    c.shade(x + 1, y + 1, dark);
+    mark(x, y);
+    if (opts.widen && opts.rng && opts.rng.chance(opts.widen)) mark(x + 1, y);
   }
+  for (const [x, y] of pts) {
+    for (const [dx, dy, dv] of [[0, 1, lip], [1, 0, lip * 0.7], [-1, 0, -shadow * 0.7], [0, -1, -shadow]] as const) {
+      const i = f.i(x + dx, y + dy);
+      if (f.code[i] === 1) continue;
+      f.v[i] += dv;
+      if (f.code[i] === 0) f.code[i] = dv > 0 ? 2 : 3;
+    }
+  }
+}
+
+/** A chipped flake: a small triangular scar, dark where the flake broke off, lit on its lower rim. */
+export function chip(f: Field2, rng: Rng, x: number, y: number, r: number): void {
+  const dir = rng.int(0, 3);
+  for (let j = 0; j < r; j++)
+    for (let i = 0; i < r - j; i++) {
+      const px = dir & 1 ? x - i : x + i;
+      const py = dir & 2 ? y - j : y + j;
+      const k = f.i(px, py);
+      if (f.code[k] === 1) continue;
+      const rim = i + j === r - 1;
+      f.v[k] += rim ? 0.07 : -0.11;
+      f.h[k] -= rim ? 0 : 28;
+    }
+}
+
+/** Quantize a value field through a ramp into the canvas, with the field heights as alpha. */
+export function resolve(c: MatCanvas, f: Field2, pal: readonly number[], crack: number, dither = 0): void {
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const i = x + y * S;
+      const hex = f.code[i] === 1 ? mixHex(crack, ramp(pal, f.v[i], x, y, dither), 0.25) : ramp(pal, f.v[i], x, y, dither);
+      c.set(x, y, hex, f.h[i]);
+    }
 }
 
 /** Fill the whole canvas from a function of (x, y) -> sRGB hex (+ optional height). */
 export function paintAll(c: MatCanvas, fn: (x: number, y: number) => { hex: number; h?: number }): void {
-  for (let y = 0; y < MAT_SIZE; y++)
-    for (let x = 0; x < MAT_SIZE; x++) {
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
       const r = fn(x, y);
       c.set(x, y, r.hex, r.h);
+    }
+}
+
+/** Rasterize a disc-ish blob with an irregular edge; calls `fn` with the normalized radius (0 centre .. 1 edge). */
+export function blob(x: number, y: number, r: number, edge: Field, fn: (px: number, py: number, t: number, dx: number, dy: number) => void, aspect = 1): void {
+  const R = Math.ceil(r + 2);
+  for (let dy = -R; dy <= R; dy++)
+    for (let dx = -R; dx <= R; dx++) {
+      const px = x + dx;
+      const py = y + dy;
+      const d = Math.sqrt(dx * dx + (dy * dy) / (aspect * aspect));
+      const rr = r * (0.75 + 0.5 * edge(px, py));
+      if (d <= rr) fn(px, py, d / Math.max(0.001, rr), dx, dy);
     }
 }
 

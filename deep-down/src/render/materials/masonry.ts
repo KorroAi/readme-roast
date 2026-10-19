@@ -1,17 +1,18 @@
-import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, engraveEdges, fbm, fracture, mixHex, ramp } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, chip, crackPath, engrave, fbm, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
+import * as P from './palette';
 
 /**
- * Ancient masonry of a lost builder culture: large dressed stones in courses of varying
- * height (0.6 - 1.5 m), staggered joints, weathered faces, chipped arrises; big worn floor
- * slabs; masonry breaking apart. Stones span several voxels, so a wall reads as built
- * architecture rather than a grid of brick blocks.
+ * Ancient masonry of a lost builder culture. Walls are designed, not tiled: a pseudo-isodomic
+ * rhythm of tall and short courses (about 1.2 m and 0.55 m), long stones of 1.5 - 3 m with
+ * staggered joints, and dressed faces with a drafted margin around a slightly rougher boss.
+ * Time has worked on all of it: corners are chipped, some stones have spalled, water has
+ * left dark stains below the joints with a faint pale bloom at their ends.
+ *
+ * Crumbling masonry is the *same* wall (same stones, same stains) breaking apart, so a
+ * crumbling patch continues the wall beside it; only there does cold light leak through.
  */
 
 const S = MAT_SIZE;
-const ASHLAR = [0x1a1d25, 0x20242d, 0x272b35, 0x2e333e, 0x363c48, 0x414755, 0x4c5363];
-const MORTAR = 0x0b0c10;
-const SOOT = [0x0e0d0d, 0x151313, 0x1d1a18, 0x26211e, 0x302925];
-const EMBER = [0x5a1a08, 0x9a3a10, 0xe0701c, 0xffb050];
 
 interface Stone {
   x0: number;
@@ -19,112 +20,278 @@ interface Stone {
   w: number;
   h: number;
   tone: number;
+  /** Dressed with a drafted margin (most stones) or plain. */
+  drafted: boolean;
+  /** Weathering of this stone (0 fresh .. 1 eroded). */
+  wear: number;
 }
 
-/** Courses with random heights summing to S, each split into stones with widths summing to S. */
-function layoutCourses(rng: Rng, minH: number, maxH: number, minW: number, maxW: number): Stone[] {
+interface CourseRule {
+  /** Course heights, cycled (each entry a [min, max] range in texels). */
+  rhythm: Array<[number, number]>;
+  /** Stone width range per course kind (same index as rhythm). */
+  widths: Array<[number, number]>;
+  drafted: number;
+}
+
+/** Courses following the rhythm, filling the period exactly; joints never stack with the course above. */
+function layoutCourses(rng: Rng, rule: CourseRule): Stone[] {
   const stones: Stone[] = [];
-  const heights: number[] = [];
+  const courses: Array<{ h: number; kind: number }> = [];
   let total = 0;
+  let k = 0;
   while (total < S) {
-    let h = rng.int(minH, maxH);
-    if (S - total - h < minH) h = S - total;
-    heights.push(h);
+    const kind = k % rule.rhythm.length;
+    const [lo, hi] = rule.rhythm[kind];
+    let h = rng.int(lo, hi);
+    if (S - total - h < rule.rhythm[(k + 1) % rule.rhythm.length][0]) h = S - total;
+    courses.push({ h, kind });
     total += h;
+    k++;
   }
   let y = 0;
-  for (const h of heights) {
-    let x = rng.int(0, S - 1); // stagger: each course starts at a random offset (wraps)
-    let used = 0;
-    while (used < S) {
-      let w = rng.int(minW, maxW);
-      if (S - used - w < minW) w = S - used;
-      stones.push({ x0: x, y0: y, w, h, tone: rng.next() });
+  let prevJoints: number[] = [];
+  for (const course of courses) {
+    const [wlo, whi] = rule.widths[course.kind];
+    const joints: number[] = [];
+    const start = rng.next() * S;
+    let x = start;
+    for (;;) {
+      let w = rng.int(wlo, whi);
+      // Keep at least 4 texels (25 cm) between this joint and any joint of the course above.
+      for (let tries = 0; tries < 6; tries++) {
+        const jx = wrap(x + w);
+        if (!prevJoints.some((p) => Math.abs(wrapDelta(p, jx)) < 4)) break;
+        w += 3;
+      }
+      if (x + w - start > S - wlo) {
+        joints.push(wrap(start));
+        break;
+      }
       x += w;
-      used += w;
+      joints.push(wrap(x));
     }
-    y += h;
+    // Stones between consecutive joints.
+    const sorted = [...joints].sort((a, b) => a - b);
+    for (let j = 0; j < sorted.length; j++) {
+      const x0 = sorted[j];
+      const x1 = j + 1 < sorted.length ? sorted[j + 1] : sorted[0] + S;
+      stones.push({ x0: Math.round(x0), y0: y, w: Math.max(3, Math.round(x1) - Math.round(x0)), h: course.h, tone: rng.next(), drafted: rng.chance(rule.drafted), wear: rng.next() });
+    }
+    prevJoints = sorted;
+    y += course.h;
   }
   return stones;
 }
 
-function paintStones(c: MatCanvas, rng: Rng, stones: Stone[], pal: readonly number[], opts: { chip?: number; cracks?: number; worn?: number } = {}): void {
-  const face = fbm(rng, 8, 3, 0.5);
-  const fine = fbm(rng, 32, 1);
+interface AshlarOptions {
+  pal: readonly number[];
+  chips: number;
+  cracks: number;
+  /** Dished, foot-worn centres (floors). */
+  worn: number;
+  spalls: number;
+}
+
+/** The dressed-stone value field (deterministic for a given rng). */
+function ashlarField(rng: Rng, stones: Stone[], o: AshlarOptions): Field2 {
+  const f = new Field2();
+  // Faint bedding inside each block (horizontal), not round blotches.
+  const face = fbm(rng, 4, 3, 0.5, 16);
+  const grain = fbm(rng, 32, 2, 0.5);
+  const spallN = fbm(rng, 16, 2);
+  const jointN = fbm(rng, 16, 1);
   for (const st of stones) {
-    const chips: Array<[number, number]> = [];
-    for (let k = 0; k < (opts.chip ?? 3); k++) chips.push([rng.int(0, st.w - 1), rng.next() < 0.5 ? 0 : st.h - 1]);
+    const rough = 0.5 + st.wear * 0.8;
     for (let j = 0; j < st.h; j++)
       for (let i = 0; i < st.w; i++) {
         const x = st.x0 + i;
         const y = st.y0 + j;
-        // 1 px mortar on the right and bottom of each stone.
+        const k = f.i(x, y);
         if (i === st.w - 1 || j === st.h - 1) {
-          c.set(x, y, MORTAR, 0);
+          // Tight ancient joint: dark, but filled with old mortar and grit in places.
+          f.v[k] = jointN(x, y) > 0.55 ? 0.22 : 0.12;
+          f.h[k] = 8;
+          f.code[k] = 1;
           continue;
         }
-        let v = 0.32 + st.tone * 0.28 + (face(x, y) - 0.5) * 0.35 + (fine(x, y) - 0.5) * 0.12;
-        // Dressed arrises: lit top/left edge, shadowed bottom/right edge, softened corners.
-        if (j === 0 || i === 0) v += 0.14;
-        if (j === st.h - 2 || i === st.w - 2) v -= 0.12;
-        // Worn: the centre of each stone is slightly smoother/lighter.
-        v += (opts.worn ?? 0) * (1 - Math.abs(i / st.w - 0.5) * 2) * 0.06;
-        c.set(x, y, ramp(pal, v, x, y, 0.6), 150 + st.tone * 60 + face(x, y) * 30);
+        let v = 0.4 + (st.tone - 0.5) * 0.34 + (face(x, y) - 0.5) * 0.14;
+        let h = 195 + (st.tone - 0.5) * 40;
+        // Arris: lit top / left edge, shadowed bottom / right edge.
+        if (j === 0 || i === 0) v += 0.1;
+        else if (j === st.h - 2 || i === st.w - 2) v -= 0.09;
+        const m = Math.min(i, j, st.w - 2 - i, st.h - 2 - j);
+        if (st.drafted && st.w > 8 && st.h > 6) {
+          // Drafted margin: a smoother band 2 texels wide around a rougher, slightly raised boss.
+          if (m <= 2) v += (grain(x, y) - 0.5) * 0.03 + 0.015;
+          else {
+            v += (grain(x, y) - 0.5) * 0.1 * rough;
+            h += 12;
+          }
+        } else v += (grain(x, y) - 0.5) * 0.08 * rough;
+        if (o.worn > 0) {
+          // Foot-worn: smoother and lighter toward the middle, rounded off at the border.
+          const cx = Math.abs(i / (st.w - 1) - 0.5) * 2;
+          const cy = Math.abs(j / (st.h - 1) - 0.5) * 2;
+          v += (1 - Math.max(cx, cy)) * 0.05 * o.worn - (m < 2 ? 0.04 : 0);
+        }
+        // Spalled patches on weathered stones: a recessed rough scar with a lit lower rim.
+        if (st.wear > 1 - o.spalls && m > 1) {
+          const sp = spallN(x, y);
+          if (sp > 0.62) {
+            v -= 0.1 + (grain(x, y) - 0.5) * 0.08;
+            h -= 45;
+          } else if (sp > 0.58) v += 0.06;
+        }
+        f.v[k] = v;
+        f.h[k] = h;
       }
-    // Chipped arrises: a few missing corners/edge bites in mortar colour.
-    for (const [ci, cj] of chips) {
-      const r = rng.int(1, 3);
-      for (let d = 0; d < r; d++) c.set(st.x0 + ci + d, st.y0 + cj, mixHex(MORTAR, pal[1], 0.4), 20);
+    // Chipped corners.
+    for (const [cx, cy] of [[st.x0, st.y0], [st.x0 + st.w - 2, st.y0], [st.x0, st.y0 + st.h - 2], [st.x0 + st.w - 2, st.y0 + st.h - 2]] as const)
+      if (rng.chance(o.chips)) chip(f, rng, cx, cy, rng.int(2, 4));
+  }
+  for (let k = 0; k < o.cracks; k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(10, 26), 0.2, 0.1);
+    engrave(f, pts, { depth: 0.22, lip: 0.06, shadow: 0.06, height: 15 });
+  }
+  return f;
+}
+
+/** Water stains below horizontal joints, with a pale lime bloom at the end of the longest. */
+function stains(c: MatCanvas, rng: Rng, stones: Stone[], amount: number): void {
+  for (const st of stones) {
+    if (!rng.chance(amount)) continue;
+    const x0 = st.x0 + rng.int(1, Math.max(1, st.w - 3));
+    const w = rng.int(1, 3);
+    const len = rng.int(6, 26);
+    const y0 = st.y0;
+    for (let k = 0; k < len; k++) {
+      const t = 1 - k / len;
+      for (let d = 0; d < w; d++) {
+        if (k > len * 0.6 && d === w - 1) continue; // narrows toward the end
+        c.tint(x0 + d, y0 + k, P.JOINT, 0.22 * t + 0.08);
+      }
     }
+    if (len > 18 && rng.chance(0.5)) for (let d = 0; d < w + 1; d++) c.tint(x0 + d, y0 + len, 0x4f545d, 0.3);
   }
-  for (let i = 0; i < (opts.cracks ?? 5); i++) {
-    const pts = fracture(c, rng, MORTAR, rng.int(8, 24), { turn: 0.35, heightCut: 15 });
-    engraveEdges(c, pts, 1.08, 0.85);
-  }
+}
+
+const WALL: CourseRule = { rhythm: [[18, 24], [10, 13], [20, 26], [9, 12]], widths: [[30, 58], [16, 34], [28, 54], [16, 30]], drafted: 0.6 };
+const WALL_OPTS: AshlarOptions = { pal: P.ASHLAR, chips: 0.35, cracks: 3, worn: 0, spalls: 0.25 };
+
+function masonryBase(rng: Rng): { f: Field2; stones: Stone[] } {
+  const stones = layoutCourses(rng, WALL);
+  return { f: ashlarField(rng, stones, WALL_OPTS), stones };
 }
 
 export function masonry(c: MatCanvas, rng: Rng): void {
-  paintStones(c, rng, layoutCourses(rng, 10, 22, 18, 44), ASHLAR, { chip: 3, cracks: 6, worn: 1 });
+  const { f, stones } = masonryBase(rng);
+  resolve(c, f, P.ASHLAR, P.JOINT, 0);
+  stains(c, rng, stones, 0.3);
 }
 
-/** Cap stones and wall tops: large square-ish blocks. */
+/** Cap stones and wall tops: large square-ish slabs, plain dressed. */
 export function masonryTop(c: MatCanvas, rng: Rng): void {
-  paintStones(c, rng, layoutCourses(rng, 22, 40, 24, 48), ASHLAR, { chip: 4, cracks: 5, worn: 2 });
+  const stones = layoutCourses(rng, { rhythm: [[22, 36], [18, 30]], widths: [[24, 46], [22, 40]], drafted: 0.2 });
+  const f = ashlarField(rng, stones, { pal: P.ASHLAR, chips: 0.4, cracks: 5, worn: 0.6, spalls: 0.2 });
+  resolve(c, f, P.ASHLAR, P.JOINT, 0);
 }
 
 /**
- * Floor slabs: big, worn, irregular rectangles (1.5 - 3 m). No glow: inscriptions are
- * placed deliberately by the world generator as glyph stones, not printed on every tile.
+ * Floor slabs: big worn flagstones (1.2 - 3 m), dished by feet, a few cracked across, grit in
+ * the joints. No glow: inscriptions are placed deliberately as glyph stones, never printed
+ * on every slab.
  */
 export function floorSlab(c: MatCanvas, rng: Rng): void {
-  paintStones(c, rng, layoutCourses(rng, 22, 44, 26, 52), ASHLAR, { chip: 5, cracks: 10, worn: 3 });
-  // Foot-worn grit in the joints.
+  const stones = layoutCourses(rng, { rhythm: [[20, 34], [16, 28], [22, 40]], widths: [[22, 48], [20, 40], [26, 52]], drafted: 0 });
+  const f = ashlarField(rng, stones, { pal: P.ASHLAR, chips: 0.45, cracks: 9, worn: 1.6, spalls: 0.15 });
+  resolve(c, f, P.ASHLAR, P.JOINT, 0);
+  // Grit settled along the joints.
   const grit = fbm(rng, 16, 2);
   for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) if (grit(x, y) > 0.7) c.shade(x, y, 0.9);
+    for (let x = 0; x < S; x++) {
+      if (c.height(x, y) > 20) continue;
+      if (grit(x, y) > 0.55) {
+        c.set(x + 1, y, mixHex(c.getHex(x + 1, y), P.ASHLAR[2], 0.5));
+      }
+    }
 }
 
-/** Masonry breaking apart: many cracks, displaced stones, faint cold light leaking through. */
+/**
+ * Masonry breaking apart: the same wall as `masonry`, then cracked through, some stones
+ * sunk and darkened, corners broken off, and faint cold light leaking from the deepest cracks
+ * (alpha = emissive mask: well under 1 % of the surface glows).
+ */
 export function crumbling(c: MatCanvas, rng: Rng): void {
-  paintStones(c, rng, layoutCourses(rng, 8, 16, 10, 26), ASHLAR, { chip: 6, cracks: 18, worn: 0 });
+  const base = rngFor('masonry');
+  const { f, stones } = masonryBase(base);
+  const rubble = fbm(rng, 16, 2);
+  for (const st of stones) {
+    // Every stone is worn rougher; some have sunk (darker, open joint above), some have lost
+    // their face (a deep rough scar with a lit lower rim).
+    const sunk = rng.chance(0.35);
+    const lost = !sunk && rng.chance(0.3);
+    for (let j = 0; j < st.h - 1; j++)
+      for (let i = 0; i < st.w - 1; i++) {
+        const x = st.x0 + i;
+        const y = st.y0 + j;
+        const r = rubble(x, y);
+        let dv = (r - 0.5) * 0.12;
+        if (sunk) dv -= 0.08;
+        if (lost && r > 0.45) dv -= 0.16 + (r - 0.45) * 0.3;
+        else if (lost && r > 0.4) dv += 0.08;
+        f.add(x, y, dv);
+      }
+    if (sunk)
+      for (let i = 0; i < st.w; i++) {
+        const k = f.i(st.x0 + i, st.y0);
+        f.v[k] = 0.03;
+        f.code[k] = 1;
+        f.add(st.x0 + i, st.y0 + 1, -0.06);
+      }
+  }
+  for (let k = 0; k < 14; k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(12, 34), 0.3, 0.12);
+    engrave(f, pts, { depth: 0.32, lip: 0.08, shadow: 0.08, height: 10, widen: 0.35, rng });
+  }
+  for (let k = 0; k < 28; k++) chip(f, rng, rng.int(0, S - 1), rng.int(0, S - 1), rng.int(3, 7));
+  resolve(c, f, P.ASHLAR, P.JOINT, 0);
+  stains(c, base, stones, 0.3);
   c.a.fill(0); // alpha is the emissive mask here
-  for (let i = 0; i < 9; i++) {
-    const pts = fracture(c, rng, 0x0d2a33, rng.int(10, 30), { turn: 0.4 });
-    for (const [x, y] of pts) if (rng.chance(0.35)) c.set(x, y, 0x3fb8c8, 200);
+  const leak = fbm(rng, 8, 1);
+  for (let k = 0; k < 4; k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(12, 28), 0.3, 0.1);
+    for (const [x, y] of pts) {
+      c.set(x, y, 0x081418);
+      if (leak(x, y) > 0.5 && hash2(x, y) < 0.6) c.set(x, y, 0x2a98ab, 120 + leak(x, y) * 120);
+    }
   }
 }
 
-/** Hearth stones: soot-black, heat-cracked, embers in the joints (emissive alpha). */
+/** Hearth stones: soot-black, heat-cracked, ash packed in the joints, a few live embers. */
 export function hearth(c: MatCanvas, rng: Rng): void {
-  const stones = new PeriodicCells(rng, 10, 10, 0.8);
+  const stones = new PeriodicCells(rng, 13, 13, 0.8);
   const n = fbm(rng, 16, 2);
+  const emberN = fbm(rng, 16, 1);
+  const size = S / 13;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const q = stones.query(x, y);
-      const edge = q.d2 - q.d1;
-      if (edge < 1.5) {
-        const hot = n(x, y) > 0.55;
-        c.set(x, y, hot ? ramp(EMBER, (n(x, y) - 0.55) * 2.2, x, y, 0.5) : 0x0a0808, hot ? 200 : 0);
-      } else c.set(x, y, ramp(SOOT, 0.25 + stones.cells[q.id].r * 0.5 + (n(x, y) - 0.5) * 0.4, x, y, 0.6), 0);
+      const cell = stones.cells[q.id];
+      const e = q.d2 - q.d1;
+      if (e < 1.6) {
+        // Ash in the joints; very rarely a live ember (emissive).
+        const em = emberN(x, y);
+        if (em > 0.8 && hash2(x, y) < 0.5) c.set(x, y, ramp(P.EMBER, (em - 0.8) * 4.5, x, y, 0), 140 + (em - 0.8) * 400);
+        else c.set(x, y, ramp(P.ASH, n(x, y), x, y, 0), 0);
+        continue;
+      }
+      const dx = wrapDelta(cell.x, x) / size;
+      const dy = wrapDelta(cell.y, y) / size;
+      let v = 0.36 + (cell.r - 0.5) * 0.25 - ((cell.r2 - 0.5) * dx + (cell.r3 - 0.4) * dy) * 0.4 + (n(x, y) - 0.5) * 0.15;
+      if (e < 2.6) v += dx + dy < 0 ? 0.08 : -0.1;
+      c.set(x, y, ramp(P.SOOT, v, x, y, 0), 0);
     }
+  // Heat cracks: short, dark.
+  for (let k = 0; k < 14; k++) for (const [x, y] of crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(3, 7), 0.4, 0.2)) if (c.a[c.idx(x, y)] === 0) c.set(x, y, P.SOOT[0]);
 }

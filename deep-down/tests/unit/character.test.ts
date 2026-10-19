@@ -3,6 +3,8 @@ import * as THREE from 'three';
 import type { LightingUniforms } from '../../src/render/lighting';
 import { ExplorerModel, type ExplorerAnimState } from '../../src/entities/character/ExplorerModel';
 import { ExplorerAnimator, SWING_IMPACT, type ExplorerPose } from '../../src/entities/character/pose';
+import { RIG } from '../../src/entities/character/parts';
+import { CoatTails, tailFloor } from '../../src/entities/character/secondary';
 
 /** Lighting uniforms with tiny placeholder volumes: enough to construct materials in Node. */
 function lighting(): LightingUniforms {
@@ -74,8 +76,11 @@ describe('ExplorerModel', () => {
     e.root.traverse((o) => {
       if ((o as THREE.Mesh).isMesh) meshes++;
     });
-    // One mesh per rigid part (hips, torso, head, pack, 2x4 limb segments, pickaxe, lantern).
-    expect(meshes).toBe(14);
+    // One mesh per rigid part (hips, torso, head, pack, 2x4 limb segments, pickaxe, lantern) plus
+    // the parts with their own secondary motion: two coat tails and the ember vial.
+    expect(meshes).toBe(17);
+    // The pack frame's poles rise above the hat, but stay clear of a 2 m tunnel ceiling.
+    expect(box.max.y).toBeLessThan(1.9);
   });
 
   it('keeps every transform finite in every movement state', () => {
@@ -202,6 +207,68 @@ describe('ExplorerModel', () => {
     expect(peak).toBeLessThan(0.3);
   });
 
+  it('hangs the ember vial below its peg and swings it on a hard stop, then settles', () => {
+    const e = new ExplorerModel(lighting());
+    e.root.rotation.y = -0.7;
+    const pivot = e.root.getObjectByName('charmPivot')!;
+    const hook = () => worldOf(e.root, 'charmHook');
+    const vial = () => {
+      pivot.updateWorldMatrix(true, false);
+      return new THREE.Vector3(0, -0.11, 0).applyMatrix4(pivot.matrixWorld);
+    };
+    let t = run(e, 0.5, {});
+    // At rest it hangs straight down from the peg, above the hat brim.
+    expect(vial().distanceTo(hook())).toBeLessThan(0.115);
+    expect(hook().x - vial().x).toBeCloseTo(0, 2);
+    expect(vial().y).toBeLessThan(hook().y - 0.1);
+    expect(vial().y).toBeGreaterThan(1.6);
+    const dt = 1 / 60;
+    let v = 0;
+    let peak = 0;
+    let walking = 0;
+    const fwd = new THREE.Vector3(Math.sin(e.root.rotation.y), 0, Math.cos(e.root.rotation.y));
+    for (let i = 0; i < 60 * 3; i++) {
+      t += dt;
+      const target = i < 120 ? 4.6 : 0;
+      v = target > v ? Math.min(target, v + 38 * dt) : Math.max(target, v - 38 * dt);
+      e.root.position.addScaledVector(fwd, v * dt);
+      e.update(dt, state({ speed: v, time: t }));
+      const a = Math.max(Math.abs(pivot.rotation.x), Math.abs(pivot.rotation.z));
+      peak = Math.max(peak, a);
+      if (i > 60 && i < 120) walking = Math.max(walking, a);
+      expect(allFinite(e.root)).toBe(true);
+    }
+    // A visible swing on starts and stops, a gentle sway while walking, never wild.
+    expect(peak).toBeGreaterThan(0.1);
+    expect(peak).toBeLessThan(0.5);
+    expect(walking).toBeLessThan(0.15);
+    run(e, 2, {}, t);
+    expect(Math.abs(pivot.rotation.x) + Math.abs(pivot.rotation.z)).toBeLessThan(0.01);
+  });
+
+  it('flares the coat tails when setting off and lifts them while falling, then lets them hang', () => {
+    const e = new ExplorerModel(lighting());
+    const tail = e.root.getObjectByName('coatTailL')!;
+    let t = run(e, 0.5, {});
+    const rest = tail.rotation.x;
+    expect(rest).toBeGreaterThanOrEqual(0);
+    expect(rest).toBeLessThan(0.15);
+    let peak = 0;
+    let v = 0;
+    for (let i = 0; i < 30; i++) {
+      t += 1 / 60;
+      v = Math.min(4.6, v + 38 / 60);
+      e.root.position.z += v / 60;
+      e.update(1 / 60, state({ speed: v, time: t }));
+      peak = Math.max(peak, tail.rotation.x);
+    }
+    expect(peak).toBeGreaterThan(rest + 0.2);
+    t = run(e, 0.6, { grounded: false, verticalVelocity: -9 }, t);
+    expect(tail.rotation.x).toBeGreaterThan(0.5);
+    t = run(e, 2, {}, t);
+    expect(tail.rotation.x).toBeCloseTo(rest, 2);
+  });
+
   it('swaps tool meshes by tier and drives the lantern glow from fuel', () => {
     const e = new ExplorerModel(lighting());
     const pick = e.root.getObjectByName('pickTip')!.parent as THREE.Mesh;
@@ -287,6 +354,41 @@ describe('ExplorerAnimator', () => {
     a.startSwing(0.42);
     const after = snapshot(a.update(1 / 60, state({ time: (t += 1 / 60) })));
     expect(maxJump(after, before)).toBeLessThan(0.2);
+  });
+
+  it('keeps each coat tail behind its leg through walking, jumping and landing', () => {
+    // The floor really clears the leg: the back-bottom corner of the thigh is in front of the
+    // tail plane at the floor angle, for every thigh angle the animation uses.
+    for (let thigh = -0.8; thigh <= 0.9; thigh += 0.05) {
+      const a = tailFloor(thigh, 0.08);
+      const c = { y: (-RIG.thigh - 0.02) * Math.cos(thigh) + 0.1 * Math.sin(thigh), z: (-RIG.thigh - 0.02) * Math.sin(thigh) - 0.1 * Math.cos(thigh) };
+      // Signed distance of the corner in front of (+) the tail's front face: the face hangs from
+      // the joint along (-cos a, -sin a) in (y, z), so its forward normal is (-sin a, cos a).
+      const d = (c.y - RIG.tailY) * -Math.sin(a) + (c.z - RIG.tailZ) * Math.cos(a);
+      expect(d).toBeGreaterThan(-0.002);
+    }
+    const a = new ExplorerAnimator();
+    const tails = new CoatTails();
+    const acc = new THREE.Vector3();
+    let t = 0;
+    let prev = [tails.left, tails.right];
+    let largest = 0;
+    const sequence: Array<Partial<ExplorerAnimState>> = [{}, { speed: 4.6 }, { speed: 9 }, { grounded: false, verticalVelocity: 7 }, { grounded: false, verticalVelocity: -12 }, {}, { speed: 2 }];
+    for (const s of sequence) {
+      for (let i = 0; i < 50; i++) {
+        t += 1 / 60;
+        const st = state({ ...s, time: t });
+        const p = a.update(1 / 60, st);
+        tails.step(1 / 60, acc, st, p);
+        expect(tails.left).toBeGreaterThanOrEqual(tailFloor(p.thighL, p.kneeL) - 1e-6);
+        expect(tails.right).toBeGreaterThanOrEqual(tailFloor(p.thighR, p.kneeR) - 1e-6);
+        expect(Number.isFinite(tails.left + tails.right + tails.roll)).toBe(true);
+        largest = Math.max(largest, Math.abs(tails.left - prev[0]), Math.abs(tails.right - prev[1]));
+        prev = [tails.left, tails.right];
+      }
+    }
+    // Pushed by the stride but never popping.
+    expect(largest).toBeLessThan(0.3);
   });
 
   it('crouches on landing in proportion to the fall and recovers', () => {

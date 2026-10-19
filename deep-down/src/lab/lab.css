@@ -30,6 +30,12 @@
   align-items: center;
   cursor: pointer;
 }
+.lab-bar button.lab-tool {
+  border-style: dashed;
+}
+.lab-bar button[hidden] {
+  display: none;
+}
 .lab-bar button.active {
   border-color: var(--amber);
   color: var(--amber);

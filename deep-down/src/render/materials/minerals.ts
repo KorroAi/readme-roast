@@ -1,87 +1,289 @@
-import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, fbm, ramp } from './paint';
-import { STONE, rockSide } from './rock';
+import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, crackPath, fbm, hash2, mixHex, ramp, wrap, wrapDelta, type Pt } from './paint';
+import { DEEP_SIDE, DEEP_TOP, STONE_SIDE, STONE_TOP, hostFloor, hostRock } from './rock';
+import { resolve } from './paint';
+import * as P from './palette';
 
 /**
- * Mineral deposits: veins that run continuously through the host rock in world space (a vein
- * crosses block boundaries instead of sitting in a framed "ore block"), and glassy crystal.
+ * Mineral deposits, painted *into* the host rock: the copper and iron layers start from the
+ * exact rock of the slate / deep slate beside them (same structure, same random stream), so
+ * where an ore block meets plain rock the wall continues and only the vein ends, pushing a
+ * little past the voxel edge (metal is "tall" in the height channel).
+ *
+ *   copper: branching veins along fractures, seams in the bedding partings and a stockwork of
+ *           veinlets, oxidised dark metal with a warm lit edge, a few glints, and a grey-green
+ *           verdigris crust that bleeds downward;
+ *   iron:   banded ore following the strata: steel-grey metallic bands alternating with red
+ *           jasper, pinching and swelling, with ochre rust staining running down the wall.
+ *
+ * Both are dense enough that any 1 m face of an ore block shows its ore (see the coverage
+ * numbers in the material sheet tool), because the player mines them by sight.
  */
 
 const S = MAT_SIZE;
-const COPPER = [0x5e2e16, 0x8e4822, 0xbd6a33, 0xe0924f, 0xf6bf86];
-const VERDIGRIS = [0x1f4f46, 0x2c7466, 0x43a08b, 0x7fd6bf];
-const IRON = [0x3a2a22, 0x5a3e30, 0x7d5844, 0xa98a74, 0xd7c6b3];
-const RUST = [0x4a2214, 0x6e331b, 0x934a28];
-const CRYSTAL = [0x07202b, 0x0b3442, 0x10495c, 0x186a80, 0x2a95ab, 0x5fd0e2, 0xc8f8ff];
+const TAU = Math.PI * 2;
 
-/** Ridged vein mask: 1 on the vein centreline, 0 beyond `width`. */
-function veinField(rng: Rng, base: number, width: number) {
-  const n = fbm(rng, base, 3, 0.55);
-  const m = fbm(rng, base * 2, 2, 0.5);
-  return (x: number, y: number) => {
-    const a = 1 - Math.abs(n(x, y) - 0.5) / width;
-    const b = 1 - Math.abs(m(x, y) - 0.5) / (width * 0.6);
-    return Math.max(0, Math.max(a, b * 0.8));
-  };
-}
-
-export function copperVein(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, STONE, { strata: 4, strataContrast: 0.12, fractures: 4, joints: 3, flecks: 10 });
-  const vein = veinField(rng, 2, 0.07);
-  const grain = fbm(rng, 32, 1);
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      const v = vein(x, y);
-      if (v <= 0) continue;
-      // Copper sits proud of the rock (height) so the deposit pushes into neighbouring stone.
-      if (v > 0.35) {
-        const lit = v + (grain(x, y) - 0.5) * 0.5;
-        c.set(x, y, ramp(COPPER, lit * 0.95, x, y, 0.7), 190 + v * 60);
-      } else if (v > 0.18) {
-        c.set(x, y, ramp(VERDIGRIS, 0.2 + grain(x, y) * 0.6, x, y, 0.6), 140);
-      }
-    }
-  // A few bright nuggets along the vein.
-  for (let i = 0; i < 40; i++) {
-    const x = rng.int(0, S - 1);
-    const y = rng.int(0, S - 1);
-    if (vein(x, y) > 0.55) {
-      c.set(x, y, COPPER[4], 255);
-      c.set(x + 1, y + 1, COPPER[1]);
-    }
+/** Rasterized vein mask: 0 = rock, otherwise 1. Stamps a small brush along each path. */
+class VeinMask {
+  readonly m = new Uint8Array(S * S);
+  stamp(x: number, y: number, r: number): void {
+    const R = Math.ceil(r);
+    for (let dy = -R; dy <= R; dy++)
+      for (let dx = -R; dx <= R; dx++) if (dx * dx + dy * dy <= r * r + 0.25) this.m[wrap(x + dx) + wrap(y + dy) * S] = 1;
+  }
+  draw(pts: Pt[], width: (t: number) => number): void {
+    pts.forEach(([x, y], k) => this.stamp(x, y, width(k / Math.max(1, pts.length - 1))));
+  }
+  at(x: number, y: number): number {
+    return this.m[wrap(x) + wrap(y) * S];
+  }
+  coverage(): number {
+    let n = 0;
+    for (let i = 0; i < S * S; i++) n += this.m[i];
+    return n / (S * S);
   }
 }
 
-export function ironVein(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, STONE, { strata: 4, strataContrast: 0.12, fractures: 4, joints: 3, flecks: 10 });
-  const vein = veinField(rng, 4, 0.05);
-  const grain = fbm(rng, 32, 1);
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      const v = vein(x, y);
-      if (v > 0.4) c.set(x, y, ramp(IRON, v * 0.8 + (grain(x, y) - 0.5) * 0.4, x, y, 0.7), 200 + v * 50);
-      else if (v > 0.15) c.set(x, y, ramp(RUST, grain(x, y), x, y, 0.6), 150);
-    }
+/** A dendritic vein: a long path with a few short branches. */
+function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: number, len: number, w: number): void {
+  const pts = crackPath(rng, x, y, ang, len, 0.22, 0.06);
+  // Pinch and swell along the path.
+  const phase = rng.next() * TAU;
+  mask.draw(pts, (t) => Math.max(0, w * (0.55 + 0.45 * Math.sin(t * TAU * 2 + phase))));
+  const branches = rng.int(1, 3);
+  for (let b = 0; b < branches; b++) {
+    const [bx, by] = pts[rng.int(0, pts.length - 1)];
+    const bp = crackPath(rng, bx, by, ang + (rng.chance(0.5) ? 1 : -1) * (0.5 + rng.next() * 0.6), rng.int(8, 26), 0.25, 0.08);
+    mask.draw(bp, (t) => (t < 0.6 ? w * 0.5 : 0));
+  }
 }
 
 /**
- * Crystal: dark glassy facets with bright edges and a few inner sparks. Most of the surface
- * stays dark: the glow is in the edges (emissive alpha), so a crystal reads as a faceted
- * object rather than a lit cube.
+ * Colour the vein texels: mostly dark oxidised ore, a lit upper-left edge, and metal "beads"
+ * where the fresh ore shows (2-3 texel nuggets, lit, with a rare glint). The bright colour is
+ * a small share of the vein, so the deposit reads as ore in rock rather than painted lines.
+ */
+function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], glint: number, glintShare: number, height: number): void {
+  const n = fbm(rng, 16, 2);
+  const bead = fbm(rng, 32, 1);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      if (!mask.at(x, y)) continue;
+      const topOpen = !mask.at(x, y - 1) || !mask.at(x - 1, y);
+      const botOpen = !mask.at(x, y + 1) || !mask.at(x + 1, y);
+      const b = bead(x, y);
+      let v = 0.26 + (n(x, y) - 0.5) * 0.24;
+      if (topOpen && !botOpen) v += 0.16;
+      else if (botOpen && !topOpen) v -= 0.08;
+      if (b > 0.54) v += 0.28 + (b - 0.54) * 1.1 + (topOpen ? 0.1 : 0);
+      let hex = ramp(pal, Math.max(0, Math.min(0.99, v)), x, y, 0);
+      if (b > 0.68 && topOpen && hash2(x * 3, y * 5) < glintShare) hex = glint;
+      c.set(x, y, hex, height + n(x, y) * 30);
+    }
+}
+
+/** A crust (verdigris, rust) on the rock around a vein, patchy, bleeding downward on walls. */
+function crust(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], amount: number, drip: number): void {
+  const patch = fbm(rng, 8, 2);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      if (mask.at(x, y)) continue;
+      // distance to the vein within 2 texels
+      let near = 0;
+      for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) if (mask.at(x + dx, y + dy)) near = Math.abs(dx) + Math.abs(dy) <= 2 ? 1 : 0.5;
+      const p = patch(x, y);
+      if (near && p > 1 - amount) c.set(x, y, mixHex(c.getHex(x, y), pal[p > 1 - amount * 0.4 ? 2 : 1], near > 0.5 ? 0.6 : 0.35), Math.max(c.height(x, y), 185));
+    }
+  if (drip <= 0) return;
+  for (let i = 0; i < S * S; i++) {
+    if (!mask.m[i]) continue;
+    const x = i % S;
+    const y = Math.floor(i / S);
+    if (mask.at(x, y + 1) || patch(x, y) < 1 - amount || !rng.chance(drip)) continue;
+    const len = rng.int(3, 9);
+    for (let k = 1; k <= len; k++) c.tint(x, y + k, pal[1], 0.5 * (1 - k / (len + 1)));
+  }
+}
+
+/** Small rounded blebs of ore (disseminated grains), so every square metre carries a little. */
+function blebs(mask: VeinMask, rng: Rng, count: number, r: [number, number]): void {
+  for (let k = 0; k < count; k++) {
+    const x = rng.int(0, S - 1);
+    const y = rng.int(0, S - 1);
+    const rr = r[0] + rng.next() * (r[1] - r[0]);
+    mask.stamp(x, y, rr);
+    if (rng.chance(0.5)) mask.stamp(x + rng.int(-2, 2), y + rng.int(-2, 2), rr * 0.6);
+  }
+}
+
+export function copperVein(c: MatCanvas, rng: Rng): void {
+  const host = hostRock('stoneSide');
+  resolve(c, host.f, P.STONE, STONE_SIDE.crack);
+  const mask = new VeinMask();
+  // Main veins ride the host's own fractures, widened.
+  for (const fr of host.fractures) mask.draw(fr, (t) => 0.8 + Math.sin(t * Math.PI) * 0.7);
+  // Further branching veins, steep (they cut across the beds).
+  for (let k = 0; k < 5; k++) branchingVein(mask, rng, rng.next() * S, rng.next() * S, (rng.chance(0.5) ? 1 : -1) * (0.9 + rng.next() * 0.5), rng.int(40, 90), 1.15);
+  // Seams along some bedding partings.
+  const seamBeds = host.thick.map(() => rng.chance(0.45));
+  const seamN = fbm(rng, 8, 1);
+  for (let i = 0; i < S * S; i++) {
+    const dy = host.bedY[i] - host.bedStart[host.bed[i]];
+    if (host.f.code[i] === 1 && dy < 1.2 && seamBeds[host.bed[i]] && seamN(i % S, Math.floor(i / S)) > 0.5) mask.m[i] = 1;
+  }
+  blebs(mask, rng, 120, [0.6, 1.4]);
+  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.14, 215);
+  crust(c, rng, mask, P.VERDIGRIS, 0.55, 0.14);
+}
+
+export function copperTop(c: MatCanvas, rng: Rng): void {
+  const host = hostFloor('stoneTop');
+  resolve(c, host.f, P.STONE, STONE_TOP.crack);
+  const mask = new VeinMask();
+  // Copper fills some of the floor's own cracks, then a few veins and scattered blebs.
+  const fill = fbm(rng, 8, 1);
+  for (let i = 0; i < S * S; i++) if (host.f.code[i] === 1 && fill(i % S, Math.floor(i / S)) > 0.35) mask.m[i] = 1;
+  for (let k = 0; k < 5; k++) branchingVein(mask, rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(30, 70), 1.1);
+  blebs(mask, rng, 110, [0.6, 1.4]);
+  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.14, 215);
+  crust(c, rng, mask, P.VERDIGRIS, 0.55, 0);
+}
+
+/**
+ * Banded iron along the strata: groups of 2-4 thin metallic bands with red jasper between,
+ * pinching and swelling, separated by plain rock, with ochre rust staining running down.
+ */
+export function ironVein(c: MatCanvas, rng: Rng): void {
+  const host = hostRock('deepSide');
+  resolve(c, host.f, P.DEEP, DEEP_SIDE.crack);
+  const swell = fbm(rng, 4, 2);
+  const grain = fbm(rng, 32, 1);
+  // Band set in strata coordinates (centre, half-thickness, kind), filling the period.
+  const bands: Array<{ y: number; t: number; metal: boolean; phase: number }> = [];
+  let y = rng.next() * 4;
+  while (y < S - 6) {
+    const n = rng.int(2, 4);
+    for (let k = 0; k < n && y < S - 4; k++) {
+      bands.push({ y, t: 0.9 + rng.next() * 1.1, metal: true, phase: rng.next() * S });
+      y += rng.int(3, 5);
+      if (k < n - 1) bands.push({ y: y - 1.6, t: 0.7, metal: false, phase: rng.next() * S });
+    }
+    y += rng.int(8, 15);
+  }
+  // Nearest band per strata row (bands are sparse; this avoids testing them all per texel).
+  const nearest = new Int16Array(S).fill(-1);
+  for (let r = 0; r < S; r++) {
+    let best = -1;
+    let bd = 3.5;
+    bands.forEach((b, k) => {
+      const d = Math.abs(wrapDelta(b.y, r + 0.5));
+      if (d < bd) {
+        bd = d;
+        best = k;
+      }
+    });
+    nearest[r] = best;
+  }
+  const mask = new VeinMask();
+  for (let i = 0; i < S * S; i++) {
+    if (host.f.code[i] === 1) continue; // joints and partings cut the bands
+    const x = i % S;
+    const py = Math.floor(i / S);
+    const yy = host.bedY[i];
+    const row = Math.floor(yy);
+    for (const r of [row, wrap(row + 1), wrap(row - 1)]) {
+      const k = nearest[r];
+      if (k < 0) continue;
+      const b = bands[k];
+      const sw = swell(x + b.phase, b.y * 4);
+      const half = b.t * (0.15 + sw * 1.5);
+      const dd = wrapDelta(b.y, yy);
+      if (Math.abs(dd) > half) continue;
+      if (b.metal) {
+        mask.m[i] = 1;
+        const lit = dd < -half + 0.9;
+        const v = 0.36 + (grain(x, py) - 0.5) * 0.34 + (lit ? 0.1 : 0) - (dd > half - 0.7 && !lit ? 0.1 : 0);
+        c.set(x, py, lit && hash2(x * 7, py * 3) < 0.012 ? P.IRON_GLINT : ramp(P.IRON, Math.min(0.99, v), x, py, 0), 220 + sw * 30);
+      } else if (sw > 0.4) {
+        mask.m[i] = 1;
+        c.set(x, py, mixHex(ramp(P.JASPER, 0.3 + (grain(x, py) - 0.5) * 0.4 + sw * 0.2, x, py, 0), c.getHex(x, py), 0.3), 200);
+      }
+      break;
+    }
+  }
+  // Rust: ochre stains running down from the metal bands, patchy.
+  const patch = fbm(rng, 6, 2);
+  for (let i = 0; i < S * S; i++) {
+    if (!mask.m[i]) continue;
+    const x = i % S;
+    const py = Math.floor(i / S);
+    if (mask.at(x, py + 1) || patch(x, py) < 0.5) continue;
+    // A diffuse stain below the band, and now and then a longer run.
+    const len = rng.chance(0.12) ? rng.int(5, 10) : rng.int(1, 3);
+    for (let k = 1; k <= len; k++) c.tint(x, py + k, P.RUST, 0.4 * (1 - k / (len + 1)) * Math.min(1, (patch(x, py) - 0.5) * 4));
+  }
+}
+
+/** Iron seen on a floor: lenses of granular metallic ore rimmed with jasper, rust halos. */
+export function ironTop(c: MatCanvas, rng: Rng): void {
+  const host = hostFloor('deepTop');
+  resolve(c, host.f, P.DEEP, DEEP_TOP.crack);
+  const grain = fbm(rng, 32, 1);
+  const edgeN = fbm(rng, 16, 1);
+  const lenses = new PeriodicCells(rng, 10, 10, 0.95);
+  const mask = new VeinMask();
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      if (host.f.code[x + y * S] === 1) continue;
+      const q = lenses.query(x, y, 1, 1.6);
+      const cell = lenses.cells[q.id];
+      if (cell.r > 0.6) continue;
+      const radius = (2.2 + cell.r2 * 3.2) * (0.8 + edgeN(x, y) * 0.4);
+      if (q.d1 < radius) {
+        mask.m[x + y * S] = 1;
+        const lit = wrapDelta(cell.x, x) + wrapDelta(cell.y, y) < -radius * 0.4;
+        const g = grain(x, y);
+        if (g > 0.62 && cell.r3 > 0.4) c.set(x, y, ramp(P.JASPER, 0.25 + (g - 0.62) * 1.5, x, y, 0), 200);
+        else c.set(x, y, lit && hash2(x * 5, y * 9) < 0.04 ? P.IRON_GLINT : ramp(P.IRON, 0.34 + (g - 0.5) * 0.4 + (lit ? 0.14 : 0), x, y, 0), 220);
+      }
+    }
+  crust(c, rng, mask, [P.RUST, P.RUST, mixHex(P.RUST, P.DEEP[3], 0.4)], 0.35, 0);
+}
+
+/**
+ * Crystal: dark teal glass in long prismatic facets with growth zoning. The light is inside:
+ * a low, slow internal glow deep in the facets (emissive alpha), and bright glints on only a
+ * few lit facet edges, so a crystal reads as a faceted object, never as a lit cube.
  */
 export function crystal(c: MatCanvas, rng: Rng): void {
-  const facets = new PeriodicCells(rng, 7, 9, 0.9);
+  const facets = new PeriodicCells(rng, 8, 4, 0.9);
+  const glowN = fbm(rng, 4, 2);
+  const glintN = fbm(rng, 16, 1);
   const n = fbm(rng, 8, 2);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const q = facets.query(x, y, 1.6, 0.7);
+      const q = facets.query(x, y, 1, 0.2);
       const cell = facets.cells[q.id];
-      const edge = q.d2 - q.d1;
-      // Each facet is a gradient (light from one side), edges are bright.
-      const dx = (x - cell.x) / 20;
-      const v = 0.18 + cell.r * 0.3 + dx * 0.25 + (n(x, y) - 0.5) * 0.2;
-      if (edge < 1.1) c.set(x, y, CRYSTAL[6], 255);
-      else if (edge < 2.2) c.set(x, y, CRYSTAL[5], 150);
-      else c.set(x, y, ramp(CRYSTAL, v, x, y, 0.6), Math.max(0, (v - 0.45) * 220));
+      const e = q.d2 - q.d1;
+      const dx = wrapDelta(cell.x, x) / 16;
+      const dy = wrapDelta(cell.y, y) / 32;
+      const facesLight = cell.r > 0.45;
+      let v = 0.3 + (cell.r - 0.5) * 0.3 - ((cell.r2 - 0.5) * dx + (cell.r3 - 0.3) * dy) * 0.35 + (n(x, y) - 0.5) * 0.1;
+      // Growth zoning: faint lines parallel to the facet border.
+      if (e > 3 && Math.floor(e) % 5 === 2) v += 0.06;
+      let alpha = 0;
+      if (e < 1) v = facesLight ? 0.82 : 0.08;
+      else {
+        // Internal glow: strongest deep inside a facet, in slow broad patches.
+        const depth = Math.min(1, (e - 1) / 7);
+        const g = Math.max(0, glowN(x, y) - 0.52) * 2.4 * depth;
+        alpha = Math.min(150, g * 170);
+      }
+      let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
+      if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.75, alpha / 200));
+      if (e < 1 && facesLight && glintN(x, y) > 0.72) {
+        hex = P.CRYSTAL_EDGE;
+        alpha = 230;
+      }
+      c.set(x, y, hex, alpha);
     }
-  for (let i = 0; i < 30; i++) c.set(rng.int(0, S - 1), rng.int(0, S - 1), CRYSTAL[6], 255);
 }

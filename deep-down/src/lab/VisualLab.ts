@@ -19,10 +19,11 @@ import { DropSystem } from '../game/Drops';
 import { CRACK_STAGES } from '../config/tiles';
 import type { ItemId } from '../config/items';
 
-export type LabView = 'materials' | 'crystal' | 'lantern' | 'cracks' | 'particles' | 'pickup' | 'character' | 'props';
+export type LabView = 'materials' | 'transitions' | 'crystal' | 'lantern' | 'cracks' | 'particles' | 'pickup' | 'character' | 'props';
 
 export const LAB_VIEWS: Array<{ id: LabView; label: TextKey }> = [
   { id: 'materials', label: 'lab.materials' },
+  { id: 'transitions', label: 'lab.transitions' },
   { id: 'crystal', label: 'lab.crystalLight' },
   { id: 'lantern', label: 'lab.lantern' },
   { id: 'cracks', label: 'lab.cracks' },
@@ -43,6 +44,7 @@ interface Preset {
 /** Fixed camera + light presets so changes can be compared screenshot to screenshot. */
 const PRESETS: Record<LabView, Preset> = {
   materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16, ambient: 0.22 },
+  transitions: { cam: [96, 11, 4], target: [96, 3.5, 25], lantern: [96, 4.2, 22], lanternRadius: 12, ambient: 0.1 },
   crystal: { cam: [10, 6.5, 32], target: [16, 4, 44], lantern: [9, 5, 33], lanternRadius: 6, ambient: 0 },
   lantern: { cam: [33, 7.5, 36], target: [40.5, 3, 43], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
   cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12, ambient: 0.1 },
@@ -51,6 +53,34 @@ const PRESETS: Record<LabView, Preset> = {
   character: { cam: [57, 3.6, 25.2], target: [57, 3.0, 30.5], lantern: [57, 4.4, 28], lanternRadius: 11, ambient: 0.05 },
   props: { cam: [24, 6.5, 22], target: [26, 3.2, 30], lantern: [24, 5.5, 25], lanternRadius: 13, ambient: 0.05 },
 };
+
+/**
+ * Transitions court (x 70..124, z 4..33, east of the original lab): the wall and floor pairs
+ * the material system must join naturally, under an orbiting lantern and a fixed cyan source.
+ * Camera stops: overview, two close-ups and a grazing look along the chunk seam at x = 96.
+ */
+export type TransitionCam = 'overview' | 'geology' | 'minerals' | 'masonry' | 'seam';
+export const TRANSITION_CAMS: TransitionCam[] = ['overview', 'geology', 'minerals', 'masonry', 'seam'];
+/** Camera stops, each with the lantern orbit it is judged under (centre, radii, height). */
+const TR_CAMS: Record<TransitionCam, { cam: [number, number, number]; target: [number, number, number]; orbit: { x: number; z: number; rx: number; rz: number; y: number } }> = {
+  overview: { cam: [96, 9.5, 8], target: [96, 4, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
+  geology: { cam: [83, 5.2, 21.5], target: [83, 4.8, 30], orbit: { x: 83, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
+  minerals: { cam: [96, 5.6, 21.5], target: [96, 5.4, 30], orbit: { x: 96, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
+  masonry: { cam: [112, 5.2, 21.5], target: [112, 4.8, 30], orbit: { x: 112, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
+  seam: { cam: [89.5, 3.9, 8.5], target: [97, 3.2, 13.5], orbit: { x: 96, z: 9.5, rx: 5, rz: 1.2, y: 3.6 } },
+};
+const TR_FOG = { off: 0.012, on: 0.055 };
+
+const TRANSITION_LABELS: Array<{ text: TextKey; x: number; y: number; z: number }> = [
+  { text: 'lab.tr.stoneSoil', x: 75.5, y: 15, z: 30 },
+  { text: 'lab.tr.stoneWeathered', x: 83.5, y: 15, z: 30 },
+  { text: 'lab.tr.stoneOre', x: 92, y: 15, z: 30 },
+  { text: 'lab.tr.stoneCrystal', x: 100.5, y: 15, z: 30 },
+  { text: 'lab.tr.masonryCrumbling', x: 108.5, y: 15, z: 30 },
+  { text: 'lab.tr.masonryRock', x: 117.5, y: 15, z: 30 },
+  { text: 'lab.tr.seam', x: 96, y: 6.5, z: 12.5 },
+  { text: 'lab.tr.steps', x: 108, y: 7, z: 14 },
+];
 
 /** Material gallery grid: 6 per row, 3 rows, 4 blocks apart. */
 const galleryCell = (i: number) => ({ x: 9 + (i % 6) * 4, z: 6 + Math.floor(i / 6) * 5 });
@@ -69,7 +99,8 @@ export class VisualLab {
   readonly renderer: Renderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
-  readonly world = new VoxelWorld(64, 32, 64);
+  /** 64 m of original lab (x < 64) plus the transitions court (x 70..124). */
+  readonly world = new VoxelWorld(128, 32, 64);
   readonly rig: LightingRig;
   private readonly light: LightField;
   private readonly lantern: LanternField;
@@ -84,6 +115,10 @@ export class VisualLab {
   private readonly drops: DropSystem;
   private readonly rng = new Rng(42);
   private view: LabView = 'materials';
+  private trCam: TransitionCam = 'overview';
+  private trFog = false;
+  /** Fixed lantern orbit angle for repeatable captures (null = animate). */
+  private trLanternAngle: number | null = null;
   private time = 0;
   private burstTimer = 0;
   frames = 0;
@@ -160,11 +195,85 @@ export class VisualLab {
     w.fill(52, 2, 33, 62, 8, 33, B.ANCIENT_BRICK);
     w.setRaw(53, 3, 31, B.LIGHT_LAMP);
     w.setRaw(62, 3, 31, B.LIGHT_CYAN);
+    this.buildTransitions();
     // Bedrock shell to keep the lab sealed like the game world.
-    for (let z = 0; z < 64; z++)
-      for (let x = 0; x < 64; x++) {
+    for (let z = 0; z < w.sz; z++)
+      for (let x = 0; x < w.sx; x++) {
         w.setRaw(x, 31, z, B.BEDROCK);
       }
+  }
+
+  /**
+   * The transitions court. Every pair shares a face plane (wall face z = 30 or the floor top at
+   * y = 2), because that is where the terrain shader draws natural boundaries; boundaries are
+   * ragged on purpose so no edge runs straight along the voxel grid.
+   */
+  private buildTransitions(): void {
+    const w = this.world;
+    const set = (x: number, y: number, z: number, id: number) => w.setRaw(x, y, z, id);
+    const blobFloor = (cx: number, cz: number, r: number, id: number, salt: number) => {
+      for (let z = Math.floor(cz - r - 1); z <= cz + r + 1; z++)
+        for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) {
+          const rr = r * (0.75 + 0.5 * ((Math.imul(x * 73856093 ^ z * 19349663 ^ salt, 83492791) >>> 0) / 4294967296));
+          if ((x - cx) ** 2 + (z - cz) ** 2 <= rr * rr) set(x, 1, z, id);
+        }
+    };
+    // Court floor (natural stone) and the back wall, 4 m thick and 12 m high.
+    w.fill(70, 0, 4, 124, 0, 33, B.DEEP_SLATE);
+    w.fill(70, 1, 4, 124, 1, 33, B.SLATE);
+    w.fill(70, 2, 30, 124, 13, 33, B.SLATE);
+    // A) stone / soil: a soil bank in the wall with an uneven top, soil spilling onto the floor.
+    [4, 5, 5, 6, 4, 3, 4].forEach((h, i) => w.fill(72 + i, 2, 30, 72 + i, 1 + h, 31, B.SOIL));
+    blobFloor(75, 26.5, 3.2, B.SOIL, 11);
+    // B) stone / weathered rock: two folded weathered beds through the wall, a weathered floor patch.
+    [0, 0, 1, 1, 1, 0, -1].forEach((o, i) => {
+      w.fill(80 + i, 5 + o, 30, 80 + i, 6 + o, 31, B.UMBER);
+      set(80 + i, 10 + (i > 3 ? 1 : 0), 30, B.UMBER);
+    });
+    blobFloor(83, 25.5, 3, B.UMBER, 23);
+    // C) stone / copper and iron veins (the copper cluster runs into the next chunk at x = 96).
+    for (const [x, y] of [[89, 4], [90, 4], [90, 5], [91, 5], [91, 6], [92, 6], [92, 7], [93, 7]]) set(x, y, 30, B.COPPER_ORE);
+    for (const [x, y] of [[94, 7], [95, 7], [95, 8], [94, 8], [95, 9]]) set(x, y, 30, B.IRON_ORE);
+    for (const [x, z] of [[90, 28], [91, 28], [91, 27], [92, 29]]) set(x, 1, z, B.COPPER_ORE);
+    // D) stone / crystal, a damp floor beside it, and the fixed cyan source.
+    for (const [x, y] of [[99, 3], [99, 4], [100, 4], [100, 5], [101, 3], [101, 4]]) set(x, y, 30, B.CRYSTAL);
+    set(100, 2, 29, B.CRYSTAL);
+    blobFloor(99.5, 24.5, 3.2, B.MOSS, 37);
+    set(101, 3, 27, B.LIGHT_CYAN);
+    // E) masonry / crumbling masonry (and one inscribed stone), a paved floor with a broken edge.
+    w.fill(105, 2, 30, 111, 13, 31, B.ANCIENT_BRICK);
+    // A door-sized crumbling patch (like the shrine door) with a few loose blocks around it.
+    w.fill(107, 2, 30, 109, 5, 30, B.CRUMBLING_BRICK);
+    for (const [x, y] of [[110, 3], [106, 5], [108, 6]]) set(x, y, 30, B.CRUMBLING_BRICK);
+    set(110, 9, 30, B.GLYPH_STONE);
+    for (let z = 21; z <= 29; z++)
+      for (let x = 104; x <= 112; x++) {
+        const ragged = (Math.imul(x * 2654435761, z * 40503 + 7) >>> 0) / 4294967296;
+        if (z < 23 && ragged < 0.5) continue;
+        if ((x === 104 || x === 112) && ragged < 0.4) continue;
+        set(x, 1, z, B.ANCIENT_TILE);
+      }
+    // F) masonry built against natural rock: ashlar below a ragged rock overhang.
+    [9, 8, 7, 7, 8, 9, 10, 12].forEach((top, i) => w.fill(113 + i, 2, 30, 113 + i, top, 31, B.ANCIENT_BRICK));
+    // Irregular steps: natural stone treads rising to a masonry landing, ragged edges.
+    const treads: Array<[number, number, number, number, number]> = [
+      // x0, x1, z0, z1, top y
+      [102, 104, 12, 16, 2],
+      [104, 106, 11, 17, 3],
+      [107, 107, 12, 16, 3],
+      [108, 109, 12, 17, 4],
+      [110, 113, 11, 16, 5],
+    ];
+    treads.forEach(([x0, x1, z0, z1, top], k) => w.fill(x0, 2, z0 + (k & 1), x1, top, z1 - (k % 3 === 0 ? 1 : 0), k < 3 ? B.SLATE : B.ANCIENT_BRICK));
+    set(103, 2, 16, B.AIR);
+    set(106, 3, 11, B.AIR);
+    // Chunk-seam test: a low mixed-material wall and a gravel strip crossing x = 96 (and z = 16).
+    w.fill(90, 2, 12, 102, 4, 13, B.SLATE);
+    for (let x = 90; x <= 102; x++) {
+      set(x, 3 + (x % 5 === 0 ? 1 : 0), 12, B.UMBER);
+      if (x >= 93 && x <= 99) set(x, 5, 12 + (x & 1), B.MOSS);
+    }
+    for (let x = 91; x <= 101; x++) for (let z = 15; z <= 17; z++) if ((x + z) % 7 !== 0) set(x, 1, z, B.GRAVEL);
   }
 
   setView(view: LabView): void {
@@ -177,9 +286,39 @@ export class VisualLab {
     u.uLanternPos.value.set(...p.lantern);
     u.uLanternRadius.value = p.lanternRadius;
     u.uDebug.value.set(p.ambient, 9999, 0);
-    u.uFogDensity.value = 0.012;
+    u.uFogDensity.value = TR_FOG.off;
     this.lantern.compute(p.lantern[0], p.lantern[1], p.lantern[2], p.lanternRadius);
     this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
+    if (view === 'transitions') this.applyTransitionOptions();
+  }
+
+  /** Transitions view options: camera stop, fog on/off, frozen lantern angle (for captures). */
+  setTransitionOptions(o: { cam?: TransitionCam; fog?: boolean; lanternAngle?: number | null }): void {
+    if (o.cam) this.trCam = o.cam;
+    if (o.fog !== undefined) this.trFog = o.fog;
+    if (o.lanternAngle !== undefined) this.trLanternAngle = o.lanternAngle;
+    if (this.view === 'transitions') this.applyTransitionOptions();
+  }
+
+  get transitionOptions(): { cam: TransitionCam; fog: boolean } {
+    return { cam: this.trCam, fog: this.trFog };
+  }
+
+  private applyTransitionOptions(): void {
+    const c = TR_CAMS[this.trCam];
+    this.camera.position.set(...c.cam);
+    this.camera.lookAt(...c.target);
+    this.rig.uniforms.uFogDensity.value = this.trFog ? TR_FOG.on : TR_FOG.off;
+    this.placeTransitionLantern(this.trLanternAngle ?? this.time * 0.45, true);
+  }
+
+  private placeTransitionLantern(a: number, force = false): void {
+    const o = TR_CAMS[this.trCam].orbit;
+    const lx = o.x + Math.cos(a) * o.rx;
+    const lz = o.z + Math.sin(a) * o.rz;
+    const ly = o.y + Math.sin(a * 2) * 0.5;
+    this.rig.uniforms.uLanternPos.value.set(lx, ly, lz);
+    if (this.lantern.update(lx, ly, lz, PRESETS.transitions.lanternRadius, force)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
   }
 
   get currentView(): LabView {
@@ -198,6 +337,7 @@ export class VisualLab {
       u.uLanternPos.value.set(lx, 3.8, lz);
       if (this.lantern.update(lx, 3.8, lz, PRESETS.lantern.lanternRadius)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
     }
+    if (this.view === 'transitions') this.placeTransitionLantern(this.trLanternAngle ?? this.time * 0.45);
     this.burstTimer -= dt;
     if (this.burstTimer <= 0) {
       this.burstTimer = 1.2;
@@ -245,6 +385,13 @@ export class VisualLab {
       const { x, z } = galleryCell(i);
       return { text: t(BLOCKS[id].name), x: x + 1, y: 4.5, z: z + 1 };
     });
+  }
+
+  /** Labels for the views that have them (materials gallery, transitions court). */
+  viewLabels(view: LabView): Array<{ text: string; x: number; y: number; z: number }> {
+    if (view === 'materials') return this.materialLabels();
+    if (view === 'transitions') return TRANSITION_LABELS.map((l) => ({ ...l, text: t(l.text) }));
+    return [];
   }
 
   label(view: LabView): string {

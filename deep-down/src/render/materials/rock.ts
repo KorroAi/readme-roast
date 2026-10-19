@@ -1,181 +1,551 @@
-import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, engraveEdges, fbm, fracture, mixHex, ramp, warp } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, PeriodicNoise, Rng, chip, crackPath, engrave, fbm, hash2, mixHex, resolve, rngFor, wrap, wrapDelta, type Pt } from './paint';
+import * as P from './palette';
 
 /**
  * Geology: ancient dark stone, deep stone, weathered rock, damp stone, the dense seal stone
- * and abyssal bedrock. Sides carry strata and joints (rock is layered); tops are worn floors.
+ * and abyssal bedrock.
+ *
+ * Walls are painted as rock is built: folded beds of varying thickness, bedding-plane partings
+ * with a lit lip and a shadowed underside, joints that cross a bed and stop at the next parting,
+ * a few long fractures through several beds, chipped flakes along the edges, and conchoidal
+ * facets inside each block. Floors are worn bedding surfaces: broad plates, broken cracks and
+ * grit that collects in them. All texel colours come from one palette ramp per family.
  */
 
 const S = MAT_SIZE;
 const TAU = Math.PI * 2;
 
-export interface RockPalette {
-  ramp: readonly number[];
-  /** Colour for hairline fractures and pits. */
+export interface RockStyle {
+  pal: readonly number[];
   crack: number;
-  /** Highlight for chipped edges and mineral flecks. */
-  fleck: number;
+  /** Bed thickness range in texels (16 = 1 m). */
+  beds: [number, number];
+  bedTone: number;
+  /** Folding of the beds: amplitude in texels and waves per 8 m period. */
+  fold: number;
+  folds: number;
+  /** Joint spacing (texels) and the chance that a bed is jointed at all. */
+  joints: [number, number];
+  jointChance: number;
+  /** Facet cells across the texture (chipped, conchoidal faces) and their shading strength. */
+  facets: number;
+  facetStrength: number;
+  /** Long fractures crossing several beds. */
+  fractures: number;
+  /** Clustered grain amplitude (2-4 texel clusters; never single-pixel speckle). */
+  grain: number;
+  /** Chance that a bed is finely laminated. */
+  laminae: number;
+  chips: number;
+  /** Mean value (0..1) and macro variation. */
+  base: number;
+  macro: number;
+  /** Height: mean and spread (0..255). Softer rock is lower, so harder rock overhangs it. */
+  height: number;
+  heightSpread: number;
 }
 
-export const STONE: RockPalette = { ramp: [0x14171e, 0x1a1e27, 0x21262f, 0x282e39, 0x303743, 0x3a4250, 0x464f5f], crack: 0x0b0d12, fleck: 0x5a6476 };
-export const DEEP: RockPalette = { ramp: [0x0d0f14, 0x12151b, 0x171b22, 0x1d222a, 0x242a34, 0x2c333e], crack: 0x07080b, fleck: 0x46506a };
-export const WEATHERED: RockPalette = { ramp: [0x26231f, 0x2f2b26, 0x39342e, 0x443e36, 0x504840, 0x5d544a, 0x6b6156], crack: 0x15130f, fleck: 0x7d7364 };
-export const DAMP: RockPalette = { ramp: [0x0f141a, 0x141a21, 0x192029, 0x1f2731, 0x262f3a, 0x2e3845], crack: 0x080b0f, fleck: 0x4f6170 };
-export const SEAL: RockPalette = { ramp: [0x0e1016, 0x13151d, 0x181b25, 0x1e222e, 0x252a38], crack: 0x06070a, fleck: 0x8b98b4 };
-export const BEDROCK: RockPalette = { ramp: [0x09090d, 0x0d0d13, 0x111118, 0x16151f, 0x1b1a26], crack: 0x040406, fleck: 0x3a2f55 };
-
-export interface RockOptions {
-  /** Number of strata bands over the 8 m period (0 = none). */
-  strata?: number;
-  /** Strength of strata tone shifts. */
-  strataContrast?: number;
-  /** Long fractures to draw. */
-  fractures?: number;
-  /** Vertical joints (sides only). */
-  joints?: number;
-  /** Pits and chips. */
-  pits?: number;
-  /** Mineral flecks. */
-  flecks?: number;
+export interface RockMap {
+  f: Field2;
+  /** Bed coordinate (texels, strata-following, 0..S) and bed index per texel. */
+  bedY: Float32Array;
+  bed: Uint8Array;
+  thick: number[];
+  bedStart: number[];
+  fractures: Pt[][];
 }
 
-/** Cliff / wall face: warped strata, broad tone clusters, joints, fractures and chips. */
-export function rockSide(c: MatCanvas, rng: Rng, pal: RockPalette, o: RockOptions = {}): void {
-  const strata = o.strata ?? 5;
-  const contrast = o.strataContrast ?? 0.16;
-  const base = fbm(rng, 4, 4, 0.55);
-  const fine = fbm(rng, 16, 2, 0.5);
-  const wx = fbm(rng, 2, 3);
-  const wy = fbm(rng, 4, 2);
-  // Strata: integer frequency in y keeps them periodic; a warp makes them wander.
-  const bandPhase = Array.from({ length: strata }, () => rng.next());
-  const strataAt = warp((x, y) => (strata > 0 ? 0.5 + 0.5 * Math.sin((y / S) * TAU * strata + Math.sin((x / S) * TAU * 2) * 0.6) : 0.5), wx, wy, 26);
+export const STONE_SIDE: RockStyle = {
+  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.2, fold: 5, folds: 1, joints: [18, 60], jointChance: 0.32,
+  facets: 7, facetStrength: 0.12, fractures: 2, grain: 0.07, laminae: 0.25, chips: 30, base: 0.55, macro: 0.2, height: 150, heightSpread: 80,
+};
+export const DEEP_SIDE: RockStyle = {
+  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.15, fold: 3, folds: 1, joints: [22, 64], jointChance: 0.4,
+  facets: 6, facetStrength: 0.14, fractures: 2, grain: 0.06, laminae: 0.1, chips: 22, base: 0.55, macro: 0.2, height: 165, heightSpread: 70,
+};
+export const WEATHERED_SIDE: RockStyle = {
+  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.17, fold: 3, folds: 2, joints: [12, 40], jointChance: 0.6,
+  facets: 9, facetStrength: 0.12, fractures: 4, grain: 0.08, laminae: 0.55, chips: 40, base: 0.57, macro: 0.2, height: 115, heightSpread: 80,
+};
+export const BEDROCK_SIDE: RockStyle = {
+  pal: P.BEDROCK, crack: 0x030304, beds: [20, 44], bedTone: 0.08, fold: 2, folds: 1, joints: [24, 64], jointChance: 0.35,
+  facets: 6, facetStrength: 0.13, fractures: 3, grain: 0.05, laminae: 0, chips: 14, base: 0.52, macro: 0.2, height: 170, heightSpread: 60,
+};
+
+/** Build the rock structure of a wall. Every random draw happens here, so the same rng gives the same rock. */
+export function rockField(rng: Rng, st: RockStyle): RockMap {
+  const f = new Field2();
+  const macro = fbm(rng, 4, 3, 0.55);
+  const grain = fbm(rng, 32, 2, 0.5);
+  const wob = fbm(rng, 8, 2);
+  const jitter = new PeriodicNoise(rng, 16, 16);
+  const partingN = new PeriodicNoise(rng, 16, 8);
+  const foldN = new PeriodicNoise(rng, 4, 4);
+  const phase = rng.next() * TAU;
+
+  // Beds of varying thickness filling the period exactly.
+  const thick: number[] = [];
+  let total = 0;
+  while (total < S) {
+    let t = rng.int(st.beds[0], st.beds[1]);
+    if (S - total - t < st.beds[0]) t = S - total;
+    thick.push(t);
+    total += t;
+  }
+  const bedStart: number[] = [];
+  const bedOfRow = new Uint8Array(S);
+  let y0 = 0;
+  thick.forEach((t, b) => {
+    bedStart.push(y0);
+    for (let k = 0; k < t; k++) bedOfRow[y0 + k] = b;
+    y0 += t;
+  });
+  const bedTone = thick.map(() => (rng.next() - 0.5) * st.bedTone);
+  const bedHard = thick.map(() => rng.next());
+  const laminated = thick.map(() => rng.chance(st.laminae));
+  const partingOpen = thick.map(() => 0.58 + rng.next() * 0.26);
+  // Joints: near-vertical cracks inside a bed, ending at its partings (a few stop short).
+  const joints = thick.map((t) => {
+    const list: Array<{ x: number; tilt: number; from: number; to: number }> = [];
+    if (!rng.chance(st.jointChance)) return list;
+    const xStart = rng.next() * S;
+    let x = xStart;
+    for (;;) {
+      x += rng.int(st.joints[0], st.joints[1]);
+      if (x - xStart > S - st.joints[0] * 0.6) break;
+      const partial = rng.chance(0.5);
+      list.push({ x: wrap(x), tilt: (rng.next() - 0.5) * 0.7, from: partial ? rng.next() * t * 0.5 : 0, to: partial ? t - rng.next() * t * 0.5 : t });
+    }
+    return list;
+  });
+  const facets = new PeriodicCells(rng, st.facets, Math.round(st.facets * 1.25), 0.9);
+  const cellSize = S / st.facets;
+
+  const bedY = new Float32Array(S * S);
+  const bedIdx = new Uint8Array(S * S);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const b = base(x, y);
-      const s = strataAt(x, y);
-      const band = strata > 0 ? Math.floor(((y + (wy(x, y) - 0.5) * 30) / S) * strata + 64) % strata : 0;
-      const bandTone = strata > 0 ? (bandPhase[band] - 0.5) * contrast : 0;
-      const v = b * 0.72 + fine(x, y) * 0.28 + (s - 0.5) * contrast * 0.9 + bandTone;
-      c.set(x, y, ramp(pal.ramp, v, x, y, 0.7), 110 + b * 120);
+      const i = x + y * S;
+      const fold = Math.sin((x / S) * TAU * st.folds + phase) * st.fold + (foldN.at(x, 0) - 0.5) * st.fold * 1.4;
+      const yy = wrap(y - fold + (wob(x, y) - 0.5) * 2.4);
+      const bed = bedOfRow[Math.floor(yy)];
+      const dy = yy - bedStart[bed];
+      bedY[i] = yy;
+      bedIdx[i] = bed;
+      const m = macro(x, y);
+      const q = facets.query(x, y);
+      const cell = facets.cells[q.id];
+      const ddx = wrapDelta(cell.x, x) / cellSize;
+      const ddy = wrapDelta(cell.y, y) / cellSize;
+      // Facet: a tilted plane lit from the upper left, plus a tone; half of the borders are ridges.
+      let facet = (-(cell.r - 0.5) * ddx - (cell.r2 - 0.5) * ddy) * 1.1 + (cell.r3 - 0.5) * 0.6;
+      if (q.d2 - q.d1 < 1.1) facet += cell.r > 0.5 ? 0.55 : -0.45;
+      let v = st.base + bedTone[bed] + (bedHard[bed] - 0.5) * 0.05 + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain + facet * st.facetStrength;
+      if (laminated[bed] && Math.floor(dy) % 3 === 2) v -= 0.045;
+      let h = st.height + (bedHard[bed] - 0.5) * st.heightSpread * 0.7 + facet * st.heightSpread * 0.35 + (m - 0.5) * st.heightSpread * 0.4;
+      let code = 0;
+      // Bedding-plane parting at the top of each bed, broken where the beds are welded.
+      const open = partingN.at(x, bed * 16) - partingOpen[bed];
+      if (dy < 1 && open > 0) {
+        code = 1;
+        v -= 0.2;
+        h = 16;
+      } else if (dy < 2.5) {
+        // The top of each bed is a small ledge that catches the light (strongest where the
+        // parting is open); the bottom of the bed above overhangs it in shadow.
+        code = 2;
+        v += (open > -0.15 ? 0.1 : 0.05) * (dy < 1.5 ? 1 : 0.5);
+        h += 12;
+      } else if (thick[bed] - dy < 1.5) {
+        code = 3;
+        v -= open > -0.15 ? 0.08 : 0.04;
+      }
+      if (code !== 1)
+        for (const j of joints[bed]) {
+          if (dy < j.from || dy > j.to) continue;
+          const jn = jitter.at(j.x, y);
+          const xj = j.x + j.tilt * dy + (jn - 0.5) * 2.2;
+          const d = wrapDelta(xj, x);
+          const shut = jitter.at(j.x + 40, y * 2) < 0.45; // a joint is not open along its whole length
+          if (d > -0.5 && d <= 0.5) {
+            if (shut) v -= 0.06;
+            else {
+              code = 1;
+              v -= 0.2;
+              h = 20;
+              break;
+            }
+          } else if (d > 0.5 && d <= 1.5) {
+            // the joint's far wall faces the light
+            code = 2;
+            v += shut ? 0.03 : 0.08;
+          } else if (d > -1.5 && d <= -0.5) {
+            code = 3;
+            v -= shut ? 0.03 : 0.07;
+          }
+        }
+      f.v[i] = v;
+      f.h[i] = h;
+      f.code[i] = code;
     }
-  details(c, rng, pal, o, true);
+
+  // Long fractures crossing several beds, steeply inclined.
+  const fractures: Pt[][] = [];
+  for (let k = 0; k < st.fractures; k++) {
+    const ang = (rng.chance(0.5) ? 1 : -1) * (0.95 + rng.next() * 0.45) + (rng.chance(0.5) ? 0 : Math.PI);
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, ang, rng.int(30, 80), 0.14, 0.05);
+    engrave(f, pts, { depth: 0.24, lip: 0.08, shadow: 0.07, height: 22, widen: 0.12, rng });
+    fractures.push(pts);
+  }
+  // Chipped flakes along partings and joints.
+  const cracks: number[] = [];
+  for (let i = 0; i < S * S; i++) if (f.code[i] === 1) cracks.push(i);
+  for (let k = 0; k < st.chips && cracks.length; k++) {
+    const i = cracks[rng.int(0, cracks.length - 1)];
+    chip(f, rng, (i % S) + 1, Math.floor(i / S) + 1, rng.int(2, 4));
+  }
+  return { f, bedY, bed: bedIdx, thick, bedStart, fractures };
 }
 
-/** Floor face: worn and flatter, grit and small stones, no strata. */
-export function rockTop(c: MatCanvas, rng: Rng, pal: RockPalette, o: RockOptions = {}): void {
-  const base = fbm(rng, 4, 4, 0.5);
-  const fine = fbm(rng, 32, 1);
-  const grit = new PeriodicCells(rng, 22, 22, 0.9);
+export interface FloorStyle {
+  pal: readonly number[];
+  crack: number;
+  /** Plate cells across the texture (worn bedding plates of 1-2 m). */
+  plates: number;
+  plateTone: number;
+  /** Share of plate borders that are open cracks. */
+  crackShare: number;
+  /** Density of small stones / grit collected near the cracks. */
+  grit: number;
+  fractures: number;
+  chips: number;
+  base: number;
+  macro: number;
+  grain: number;
+  height: number;
+  heightSpread: number;
+}
+
+export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.1, crackShare: 0.3, grit: 0.2, fractures: 3, chips: 18, base: 0.52, macro: 0.22, grain: 0.06, height: 140, heightSpread: 70 };
+export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.09, crackShare: 0.28, grit: 0.16, fractures: 2, chips: 14, base: 0.52, macro: 0.22, grain: 0.05, height: 150, heightSpread: 60 };
+export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.12, crackShare: 0.36, grit: 0.28, fractures: 3, chips: 22, base: 0.55, macro: 0.22, grain: 0.07, height: 110, heightSpread: 70 };
+
+export interface FloorMap {
+  f: Field2;
+  /** Distance to the nearest plate border (texels), for overlays that follow the cracks. */
+  edge: Float32Array;
+}
+
+/** A worn rock floor: broad plates, broken cracks, grit collected in the lows. */
+export function floorField(rng: Rng, st: FloorStyle): FloorMap {
+  const f = new Field2();
+  const macro = fbm(rng, 4, 3, 0.55);
+  const grain = fbm(rng, 32, 2, 0.5);
+  const crackN = fbm(rng, 8, 2);
+  const plates = new PeriodicCells(rng, st.plates, st.plates, 0.95);
+  const grit = new PeriodicCells(rng, 32, 32, 0.95);
+  const cellSize = S / st.plates;
+  const edge = new Float32Array(S * S);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const b = base(x, y);
-      let v = b * 0.8 + fine(x, y) * 0.2 - 0.04;
-      const q = grit.query(x, y);
-      // Small embedded stones: a lighter rim on their upper-left, a dark contact shadow below.
-      if (q.d1 < 1.6 && grit.cells[q.id].r < 0.35) v += 0.12;
-      c.set(x, y, ramp(pal.ramp, v, x, y, 0.6), 100 + b * 110);
+      const i = x + y * S;
+      const m = macro(x, y);
+      const q = plates.query(x, y, 1, 1);
+      const cell = plates.cells[q.id];
+      const e = q.d2 - q.d1;
+      edge[i] = e;
+      const ddx = wrapDelta(cell.x, x) / cellSize;
+      const ddy = wrapDelta(cell.y, y) / cellSize;
+      // Worn plates: slightly dished (lighter rim, smoother centre), each with its own tone.
+      const tone = (cell.r - 0.5) * st.plateTone + (-(cell.r2 - 0.5) * ddx - (cell.r3 - 0.5) * ddy) * 0.05;
+      let v = st.base + tone + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain;
+      let h = st.height + (cell.r - 0.5) * st.heightSpread * 0.6 + (m - 0.5) * st.heightSpread * 0.5;
+      let code = 0;
+      const cn = crackN(x, y);
+      if (e < 1.1 && cn < st.crackShare) {
+        code = 1;
+        v -= 0.22;
+        h = 25;
+      } else if (e < 2.2 && cn < st.crackShare + 0.08) {
+        v -= 0.03; // the plate rounds off toward an open crack
+        h -= 15;
+      }
+      // Grit and small stones gather near the borders (2-3 texel stones with a lit top).
+      if (code === 0) {
+        const near = Math.max(0, 1 - e / 7);
+        const g = grit.query(x, y);
+        const gc = grit.cells[g.id];
+        if (gc.r < st.grit * (0.35 + near) && g.d1 < 1.25 + gc.r2) {
+          const lit = wrapDelta(gc.x, x) + wrapDelta(gc.y, y) < 0;
+          v += lit ? 0.13 : 0.02;
+          h = 175 + gc.r2 * 50;
+          code = lit ? 2 : 0;
+        } else if (gc.r < st.grit * (0.35 + near) && g.d1 < 2.4 + gc.r2) {
+          v -= 0.05; // contact shadow around the stone
+        }
+      }
+      f.v[i] = v;
+      f.h[i] = h;
+      f.code[i] = code;
     }
-  details(c, rng, pal, { ...o, joints: 0 }, false);
+  for (let k = 0; k < st.fractures; k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(20, 50), 0.2, 0.06);
+    engrave(f, pts, { depth: 0.24, lip: 0.06, shadow: 0.06, height: 25 });
+  }
+  const cracks: number[] = [];
+  for (let i = 0; i < S * S; i++) if (f.code[i] === 1) cracks.push(i);
+  for (let k = 0; k < st.chips && cracks.length; k++) {
+    const i = cracks[rng.int(0, cracks.length - 1)];
+    chip(f, rng, (i % S) + 1, Math.floor(i / S) + 1, rng.int(2, 3));
+  }
+  return { f, edge };
 }
 
-function details(c: MatCanvas, rng: Rng, pal: RockPalette, o: RockOptions, side: boolean): void {
-  // Long fractures with an engraved lit edge.
-  for (let i = 0; i < (o.fractures ?? 6); i++) {
-    const pts = fracture(c, rng, pal.crack, rng.int(18, 60), { dir: side ? (rng.chance(0.5) ? 0 : 4) : rng.int(0, 7), turn: 0.28, heightCut: 20 });
-    engraveEdges(c, pts, 1.1, 0.85);
-  }
-  // Vertical joints split the strata into blocks of rock (sides only).
-  for (let i = 0; i < (o.joints ?? (side ? 4 : 0)); i++) {
-    const pts = fracture(c, rng, pal.crack, rng.int(10, 26), { dir: rng.chance(0.5) ? 2 : 6, turn: 0.18, heightCut: 25 });
-    engraveEdges(c, pts, 1.08, 0.82);
-  }
-  // Pits and chips: 2-3 px dark spots with a lit lower-right rim.
-  for (let i = 0; i < (o.pits ?? 40); i++) {
-    const x = rng.int(0, S - 1);
-    const y = rng.int(0, S - 1);
-    const r = rng.chance(0.3) ? 2 : 1;
-    for (let dy = 0; dy < r; dy++) for (let dx = 0; dx < r; dx++) c.set(x + dx, y + dy, mixHex(c.getHex(x + dx, y + dy), pal.crack, 0.7), 30);
-    c.shade(x + r, y + r, 1.15);
-  }
-  // Mineral flecks: single bright pixels, sparse.
-  for (let i = 0; i < (o.flecks ?? 26); i++) c.set(rng.int(0, S - 1), rng.int(0, S - 1), pal.fleck);
+// ---------------------------------------------------------------------------------------
+// Host rock shared between layers
+
+/**
+ * Damp stone and the ore layers are painted on the *same* rock as plain slate / deep slate,
+ * so they continue it seamlessly. The host is always built from the named layer's own random
+ * stream (rngFor(name)), and cached for the duration of one generateMaterials() pass so it is
+ * computed once.
+ */
+let hostCache: Map<string, RockMap | FloorMap> | null = null;
+export function beginHostCache(): void {
+  hostCache = new Map();
+}
+export function endHostCache(): void {
+  hostCache = null;
 }
 
-export function stoneSide(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, STONE, { strata: 5, strataContrast: 0.15, fractures: 6, joints: 5 });
+function cloneField(f: Field2): Field2 {
+  const g = new Field2();
+  g.v.set(f.v);
+  g.h.set(f.h);
+  g.code.set(f.code);
+  return g;
 }
-export function stoneTop(c: MatCanvas, rng: Rng): void {
-  rockTop(c, rng, STONE, { fractures: 5, pits: 50 });
+
+export function hostRock(name: 'stoneSide' | 'deepSide'): RockMap {
+  let m = hostCache?.get(name) as RockMap | undefined;
+  if (!m) {
+    m = rockField(rngFor(name), name === 'stoneSide' ? STONE_SIDE : DEEP_SIDE);
+    hostCache?.set(name, m);
+  }
+  return { ...m, f: cloneField(m.f) };
 }
-export function deepSide(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, DEEP, { strata: 3, strataContrast: 0.12, fractures: 4, joints: 3, flecks: 40 });
+
+export function hostFloor(name: 'stoneTop' | 'deepTop'): FloorMap {
+  let m = hostCache?.get(name) as FloorMap | undefined;
+  if (!m) {
+    m = floorField(rngFor(name), name === 'stoneTop' ? STONE_TOP : DEEP_TOP);
+    hostCache?.set(name, m);
+  }
+  return { ...m, f: cloneField(m.f) };
 }
-export function deepTop(c: MatCanvas, rng: Rng): void {
-  rockTop(c, rng, DEEP, { fractures: 3, flecks: 30 });
+
+// ---------------------------------------------------------------------------------------
+// Painters (the plain rock painters take their structure from the named host stream)
+
+export function stoneSide(c: MatCanvas): void {
+  resolve(c, hostRock('stoneSide').f, P.STONE, STONE_SIDE.crack);
 }
+export function stoneTop(c: MatCanvas): void {
+  resolve(c, hostFloor('stoneTop').f, P.STONE, STONE_TOP.crack);
+}
+export function deepSide(c: MatCanvas): void {
+  resolve(c, hostRock('deepSide').f, P.DEEP, DEEP_SIDE.crack);
+}
+export function deepTop(c: MatCanvas): void {
+  resolve(c, hostFloor('deepTop').f, P.DEEP, DEEP_TOP.crack);
+}
+
+/**
+ * Weathered rock: thinner, more fractured beds that erode back behind the harder stone, with
+ * mineral deposits where water ran through the cracks: ochre iron staining bleeding down from
+ * partings and fractures, and thin pale calcite veins.
+ */
 export function weatheredSide(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, WEATHERED, { strata: 7, strataContrast: 0.22, fractures: 9, joints: 6, pits: 70 });
+  const m = rockField(rng, WEATHERED_SIDE);
+  // Honeycomb weathering (tafoni) in a few soft beds: clustered pits with a lit lower rim.
+  const softBeds = m.thick.map(() => rng.chance(0.3));
+  const pits = new PeriodicCells(rng, 30, 30, 0.9);
+  for (let i = 0; i < S * S; i++) {
+    if (!softBeds[m.bed[i]] || m.f.code[i] === 1) continue;
+    const q = pits.query(i % S, Math.floor(i / S));
+    if (pits.cells[q.id].r < 0.45 && q.d1 < 1.5) {
+      m.f.v[i] -= 0.14;
+      m.f.h[i] -= 40;
+    }
+  }
+  resolve(c, m.f, P.WEATHERED, WEATHERED_SIDE.crack);
+  deposits(c, rng, m.f.code, true);
 }
 export function weatheredTop(c: MatCanvas, rng: Rng): void {
-  rockTop(c, rng, WEATHERED, { fractures: 7, pits: 80 });
+  const m = floorField(rng, WEATHERED_TOP);
+  resolve(c, m.f, P.WEATHERED, WEATHERED_TOP.crack);
+  deposits(c, rng, m.f.code, false);
 }
 
-/** Damp stone: darker, wet sheen streaks running down, sparse glowing lichen (emissive alpha). */
+/** Ochre iron staining that bleeds from cracks (downward on walls) and thin calcite veins. */
+function deposits(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
+  const patch = fbm(rng, 4, 2);
+  const OCHRE = 0x4a3926;
+  for (let i = 0; i < S * S; i++) {
+    if (code[i] !== 1) continue;
+    const x = i % S;
+    const y = Math.floor(i / S);
+    const p = patch(x, y);
+    if (p < 0.66) continue;
+    const strength = Math.min(1, (p - 0.66) * 4);
+    const len = side ? Math.round(2 + strength * 7) : 1;
+    for (let k = 1; k <= len; k++) {
+      const t = (1 - k / (len + 1)) * 0.32 * strength;
+      if (side) c.tint(x, y + k, OCHRE, t);
+      else {
+        c.tint(x + k, y, OCHRE, t * 0.7);
+        c.tint(x - k, y, OCHRE, t * 0.7);
+      }
+    }
+  }
+  // Calcite: thin, slightly raised pale veins, broken in places.
+  const CALCITE = 0x504d48;
+  for (let k = 0; k < (side ? 2 : 1); k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(24, 60), 0.18, 0.05);
+    for (const [x, y] of pts) {
+      if (rng.chance(0.18)) continue;
+      c.tint(x, y, CALCITE, 0.6);
+      c.setHeight(x, y, Math.max(c.height(x, y), 190));
+    }
+  }
+}
+
+/**
+ * Damp stone: the slate's own rock (identical structure, so a damp patch and the dry wall
+ * beside it are one surface), darkened by seeping water, with vertical water traces, a
+ * restrained wet sheen along their edges, and lichen crusts that stand slightly proud.
+ */
 export function dampSide(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, DAMP, { strata: 4, strataContrast: 0.1, fractures: 5, joints: 4, flecks: 10 });
-  wetAndLichen(c, rng, true);
+  const m = hostRock('stoneSide');
+  const seep = fbm(rng, 24, 2, 0.5, 2); // vertical streaks (more cells across x than y)
+  const wet = fbm(rng, 4, 2);
+  for (let i = 0; i < S * S; i++) {
+    const x = i % S;
+    const y = Math.floor(i / S);
+    const s = seep(x, y);
+    // Water darkens the rock (we stay on the damp ramp: same structure, deeper values).
+    m.f.v[i] -= 0.05 + Math.max(0, s - 0.5) * 0.28 + (wet(x, y) - 0.5) * 0.08;
+  }
+  resolve(c, m.f, P.DAMP, STONE_SIDE.crack);
+  // Water traces: thin lines running straight down from crack texels; sheen on the lit edge.
+  for (let i = 0; i < S * S; i++) {
+    if (m.f.code[i] !== 1) continue;
+    const x = i % S;
+    const y = Math.floor(i / S);
+    if (seep(x, y) < 0.56 || !rng.chance(0.35)) continue;
+    const len = rng.int(4, 18);
+    for (let k = 1; k <= len; k++) {
+      const yy = y + k;
+      c.tint(x, yy, 0x070a0e, 0.35);
+      if (k > 1 && k < len - 1 && (k + x) % 5 === 0) c.tint(x - 1, yy, P.WET_SHEEN, 0.45);
+    }
+  }
+  lichen(c, rng, m.f.code, true);
 }
 export function dampTop(c: MatCanvas, rng: Rng): void {
-  rockTop(c, rng, DAMP, { fractures: 4, pits: 40, flecks: 8 });
-  wetAndLichen(c, rng, false);
-}
-
-function wetAndLichen(c: MatCanvas, rng: Rng, side: boolean): void {
-  // Alpha becomes the emissive mask for this material: clear it first.
-  c.a.fill(0);
-  const wet = fbm(rng, 8, 2);
+  const m = hostFloor('stoneTop');
+  const pool = fbm(rng, 6, 2);
+  for (let i = 0; i < S * S; i++) {
+    const x = i % S;
+    const y = Math.floor(i / S);
+    const p = pool(x, y);
+    m.f.v[i] -= 0.06 + Math.max(0, p - 0.55) * 0.35;
+    if (p > 0.62) m.f.h[i] = Math.min(m.f.h[i], 70); // standing water sits in the lows
+  }
+  resolve(c, m.f, P.DAMP, STONE_TOP.crack);
+  // A thin restrained sheen where a puddle meets the rock, facing the light.
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      // Wet streaks: vertical on walls, puddle-like blotches on floors.
-      const w = side ? wet(x * 3, y * 0.4) : wet(x, y);
-      if (w > 0.62) c.tint(x, y, 0x3c5566, (w - 0.62) * 1.4);
+      const p = pool(x, y);
+      if (p > 0.62 && pool(x - 1, y - 1) <= 0.62 && (x + y) % 3 !== 0) c.tint(x, y, P.WET_SHEEN, 0.5);
     }
-  const lichen = new PeriodicCells(rng, 10, 10, 0.95);
-  for (const cell of lichen.cells) {
-    if (cell.r > (side ? 0.45 : 0.6)) continue;
-    const n = rng.int(3, side ? 9 : 14);
-    for (let i = 0; i < n; i++) {
-      const x = Math.round(cell.x + (rng.next() - 0.5) * 7);
-      const y = Math.round(cell.y + (rng.next() - 0.5) * (side ? 4 : 7));
-      const bright = rng.chance(0.25);
-      c.set(x, y, bright ? 0x6fe0c8 : 0x2f7f72, bright ? 220 : 90);
+  lichen(c, rng, m.f.code, false);
+}
+
+/** Lichen and moss crusts in clumps (never scattered dots): muted grey-olive, raised. */
+function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
+  const edge = fbm(rng, 32, 1);
+  const clumps = new PeriodicCells(rng, 7, 7, 0.95);
+  for (const cl of clumps.cells) {
+    if (cl.r > (side ? 0.5 : 0.65)) continue;
+    const r = 2 + cl.r2 * (side ? 5 : 7);
+    // A few satellites around each clump.
+    const n = 1 + Math.floor(cl.r3 * 4);
+    for (let k = 0; k < n; k++) {
+      const cx = cl.x + (rng.next() - 0.5) * r * 3;
+      const cy = cl.y + (rng.next() - 0.5) * r * (side ? 1.6 : 3);
+      const rr = k === 0 ? r : r * (0.3 + rng.next() * 0.4);
+      const R = Math.ceil(rr + 2);
+      for (let dy = -R; dy <= R; dy++)
+        for (let dx = -R; dx <= R; dx++) {
+          const px = Math.round(cx + dx);
+          const py = Math.round(cy + dy);
+          const d = Math.sqrt(dx * dx + dy * dy * (side ? 1.8 : 1));
+          const lim = rr * (0.7 + 0.6 * edge(px, py));
+          if (d > lim) continue;
+          const i = wrap(px) + wrap(py) * S;
+          if (code[i] === 1 && rng.chance(0.5)) continue; // cracks stay partly open
+          const t = d / lim;
+          const hv = hash2(px, py);
+          const tone = t > 0.8 ? 3 : t < 0.4 && hv < 0.18 ? 4 : hv < 0.45 ? 2 : 1;
+          c.set(px, py, mixHex(c.getHex(px, py), P.LICHEN[tone], 0.85), Math.max(c.height(px, py), 165 + (1 - t) * 50));
+        }
     }
   }
 }
 
 /** The seal: dense, plated stone with pale mineral flecks, clearly not ordinary rock. */
 export function sealStone(c: MatCanvas, rng: Rng): void {
-  const plates = new PeriodicCells(rng, 6, 5, 0.7);
+  const f = new Field2();
+  const plates = new PeriodicCells(rng, 7, 6, 0.5);
   const n = fbm(rng, 8, 3);
+  const g = fbm(rng, 32, 1);
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const q = plates.query(x, y, 1, 1.6);
-      const edge = q.d2 - q.d1;
-      let v = 0.35 + plates.cells[q.id].r * 0.3 + (n(x, y) - 0.5) * 0.35;
-      if (edge < 1.4) v = 0.02;
-      else if (edge < 2.6) v += 0.18;
-      c.set(x, y, ramp(SEAL.ramp, v, x, y, 0.5), edge < 1.4 ? 10 : 160);
+      const i = x + y * S;
+      const q = plates.query(x, y, 1, 1.4);
+      const cell = plates.cells[q.id];
+      const e = q.d2 - q.d1;
+      let v = 0.42 + (cell.r - 0.5) * 0.18 + (n(x, y) - 0.5) * 0.22 + (g(x, y) - 0.5) * 0.05;
+      let h = 160 + cell.r * 40;
+      if (e < 1.2) {
+        f.code[i] = 1;
+        v -= 0.35;
+        h = 10;
+      } else if (e < 2.4) {
+        // Chamfer: lit toward the upper left, dark toward the lower right.
+        const lit = wrapDelta(cell.x, x) + wrapDelta(cell.y, y) < 0;
+        v += lit ? -0.1 : 0.12;
+      }
+      f.v[i] = v;
+      f.h[i] = h;
     }
-  for (let i = 0; i < 70; i++) c.set(rng.int(0, S - 1), rng.int(0, S - 1), rng.chance(0.3) ? 0xc4d0e8 : SEAL.fleck);
+  resolve(c, f, P.SEAL, 0x040507, 0);
+  // Flecks as 2-texel clusters, sparse.
+  for (let i = 0; i < 40; i++) {
+    const x = rng.int(0, S - 1);
+    const y = rng.int(0, S - 1);
+    c.set(x, y, P.SEAL_FLECK);
+    c.set(x + (rng.chance(0.5) ? 1 : 0), y + 1, mixHex(P.SEAL_FLECK, P.SEAL[3], 0.5));
+  }
 }
 
-/** Abyssal bedrock: near-black with faint violet veins. */
+/** Abyssal bedrock: near-black massive rock with thin, sparse violet veins. */
 export function bedrock(c: MatCanvas, rng: Rng): void {
-  rockSide(c, rng, BEDROCK, { strata: 2, strataContrast: 0.08, fractures: 3, joints: 2, flecks: 12 });
-  const veins = fbm(rng, 4, 3);
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      const v = Math.abs(veins(x, y) - 0.5);
-      if (v < 0.012) c.tint(x, y, 0x3b2a63, 0.6);
-    }
+  const m = rockField(rng, BEDROCK_SIDE);
+  resolve(c, m.f, P.BEDROCK, BEDROCK_SIDE.crack);
+  for (let k = 0; k < 4; k++) {
+    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(30, 70), 0.25, 0.06);
+    for (const [x, y] of pts) if (!rng.chance(0.2)) c.tint(x, y, P.ABYSS_VEIN, 0.8);
+  }
 }
