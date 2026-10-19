@@ -435,6 +435,14 @@ export interface GrooveOptions {
  * light from above) and a shadowed upper side. Rasterized by distance to the curve, so the
  * line keeps its width at any angle. Codes: 1 core, 2 lip, 3 shadow.
  */
+// Scratch buffers for groove(): the best (smallest normalized distance) hit per texel, so
+// overlapping segments do not stack. Reset after each call, only where touched.
+const gScore = new Float32Array(S * S).fill(Infinity);
+const gDist = new Float32Array(S * S);
+const gSide = new Float32Array(S * S);
+const gWidth = new Float32Array(S * S);
+const gTouched = new Int32Array(S * S);
+
 export function groove(f: Field2, pts: Pt[], o: GrooveOptions = {}): void {
   if (pts.length < 2) return;
   const wMax = o.width ?? 1.6;
@@ -449,58 +457,66 @@ export function groove(f: Field2, pts: Pt[], o: GrooveOptions = {}): void {
   const L = cum[cum.length - 1] || 1;
   const phase = o.rng ? o.rng.next() * 100 : 0;
   const closed = (t: number) => gaps > 0 && Math.sin(t * L * 0.37 + phase) * 0.5 + Math.sin(t * L * 0.13 + phase * 1.7) * 0.5 < -1 + gaps * 2.2;
-  // Best (smallest normalized distance) hit per texel, so overlapping segments do not stack.
-  const best = new Map<number, { d: number; side: number; w: number }>();
+  let touched = 0;
+  const R = Math.ceil(wMax / 2 + 2);
   for (let i = 0; i + 1 < pts.length; i++) {
     const [ax, ay] = pts[i];
     const [bx, by] = pts[i + 1];
     const dx = bx - ax;
     const dy = by - ay;
     const len2 = dx * dx + dy * dy || 1;
-    const R = Math.ceil(wMax / 2 + 2);
+    // Width at this segment (segments are about a texel long): tapers to the ends, closes up.
+    const t = (cum[i] + cum[i + 1]) / (2 * L);
+    let w = wMax * Math.pow(Math.max(0, Math.sin(Math.PI * t)), 0.55);
+    if (closed(t)) w *= 0.25;
+    const reach = w / 2 + 1.3;
     const x0 = Math.floor(Math.min(ax, bx)) - R;
     const x1 = Math.ceil(Math.max(ax, bx)) + R;
     const y0 = Math.floor(Math.min(ay, by)) - R;
     const y1 = Math.ceil(Math.max(ay, by)) + R;
     for (let y = y0; y <= y1; y++)
       for (let x = x0; x <= x1; x++) {
-        const px = x; // texel centres sit on integer coordinates (as in crackPath)
-        const py = y;
-        let s = ((px - ax) * dx + (py - ay) * dy) / len2;
+        // Texel centres sit on integer coordinates (as in crackPath).
+        let s = ((x - ax) * dx + (y - ay) * dy) / len2;
         s = s < 0 ? 0 : s > 1 ? 1 : s;
-        const ox = px - (ax + dx * s);
-        const oy = py - (ay + dy * s);
-        const d = Math.hypot(ox, oy);
-        const t = (cum[i] + (cum[i + 1] - cum[i]) * s) / L;
-        let w = wMax * Math.pow(Math.max(0, Math.sin(Math.PI * t)), 0.55);
-        if (closed(t)) w *= 0.25;
-        if (d > w / 2 + 1.3) continue;
-        const k = f.i(x, y);
-        const prev = best.get(k);
+        const ox = x - (ax + dx * s);
+        const oy = y - (ay + dy * s);
+        const d = Math.sqrt(ox * ox + oy * oy);
+        if (d > reach) continue;
+        const k = wrap(x) + wrap(y) * S;
         const score = d - w / 2;
-        if (prev && prev.d - prev.w / 2 <= score) continue;
+        if (gScore[k] <= score) continue;
+        if (gScore[k] === Infinity) gTouched[touched++] = k;
+        gScore[k] = score;
+        gDist[k] = d;
+        gWidth[k] = w;
         // Which side of the groove: below it (toward +y) faces the light from above.
-        const nrm = Math.hypot(ox, oy) || 1;
-        best.set(k, { d, side: oy / nrm + ox / nrm * 0.25, w });
+        const nrm = d || 1;
+        gSide[k] = oy / nrm + (ox / nrm) * 0.25;
       }
   }
-  for (const [k, hit] of best) {
+  for (let n = 0; n < touched; n++) {
+    const k = gTouched[n];
+    gScore[k] = Infinity;
     const x = k % S;
     const y = (k - x) / S;
     if (o.mask && !o.mask(x, y)) continue;
     if (f.code[k] === 1) continue;
-    const core = hit.d <= Math.max(0.35, hit.w / 2);
-    if (core && hit.w >= 0.5) {
+    const d = gDist[k];
+    const w = gWidth[k];
+    const core = d <= Math.max(0.35, w / 2);
+    if (core && w >= 0.5) {
       f.code[k] = 1;
-      f.v[k] -= depth * Math.min(1, 0.55 + hit.w * 0.3);
+      f.v[k] -= depth * Math.min(1, 0.55 + w * 0.3);
       f.h[k] = Math.min(f.h[k], hCut);
-    } else if (hit.w >= 0.35 && hit.d <= hit.w / 2 + 1.2) {
-      const lit = hit.side > 0.2;
-      const shade = hit.side < -0.2;
-      const s = Math.min(1, hit.w / 1.4);
-      if (lit) f.v[k] += lip * s;
-      else if (shade) f.v[k] -= shadow * s;
-      else f.v[k] -= shadow * 0.4 * s;
+    } else if (w >= 0.35 && d <= w / 2 + 1.2) {
+      const side = gSide[k];
+      const lit = side > 0.2;
+      const shade = side < -0.2;
+      const sc = Math.min(1, w / 1.4);
+      if (lit) f.v[k] += lip * sc;
+      else if (shade) f.v[k] -= shadow * sc;
+      else f.v[k] -= shadow * 0.4 * sc;
       if (f.code[k] === 0) f.code[k] = lit ? 2 : 3;
     }
   }

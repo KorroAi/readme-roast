@@ -113,7 +113,9 @@ describe('world generation', () => {
 
   it('keeps the light budget: little cyan, warm lamps at every navigation point', () => {
     // Cyan is reserved for crystal and the builders' inscriptions (ART_DIRECTION.md); warm lamps
-    // mark the way. Measured with tools/emission-budget.ts: 86 cyan emitter voxels, lamps <= 6.3 m.
+    // mark the way. Measured with tools/emission-budget.ts: 98 cyan/violet emitter voxels (86 plus
+    // the 12 round-3 key lights: Spindle uplight, seal, frieze, shrine dais, chasm), lamps <= 6.3 m.
+    // The 120 cap is unchanged.
     const w = layout.world;
     let cyan = 0;
     const warm: [number, number, number][] = [];
@@ -132,5 +134,25 @@ describe('world generation', () => {
       const near = Math.min(...warm.map((c) => Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2])));
       expect(near, `warm light near ${name}`).toBeLessThanOrEqual(7);
     }
+  });
+
+  it('gives each space its key light: the Spindle, the seal, the frieze, the shrine dais and the chasm', () => {
+    // One motivated light per space (ART_DIRECTION.md, composition rules), authored in
+    // generateWorld's key-light pass: a cold emitter near each landmark, violet low in the chasm.
+    const w = layout.world;
+    const nearest = (p: readonly number[], id: number, r: number) => {
+      let best = Infinity;
+      for (let z = Math.floor(p[2] - r); z <= p[2] + r; z++)
+        for (let y = Math.floor(p[1] - r); y <= p[1] + r; y++)
+          for (let x = Math.floor(p[0] - r); x <= p[0] + r; x++)
+            if (w.get(x, y, z) === id) best = Math.min(best, Math.hypot(x + 0.5 - p[0], y + 0.5 - p[1], z + 0.5 - p[2]));
+      return best;
+    };
+    const L = layout.landmarks;
+    expect(nearest(L.spindle!, B.LIGHT_CYAN, 12), 'Spindle uplight').toBeLessThanOrEqual(11);
+    expect(nearest(L.seal!, B.LIGHT_CYAN, 4), 'seal underglow').toBeLessThanOrEqual(2.5);
+    expect(nearest([134.5, 51.5, 100.5], B.LIGHT_CYAN, 5), 'frieze light').toBeLessThanOrEqual(3.5);
+    expect(nearest(L.tablet!, B.LIGHT_CYAN, 6), 'shrine dais light').toBeLessThanOrEqual(5.5);
+    expect(nearest([122.5, 35, 128.5], B.LIGHT_ABYSS, 14), 'violet low in the chasm').toBeLessThanOrEqual(8);
   });
 });

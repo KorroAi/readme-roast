@@ -82,6 +82,21 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   const partingN = new PeriodicNoise(rng, 16, 8);
   const foldN = new PeriodicNoise(rng, 4, 4);
   const phase = rng.next() * TAU;
+  // Mineral grains: a few round clusters of 2-3 texels (Worley cells, not a thresholded noise,
+  // which leaves single texels and plus-shaped peaks that alias into a stipple).
+  const grains = new PeriodicCells(rng, 32, 32, 0.95);
+  const speckMask = new Int8Array(S * S);
+  for (const gc of grains.cells) {
+    if (gc.r >= st.grain) continue;
+    const r = 0.9 + gc.r2 * 0.9;
+    const sign = gc.r3 > 0.45 ? 1 : -1;
+    for (let dy = -2; dy <= 2; dy++)
+      for (let dx = -2; dx <= 2; dx++) {
+        const px = Math.round(gc.x) + dx;
+        const py = Math.round(gc.y) + dy;
+        if ((px - gc.x) ** 2 + (py - gc.y) ** 2 < r * r) speckMask[wrap(px) + wrap(py) * S] = sign;
+      }
+  }
 
   // Beds of varying thickness filling the period exactly.
   const thick: number[] = [];
@@ -121,6 +136,11 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   const facets = new PeriodicCells(rng, st.facets, Math.round(st.facets * 1.25), 0.9);
   const cellSize = S / st.facets;
 
+  // Pixel-art discipline: each bed sits in the middle of one ramp step and the noise inside it
+  // stays under half a step, so beds read as clean bands and facets as defined plates, not as
+  // quantized camouflage blotches.
+  const step = 1 / st.pal.length;
+  const bedBase = thick.map((_, b) => (Math.floor((st.base + bedTone[b] * 1.6 + (bedHard[b] - 0.5) * 0.05) / step) + 0.5) * step);
   const bedY = new Float32Array(S * S);
   const bedIdx = new Uint8Array(S * S);
   for (let y = 0; y < S; y++)
@@ -141,8 +161,12 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
       const ddy = wrapDelta(cell.y, y) / cellSize;
       const fade = Math.min(1, (q.d2 - q.d1) / 5);
       const facet = ((-(cell.r - 0.5) * ddx - (cell.r2 - 0.5) * ddy) * 1.1 + (cell.r3 - 0.5) * 0.6) * fade;
-      let v = st.base + bedTone[bed] + (bedHard[bed] - 0.5) * 0.05 + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain + facet * st.facetStrength;
-      if (laminated[bed] && Math.floor(dy) % 3 === 2) v -= 0.045;
+      const facetStep = facet > 0.26 ? step : facet < -0.3 ? -step : 0;
+      // Grain as defined pixel clusters: lighter mineral grains and darker pits, a step apart.
+      const g = grain(x, y);
+      const speck = speckMask[i] * step;
+      let v = bedBase[bed] + ((m - 0.5) * st.macro + (g - 0.5) * st.grain) * 0.6 + facetStep + speck;
+      if (laminated[bed] && Math.floor(dy) % 3 === 2) v -= step * 0.9;
       let h = st.height + (bedHard[bed] - 0.5) * st.heightSpread * 0.7 + facet * st.heightSpread * 0.35 + (m - 0.5) * st.heightSpread * 0.4;
       let code = 0;
       // Bedding-plane parting at the top of each bed, broken where the beds are welded.
@@ -249,6 +273,9 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
   const grit = new PeriodicCells(rng, 32, 32, 0.95);
   const cellSize = S / st.plates;
   const edge = new Float32Array(S * S);
+  // One ramp step for the floor, a step up or down for some plates, noise under half a step.
+  const step = 1 / st.pal.length;
+  const base = (Math.floor(st.base / step) + 0.5) * step;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const i = x + y * S;
@@ -258,12 +285,12 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
       const e = q.d2 - q.d1;
       edge[i] = e;
       const ddx = wrapDelta(cell.x, x) / cellSize;
-      const ddy = wrapDelta(cell.y, y) / cellSize;
-      // Worn plates: slightly dished, each with its own tone, which fades toward the plate's
-      // border so the plates read as broad worn patches, not as a polygon network.
+      // A bedding-plane floor is one tone (the shader's macro variation and the light model it);
+      // its character comes from grit, joint grooves and grain clusters, not from plate tones,
+      // which draw a polygon network (dried mud) once quantized.
       const fade = Math.min(1, e / 4);
-      const tone = ((cell.r - 0.5) * st.plateTone + (-(cell.r2 - 0.5) * ddx - (cell.r3 - 0.5) * ddy) * 0.05) * fade;
-      let v = st.base + tone + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain;
+      const g = grain(x, y);
+      let v = base + ((m - 0.5) * st.macro + (g - 0.5) * st.grain) * 0.6 + ((cell.r - 0.5) * st.plateTone * 0.25 - (cell.r2 - 0.5) * ddx * 0.02) * fade;
       let h = st.height + (cell.r - 0.5) * st.heightSpread * 0.6 * fade + (m - 0.5) * st.heightSpread * 0.5;
       let code = 0;
       const cn = crackN(x, y);

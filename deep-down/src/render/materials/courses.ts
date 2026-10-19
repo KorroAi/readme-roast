@@ -76,7 +76,8 @@ export function strips(lib: CourseLibrary): Strip[] {
   return out;
 }
 
-const f1 = (v: number) => `${v.toFixed(1)}`;
+/** A GLSL float literal (exact for the short decimals used here). */
+const f1 = (v: number) => (Number.isInteger(v) ? v.toFixed(1) : `${+v.toFixed(4)}`);
 
 /** GLSL: row of the strip of a library for a course of `n` slots (`alt` picks between two). */
 function rowExpr(lib: CourseLibrary): string {

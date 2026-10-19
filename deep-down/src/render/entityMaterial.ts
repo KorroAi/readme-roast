@@ -70,7 +70,7 @@ void main() {
   if (!gl_FrontFacing) n = -n;
   // The explorer (uRim) is demoted a little: a slightly darker coat, so the route and the
   // landmarks, not the carrier of the lantern, hold the brightest values of the frame.
-  vec3 albedo = vColor * uTint * (1.0 - 0.18 * uRim);
+  vec3 albedo = vColor * uTint * (1.0 - 0.2 * uRim);
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
@@ -81,9 +81,9 @@ void main() {
   float contact = ls.a > 0.02 ? clamp(below / ls.a, 0.0, 1.0) : 1.0;
   contact = 0.4 + 0.6 * smoothstep(0.08, 0.9, contact);
   vec3 env = ambientFrom(ls);
-  // The carrier's own lantern is measured from at least 2.4 m (its flame hangs at the hip):
+  // The carrier's own lantern is measured from at least 3 m (its flame hangs at the hip):
   // otherwise the inverse-square core would make the explorer the brightest thing on screen.
-  vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a, 2.4 * uRim);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a, 3.0 * uRim);
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
   if (uRim > 0.0) {
     // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half

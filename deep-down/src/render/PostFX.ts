@@ -117,7 +117,7 @@ layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
-const float CONTRAST = 1.15;
+const float CONTRAST = 1.2;
 const float CONTRAST_PIVOT = 0.16;
 
 // Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep

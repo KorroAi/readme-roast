@@ -289,7 +289,7 @@ function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
     // Pixel-art discipline: each stone sits in the middle of one ramp step, and its surface
     // noise stays under half a step, so a stone reads as one tone with drawn details (arrises,
     // margin, spalls, chips, cracks) instead of quantized two-tone camouflage blotches.
-    let v = (Math.floor((0.44 + (st.tone - 0.5) * 0.32) / STEP) + 0.5) * STEP + (bedding(x, y) - 0.5) * 0.05;
+    let v = (Math.floor((0.44 + (st.tone - 0.5) * 0.32) / STEP) + 0.5) * STEP + (bedding(x, y) - 0.5) * 0.04;
     let h = 195 + (st.tone - 0.5) * 40;
     // Cut-stone arrises: the edge under a bed joint catches light, the edge above one is in shadow.
     if (o.topLit) {
@@ -301,7 +301,9 @@ function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
       // Drafted margin: a smooth tooled band around a rougher, slightly raised boss (a change
       // of texture, not a lighter frame: a printed frame per stone reads as a tile).
     } else {
-      v += (grain(x, y) - 0.5) * (st.drafted ? 0.07 : 0.05) * rough;
+      // Kept under half a step with the bedding: isolated texels a step off alias into a
+      // stipple lattice at a texel per pixel.
+      v += (grain(x, y) - 0.5) * (st.drafted ? 0.05 : 0.035) * rough;
       if (st.drafted) h += 12;
     }
     if (st.pillow > 0) {
@@ -370,7 +372,7 @@ function stains(c: MatCanvas, rng: Rng, bd: Bond, amount: number): void {
   }
 }
 
-const WALL: DressOptions = { topLit: true, chips: 0.3, cracks: 0.08, worn: 0, spalls: 0.2 };
+const WALL: DressOptions = { topLit: true, chips: 0.2, cracks: 0.08, worn: 0, spalls: 0.2 };
 
 /** A wall library (dressed field + bond), built once per pass and shared with crumbling. */
 function wall(lib: CourseLibrary): { f: Field2; bd: Bond } {
