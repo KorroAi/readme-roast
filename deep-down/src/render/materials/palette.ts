@@ -45,7 +45,7 @@ export const JASPER = [0x26130f, 0x341a14, 0x45221a, 0x572b20] as const;
 export const RUST = 0x5b3a22;
 
 /** Glimmer crystal body: deep teal glass. Light comes from inside, not from the paint. */
-export const CRYSTAL = [0x02080c, 0x040d13, 0x06131a, 0x091b23, 0x0d242d, 0x132f39, 0x1b3d48, 0x26515d] as const;
+export const CRYSTAL = [0x030c11, 0x051219, 0x081a22, 0x0b232d, 0x10303b, 0x173f4b, 0x21525e, 0x2f6a77] as const;
 export const CRYSTAL_GLOW = 0x2fb6cc;
 export const CRYSTAL_EDGE = 0x8fe3ee;
 

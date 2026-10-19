@@ -1,4 +1,4 @@
-import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, PeriodicNoise, Rng, chip, crackPath, engrave, fbm, hash2, mixHex, resolve, rngFor, wrap, wrapDelta, type Pt } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, PeriodicNoise, Rng, beginPaintCache, cached, chip, cloneField, crackPath, endPaintCache, engrave, fbm, hash2, mixHex, resolve, rngFor, wrap, wrapDelta, type Pt } from './paint';
 import * as P from './palette';
 
 /**
@@ -307,40 +307,18 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
 /**
  * Damp stone and the ore layers are painted on the *same* rock as plain slate / deep slate,
  * so they continue it seamlessly. The host is always built from the named layer's own random
- * stream (rngFor(name)), and cached for the duration of one generateMaterials() pass so it is
- * computed once.
+ * stream (rngFor(name)) and cached for one generateMaterials() pass, so it is computed once.
  */
-let hostCache: Map<string, RockMap | FloorMap> | null = null;
-export function beginHostCache(): void {
-  hostCache = new Map();
-}
-export function endHostCache(): void {
-  hostCache = null;
-}
-
-function cloneField(f: Field2): Field2 {
-  const g = new Field2();
-  g.v.set(f.v);
-  g.h.set(f.h);
-  g.code.set(f.code);
-  return g;
-}
+export const beginHostCache = beginPaintCache;
+export const endHostCache = endPaintCache;
 
 export function hostRock(name: 'stoneSide' | 'deepSide'): RockMap {
-  let m = hostCache?.get(name) as RockMap | undefined;
-  if (!m) {
-    m = rockField(rngFor(name), name === 'stoneSide' ? STONE_SIDE : DEEP_SIDE);
-    hostCache?.set(name, m);
-  }
+  const m = cached(name, () => rockField(rngFor(name), name === 'stoneSide' ? STONE_SIDE : DEEP_SIDE));
   return { ...m, f: cloneField(m.f) };
 }
 
 export function hostFloor(name: 'stoneTop' | 'deepTop'): FloorMap {
-  let m = hostCache?.get(name) as FloorMap | undefined;
-  if (!m) {
-    m = floorField(rngFor(name), name === 'stoneTop' ? STONE_TOP : DEEP_TOP);
-    hostCache?.set(name, m);
-  }
+  const m = cached(name, () => floorField(rngFor(name), name === 'stoneTop' ? STONE_TOP : DEEP_TOP));
   return { ...m, f: cloneField(m.f) };
 }
 
@@ -367,16 +345,22 @@ export function deepTop(c: MatCanvas): void {
  */
 export function weatheredSide(c: MatCanvas, rng: Rng): void {
   const m = rockField(rng, WEATHERED_SIDE);
-  // Honeycomb weathering (tafoni) in a few soft beds: clustered pits with a lit lower rim.
+  // Honeycomb weathering (tafoni) in a few soft beds: clustered 2-3 texel pits.
   const softBeds = m.thick.map(() => rng.chance(0.3));
-  const pits = new PeriodicCells(rng, 30, 30, 0.9);
-  for (let i = 0; i < S * S; i++) {
-    if (!softBeds[m.bed[i]] || m.f.code[i] === 1) continue;
-    const q = pits.query(i % S, Math.floor(i / S));
-    if (pits.cells[q.id].r < 0.45 && q.d1 < 1.5) {
-      m.f.v[i] -= 0.14;
-      m.f.h[i] -= 40;
-    }
+  for (let k = 0; k < 700; k++) {
+    const x = rng.int(0, S - 1);
+    const y = rng.int(0, S - 1);
+    const i = x + y * S;
+    if (!softBeds[m.bed[i]]) continue;
+    const r = rng.chance(0.4) ? 2 : 1;
+    for (let dy = 0; dy <= r; dy++)
+      for (let dx = 0; dx <= r; dx++) {
+        if (dx === r && dy === r) continue;
+        const j = m.f.i(x + dx, y + dy);
+        if (m.f.code[j] === 1) continue;
+        m.f.v[j] -= 0.13;
+        m.f.h[j] -= 40;
+      }
   }
   resolve(c, m.f, P.WEATHERED, WEATHERED_SIDE.crack);
   deposits(c, rng, m.f.code, true);

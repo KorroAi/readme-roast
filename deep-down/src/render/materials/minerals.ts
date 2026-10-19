@@ -1,4 +1,4 @@
-import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, crackPath, fbm, hash2, mixHex, ramp, wrap, wrapDelta, type Pt } from './paint';
+import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, crackPath, dilate, fbm, hash2, mixHex, ramp, windowMinimum, wrap, wrapDelta, type Pt } from './paint';
 import { DEEP_SIDE, DEEP_TOP, STONE_SIDE, STONE_TOP, hostFloor, hostRock } from './rock';
 import { resolve } from './paint';
 import * as P from './palette';
@@ -48,13 +48,8 @@ class VeinMask {
  * least `min` ore texels: the player mines ore by sight, and an ore block is 1 m wide.
  */
 function ensureCoverage(mask: VeinMask, rng: Rng, min: number, add: (x: number, y: number) => void): void {
-  for (let pass = 0; pass < 3; pass++)
-    for (let wy = 0; wy < S; wy += 4)
-      for (let wx = 0; wx < S; wx += 4) {
-        let n = 0;
-        for (let y = 0; y < 16 && n < min; y++) for (let x = 0; x < 16; x++) n += mask.m[wrap(wx + x) + wrap(wy + y) * S];
-        if (n < min) add(wx + 4 + rng.int(0, 8), wy + 4 + rng.int(0, 8));
-      }
+  // Non-overlapping windows per pass, staggered between passes, so each gap is filled once.
+  for (const oy of [0, 8, 4, 12]) for (const ox of [0, 8, 4, 12]) windowMinimum(mask.m, 16, 16, min, (x, y) => add(x - 3 + rng.int(0, 6), y - 3 + rng.int(0, 6)), ox, oy);
 }
 
 /** A dendritic vein: a long path with a few short branches. */
@@ -101,15 +96,15 @@ function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[
 /** A crust (verdigris, rust) on the rock around a vein, patchy, bleeding downward on walls. */
 function crust(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], amount: number, drip: number): void {
   const patch = fbm(rng, 8, 2);
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      if (mask.at(x, y)) continue;
-      // distance to the vein within 2 texels
-      let near = 0;
-      for (let dy = -2; dy <= 2 && !near; dy++) for (let dx = -2; dx <= 2; dx++) if (mask.at(x + dx, y + dy)) near = Math.abs(dx) + Math.abs(dy) <= 2 ? 1 : 0.5;
-      const p = patch(x, y);
-      if (near && p > 1 - amount) c.set(x, y, mixHex(c.getHex(x, y), pal[p > 1 - amount * 0.4 ? 2 : 1], near > 0.5 ? 0.6 : 0.35), Math.max(c.height(x, y), 185));
-    }
+  const near1 = dilate(mask.m, 1);
+  const near2 = dilate(mask.m, 2);
+  for (let i = 0; i < S * S; i++) {
+    if (!near2[i]) continue;
+    const x = i % S;
+    const y = (i - x) / S;
+    const p = patch(x, y);
+    if (p > 1 - amount) c.set(x, y, mixHex(c.getHex(x, y), pal[p > 1 - amount * 0.4 ? 2 : 1], near1[i] ? 0.6 : 0.35), Math.max(c.a[i], 185));
+  }
   if (drip <= 0) return;
   for (let i = 0; i < S * S; i++) {
     if (!mask.m[i]) continue;
@@ -321,14 +316,15 @@ export function crystal(c: MatCanvas, rng: Rng): void {
       else {
         // Internal glow: strongest deep inside a facet, in slow broad patches.
         const depth = Math.min(1, (e - 1) / 7);
-        const g = Math.max(0, glowN(x, y) - 0.52) * 2.4 * depth;
-        alpha = Math.min(150, g * 170);
+        const g = Math.max(0, glowN(x, y) - 0.5) * 2.4 * depth;
+        alpha = Math.min(170, g * 190);
       }
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
       if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.6, alpha / 220));
-      if (e < 1 && facesLight && glintN(x, y) > 0.78) {
+      // Glints: short broken sparks on a few lit edges (never a continuous neon outline).
+      if (e < 1 && facesLight && glintN(x, y) > 0.72 && hash2(x >> 1, y >> 1) < 0.5) {
         hex = P.CRYSTAL_EDGE;
-        alpha = 230;
+        alpha = 220;
       }
       c.set(x, y, hex, alpha);
     }

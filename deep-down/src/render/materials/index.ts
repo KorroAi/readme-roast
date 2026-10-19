@@ -71,7 +71,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   copperTop: { glow: 0 },
   ironVein: { glow: 0 },
   ironTop: { glow: 0 },
-  crystal: { glow: 0.75 },
+  crystal: { glow: 0.85 },
   sealStone: { glow: 0 },
   masonry: { glow: 0 },
   masonryTop: { glow: 0 },

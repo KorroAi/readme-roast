@@ -93,6 +93,34 @@ export function hash2(x: number, y: number): number {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
+/**
+ * Shared intermediate results (host rock, the masonry wall) for one generateMaterials() pass:
+ * layers that continue another layer (damp stone, ores, crumbling masonry) reuse its exact
+ * structure without recomputing it. Outside a pass nothing is cached.
+ */
+let paintCache: Map<string, unknown> | null = null;
+export function beginPaintCache(): void {
+  paintCache = new Map();
+}
+export function endPaintCache(): void {
+  paintCache = null;
+}
+export function cached<T>(key: string, make: () => T): T {
+  if (paintCache?.has(key)) return paintCache.get(key) as T;
+  const v = make();
+  paintCache?.set(key, v);
+  return v;
+}
+
+/** Copy of a value field (cached fields are shared, so painters modify a copy). */
+export function cloneField(f: Field2): Field2 {
+  const g = new Field2();
+  g.v.set(f.v);
+  g.h.set(f.h);
+  g.code.set(f.code);
+  return g;
+}
+
 /** Deterministic per-material random stream, keyed by name (stable when layers are reordered). */
 export function rngFor(name: string): Rng {
   let h = 2166136261;
@@ -383,12 +411,74 @@ export function chip(f: Field2, rng: Rng, x: number, y: number, r: number): void
 
 /** Quantize a value field through a ramp into the canvas, with the field heights as alpha. */
 export function resolve(c: MatCanvas, f: Field2, pal: readonly number[], crack: number, dither = 0): void {
+  const n = pal.length;
+  const rgb = c.rgb;
+  const a = c.a;
+  const cr = (crack >> 16) & 255;
+  const cg = (crack >> 8) & 255;
+  const cb = crack & 255;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const i = x + y * S;
-      const hex = f.code[i] === 1 ? mixHex(crack, ramp(pal, f.v[i], x, y, dither), 0.25) : ramp(pal, f.v[i], x, y, dither);
-      c.set(x, y, hex, f.h[i]);
+      let v = f.v[i];
+      if (dither) v += ((BAYER4[(x & 3) + (y & 3) * 4] / 16 - 0.47) * dither) / n;
+      const hex = pal[v <= 0 ? 0 : v >= 0.999 ? n - 1 : Math.floor(v * n)];
+      let r = (hex >> 16) & 255;
+      let g = (hex >> 8) & 255;
+      let b = hex & 255;
+      if (f.code[i] === 1) {
+        // Cracks: mostly the crack colour, a quarter of the ramp tone so they are not flat black.
+        r = cr + (r - cr) * 0.25;
+        g = cg + (g - cg) * 0.25;
+        b = cb + (b - cb) * 0.25;
+      }
+      rgb[i * 3] = r;
+      rgb[i * 3 + 1] = g;
+      rgb[i * 3 + 2] = b;
+      a[i] = f.h[i];
     }
+}
+
+/**
+ * Summed-area check over `win` x `win` windows on a `step` grid starting at `offset`
+ * (wrapping): `fix` is called with the centre of every window holding fewer than `min` set
+ * texels of `mask`. The table is built once per call, so use non-overlapping windows
+ * (step >= win) when `fix` changes the mask.
+ */
+export function windowMinimum(mask: Uint8Array, win: number, step: number, min: number, fix: (x: number, y: number) => void, ox = 0, oy = ox): void {
+  const W = S + win;
+  const sat = new Int32Array((W + 1) * (W + 1));
+  for (let y = 0; y < W; y++) {
+    let row = 0;
+    for (let x = 0; x < W; x++) {
+      row += mask[(x % S) + (y % S) * S];
+      sat[x + 1 + (y + 1) * (W + 1)] = sat[x + 1 + y * (W + 1)] + row;
+    }
+  }
+  for (let wy = oy; wy < S; wy += step)
+    for (let wx = ox; wx < S; wx += step) {
+      const x1 = wx + win;
+      const y1 = wy + win;
+      const n = sat[x1 + y1 * (W + 1)] - sat[wx + y1 * (W + 1)] - sat[x1 + wy * (W + 1)] + sat[wx + wy * (W + 1)];
+      if (n < min) fix(wx + win / 2, wy + win / 2);
+    }
+}
+
+/** Texels within Manhattan distance `r` of any set texel of `mask` (excluding the mask itself). */
+export function dilate(mask: Uint8Array, r: number): Uint8Array {
+  const out = new Uint8Array(S * S);
+  for (let i = 0; i < S * S; i++) {
+    if (!mask[i]) continue;
+    const x = i % S;
+    const y = (i - x) / S;
+    for (let dy = -r; dy <= r; dy++) {
+      const yy = ((y + dy + S) % S) * S;
+      const span = r - Math.abs(dy);
+      for (let dx = -span; dx <= span; dx++) out[((x + dx + S) % S) + yy] = 1;
+    }
+  }
+  for (let i = 0; i < S * S; i++) if (mask[i]) out[i] = 0;
+  return out;
 }
 
 /** Fill the whole canvas from a function of (x, y) -> sRGB hex (+ optional height). */

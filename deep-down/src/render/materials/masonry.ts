@@ -1,4 +1,4 @@
-import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, blob, chip, crackPath, engrave, fbm, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, blob, cached, chip, cloneField, crackPath, engrave, fbm, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
 import * as P from './palette';
 
 /**
@@ -182,15 +182,20 @@ function stains(c: MatCanvas, rng: Rng, stones: Stone[], amount: number): void {
 const WALL: CourseRule = { rhythm: [[18, 24], [10, 13], [20, 26], [9, 12]], widths: [[30, 58], [16, 34], [28, 54], [16, 30]], drafted: 0.6 };
 const WALL_OPTS: AshlarOptions = { pal: P.ASHLAR, chips: 0.35, cracks: 3, worn: 0, spalls: 0.25 };
 
-function masonryBase(rng: Rng): { f: Field2; stones: Stone[] } {
-  const stones = layoutCourses(rng, WALL);
-  return { f: ashlarField(rng, stones, WALL_OPTS), stones };
+/** The ashlar wall, built from the `masonry` stream and shared with `crumbling` (cached per pass). */
+function masonryBase(): { f: Field2; stones: Stone[] } {
+  const m = cached('masonryWall', () => {
+    const rng = rngFor('masonry');
+    const stones = layoutCourses(rng, WALL);
+    return { f: ashlarField(rng, stones, WALL_OPTS), stones };
+  });
+  return { f: cloneField(m.f), stones: m.stones };
 }
 
-export function masonry(c: MatCanvas, rng: Rng): void {
-  const { f, stones } = masonryBase(rng);
+export function masonry(c: MatCanvas): void {
+  const { f, stones } = masonryBase();
   resolve(c, f, P.ASHLAR, P.JOINT, 0);
-  stains(c, rng, stones, 0.3);
+  stains(c, rngFor('masonryStains'), stones, 0.3);
 }
 
 /** Cap stones and wall tops: large square-ish slabs, plain dressed. */
@@ -226,8 +231,7 @@ export function floorSlab(c: MatCanvas, rng: Rng): void {
  * (alpha = emissive mask: well under 1 % of the surface glows).
  */
 export function crumbling(c: MatCanvas, rng: Rng): void {
-  const base = rngFor('masonry');
-  const { f, stones } = masonryBase(base);
+  const { f, stones } = masonryBase();
   const rubble = fbm(rng, 16, 2);
   const holeEdge = fbm(rng, 32, 1);
   for (const st of stones) {
@@ -271,7 +275,7 @@ export function crumbling(c: MatCanvas, rng: Rng): void {
   }
   for (let k = 0; k < 28; k++) chip(f, rng, rng.int(0, S - 1), rng.int(0, S - 1), rng.int(3, 7));
   resolve(c, f, P.ASHLAR, P.JOINT, 0);
-  stains(c, base, stones, 0.3);
+  stains(c, rngFor('masonryStains'), stones, 0.3);
   c.a.fill(0); // alpha is the emissive mask here
   // Cold light leaks through a few stretches of the opened joints (well under 1 % of texels).
   const leak = fbm(rng, 8, 1);

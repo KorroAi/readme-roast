@@ -819,8 +819,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
     return planted;
   };
-  plantVeins({ id: 'tunnel', min: [46, 92, 38], max: [90, 104, 78] }, 9, B.COPPER_ORE, 3, 6);
-  plantVeins({ id: 'hollowWest', min: [60, 42, 60], max: [100, 62, 140] }, 14, B.COPPER_ORE, 3, 6);
+  plantVeins({ id: 'tunnel', min: [46, 92, 38], max: [90, 104, 78] }, 12, B.COPPER_ORE, 3, 6);
+  plantVeins({ id: 'hollowWest', min: [60, 42, 60], max: [100, 54, 140] }, 16, B.COPPER_ORE, 3, 6);
   plantVeins({ id: 'hollowEast', min: [100, 42, 60], max: [146, 62, 140] }, 8, B.COPPER_ORE, 3, 5);
   plantVeins({ id: 'campEdge', min: [44, 100, 30], max: [52, 106, 52] }, 2, B.COPPER_ORE, 2, 3);
   plantVeins({ id: 'templeIron', min: [126, 42, 84], max: [146, 52, 118] }, 4, B.IRON_ORE, 2, 4);
