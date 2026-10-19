@@ -48,6 +48,10 @@ Node 22.22, headless Chromium 141 (Playwright 1.56.1) with WebGL 2 through Swift
 - The 45 s autosave timer and the `rest`, `respawn` and `new` save reasons (the death save, the
   explicit save and Save-and-Quit → Continue are tested).
 - The HUD target panel while merely hovering a block (it is checked while mining).
+- Fullscreen and the landscape lock are skipped when `navigator.webdriver` is set, so the e2e
+  suite never exercises them. They were checked once by hand in mobile emulation with webdriver
+  hidden: a real tap entered fullscreen in `landscape-primary`. Vibration is unit-tested against
+  a fake `navigator.vibrate` only.
 - Visual quality (screenshots inspected by eye), audio quality (not listened to), and everything on
   a real phone.
 

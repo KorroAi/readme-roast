@@ -6,6 +6,38 @@ Newest first. Each entry says what changed and how it was verified.
 
 Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce23151).
 
+### Mobile screen format and touch controls (`ui/TouchControls.ts`, `game/aimAssist.ts`, `ui/haptics.ts`, `ui/screenFormat.ts`)
+- **Mine button.** A 100 px amber button under the right thumb (88 px on short screens) mines
+  while held. Jump sits to its left and Use above it, mirrored in the left-handed layout. Press
+  and hold on a block (now 230 ms, slop 14 px) still mines exactly that block.
+- **Aim assist (touch only).** When the camera's centre ray does not land on something minable
+  in reach, the Mine button works on the exposed, minable block in reach that is closest to the
+  view direction (within 62°), with a clear line from the hand. It never picks a block through a
+  wall. Blocks the pick is too weak for are de-prioritised, and protected blocks are excluded. A
+  finger aimed at a block always wins. The aim returns to the centre ray 0.9 s after a world tap.
+- **Joystick.** The radius scales with the screen (54–72 px, 15 % of the short side). The base
+  follows the thumb when it overshoots, so turning back responds at once.
+- **Haptics.** `navigator.vibrate` gives short patterns for a strike, a too-hard block, a break,
+  a pickup, damage, a discovery and a craft. Strikes and pickups are rate-limited. There is a
+  Vibration setting (on by default), and vibration only fires on touch while playing. The
+  Android shell declares `VIBRATE`.
+- **Screen format.** On a phone browser (`(pointer: coarse) and (hover: none)`), Start and
+  Continue request fullscreen and a landscape lock from the tap. A refusal is ignored. The
+  Android shell is already fullscreen and landscape, and automated browsers are skipped.
+  Portrait shows a "turn your phone sideways" hint on the menu.
+- **Web app manifest.** The production build emits `manifest.webmanifest` (fullscreen,
+  landscape, theme `#05080c`) and 192/512/180 px icons rendered by `android/make-icon.mjs`;
+  `index.html` links them. The Visual Lab button is hidden in production builds unless `?lab`
+  is set.
+- **Fix.** Releasing the touch layer (window blur, page hidden) no longer cancels a desktop
+  mouse swing. It now only clears mining that the touch layer itself started.
+- **Verified.** 7 new unit tests cover assist face and reach, no wall-through, view preference,
+  joystick sizing and follow, and the haptics rate limit and disable. The UI replay test was
+  made relative to the hold threshold. Real CDP touches were sent to the dev server:
+  - at 844×390, the assist hovered the slate in reach, and holding Mine gave 3 strikes and broke it;
+  - at 390×844 portrait, the assist chose the faced block and the rotate hint showed;
+  - in mobile emulation with a real tap, the page went fullscreen in `landscape-primary`.
+
 ### Visual audit (baseline)
 - 12 gameplay screenshots + 4 Visual Lab views captured from the running game (915×412, Balanced,
   SwiftShader) in `artifacts/audit-before/` (git-ignored) and scored by three independent critics

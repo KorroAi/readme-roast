@@ -10,7 +10,8 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 | Real Android device | No device or emulator (Google's SDK host is blocked, so no emulator images). The APK is **built, signed and its packaged files simulated in Chromium on the app's origin — never installed or run on a phone.** Android WebView quirks, touch latency, Back / lifecycle behaviour and audio focus on a device are unverified. |
 | 60 FPS on the target phone | Unmeasured. All rendering here is SwiftShader (CPU). CPU-side frame cost is 1.1–1.8 ms avg (p95 ≤ 3.8 ms) and scenes are 59–187 draw calls / 21–95k triangles; no draw-call or triangle budget has been set or validated, and GPU time on a phone has not been measured. The Battery preset (30 FPS cap, no bloom, lower resolution) is the fallback. |
 | Audio | Every sound is measured offline (peak, RMS, spectral centroid) but **nobody has listened to it**. A by-ear mix pass on a phone speaker and headphones is needed. |
-| iOS | The web build should run in a WKWebView wrapper (WebGL 2 since iOS 15); no wrapper or test exists. |
+| iOS | The web build should run in a WKWebView wrapper (WebGL 2 since iOS 15); no wrapper or test exists. iOS Safari has no web vibration and no fullscreen API on iPhone, so haptics are absent and the address bar stays; adding the page to the home screen uses the manifest's fullscreen display. |
+| Touch feel on a phone | The Mine button, aim assist, joystick follow and haptics were checked with real CDP touch events in mobile emulation (844×390, 390×844), not with a thumb on a device. Sizes, the 230 ms hold and the vibration strengths may need tuning by hand. |
 | Some input and lifecycle paths | Captured mouse look, real Chrome's Esc-while-captured, the `pagehide` save and the 45 s autosave timer are not covered by automated tests (TEST_REPORT.md → "Not covered by automated tests"). |
 
 ## Android build

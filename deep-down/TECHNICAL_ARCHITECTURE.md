@@ -334,6 +334,26 @@ genuinely close, the explorer fades with true alpha: each part writes depth firs
 its colour with constant blend alpha after the opaque scene, so only its nearest surface shows
 and no dither pattern is printed over the world.
 
+## Touch input and phone screen format
+
+- `ui/TouchControls.ts` writes the same `InputState` as the desktop input. The left half of the
+  screen is a floating joystick: radius `joystickRadiusFor(w, h)` (54–72 px), and the base
+  follows the thumb past 1.2 × the radius (`touchMath.followBase`). The right half drags to look.
+  A press and hold on the world (230 ms, 14 px slop) mines the pressed block
+  (`aimFromPointer`). The action cluster holds Mine (hold), Jump and Use.
+- `game/aimAssist.ts`: with a touch device and no finger aim, `MiningController.findTarget`
+  keeps the centre ray when it hits something minable in reach. Otherwise it scans the cells in
+  reach and keeps solid, visible, unprotected blocks within 62° of the view direction that have
+  an open face toward the hand. They are scored `2·cos − 0.35·distance` (−1.5 when the pick is
+  too weak), and the winner must be the first cell a ray from the hand to that face hits.
+- `ui/haptics.ts` maps bus events to short `navigator.vibrate` patterns, rate-limited per kind.
+  It is gated on the Vibration setting, the last input device being touch, and play mode.
+- `ui/screenFormat.ts`: `enterGameScreen()` runs synchronously in the Start / Continue tap
+  (fullscreen needs a user gesture), then locks landscape. It is skipped in the Android shell,
+  on fine or hovering pointers, and when `navigator.webdriver` is set.
+- `vite.config.ts` → `webApp()` emits the manifest and icons at build time, and serves them from
+  memory in dev.
+
 ## Gameplay architecture
 
 - `EventBus<GameEvents>` (`core/events.ts`) decouples systems. Gameplay emits events;

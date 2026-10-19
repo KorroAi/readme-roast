@@ -17,8 +17,10 @@ npm run build          # production build in dist/
 ```
 
 Desktop controls: WASD move, mouse look (click to capture), hold left button to mine, Space
-jump, E use, I / Tab bag, Esc pause. Touch: left half joystick, right half drag to look,
-press and hold to mine, buttons for jump / use / bag / pause.
+jump, E use, I / Tab bag, Esc pause. Touch (landscape; a phone browser goes fullscreen and
+locks landscape on Start): left half a floating joystick that follows the thumb, right half drag
+to look, a large Mine button (hold; aim assist picks the block you face) or press and hold on a
+block, buttons for jump / use / bag / pause, short vibrations on strikes, breaks and pickups.
 
 ## Systems
 
