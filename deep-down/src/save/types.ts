@@ -13,6 +13,8 @@ export interface Settings {
   lookSensitivity: number; // 0.25 .. 2
   invertY: boolean;
   leftHanded: boolean;
+  /** Short vibrations on hits, breaks, pickups and damage (phones that support it). */
+  vibration: boolean;
   masterVolume: number; // 0 .. 1
   musicVolume: number;
   sfxVolume: number;
@@ -31,6 +33,7 @@ export const DEFAULT_SETTINGS: Settings = {
   lookSensitivity: 1,
   invertY: false,
   leftHanded: false,
+  vibration: true,
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.9,

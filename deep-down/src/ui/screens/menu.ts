@@ -7,6 +7,11 @@ import { iconPx, itemIconDataUrl } from '../icons';
 import type { ScreenHost } from './host';
 import { btn, header } from './widgets';
 
+/** The Visual Lab button: dev builds, or ?lab=1 for reviewers. */
+function showLab(): boolean {
+  return import.meta.env.DEV || new URLSearchParams(location.search).has('lab');
+}
+
 /** Main menu over the live cave: pixel-font title, tagline, the expedition buttons. */
 export function buildMenu(host: ScreenHost): HTMLElement {
   const a = host.actions;
@@ -48,9 +53,11 @@ export function buildMenu(host: ScreenHost): HTMLElement {
           'div',
           { class: 'dd-menu-row' },
           btn(t('menu.settings'), () => host.show('settings'), { key: 'settings' }),
-          btn(t('menu.visualLab'), () => a.openVisualLab(), { key: 'lab' }),
+          // The Visual Lab is a developer tool: not on a player's home screen.
+          showLab() ? btn(t('menu.visualLab'), () => a.openVisualLab(), { key: 'lab' }) : null,
         ),
       ),
+      h('p', { class: 'dd-rotate-hint', text: t('menu.rotateHint') }),
     ),
     h('p', { class: 'dd-version', text: t('menu.version', { version }) }),
   );

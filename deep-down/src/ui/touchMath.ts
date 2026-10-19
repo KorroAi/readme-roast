@@ -7,9 +7,13 @@ export const JOYSTICK_DEAD_ZONE = 0.12;
 /** Deflection (fraction of the radius) that already means full speed, so the edge is not a wall. */
 export const JOYSTICK_FULL = 0.9;
 
-/** A look-side touch becomes a mine touch after staying this still for this long. */
-export const HOLD_TO_MINE_MS = 140;
-export const HOLD_SLOP_PX = 12;
+/**
+ * A look-side touch becomes a mine touch after staying this still for this long. Long enough
+ * that a thumb resting before a camera drag does not start mining (the Mine button is the
+ * main way to mine on a phone; holding on a block aims at that exact block).
+ */
+export const HOLD_TO_MINE_MS = 230;
+export const HOLD_SLOP_PX = 14;
 /** A quick tap mines a single hit: mining stays held this long. */
 export const TAP_MINE_MS = 200;
 
@@ -49,6 +53,32 @@ export function toNdc(x: number, y: number, width: number, height: number, out: 
   out.x = width > 0 ? Math.max(-1, Math.min(1, (x / width) * 2 - 1)) : 0;
   out.y = height > 0 ? Math.max(-1, Math.min(1, 1 - (y / height) * 2)) : 0;
   return out;
+}
+
+/**
+ * Joystick radius for a screen: about 15 % of its short side, so the stick feels the same on a
+ * small phone and a large one (54-72 px). Tablets keep the large-phone size.
+ */
+export function joystickRadiusFor(width: number, height: number): number {
+  return Math.round(Math.max(54, Math.min(72, Math.min(width, height) * 0.15)));
+}
+
+/** How far the thumb may go past the rim before the base follows it (fraction of the radius). */
+export const JOYSTICK_FOLLOW = 1.2;
+
+/**
+ * Floating joystick that follows the thumb: when the thumb travels beyond JOYSTICK_FOLLOW x the
+ * radius, the base slides after it so the stick is never "lost" and reversing is instant.
+ * @returns the new base position.
+ */
+export function followBase(baseX: number, baseY: number, x: number, y: number, radius: number): [number, number] {
+  const dx = x - baseX;
+  const dy = y - baseY;
+  const len = Math.hypot(dx, dy);
+  const max = radius * JOYSTICK_FOLLOW;
+  if (len <= max) return [baseX, baseY];
+  const k = (len - max) / len;
+  return [baseX + dx * k, baseY + dy * k];
 }
 
 /** Keep a joystick base fully on screen so the knob can travel in every direction. */

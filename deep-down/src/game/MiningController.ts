@@ -6,6 +6,7 @@ import type { Rng } from '../core/rng';
 import { t, type TextKey } from '../i18n';
 import type { InputState } from '../input/types';
 import { raycastVoxels } from '../world/raycast';
+import { assistTarget } from './aimAssist';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import type { PropSpec } from '../world/gen/types';
 import type { CameraRig } from './CameraRig';
@@ -89,8 +90,40 @@ export class MiningController {
     private readonly rng: Rng,
   ) {}
 
-  /** Find what the aim ray hits (block or minable prop) and whether it is within reach. */
+  /**
+   * Find what the aim ray hits (block or minable prop) and whether it is within reach. On a
+   * touch screen with no finger on the world (the Mine button, or idle), the centre ray is
+   * kept when it lands on something minable in reach; otherwise aim assist picks the exposed
+   * minable block the explorer is facing.
+   */
   findTarget(input: InputState, handX: number, handY: number, handZ: number): MiningTarget | null {
+    const direct = this.rayTarget(input, handX, handY, handZ);
+    if (input.aimFromPointer || input.lastDevice !== 'touch') return direct;
+    if (direct && direct.inReach && direct.protectedReason === null) return direct;
+    return this.assisted(handX, handY, handZ) ?? direct;
+  }
+
+  /** Aim assist (touch): see findTarget. Uses the centre ray direction computed by rayTarget. */
+  private assisted(handX: number, handY: number, handZ: number): MiningTarget | null {
+    const tier = this.hooks.pickaxe().tier;
+    const a = assistTarget(this.world, handX, handY, handZ, this.dir.x, this.dir.y, this.dir.z, PLAYER.reach, (id) => {
+      const def = BLOCKS[id];
+      if (!def?.visible || def.protectedReason) return null;
+      // Prefer what the pick can break; a too-hard block is still shown (it tells the player why).
+      return def.tier > tier ? -1.5 : 0;
+    });
+    if (!a) return null;
+    const def = BLOCKS[a.block];
+    const point = new THREE.Vector3(a.x + 0.5 + a.nx * 0.5, a.y + 0.5 + a.ny * 0.5, a.z + 0.5 + a.nz * 0.5);
+    return {
+      kind: 'block', key: `${a.x},${a.y},${a.z}`, x: a.x, y: a.y, z: a.z, nx: a.nx, ny: a.ny, nz: a.nz, point,
+      block: a.block, prop: null, name: t(def.name), hardness: def.hardness, tier: def.tier,
+      protectedReason: null, inReach: true,
+    };
+  }
+
+  /** What the aim ray (crosshair, or the pointer when aiming from it) hits. */
+  private rayTarget(input: InputState, handX: number, handY: number, handZ: number): MiningTarget | null {
     const ndcX = input.aimFromPointer ? input.aimX : 0;
     const ndcY = input.aimFromPointer ? input.aimY : 0;
     this.cameraRig.rayThrough(ndcX, ndcY, this.origin, this.dir);
@@ -128,8 +161,9 @@ export class MiningController {
     this.time += dt;
     this.rules.update(dt);
     const wantsMine = active && input.mining;
-    // Desktop with a crosshair shows the hovered block even when not mining.
-    const showHover = active && (wantsMine || (!input.aimFromPointer && input.lastDevice !== 'touch'));
+    // The crosshair (desktop) or the aim-assisted block (touch) is shown even when not mining,
+    // so the player sees what the next swing will hit.
+    const showHover = active && (wantsMine || !input.aimFromPointer);
     this.target = showHover ? this.findTarget(input, handX, handY, handZ) : null;
     const tgt = this.target && this.target.inReach ? this.target : null;
 

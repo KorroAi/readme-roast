@@ -38,6 +38,8 @@ import { HaloSystem, collectWorldLights, type HaloSource } from './effects/Halos
 import { WorldSession } from './WorldSession';
 import { Guidance } from './Guidance';
 import { installDebugApi } from '../debug/DebugApi';
+import { enterGameScreen } from '../ui/screenFormat';
+import { Haptics } from '../ui/haptics';
 
 export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead';
 
@@ -61,6 +63,7 @@ export class Game {
   session!: WorldSession;
   ui!: GameUi;
   audio!: AudioSystem;
+  private haptics: Haptics | null = null;
   desktop!: DesktopInput;
   cameraRig!: CameraRig;
   player!: PlayerController;
@@ -137,6 +140,7 @@ export class Game {
     this.ui.setLoading(0, t('menu.loading'));
     this.audio = new AudioSystem(this.bus);
     this.applyAudioSettings();
+    this.haptics = new Haptics(this.bus, () => this.settings.vibration && this.input.lastDevice === 'touch' && this.mode === 'playing');
 
     this.session = await WorldSession.create((p, phase) => {
       const label: TextKey = phase === 'carve' ? 'menu.loading' : phase === 'light' ? 'menu.loadingLight' : 'menu.loadingMesh';
@@ -1087,8 +1091,15 @@ export class Game {
 
   private createActions(): UiActions {
     return {
-      continueGame: () => void this.continueGame(),
-      newGame: () => void this.newGame(),
+      // Both arrive from a tap: the one moment a phone browser grants fullscreen and a landscape lock.
+      continueGame: () => {
+        enterGameScreen();
+        void this.continueGame();
+      },
+      newGame: () => {
+        enterGameScreen();
+        void this.newGame();
+      },
       openVisualLab: () => {
         location.href = './visuallab.html';
       },
@@ -1156,6 +1167,7 @@ export class Game {
     for (const d of this.disposers) d();
     this.desktop.dispose();
     this.audio.dispose();
+    this.haptics?.dispose();
     this.ui.dispose();
     this.session.dispose();
     this.renderer.dispose();

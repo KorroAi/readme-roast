@@ -32,21 +32,33 @@ for (let x = 9; x <= 14; x++) set(x, 20, [255, 179, 92]);
 for (let x = 10; x <= 13; x++) set(x, 21, [255, 197, 138]);
 set(11, 19, [255, 220, 170]); set(12, 19, [255, 220, 170]);
 
-const sizes = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
-for (const [name, size] of Object.entries(sizes)) {
+/**
+ * The icon at `size` px as RGBA8, with the rounded-square mask (`masked`, launcher style) or as a
+ * full square (web app icons, which the platform masks itself).
+ */
+export function renderIcon(size, masked = true) {
   const img = new Uint8Array(size * size * 4);
   for (let y = 0; y < size; y++)
     for (let x = 0; x < size; x++) {
       const s = px[Math.floor((y / size) * N) * N + Math.floor((x / size) * N)];
-      // Rounded-square mask for legacy launchers.
       const u = (x + 0.5) / size - 0.5, v = (y + 0.5) / size - 0.5;
-      const r = 0.42, corner = Math.max(0, Math.abs(u) - (0.5 - 0.08 - r * 0)) ;
-      const inside = Math.hypot(Math.max(0, Math.abs(u) - 0.38), Math.max(0, Math.abs(v) - 0.38)) <= 0.1;
-      const o = (y * size + x) * 4;
-      img.set(inside ? s : [0, 0, 0, 0], o);
-      void corner;
+      const inside = !masked || Math.hypot(Math.max(0, Math.abs(u) - 0.38), Math.max(0, Math.abs(v) - 0.38)) <= 0.1;
+      img.set(inside ? s : [0, 0, 0, 0], (y * size + x) * 4);
     }
-  mkdirSync(`${out}/mipmap-${name}`, { recursive: true });
-  writeFileSync(`${out}/mipmap-${name}/ic_launcher.png`, encodePng(size, size, img));
+  return img;
 }
-console.log('icons written to', out);
+
+/** The icon at `size` px as PNG bytes. */
+export function iconPng(size, masked = true) {
+  return encodePng(size, size, renderIcon(size, masked));
+}
+
+// CLI (android/build-apk.sh): write the launcher mipmaps.
+if (process.argv[1] && process.argv[1].endsWith('make-icon.mjs')) {
+  const sizes = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
+  for (const [name, size] of Object.entries(sizes)) {
+    mkdirSync(`${out}/mipmap-${name}`, { recursive: true });
+    writeFileSync(`${out}/mipmap-${name}/ic_launcher.png`, iconPng(size));
+  }
+  console.log('icons written to', out);
+}

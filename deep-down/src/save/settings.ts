@@ -29,6 +29,7 @@ export function sanitizeSettings(x: unknown): Settings {
     lookSensitivity: num(s.lookSensitivity, SETTINGS_LIMITS.lookSensitivity, d.lookSensitivity),
     invertY: bool(s.invertY, d.invertY),
     leftHanded: bool(s.leftHanded, d.leftHanded),
+    vibration: bool(s.vibration, d.vibration),
     masterVolume: num(s.masterVolume, SETTINGS_LIMITS.volume, d.masterVolume),
     musicVolume: num(s.musicVolume, SETTINGS_LIMITS.volume, d.musicVolume),
     sfxVolume: num(s.sfxVolume, SETTINGS_LIMITS.volume, d.sfxVolume),

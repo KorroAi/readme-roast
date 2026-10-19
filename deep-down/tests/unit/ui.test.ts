@@ -190,7 +190,7 @@ describe('hold-to-mine state machine', () => {
     expect(advanceLookPhase('mine', 300, 300, 2000)).toBe('mine');
     expect(advanceLookPhase('look', 0, 0, 2000)).toBe('look');
     // Moving a lot after the hold re-aims instead of rotating the camera.
-    expect(replay([[200, 80, -40], [260, 160, -60]], 900)).toEqual({ phase: 'mine', release: 'endMine' });
+    expect(replay([[HOLD_TO_MINE_MS + 60, 80, -40], [HOLD_TO_MINE_MS + 120, 160, -60]], 900)).toEqual({ phase: 'mine', release: 'endMine' });
   });
 
   it('treats a quick still tap as a single mining hit', () => {

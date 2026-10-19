@@ -18,6 +18,7 @@ export const en = {
   'menu.loadingLight': 'Lighting the crystals…',
   'menu.loadingMesh': 'Shaping the stone…',
   'menu.version': 'Vertical slice {version}',
+  'menu.rotateHint': 'Best played in landscape: turn your phone sideways.',
   'menu.saveFound': 'Last saved {time}',
   'menu.credits.body':
     'DEEP DOWN is generated entirely in code: every block, texture, sound and note of music. No external assets.',
@@ -56,6 +57,7 @@ export const en = {
   'settings.lookSensitivity': 'Look sensitivity',
   'settings.invertY': 'Invert vertical look',
   'settings.leftHanded': 'Swap sides (left-handed)',
+  'settings.vibration': 'Vibration',
   'settings.audio': 'Audio',
   'settings.master': 'Master volume',
   'settings.music': 'Music',

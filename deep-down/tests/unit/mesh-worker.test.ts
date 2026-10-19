@@ -309,7 +309,9 @@ describe('ChunkRenderer with mesh workers', () => {
     const geos = () => corner.map((m) => m.geometry);
     const g0 = geos();
     w.set(32, y, 32, B.AIR);
-    expect(cr.update(focus)).toBe(4);
+    // A generous budget: under CPU load four copies can exceed the 4 ms default, and the batch
+    // (not the budget) is what this test is about.
+    expect(cr.update(focus, 1000)).toBe(4);
     expect(hub.workers.every((f) => f.inbox.length === 1)).toBe(true); // split over both workers
     hub.workers[1].step();
     expect(geos()).toEqual(g0); // half the batch is not enough

@@ -5,9 +5,10 @@ import { equipmentIconDataUrl, iconPx } from './icons';
 import {
   advanceLookPhase,
   clampBase,
+  followBase,
   HOLD_TO_MINE_MS,
-  JOYSTICK_RADIUS,
   joystick,
+  joystickRadiusFor,
   releaseLook,
   TAP_MINE_MS,
   toNdc,
@@ -36,8 +37,10 @@ interface LookTouch {
 const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [data-touch-ignore]';
 
 /**
- * Mobile controls: a floating joystick on the move side, drag-to-look and press-and-hold
- * mining on the look side, plus Jump / Use / Bag / Pause buttons. Writes only InputState.
+ * Mobile controls: a floating joystick on the move side (sized to the screen, following the
+ * thumb), drag-to-look on the look side with tap / press-and-hold on a block to mine exactly
+ * there, and a large Mine button that mines what aim assist targets (shown highlighted), plus
+ * Jump / Use / Bag / Pause buttons. Writes only InputState.
  *
  * Touches are tracked by pointerId from window-level pointer events, so the layer itself
  * stays transparent to the mouse (desktop play goes to DesktopInput through the canvas).
@@ -51,8 +54,12 @@ export class TouchControls {
   private stick: StickTouch | null = null;
   private look: LookTouch | null = null;
   private ownsMining = false;
+  /** The Mine button is held (mines the assisted target, no finger on the world). */
+  private mineHeld = false;
   private holdTimer = 0;
   private tapTimer = 0;
+  private aimResetTimer = 0;
+  private radius = 60;
   private readonly stickOut: StickOutput = { x: 0, y: 0, knobX: 0, knobY: 0 };
   private readonly ndc = { x: 0, y: 0 };
   private readonly base: HTMLElement;
@@ -72,6 +79,17 @@ export class TouchControls {
       input.interactPressed = true;
     });
     this.useBtn.hidden = true;
+    const mine = this.button('dd-tbtn dd-mine', [h('span', { class: 'dd-mine-glyph', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pickaxe', 2, iconPx(34))}")` }), h('span', { text: t('hud.mine') })], () => {
+      this.mineHeld = true;
+      window.clearTimeout(this.aimResetTimer);
+      // Aim assist: no finger on the world, so mining goes to the highlighted block.
+      this.input.aimFromPointer = false;
+      this.input.mining = true;
+    }, () => {
+      this.mineHeld = false;
+      if (this.look?.phase !== 'mine') this.input.mining = false;
+    });
+    mine.setAttribute('aria-label', t('hud.mine'));
     const jump = this.button('dd-tbtn dd-jump', [h('span', { class: 'dd-jump-glyph', 'aria-hidden': 'true' }), h('span', { text: t('hud.jump') })], () => {
       input.jumpPressed = true;
       input.jumpHeld = true;
@@ -92,10 +110,14 @@ export class TouchControls {
       { class: 'dd-touch' },
       this.base,
       this.ring,
-      h('div', { class: 'dd-action-cluster' }, this.useBtn, jump),
+      h('div', { class: 'dd-action-cluster' }, this.useBtn, jump, mine),
       h('div', { class: 'dd-sys' }, bag, pause),
     );
     root.appendChild(this.el);
+    this.sizeStick(window.innerWidth, window.innerHeight);
+    const onResize = () => this.sizeStick(window.innerWidth, window.innerHeight);
+    window.addEventListener('resize', onResize);
+    this.disposers.push(() => window.removeEventListener('resize', onResize));
 
     const forced = document.documentElement.dataset.touchUi === '1';
     this.touchUi = forced || navigator.maxTouchPoints > 0 || matchMedia('(any-pointer: coarse)').matches;
@@ -208,16 +230,18 @@ export class TouchControls {
     const hgt = window.innerHeight;
     if (touchSide(e.clientX, w, this.leftHanded) === 'move') {
       if (this.stick) return;
-      const [bx, by] = clampBase(e.clientX, e.clientY, w, hgt);
+      this.sizeStick(w, hgt);
+      const [bx, by] = clampBase(e.clientX, e.clientY, w, hgt, this.radius);
       this.stick = { id: e.pointerId, baseX: bx, baseY: by };
       this.base.classList.remove('idle');
-      this.base.style.transform = `translate3d(${bx - JOYSTICK_RADIUS}px, ${by - JOYSTICK_RADIUS}px, 0)`;
+      this.placeBase();
       this.updateStick(e.clientX, e.clientY);
     } else {
       if (this.look) return;
       // Event timestamps (same clock as performance.now) judge the hold by when the finger
       // actually moved, even if a busy main thread delivers the move late.
       this.look = { id: e.pointerId, phase: 'pending', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: e.timeStamp };
+      window.clearTimeout(this.aimResetTimer);
       window.clearTimeout(this.holdTimer);
       this.holdTimer = window.setTimeout(() => this.onHoldTimer(), HOLD_TO_MINE_MS);
       this.showRing(e.clientX, e.clientY, 'pending');
@@ -273,6 +297,18 @@ export class TouchControls {
       if (action === 'endMine') this.endMining();
       this.hideRing();
     }
+    if (action !== 'none') this.scheduleAimReset();
+  }
+
+  /**
+   * After mining at a finger, hand the aim back to aim assist once the swing has landed, so the
+   * highlighted block (and the Mine button) follow the view again.
+   */
+  private scheduleAimReset(): void {
+    window.clearTimeout(this.aimResetTimer);
+    this.aimResetTimer = window.setTimeout(() => {
+      if (!this.look && !this.mineHeld && !this.input.mining) this.input.aimFromPointer = false;
+    }, 900);
   }
 
   private onHoldTimer(): void {
@@ -301,7 +337,7 @@ export class TouchControls {
     window.clearTimeout(this.tapTimer);
     if (this.look?.phase === 'mine' || !this.ownsMining) return;
     this.ownsMining = false;
-    this.input.mining = false;
+    if (!this.mineHeld) this.input.mining = false;
   }
 
   private aimAt(x: number, y: number): void {
@@ -310,9 +346,28 @@ export class TouchControls {
     this.input.aimY = this.ndc.y;
   }
 
+  /** Joystick size for this screen (also drives the CSS size of the base and knob). */
+  private sizeStick(w: number, hgt: number): void {
+    const r = joystickRadiusFor(w, hgt);
+    if (r === this.radius) return;
+    this.radius = r;
+    this.el.style.setProperty('--stick-r', `${r}px`);
+  }
+
+  private placeBase(): void {
+    const s = this.stick!;
+    this.base.style.transform = `translate3d(${s.baseX - this.radius}px, ${s.baseY - this.radius}px, 0)`;
+  }
+
   private updateStick(x: number, y: number): void {
     const s = this.stick!;
-    const out = joystick(x - s.baseX, y - s.baseY, this.stickOut);
+    // The base follows a thumb that overshoots the rim, so the stick is never lost.
+    const [fx, fy] = followBase(s.baseX, s.baseY, x, y, this.radius);
+    if (fx !== s.baseX || fy !== s.baseY) {
+      [s.baseX, s.baseY] = clampBase(fx, fy, window.innerWidth, window.innerHeight, this.radius);
+      this.placeBase();
+    }
+    const out = joystick(x - s.baseX, y - s.baseY, this.stickOut, this.radius);
     this.input.moveX = out.x;
     this.input.moveY = out.y;
     this.knob.style.transform = `translate3d(${out.knobX}px, ${out.knobY}px, 0)`;
@@ -330,8 +385,11 @@ export class TouchControls {
   private releaseAll(): void {
     if (this.stick) this.endStick();
     window.clearTimeout(this.holdTimer);
+    window.clearTimeout(this.aimResetTimer);
     this.look = null;
+    this.mineHeld = false;
     this.endMining();
+    this.input.mining = false;
     this.hideRing();
     this.input.jumpHeld = false;
     for (const b of this.el.querySelectorAll('.pressed')) b.classList.remove('pressed');

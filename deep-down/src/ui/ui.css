@@ -630,8 +630,9 @@
   position: absolute;
   left: 0;
   top: 0;
-  width: 120px;
-  height: 120px;
+  /* --stick-r is set by TouchControls from the screen size (54-72 px). */
+  width: calc(var(--stick-r, 60px) * 2);
+  height: calc(var(--stick-r, 60px) * 2);
   border-radius: 50%;
   box-sizing: border-box;
   border: 2px solid rgba(220, 235, 255, 0.28);
@@ -657,9 +658,9 @@
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 52px;
-  height: 52px;
-  margin: -26px 0 0 -26px;
+  width: calc(var(--stick-r, 60px) * 0.88);
+  height: calc(var(--stick-r, 60px) * 0.88);
+  margin: calc(var(--stick-r, 60px) * -0.44) 0 0 calc(var(--stick-r, 60px) * -0.44);
   border-radius: 50%;
   box-sizing: border-box;
   background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.6), rgba(190, 210, 235, 0.22));
@@ -734,31 +735,77 @@
   color: #fff;
   scale: 0.95;
 }
+/* Right-thumb arc: the big Mine button in the corner, Jump beside it, Use above it. */
 .dd-action-cluster {
+  --mine: 100px;
+  --jump: 72px;
   position: absolute;
-  right: calc(28px + var(--safe-right));
-  bottom: calc(26px + var(--safe-bottom));
+  right: calc(20px + var(--safe-right));
+  bottom: calc(20px + var(--safe-bottom));
+  width: calc(var(--mine) + var(--jump) + 14px);
+  height: calc(var(--mine) + 96px);
   display: none;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
+  pointer-events: none;
+}
+.dd-action-cluster > * {
+  pointer-events: auto;
 }
 .dd-touch-ui .dd-action-cluster {
-  display: flex;
+  display: block;
 }
 .dd-lefty .dd-action-cluster {
   right: auto;
-  left: calc(28px + var(--safe-left));
+  left: calc(20px + var(--safe-left));
 }
-.dd-jump {
-  width: 84px;
-  height: 84px;
+.dd-mine {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: var(--mine);
+  height: var(--mine);
   border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 4px;
+  background: radial-gradient(circle at 50% 38%, rgba(255, 179, 92, 0.34), rgba(40, 24, 10, 0.5) 72%);
+  border: 2px solid rgba(255, 200, 140, 0.62);
+  box-shadow: 0 0 18px rgba(255, 160, 70, 0.18);
+}
+.dd-mine.pressed {
+  background: radial-gradient(circle at 50% 38%, rgba(255, 196, 120, 0.7), rgba(120, 60, 18, 0.62) 72%);
+  border-color: #ffd9a8;
+  box-shadow: 0 0 26px rgba(255, 170, 80, 0.5);
+}
+.dd-mine-glyph {
+  width: 34px;
+  height: 34px;
+  background: center / contain no-repeat;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 1px 1px #000);
+}
+.dd-jump {
+  position: absolute;
+  right: calc(var(--mine) + 14px);
+  bottom: 4px;
+  width: var(--jump);
+  height: var(--jump);
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.dd-lefty .dd-mine,
+.dd-lefty .dd-use {
+  right: auto;
+  left: 0;
+}
+.dd-lefty .dd-jump {
+  right: auto;
+  left: calc(var(--mine) + 14px);
 }
 .dd-jump-glyph {
   width: 13px;
@@ -769,6 +816,9 @@
   rotate: 45deg;
 }
 .dd-use {
+  position: absolute;
+  right: 0;
+  bottom: calc(var(--mine) + 14px);
   min-width: 84px;
   max-width: 180px;
   min-height: 54px;
@@ -1738,6 +1788,10 @@
 
 /* Short landscape phones: tighten vertical rhythm so menus fit without scrolling. */
 @media (max-height: 460px) {
+  .dd-action-cluster {
+    --mine: 88px;
+    --jump: 64px;
+  }
   .dd-panel-head {
     min-height: 56px;
     padding-top: 4px;
@@ -1850,5 +1904,21 @@
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+}
+
+/* Home screen: a gentle nudge to play landscape, only on touch screens held upright. */
+.dd-rotate-hint {
+  display: none;
+  margin: 14px auto 0;
+  max-width: 300px;
+  font-size: calc(13px * var(--s));
+  line-height: 1.4;
+  text-align: center;
+  color: var(--ink-dim);
+}
+@media (orientation: portrait) {
+  .dd-touch-ui .dd-rotate-hint {
+    display: block;
   }
 }

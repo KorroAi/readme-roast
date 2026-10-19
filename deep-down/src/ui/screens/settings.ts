@@ -65,6 +65,7 @@ export function buildSettings(host: ScreenHost): HTMLElement {
           }),
           toggle(t('settings.invertY'), s.invertY, (invertY) => set({ invertY }), 'invertY', on, off),
           toggle(t('settings.leftHanded'), s.leftHanded, (leftHanded) => set({ leftHanded }), 'leftHanded', on, off),
+          toggle(t('settings.vibration'), s.vibration, (vibration) => set({ vibration }), 'vibration', on, off),
         ),
         section(
           t('settings.audio'),
