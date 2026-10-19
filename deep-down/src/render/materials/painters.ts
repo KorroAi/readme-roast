@@ -2,7 +2,7 @@ import type { MatCanvas, Rng } from './paint';
 import { bedrock, dampSide, dampTop, deepSide, deepTop, sealStone, stoneSide, stoneTop, weatheredSide, weatheredTop } from './rock';
 import { gravel, soil, soilSide } from './earth';
 import { copperTop, copperVein, crystal, ironTop, ironVein } from './minerals';
-import { crumbling, floorSlab, hearth, masonry, masonryTop } from './masonry';
+import { crumbling, crumblingB, floorSlab, hearth, masonry, masonryB, masonryTop } from './masonry';
 import { beamEnd, beamSide, plank } from './timber';
 
 export type MaterialPainter = (c: MatCanvas, rng: Rng) => unknown;
@@ -35,4 +35,6 @@ export const PAINTERS = {
   beamEnd,
   hearth,
   bedrock,
+  masonryB,
+  crumblingB,
 } satisfies Record<string, MaterialPainter>;

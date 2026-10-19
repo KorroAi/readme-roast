@@ -66,16 +66,11 @@ in float vDepth;
 layout(location = 0) out highp vec4 fragColor;
 
 void main() {
-#ifdef USE_FADE
-  // Screen-door fade (used when the camera gets very close to the explorer).
-  if (uFade < 0.999) {
-    float d = fract(dot(gl_FragCoord.xy, vec2(0.7548777, 0.5698403)));
-    if (d > uFade) discard;
-  }
-#endif
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
-  vec3 albedo = vColor * uTint;
+  // The explorer (uRim) is demoted a little: a slightly darker coat, so the route and the
+  // landmarks, not the carrier of the lantern, hold the brightest values of the frame.
+  vec3 albedo = vColor * uTint * (1.0 - 0.15 * uRim);
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
@@ -86,21 +81,25 @@ void main() {
   float contact = ls.a > 0.02 ? clamp(below / ls.a, 0.0, 1.0) : 1.0;
   contact = 0.4 + 0.6 * smoothstep(0.08, 0.9, contact);
   vec3 env = ambientFrom(ls);
-  vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a);
+  // The carrier's own lantern is measured from at least 2 m (its flame hangs at the hip):
+  // otherwise the inverse-square core would make the explorer the brightest thing on screen.
+  vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a, 2.0 * uRim);
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
   if (uRim > 0.0) {
     // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half
-    // desaturated on it (warm lamp light is not), so the ochre coat never turns teal, and a faint
-    // warm rim from the carried lantern wraps the silhouette so it separates from dark rock.
+    // desaturated on it (warm lamp light is not), so the ochre coat never turns teal. A faint
+    // warm rim, only on silhouette edges turned away from the flame (where the lantern does not
+    // already light it), separates it from dark rock without making it glow.
     float el = dot(env, vec3(0.2126, 0.7152, 0.0722));
     float cool = smoothstep(0.0, 0.35, (env.b - env.r) / max(el, 1e-4));
     env = mix(env, vec3(el), 0.55 * cool);
     vec3 v = normalize(cameraPosition - vWorldPos);
-    float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 2.5);
-    float near = 1.0 - smoothstep(0.6, 2.6, distance(uLanternPos, vWorldPos));
+    float rim = pow(1.0 - clamp(dot(n, v), 0.0, 1.0), 3.0);
+    vec3 toFlame = uLanternPos - vWorldPos;
+    float away = smoothstep(0.25, -0.35, dot(n, toFlame) / max(length(toFlame), 1e-3));
+    float near = 1.0 - smoothstep(0.6, 2.6, length(toFlame));
     vec3 warm = uLanternColor * vec3(1.0, 0.62, 0.36) * uLanternIntensity;
-    emissive += albedo * warm * (rim * (0.35 + 0.65 * near) * 0.55 * uRim);
-    lantern += warm * (0.05 * uRim * near);
+    emissive += albedo * warm * (rim * away * near * 0.15 * uRim);
   }
   vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
   vec3 color = albedo * light;
@@ -116,11 +115,15 @@ export interface EntityMaterialOptions {
   emissiveScale?: number;
   emissiveColor?: THREE.ColorRepresentation;
   doubleSided?: boolean;
-  /** Compile the screen-door fade (uFade). Only for materials that fade: discard costs early-Z. */
+  /**
+   * The material belongs to the explorer, which fades near the camera (ExplorerModel blends it
+   * with a constant alpha after a depth pass: no discard, no screen-door define). uFade is kept
+   * as the explorer's current opacity.
+   */
   fade?: boolean;
   /**
-   * Character lighting (warm lantern rim, desaturated environment light), 0..1. Defaults to 1 for
-   * fading materials (only the explorer fades) and 0 otherwise.
+   * Character lighting (lantern distance clamp, edge rim away from the flame, darker albedo,
+   * desaturated environment light), 0..1. Defaults to 1 for the explorer (fade) and 0 otherwise.
    */
   rim?: number;
 }
@@ -137,7 +140,7 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uFade: { value: 1 },
       uRim: { value: opts.rim ?? (opts.fade ? 1 : 0) },
     },
-    defines: opts.fade ? { USE_FADE: '' } : {},
+    defines: {},
     vertexShader: vertex,
     fragmentShader: fragment,
     side: opts.doubleSided ? THREE.DoubleSide : THREE.FrontSide,

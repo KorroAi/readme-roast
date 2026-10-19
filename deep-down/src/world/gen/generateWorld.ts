@@ -868,6 +868,52 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   discoveries.push({ id: 'ironVein', min: [0, 0, 0], max: [0, 0, 0] }); // triggered by mining feedback, not a region
   mark('dressing');
 
+  // ------------------------------------------------------------------------------------
+  // 13. Key lights: one motivated light per space, placed after all geometry so nothing
+  // overwrites them. Cold light belongs to the builders and the Glimmerfall, violet to the deep.
+  {
+    /** Puts an emitter in the open cell nearest to (x, y, z) (radius 2), never over another light. */
+    const keyLight = (x: number, y: number, z: number, id: number): boolean => {
+      for (let r = 0; r <= 2; r++)
+        for (let dy = -r; dy <= r; dy++)
+          for (let dz = -r; dz <= r; dz++)
+            for (let dx = -r; dx <= r; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy), Math.abs(dz)) !== r) continue;
+              const cx = x + dx;
+              const cy = y + dy;
+              const cz = z + dz;
+              const id0 = get(cx, cy, cz);
+              if (SOLID[id0] || isEmitter(id0) || !interior(cx, cy, cz)) continue;
+              put(cx, cy, cz, id);
+              return true;
+            }
+      return false;
+    };
+    // The Spindle: uplit from the Glimmerfall's pool at its foot, on the sides that face the
+    // fall and the ledge, so the Hollow's landmark reads as a lit form from the reveal.
+    const sp = landmarks.spindle;
+    if (sp) {
+      const fy = Math.floor(sp[1]) + 1;
+      for (const ang of [-1.15, -0.35, 0.3]) {
+        const dx = Math.cos(ang);
+        const dz = Math.sin(ang);
+        let r = 3;
+        while (r < 12 && !isAir(Math.floor(sp[0] + dx * r), fy, Math.floor(sp[2] + dz * r))) r += 0.5;
+        keyLight(Math.floor(sp[0] + dx * (r + 1)), fy, Math.floor(sp[2] + dz * (r + 1)), B.LIGHT_CYAN);
+      }
+    }
+    // The sealed gate: a cold underglow on the seal from its threshold, and the frieze lit from
+    // inside its recess between the lintel and the cornice (the inscription answers from afar).
+    keyLight(136, floorBase + 1, 99, B.LIGHT_CYAN);
+    keyLight(136, floorBase + 1, 102, B.LIGHT_CYAN);
+    keyLight(134, floorBase + 10, 98, B.LIGHT_CYAN);
+    keyLight(134, floorBase + 10, 103, B.LIGHT_CYAN);
+    // The shrine: the inscription's light pools on the dais in front of it.
+    keyLight(51, floorBase + 2, 104, B.LIGHT_CYAN);
+    // The chasm under the bridge: violet glow low along its length, so it reads as depth.
+    for (const [x, y, z] of [[111, 35, 128], [117, 34, 129], [128, 35, 128], [134, 34, 129]] as V3[]) keyLight(x, y, z, B.LIGHT_ABYSS);
+  }
+
   // Re-assert the bedrock shell (decoration passes must never open the world boundary).
   for (let z = 0; z < sz; z++)
     for (let y = 0; y < sy; y++) {

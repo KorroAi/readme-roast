@@ -44,7 +44,8 @@ void main() {
   float soft = (1.0 - d);
   // Lit by the same light volumes as everything else (no normal: average facing).
   vec4 ls = lightSample(vWorldPos);
-  vec3 light = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos)) * 0.8;
+  // Distance clamped to 1.2 m: motes drifting past the flame must not flash brighter than it.
+  vec3 light = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos), 0.5, 1.2) * 0.8;
   vec3 col = vColor * mix(light, vec3(1.0), vGlow);
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   col = mix(col, atm.rgb, atm.a);

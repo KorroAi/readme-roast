@@ -698,16 +698,21 @@ function seamHashes(): Uint32Array {
 /** Shading normals of the current face's corners (for the fold-aware split). */
 const cn = new Float64Array(12);
 
-export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: number): ChunkMeshData {
+/** Bytes of one padded voxel block: the chunk plus a PAD-voxel border, all the mesher reads. */
+export const PADDED_VOXELS = P * P * P;
+
+/**
+ * Copy chunk (ccx, ccy, ccz) plus a PAD-voxel border into `out` (PADDED_VOXELS bytes, index
+ * x + P (y + P z)), so the inner loops need no bounds checks. Outside the world reads as bedrock:
+ * opaque, never meshed, only occludes. This block is everything the mesher reads, so it is what a
+ * mesh worker receives (meshPadded).
+ */
+export function copyPadded(world: VoxelWorld, ccx: number, ccy: number, ccz: number, out: Uint8Array = new Uint8Array(PADDED_VOXELS)): Uint8Array {
   const cs = world.chunkSize;
   if (cs !== 16) throw new Error('mesher expects 16^3 chunks');
   const bx = ccx * cs - PAD;
   const by = ccy * cs - PAD;
   const bz = ccz * cs - PAD;
-  stamp++;
-
-  // Copy the chunk plus a PAD-voxel border so the inner loops need no bounds checks. Outside
-  // the world reads as bedrock: opaque, never meshed, only occludes.
   const { sx, sy, sz, blocks } = world;
   const x0 = Math.max(0, bx);
   const x1 = Math.min(sx, bx + P);
@@ -717,16 +722,39 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
       const wy = by + y;
       const row = y * P + z * P2;
       if (wz < 0 || wz >= sz || wy < 0 || wy >= sy || x1 <= x0) {
-        pad.fill(B.BEDROCK, row, row + P);
+        out.fill(B.BEDROCK, row, row + P);
         continue;
       }
       let x = 0;
-      for (; x < x0 - bx; x++) pad[row + x] = B.BEDROCK;
+      for (; x < x0 - bx; x++) out[row + x] = B.BEDROCK;
       const src = x0 + sx * (wy + sy * wz) - (x0 - bx);
-      for (; x < x1 - bx; x++) pad[row + x] = blocks[src + x];
-      for (; x < P; x++) pad[row + x] = B.BEDROCK;
+      for (; x < x1 - bx; x++) out[row + x] = blocks[src + x];
+      for (; x < P; x++) out[row + x] = B.BEDROCK;
     }
   }
+  return out;
+}
+
+export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: number): ChunkMeshData {
+  copyPadded(world, ccx, ccy, ccz, pad);
+  return meshPad(ccx, ccy, ccz);
+}
+
+/**
+ * meshChunk from a padded voxel block (copyPadded) instead of the world: what the mesh worker
+ * runs. A pure function of `voxels` and the chunk coordinates (and MESH_OPTIONS), byte-identical
+ * to meshChunk over the same voxels.
+ */
+export function meshPadded(voxels: Uint8Array, ccx: number, ccy: number, ccz: number): ChunkMeshData {
+  if (voxels.length !== PADDED_VOXELS) throw new Error('meshPadded expects a copyPadded block');
+  pad.set(voxels);
+  return meshPad(ccx, ccy, ccz);
+}
+
+/** Mesh chunk (ccx, ccy, ccz) from the padded voxels already in `pad`. */
+function meshPad(ccx: number, ccy: number, ccz: number): ChunkMeshData {
+  const cs = 16;
+  stamp++;
   let anyVisible = false;
   scan: for (let z = PAD; z < P - PAD; z++)
     for (let y = PAD; y < P - PAD; y++) {

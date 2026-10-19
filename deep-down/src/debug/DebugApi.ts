@@ -127,7 +127,17 @@ export function installDebugApi(game: Game): void {
       s.add?.(item, count);
     },
     block: (x: number, y: number, z: number) => game.session.world.get(x, y, z),
+    /** Changes the voxels (and light) at once; the chunk mesh follows from the mesh workers a
+     *  frame or two later (see meshIdle). */
     setBlock: (x: number, y: number, z: number, id: number) => game.session.setBlock(x, y, z, id),
+    /** Resolves once every pending chunk mesh is applied: await it before judging the terrain on
+     *  screen right after setBlock or mining. */
+    meshIdle: () => game.session.chunks.flush(),
+    /** Flush, then compare every chunk's GPU data with a fresh main-thread mesh of the world. */
+    meshCheck: async () => {
+      await game.session.chunks.flush();
+      return game.session.chunks.verify();
+    },
     landmarks: () => game.session.layout.landmarks,
     interactFocused: () => {
       game.input.interactPressed = true;

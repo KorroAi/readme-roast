@@ -394,6 +394,118 @@ export function engrave(f: Field2, pts: Pt[], opts: { depth?: number; lip?: numb
   }
 }
 
+/**
+ * A crack as a smooth curve (float texel positions, one per texel of length): mostly straight,
+ * with a small wander and occasional kinks. Drawn with `groove`, which rasterizes it by
+ * distance, so diagonal cracks do not turn into 1-texel stair steps.
+ */
+export function crackCurve(rng: Rng, x: number, y: number, angle: number, len: number, wander = 0.12, kink = 0.04): Pt[] {
+  const pts: Pt[] = [[x, y]];
+  let a = angle;
+  for (let i = 0; i < len; i++) {
+    a += (rng.next() - 0.5) * wander + (angle - a) * 0.1;
+    if (rng.chance(kink)) a += (rng.next() - 0.5) * 0.9;
+    x += Math.cos(a);
+    y += Math.sin(a);
+    pts.push([x, y]);
+  }
+  return pts;
+}
+
+export interface GrooveOptions {
+  /** Width at the widest point, in texels (1 - 2.5). Tapers to a hairline at both ends. */
+  width?: number;
+  /** Value removed in the core (the core stays on the ramp: a shadowed groove, not ink). */
+  depth?: number;
+  /** Lit lip on the side that faces the light (below the groove) and shadow on the other side. */
+  lip?: number;
+  shadow?: number;
+  /** Height of the core (0..255). */
+  height?: number;
+  /** Share of the length where the crack closes up (broken, not a continuous drawn line). */
+  gaps?: number;
+  /** Only texels for which this returns true are touched (e.g. the inside of one stone). */
+  mask?: (x: number, y: number) => boolean;
+  rng?: Rng;
+}
+
+/**
+ * Paint a crack as a carved groove: a dark core 1-2 texels wide that tapers to nothing at both
+ * ends and closes up in places, a lit lip on the lower side (the groove wall that faces the
+ * light from above) and a shadowed upper side. Rasterized by distance to the curve, so the
+ * line keeps its width at any angle. Codes: 1 core, 2 lip, 3 shadow.
+ */
+export function groove(f: Field2, pts: Pt[], o: GrooveOptions = {}): void {
+  if (pts.length < 2) return;
+  const wMax = o.width ?? 1.6;
+  const depth = o.depth ?? 0.2;
+  const lip = o.lip ?? 0.09;
+  const shadow = o.shadow ?? 0.07;
+  const hCut = o.height ?? 20;
+  const gaps = o.gaps ?? 0.15;
+  // Cumulative length, and closed stretches along it.
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const L = cum[cum.length - 1] || 1;
+  const phase = o.rng ? o.rng.next() * 100 : 0;
+  const closed = (t: number) => gaps > 0 && Math.sin(t * L * 0.37 + phase) * 0.5 + Math.sin(t * L * 0.13 + phase * 1.7) * 0.5 < -1 + gaps * 2.2;
+  // Best (smallest normalized distance) hit per texel, so overlapping segments do not stack.
+  const best = new Map<number, { d: number; side: number; w: number }>();
+  for (let i = 0; i + 1 < pts.length; i++) {
+    const [ax, ay] = pts[i];
+    const [bx, by] = pts[i + 1];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len2 = dx * dx + dy * dy || 1;
+    const R = Math.ceil(wMax / 2 + 2);
+    const x0 = Math.floor(Math.min(ax, bx)) - R;
+    const x1 = Math.ceil(Math.max(ax, bx)) + R;
+    const y0 = Math.floor(Math.min(ay, by)) - R;
+    const y1 = Math.ceil(Math.max(ay, by)) + R;
+    for (let y = y0; y <= y1; y++)
+      for (let x = x0; x <= x1; x++) {
+        const px = x; // texel centres sit on integer coordinates (as in crackPath)
+        const py = y;
+        let s = ((px - ax) * dx + (py - ay) * dy) / len2;
+        s = s < 0 ? 0 : s > 1 ? 1 : s;
+        const ox = px - (ax + dx * s);
+        const oy = py - (ay + dy * s);
+        const d = Math.hypot(ox, oy);
+        const t = (cum[i] + (cum[i + 1] - cum[i]) * s) / L;
+        let w = wMax * Math.pow(Math.max(0, Math.sin(Math.PI * t)), 0.55);
+        if (closed(t)) w *= 0.25;
+        if (d > w / 2 + 1.3) continue;
+        const k = f.i(x, y);
+        const prev = best.get(k);
+        const score = d - w / 2;
+        if (prev && prev.d - prev.w / 2 <= score) continue;
+        // Which side of the groove: below it (toward +y) faces the light from above.
+        const nrm = Math.hypot(ox, oy) || 1;
+        best.set(k, { d, side: oy / nrm + ox / nrm * 0.25, w });
+      }
+  }
+  for (const [k, hit] of best) {
+    const x = k % S;
+    const y = (k - x) / S;
+    if (o.mask && !o.mask(x, y)) continue;
+    if (f.code[k] === 1) continue;
+    const core = hit.d <= Math.max(0.35, hit.w / 2);
+    if (core && hit.w >= 0.5) {
+      f.code[k] = 1;
+      f.v[k] -= depth * Math.min(1, 0.55 + hit.w * 0.3);
+      f.h[k] = Math.min(f.h[k], hCut);
+    } else if (hit.w >= 0.35 && hit.d <= hit.w / 2 + 1.2) {
+      const lit = hit.side > 0.2;
+      const shade = hit.side < -0.2;
+      const s = Math.min(1, hit.w / 1.4);
+      if (lit) f.v[k] += lip * s;
+      else if (shade) f.v[k] -= shadow * s;
+      else f.v[k] -= shadow * 0.4 * s;
+      if (f.code[k] === 0) f.code[k] = lit ? 2 : 3;
+    }
+  }
+}
+
 /** A chipped flake: a small triangular scar, dark where the flake broke off, lit on its lower rim. */
 export function chip(f: Field2, rng: Rng, x: number, y: number, r: number): void {
   const dir = rng.int(0, 3);
@@ -409,8 +521,12 @@ export function chip(f: Field2, rng: Rng, x: number, y: number, r: number): void
     }
 }
 
-/** Quantize a value field through a ramp into the canvas, with the field heights as alpha. */
-export function resolve(c: MatCanvas, f: Field2, pal: readonly number[], crack: number, dither = 0): void {
+/**
+ * Quantize a value field through a ramp into the canvas, with the field heights as alpha.
+ * Crack and joint texels (code 1) move `crackMix` of the way toward the crack colour: they keep
+ * some of the ramp tone, so a crack reads as a shadowed groove in the stone, not as ink.
+ */
+export function resolve(c: MatCanvas, f: Field2, pal: readonly number[], crack: number, dither = 0, crackMix = 0.35): void {
   const n = pal.length;
   const rgb = c.rgb;
   const a = c.a;
@@ -427,10 +543,9 @@ export function resolve(c: MatCanvas, f: Field2, pal: readonly number[], crack: 
       let g = (hex >> 8) & 255;
       let b = hex & 255;
       if (f.code[i] === 1) {
-        // Cracks: mostly the crack colour, a quarter of the ramp tone so they are not flat black.
-        r = cr + (r - cr) * 0.25;
-        g = cg + (g - cg) * 0.25;
-        b = cb + (b - cb) * 0.25;
+        r += (cr - r) * crackMix;
+        g += (cg - g) * crackMix;
+        b += (cb - b) * crackMix;
       }
       rgb[i * 3] = r;
       rgb[i * 3 + 1] = g;

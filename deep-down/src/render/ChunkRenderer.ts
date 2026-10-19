@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { VoxelWorld } from '../world/VoxelWorld';
-import { OFFSET_RANGE, VERTEX_BYTES, meshChunk } from './mesher';
+import { ChunkMeshData, OFFSET_RANGE, PADDED_VOXELS, VERTEX_BYTES, copyPadded, meshChunk } from './mesher';
+import { MeshPool, meshWorkerCount, spawnMeshWorker, type MeshJob, type MeshResult, type WorkerLike } from './meshPool';
 
 export interface ChunkStats {
   chunks: number;
@@ -9,17 +10,120 @@ export interface ChunkStats {
   triangles: number;
   /** GPU bytes of all terrain vertex and index buffers. */
   bytes: number;
+  /** Main-thread ms of the last chunk update and the largest one: the whole mesh when meshing on
+   *  the main thread; with workers, the copy + post of its voxels or the upload of its result. */
   lastRebuildMs: number;
   maxRebuildMs: number;
+  /** Mesh workers in use; 0 = meshing on the main thread (no workers, or they failed). */
+  workers: number;
+  /** Why the workers were given up (null while they work, or when none were started). */
+  workerFallback: string | null;
+  /** Cumulative main-thread ms in update() and in applying worker results. */
+  mainMs: number;
+  /** Worker jobs whose mesh is not applied yet. */
+  pending: number;
+  /** Chunk meshes applied from workers / made on the main thread (cumulative). */
+  workerMeshes: number;
+  syncMeshes: number;
+  /** Worker results dropped because a newer mesh of the chunk had been requested or made. */
+  staleResults: number;
+  /** Worker-side mesh ms, last and largest. */
+  lastWorkerMs: number;
+  maxWorkerMs: number;
+  /** In play (not buildAll): post-to-applied ms of the last applied job and the largest, and the
+   *  same in frames (1 = drawn in the frame after the one that posted it). */
+  lastRoundTripMs: number;
+  maxRoundTripMs: number;
+  lastLatencyFrames: number;
+  maxLatencyFrames: number;
+}
+
+export interface ChunkRendererOptions {
+  /** Mesh workers: 'auto' (default; meshWorkerCount()), or a count, 0 = main thread only. */
+  workers?: number | 'auto';
+  /** Worker factory (unit tests). */
+  spawn?: () => WorkerLike;
+}
+
+interface Job {
+  id: number;
+  chunk: number;
+  cx: number;
+  cy: number;
+  cz: number;
+  /** World revision of the voxel snapshot. */
+  rev: number;
+  t: number;
+  frame: number;
+  build: boolean;
+  batch: Batch | null;
+  result: MeshResult | null;
+}
+
+/** Jobs posted together (one update): applied together, in posting order, so chunks dirtied by
+ *  one edit switch to their new meshes in the same frame. */
+interface Batch {
+  jobs: Job[];
+  pending: number;
+}
+
+interface BuildState {
+  /** Chunks without a mesh from this build yet, and the per-chunk flags behind that count. */
+  remaining: number;
+  built: Uint8Array;
+  /** Build jobs in posting order: once the queue is empty the main thread steals the newest. */
+  posted: Job[];
+  /** Chunks of build jobs a failed worker lost (meshed on the main thread). */
+  lost: number[];
+}
+
+/** Gameplay: jobs in flight per worker (an edit waits behind at most this many). */
+const JOBS_PER_WORKER = 4;
+/** buildAll: jobs in flight per worker (covers a main-thread slice), and per message. */
+const BUILD_JOBS_PER_WORKER = 32;
+const BUILD_BATCH = 8;
+/** buildAll with workers: the main thread meshes from the back of the queue in slices this long. */
+const BUILD_MAIN_SLICE_MS = 6;
+/** A job not back after this long (and, in play, this many frames) means the workers are stuck. */
+const WATCHDOG_MS = 8000;
+const WATCHDOG_FRAMES = 60;
+
+const now = () => performance.now();
+
+// A task-sized yield without setTimeout's 4 ms clamp on nested timers (browsers only: in Node a
+// MessagePort would keep the process alive).
+let yieldPort: MessagePort | null = null;
+const yielded: Array<() => void> = [];
+function yieldTask(): Promise<void> {
+  if (typeof MessageChannel === 'undefined' || typeof document === 'undefined') return new Promise((r) => setTimeout(r, 0));
+  if (!yieldPort) {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => yielded.shift()?.();
+    yieldPort = ch.port2;
+  }
+  return new Promise((r) => {
+    yielded.push(r);
+    yieldPort!.postMessage(null);
+  });
 }
 
 /**
- * Owns one THREE.Mesh per non-empty chunk and rebuilds dirty chunks within a per-frame
- * time budget. Chunks beyond the fog distance are hidden to save fill rate and draw calls.
+ * Owns one THREE.Mesh per non-empty chunk and remeshes dirty chunks nearest-first. Chunks beyond
+ * the fog distance are hidden to save fill rate and draw calls.
+ *
+ * Meshing runs in a small pool of module workers (meshPool.ts): the main thread copies the
+ * chunk's padded voxel block (8000 bytes), posts it, and uploads the result. A chunk keeps its old
+ * mesh until the new one arrives; at most one job per chunk is in flight (an edit during it
+ * re-queues the chunk), and a result whose job is no longer the chunk's latest request is
+ * dropped, so an older mesh never replaces a newer one. Without workers (Node, old WebViews, a
+ * worker that failed) the same mesher runs on the main thread within the per-frame budget.
  */
 export class ChunkRenderer {
   readonly group = new THREE.Group();
-  readonly stats: ChunkStats = { chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, bytes: 0, lastRebuildMs: 0, maxRebuildMs: 0 };
+  readonly stats: ChunkStats = {
+    chunks: 0, meshedChunks: 0, vertices: 0, triangles: 0, bytes: 0, lastRebuildMs: 0, maxRebuildMs: 0, workers: 0, workerFallback: null, mainMs: 0,
+    pending: 0, workerMeshes: 0, syncMeshes: 0, staleResults: 0, lastWorkerMs: 0, maxWorkerMs: 0, lastRoundTripMs: 0, maxRoundTripMs: 0, lastLatencyFrames: 0, maxLatencyFrames: 0,
+  };
   private readonly meshes: Array<THREE.Mesh | null>;
   private readonly world: VoxelWorld;
   private readonly material: THREE.Material;
@@ -28,10 +132,30 @@ export class ChunkRenderer {
   /** Per chunk: seam hashes of its last mesh (27 slots) and the world revision it was meshed at. */
   private readonly seams: Uint32Array;
   private readonly meshRevision: Float64Array;
+  /** Per chunk: id of the latest mesh request (worker job or main-thread mesh). */
+  private readonly latest: Float64Array;
+  /** Per chunk: world revision of the latest voxel snapshot requested (-1 = never). */
+  private readonly snapRevision: Float64Array;
+  /** Per chunk: 1 while its latest worker job has not been applied. */
+  private readonly inFlight: Uint8Array;
+  private pool: MeshPool | null = null;
+  private readonly jobs = new Map<number, Job>();
+  private readonly batches: Batch[] = [];
+  private pendingJobs = 0;
+  private readonly freeVoxels: Uint8Array[] = [];
+  /** Scratch: squared distance of each dirty chunk to the focus. */
+  private readonly dist: Float64Array;
+  private readonly focus = new THREE.Vector3();
+  private jobSeq = 0;
+  private frame = 0;
   private building = false;
+  private build: BuildState | null = null;
+  private buildChain: Promise<void> = Promise.resolve();
+  private settleWaiters: Array<() => void> = [];
+  private disposed = false;
   viewDistance = 96;
 
-  constructor(world: VoxelWorld, material: THREE.Material) {
+  constructor(world: VoxelWorld, material: THREE.Material, options: ChunkRendererOptions = {}) {
     this.world = world;
     this.material = material;
     const n = world.cx * world.cy * world.cz;
@@ -40,69 +164,142 @@ export class ChunkRenderer {
     this.byteCounts = new Int32Array(n);
     this.seams = new Uint32Array(n * 27);
     this.meshRevision = new Float64Array(n).fill(-1);
+    this.latest = new Float64Array(n);
+    this.snapRevision = new Float64Array(n).fill(-1);
+    this.inFlight = new Uint8Array(n);
+    this.dist = new Float64Array(n);
     this.stats.chunks = n;
     this.group.name = 'terrain';
     this.group.matrixAutoUpdate = false;
+    const count = options.workers === undefined || options.workers === 'auto' ? meshWorkerCount() : options.workers;
+    if (count > 0) {
+      try {
+        this.pool = new MeshPool(count, options.spawn ?? spawnMeshWorker, (r) => this.receive(r), (reason) => this.dropPool(reason));
+        this.stats.workers = this.pool.size;
+      } catch (err) {
+        this.stats.workerFallback = `mesh workers could not start: ${String(err)}`;
+        console.warn('[deep-down] mesh workers unavailable, meshing on the main thread', err);
+      }
+    }
   }
 
-  /** Build every chunk, yielding to the browser periodically. Progress in [0, 1]. */
-  async buildAll(onProgress?: (p: number) => void, sliceMs = 24): Promise<void> {
+  /** Mesh every chunk, yielding to the browser periodically. Progress in [0, 1]. */
+  buildAll(onProgress?: (p: number) => void, sliceMs = 24): Promise<void> {
+    // One build at a time (their bookkeeping is shared).
+    const run = this.buildChain.then(() => this.runBuild(onProgress, sliceMs));
+    this.buildChain = run.catch(() => undefined);
+    return run;
+  }
+
+  private async runBuild(onProgress: ((p: number) => void) | undefined, sliceMs: number): Promise<void> {
+    if (this.disposed) return;
     const w = this.world;
     const total = w.cx * w.cy * w.cz;
-    let done = 0;
-    let sliceStart = performance.now();
+    const build: BuildState = { remaining: total, built: new Uint8Array(total), posted: [], lost: [] };
     this.building = true;
-    for (let cz = 0; cz < w.cz; cz++)
-      for (let cy = 0; cy < w.cy; cy++)
-        for (let cx = 0; cx < w.cx; cx++) {
-          this.rebuild(cx, cy, cz);
-          done++;
-          if (performance.now() - sliceStart > sliceMs) {
-            onProgress?.(done / total);
-            await new Promise((r) => setTimeout(r, 0));
-            sliceStart = performance.now();
+    this.build = build;
+    // Workers take chunks from the front (index order), the main thread from the back. Once the
+    // queue is empty the main thread steals the jobs the workers have not answered, newest first,
+    // so a slow or still-cold worker never holds the build up (its late results are dropped).
+    let head = 0;
+    let tail = total;
+    const nextForMain = (): number => {
+      while (build.lost.length) {
+        const i = build.lost.pop()!;
+        if (!build.built[i]) return i;
+      }
+      if (head < tail) return --tail;
+      for (const answered of [false, true])
+        for (let k = build.posted.length - 1; k >= 0; k--) {
+          const job = build.posted[k];
+          if (!build.built[job.chunk] && this.latest[job.chunk] === job.id && !!job.result === answered) return job.chunk;
+        }
+      return -1;
+    };
+    try {
+      while (build.remaining > 0) {
+        const pool = this.pool;
+        if (pool) {
+          while (head < tail && pool.inFlight < pool.size * BUILD_JOBS_PER_WORKER) {
+            const jobs: Job[] = [];
+            const voxels: Uint8Array[] = [];
+            for (let k = 0; k < BUILD_BATCH && head < tail; k++) {
+              const v = this.takeVoxels();
+              jobs.push(this.makeJob(head++, true, v));
+              voxels.push(v);
+            }
+            build.posted.push(...jobs);
+            this.postBatch(jobs, voxels);
           }
         }
-    this.building = false;
+        const sliceEnd = now() + (pool ? Math.min(sliceMs, BUILD_MAIN_SLICE_MS) : sliceMs);
+        let meshed = 0;
+        for (let i = nextForMain(); i >= 0; i = now() < sliceEnd ? nextForMain() : -1) {
+          this.rebuildIndex(i);
+          this.markBuilt(i);
+          meshed++;
+        }
+        if (build.remaining <= 0) break;
+        onProgress?.((total - build.remaining) / total);
+        if (this.pool) {
+          this.checkPool(true);
+          // Nothing this thread can take (should not happen): wait for the workers.
+          if (!meshed) await this.nextResults(250);
+          else await yieldTask();
+        } else await new Promise((r) => setTimeout(r, 0));
+        if (this.disposed) return;
+      }
+    } finally {
+      this.building = false;
+      this.build = null;
+    }
     w.dirty.fill(0);
     onProgress?.(1);
   }
 
-  /** Rebuild dirty chunks nearest the focus first, within `budgetMs`. Returns chunks rebuilt. */
+  private markBuilt(i: number): void {
+    const b = this.build;
+    if (b && !b.built[i]) {
+      b.built[i] = 1;
+      b.remaining--;
+    }
+  }
+
+  /** Remesh dirty chunks nearest the focus first, within `budgetMs` of main-thread time.
+   *  Returns how many chunks were meshed (or, with workers, posted). */
   update(focus: THREE.Vector3, budgetMs = 4): number {
-    const w = this.world;
-    const cs = w.chunkSize;
-    const dirty: number[] = [];
-    for (let i = 0; i < w.dirty.length; i++) if (w.dirty[i]) dirty.push(i);
-    if (dirty.length) {
-      const cxy = w.cx * w.cy;
-      const dist = (i: number) => {
-        const cz = Math.floor(i / cxy);
-        const cy = Math.floor((i - cz * cxy) / w.cx);
-        const cx = i - cz * cxy - cy * w.cx;
-        return (cx * cs + 8 - focus.x) ** 2 + (cy * cs + 8 - focus.y) ** 2 + (cz * cs + 8 - focus.z) ** 2;
-      };
-      dirty.sort((a, b) => dist(a) - dist(b));
-    }
-    const start = performance.now();
-    let rebuilt = 0;
-    for (const i of dirty) {
-      // Always rebuild at least the nearest chunk so edits are never left invisible.
-      if (rebuilt > 0 && performance.now() - start > budgetMs) break;
-      const cxy = w.cx * w.cy;
-      const cz = Math.floor(i / cxy);
-      const cy = Math.floor((i - cz * cxy) / w.cx);
-      const cx = i - cz * cxy - cy * w.cx;
-      const t0 = performance.now();
-      this.rebuild(cx, cy, cz);
-      const ms = performance.now() - t0;
-      this.stats.lastRebuildMs = ms;
-      this.stats.maxRebuildMs = Math.max(this.stats.maxRebuildMs, ms);
-      w.dirty[i] = 0;
-      rebuilt++;
-    }
+    const t0 = now();
+    this.frame++;
+    this.focus.copy(focus);
+    let n: number;
+    if (this.pool) {
+      this.checkPool(false);
+      n = this.pool ? this.pump(budgetMs, false) : this.updateSync(focus, budgetMs);
+    } else n = this.updateSync(focus, budgetMs);
     this.cull(focus);
-    return rebuilt;
+    this.stats.mainMs += now() - t0;
+    return n;
+  }
+
+  /**
+   * Mesh every dirty chunk now (ignoring the frame budget) and resolve once all of them, and the
+   * neighbours their seams pull in, are applied. For tests, tools and the debug API.
+   */
+  async flush(): Promise<void> {
+    for (let pass = 0; pass < 32 && !this.disposed; pass++) {
+      await this.buildChain;
+      if (!this.pool) {
+        this.updateSync(this.focus, Infinity);
+        if (!this.world.dirty.includes(1)) return;
+        continue;
+      }
+      this.pump(Infinity, true);
+      if (this.pendingJobs === 0) {
+        if (!this.world.dirty.includes(1)) return;
+        continue;
+      }
+      await this.settled();
+    }
   }
 
   /** Hide chunks far beyond the fog. */
@@ -116,11 +313,284 @@ export class ChunkRenderer {
     }
   }
 
+  /** Mesh one chunk on the main thread now (supersedes any worker job in flight for it). */
   rebuild(cx: number, cy: number, cz: number): void {
+    this.rebuildIndex(this.world.chunkIndex(cx, cy, cz));
+  }
+
+  /**
+   * Debug check: chunks whose GPU vertex/index data differs from a fresh main-thread mesh of the
+   * current world (call after flush()).
+   */
+  verify(): { checked: number; mismatched: number[] } {
     const w = this.world;
-    const i = w.chunkIndex(cx, cy, cz);
-    const data = meshChunk(w, cx, cy, cz);
-    this.propagateSeams(i, cx, cy, cz, data.seams);
+    const mismatched: number[] = [];
+    let checked = 0;
+    for (let i = 0; i < this.meshes.length; i++) {
+      const [cx, cy, cz] = this.coords(i);
+      const fresh = meshChunk(w, cx, cy, cz);
+      const m = this.meshes[i];
+      checked++;
+      if (!m) {
+        if (fresh.faceCount) mismatched.push(i);
+        continue;
+      }
+      const v = (m.geometry.getAttribute('aGeo') as THREE.InterleavedBufferAttribute).data.array as Uint8Array;
+      const idx = m.geometry.index!.array;
+      if (!sameBytes(v, fresh.vertices) || idx.length !== fresh.indices.length || !sameBytes(new Uint8Array(idx.buffer, idx.byteOffset, idx.byteLength), new Uint8Array(fresh.indices.buffer, 0, fresh.indices.byteLength))) mismatched.push(i);
+    }
+    return { checked, mismatched };
+  }
+
+  dispose(): void {
+    this.disposed = true;
+    this.pool?.terminate();
+    this.pool = null;
+    this.stats.workers = 0;
+    this.jobs.clear();
+    this.batches.length = 0;
+    this.pendingJobs = 0;
+    this.stats.pending = 0;
+    this.wakeSettled();
+    for (const m of this.meshes) m?.geometry.dispose();
+    this.meshes.fill(null);
+    this.group.clear();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Main-thread meshing
+
+  private updateSync(focus: THREE.Vector3, budgetMs: number): number {
+    const w = this.world;
+    const cs = w.chunkSize;
+    const dirty: number[] = [];
+    for (let i = 0; i < w.dirty.length; i++) if (w.dirty[i]) dirty.push(i);
+    if (dirty.length > 1) {
+      const cxy = w.cx * w.cy;
+      const dist = (i: number) => {
+        const cz = Math.floor(i / cxy);
+        const cy = Math.floor((i - cz * cxy) / w.cx);
+        const cx = i - cz * cxy - cy * w.cx;
+        return (cx * cs + 8 - focus.x) ** 2 + (cy * cs + 8 - focus.y) ** 2 + (cz * cs + 8 - focus.z) ** 2;
+      };
+      dirty.sort((a, b) => dist(a) - dist(b));
+    }
+    const start = now();
+    let rebuilt = 0;
+    for (const i of dirty) {
+      // Always rebuild at least the nearest chunk so edits are never left invisible.
+      if (rebuilt > 0 && now() - start > budgetMs) break;
+      this.rebuildIndex(i);
+      rebuilt++;
+    }
+    return rebuilt;
+  }
+
+  private rebuildIndex(i: number): void {
+    const w = this.world;
+    const [cx, cy, cz] = this.coords(i);
+    const t0 = now();
+    // Supersede any worker job in flight for this chunk: its result will be dropped.
+    this.latest[i] = ++this.jobSeq;
+    this.inFlight[i] = 0;
+    this.snapRevision[i] = w.revision;
+    w.dirty[i] = 0;
+    this.applyMesh(i, cx, cy, cz, meshChunk(w, cx, cy, cz), w.revision);
+    this.stats.syncMeshes++;
+    this.noteRebuild(now() - t0);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Worker meshing
+
+  /** Post dirty chunks (nearest first) up to the workers' free capacity. Returns jobs posted. */
+  private pump(budgetMs: number, uncapped: boolean): number {
+    const pool = this.pool;
+    if (!pool || this.building || this.disposed) return 0;
+    const free = uncapped ? Infinity : pool.size * JOBS_PER_WORKER - pool.inFlight;
+    if (free <= 0) return 0;
+    const w = this.world;
+    const dirty: number[] = [];
+    for (let i = 0; i < w.dirty.length; i++) if (w.dirty[i] && !this.inFlight[i]) dirty.push(i);
+    if (!dirty.length) return 0;
+    if (dirty.length > 1) {
+      const cs = w.chunkSize;
+      const f = this.focus;
+      const d = this.dist;
+      for (const i of dirty) {
+        const [cx, cy, cz] = this.coords(i);
+        d[i] = (cx * cs + 8 - f.x) ** 2 + (cy * cs + 8 - f.y) ** 2 + (cz * cs + 8 - f.z) ** 2;
+      }
+      dirty.sort((a, b) => d[a] - d[b]);
+    }
+    const start = now();
+    const jobs: Job[] = [];
+    const voxels: Uint8Array[] = [];
+    for (const i of dirty) {
+      if (jobs.length >= free) break;
+      // Always post at least the nearest chunk so edits are never left invisible.
+      if (jobs.length > 0 && now() - start > budgetMs) break;
+      const v = this.takeVoxels();
+      jobs.push(this.makeJob(i, false, v));
+      voxels.push(v);
+    }
+    this.postBatch(jobs, voxels);
+    const ms = (now() - start) / jobs.length;
+    for (let k = 0; k < jobs.length; k++) this.noteRebuild(ms);
+    return jobs.length;
+  }
+
+  private takeVoxels(): Uint8Array {
+    return this.freeVoxels.pop() ?? new Uint8Array(PADDED_VOXELS);
+  }
+
+  private makeJob(i: number, build: boolean, voxels: Uint8Array): Job {
+    const w = this.world;
+    const [cx, cy, cz] = this.coords(i);
+    copyPadded(w, cx, cy, cz, voxels);
+    const id = ++this.jobSeq;
+    this.latest[i] = id;
+    this.inFlight[i] = 1;
+    this.snapRevision[i] = w.revision;
+    w.dirty[i] = 0;
+    return { id, chunk: i, cx, cy, cz, rev: w.revision, t: now(), frame: this.frame, build, batch: null, result: null };
+  }
+
+  private postBatch(jobs: Job[], voxels: Uint8Array[]): void {
+    if (!jobs.length || !this.pool) return;
+    const batch: Batch = { jobs, pending: jobs.length };
+    const msgs: MeshJob[] = [];
+    for (let k = 0; k < jobs.length; k++) {
+      const j = jobs[k];
+      j.batch = batch;
+      this.jobs.set(j.id, j);
+      msgs.push({ id: j.id, cx: j.cx, cy: j.cy, cz: j.cz, voxels: voxels[k] });
+    }
+    this.batches.push(batch);
+    this.pendingJobs += jobs.length;
+    this.stats.pending = this.pendingJobs;
+    this.pool.post(msgs);
+  }
+
+  /** Worker results: complete their batches and apply finished batches in posting order. */
+  private receive(results: MeshResult[]): void {
+    if (this.disposed) return;
+    const t0 = now();
+    for (const r of results) {
+      if (this.freeVoxels.length < 64 && r.voxels.byteLength === PADDED_VOXELS) this.freeVoxels.push(r.voxels);
+      const job = this.jobs.get(r.id);
+      if (!job) continue;
+      this.jobs.delete(r.id);
+      job.result = r;
+      job.batch!.pending--;
+      this.stats.lastWorkerMs = r.ms;
+      if (r.ms > this.stats.maxWorkerMs) this.stats.maxWorkerMs = r.ms;
+    }
+    while (this.batches.length && this.batches[0].pending === 0) this.applyBatch(this.batches.shift()!);
+    // Refill the workers at once (a seam change may have queued a neighbour).
+    if (!this.building) this.pump(4, false);
+    this.stats.mainMs += now() - t0;
+    if (this.pendingJobs === 0 || this.building) this.wakeSettled();
+  }
+
+  private applyBatch(batch: Batch): void {
+    this.pendingJobs -= batch.jobs.length;
+    this.stats.pending = this.pendingJobs;
+    for (const job of batch.jobs) {
+      const i = job.chunk;
+      if (job.id !== this.latest[i]) {
+        // A newer request (or a main-thread mesh) owns this chunk now.
+        this.stats.staleResults++;
+        continue;
+      }
+      this.inFlight[i] = 0;
+      const r = job.result!;
+      const t0 = now();
+      this.applyMesh(i, job.cx, job.cy, job.cz, new ChunkMeshData(r.vertices, r.indices, r.vertexCount, r.faceCount, r.seams), job.rev);
+      this.noteRebuild(now() - t0);
+      this.stats.workerMeshes++;
+      if (job.build) this.markBuilt(i);
+      else {
+        const s = this.stats;
+        s.lastRoundTripMs = now() - job.t;
+        s.lastLatencyFrames = this.frame - job.frame + 1;
+        if (s.lastRoundTripMs > s.maxRoundTripMs) s.maxRoundTripMs = s.lastRoundTripMs;
+        if (s.lastLatencyFrames > s.maxLatencyFrames) s.maxLatencyFrames = s.lastLatencyFrames;
+      }
+    }
+  }
+
+  /** Give up the workers: everything they still owed is meshed on the main thread instead. */
+  private dropPool(reason: string): void {
+    const pool = this.pool;
+    if (!pool) return;
+    this.pool = null;
+    pool.terminate();
+    this.stats.workers = 0;
+    this.stats.workerFallback = reason;
+    console.warn('[deep-down] mesh workers failed, meshing on the main thread:', reason);
+    for (const batch of this.batches)
+      for (const job of batch.jobs) {
+        if (job.id !== this.latest[job.chunk]) continue;
+        this.inFlight[job.chunk] = 0;
+        if (job.build && this.build) this.build.lost.push(job.chunk);
+        else this.world.dirty[job.chunk] = 1;
+      }
+    this.jobs.clear();
+    this.batches.length = 0;
+    this.pendingJobs = 0;
+    this.stats.pending = 0;
+    this.wakeSettled();
+  }
+
+  /** Workers that stop answering (a WebView that never starts them) count as failed. */
+  private checkPool(ignoreFrames: boolean): void {
+    const oldest = this.batches[0]?.jobs[0];
+    if (!oldest || !this.pool) return;
+    if (now() - oldest.t > WATCHDOG_MS && (ignoreFrames || this.frame - oldest.frame > WATCHDOG_FRAMES)) this.dropPool('mesh workers stopped answering');
+  }
+
+  private settled(): Promise<void> {
+    if (this.pendingJobs === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      this.settleWaiters.push(resolve);
+      // Guard against workers that stop answering while nobody calls update().
+      const tick = () => {
+        if (!this.settleWaiters.includes(resolve)) return;
+        this.checkPool(true);
+        setTimeout(tick, 500);
+      };
+      setTimeout(tick, 500);
+    });
+  }
+
+  /** Resolves on the next worker results (or after `ms`). */
+  private nextResults(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.settleWaiters = this.settleWaiters.filter((r) => r !== done);
+        resolve();
+      }, ms);
+      const done = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      this.settleWaiters.push(done);
+    });
+  }
+
+  private wakeSettled(): void {
+    const waiters = this.settleWaiters;
+    this.settleWaiters = [];
+    for (const r of waiters) r();
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // GPU side
+
+  private applyMesh(i: number, cx: number, cy: number, cz: number, data: ChunkMeshData, rev: number): void {
+    const w = this.world;
+    this.propagateSeams(i, cx, cy, cz, data.seams, rev);
     let mesh = this.meshes[i];
     this.stats.vertices -= this.vertexCounts[i];
     this.stats.triangles -= this.vertexCounts[i] / 2;
@@ -151,6 +621,7 @@ export class ChunkRenderer {
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs / 2, cs / 2, cs / 2), (cs * Math.sqrt(3)) / 2 + OFFSET_RANGE * Math.sqrt(3));
     geo.boundingBox = new THREE.Box3(new THREE.Vector3(-OFFSET_RANGE, -OFFSET_RANGE, -OFFSET_RANGE), new THREE.Vector3(cs + OFFSET_RANGE, cs + OFFSET_RANGE, cs + OFFSET_RANGE));
     if (mesh) {
+      // The old mesh stays drawn until this moment: swap the geometry, no frame without it.
       mesh.geometry.dispose();
       mesh.geometry = geo;
     } else {
@@ -174,9 +645,9 @@ export class ChunkRenderer {
   /**
    * The mesher's smooth normals and AO read two voxels around a corner, one more than
    * VoxelWorld's dirty marking covers: when the data on a seam changed, re-mesh the neighbour
-   * that shares it unless it was already meshed from the current world state.
+   * that shares it unless its latest mesh (applied or in flight) already saw this state.
    */
-  private propagateSeams(i: number, cx: number, cy: number, cz: number, seams: Uint32Array): void {
+  private propagateSeams(i: number, cx: number, cy: number, cz: number, seams: Uint32Array, rev: number): void {
     const w = this.world;
     const prev = this.seams;
     const first = this.meshRevision[i] < 0;
@@ -190,13 +661,27 @@ export class ChunkRenderer {
       const nz = cz + ((k / 9) | 0) - 1;
       if (nx < 0 || ny < 0 || nz < 0 || nx >= w.cx || ny >= w.cy || nz >= w.cz) continue;
       const j = w.chunkIndex(nx, ny, nz);
-      if (this.meshRevision[j] !== w.revision) w.markDirty(nx, ny, nz);
+      if (this.snapRevision[j] < rev) w.markDirty(nx, ny, nz);
     }
-    this.meshRevision[i] = w.revision;
+    this.meshRevision[i] = rev;
   }
 
-  dispose(): void {
-    for (const m of this.meshes) m?.geometry.dispose();
-    this.group.clear();
+  private noteRebuild(ms: number): void {
+    this.stats.lastRebuildMs = ms;
+    if (ms > this.stats.maxRebuildMs) this.stats.maxRebuildMs = ms;
   }
+
+  private coords(i: number): [number, number, number] {
+    const w = this.world;
+    const cxy = w.cx * w.cy;
+    const cz = Math.floor(i / cxy);
+    const cy = Math.floor((i - cz * cxy) / w.cx);
+    return [i - cz * cxy - cy * w.cx, cy, cz];
+  }
+}
+
+function sameBytes(a: ArrayLike<number>, b: ArrayLike<number>): boolean {
+  if (a.length !== b.length) return false;
+  for (let k = 0; k < a.length; k++) if (a[k] !== b[k]) return false;
+  return true;
 }

@@ -13,8 +13,9 @@ import { SCENE_ENCODE } from './lighting';
  *   lamp glass, the brightest crystal facets) bloom, not every lit glyph or cyan surface.
  * - The tone curve is applied to the brightest channel and the colour keeps its ratios, so
  *   saturated cyan and amber highlights stay cyan and amber instead of bleaching to white.
- * - Its toe is lifted (slope ~0.46 near black instead of ACES' ~0.21), so dark rock stays
- *   readable on a phone; the deep blue-black comes from the zone fog, not from crushing.
+ * - The toe is not lifted (ACES-like, slope ~0.25 near black): readable darks come from the
+ *   zones' cool fill and haze, so blacks stay deep and the lit mids carry the contrast.
+ * - The grade is a split balance: blue-black shadows and amber highlights; mids keep the light's colour.
  * - The vignette follows the screen shape and is weighted to the top (the ceiling), so the
  *   bottom corners where the touch controls sit stay clean.
  */
@@ -117,10 +118,11 @@ ${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
 
-// Filmic curve (ACES-fitted shoulder) with a lifted toe: near black the slope is ~0.46 instead
-// of ~0.21, so dark rock is not crushed; white is reached around x = 6.
+// Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep
+// and the lit mids carry the contrast; white is reached around x = 6. Navigable darks come from
+// the zones' cool fill and haze, not from lifting black.
 float curve(float x) {
-  return clamp((x * (2.51 * x + 0.065)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
+  return clamp((x * (2.51 * x + 0.035)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
 }
 
 // Hue-preserving tone map: in the highlights the curve drives the brightest channel and the
@@ -152,10 +154,14 @@ void main() {
   hdr *= uExposure;
   hdr += uFlashColor * uFlash;
   vec3 c = tonemap(hdr);
-  // Light grade: shadows a touch cooler (blue-black, not teal), highlights a touch warmer.
+  // Split balance (the look): blue-black shadows (multiplied, so black stays black) and amber
+  // highlights; the mids keep the light's own colour (warm pools stay warm, haze stays blue).
+  // Weights are in display-linear luminance: 0.03 ~ sRGB 48, 0.12 ~ sRGB 97, 0.5 ~ sRGB 188.
   float lum = dot(c, LUMA);
-  c = mix(c, c * vec3(0.94, 0.98, 1.06), (1.0 - smoothstep(0.0, 0.3, lum)) * 0.15);
-  c = mix(c, c * vec3(1.04, 1.0, 0.95), smoothstep(0.5, 1.0, lum) * 0.15);
+  float ws = 1.0 - smoothstep(0.0, 0.1, lum);
+  float wh = smoothstep(0.2, 0.75, lum);
+  c *= mix(vec3(1.0), vec3(0.84, 0.95, 1.18), ws * 0.55);
+  c *= mix(vec3(1.0), vec3(1.07, 1.0, 0.86), wh * 0.6);
   // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
   // bottom where the joystick and jump button sit.
   vec2 q = vUv - 0.5;

@@ -71,9 +71,10 @@ void main() {
   vec3 col = uColor * (0.2 + 0.8 * core * core) * (0.3 + 0.7 * thread) + uGlint * (glint * core);
   col *= edge * gaps * lip * foot * lit;
   float depth = length(vViewPos);
-  // The haze takes it fully at distance; fade right in front of the lens so it never blinds.
+  // The haze absorbs it like any emission (the zone's absorb share, uAtmos.z), so from the ledge
+  // it still reads as the Hollow's cold landmark; fade right in front of the lens so it never blinds.
   float fog = atmosphere(vWorldPos, depth, ls.rgb).a;
-  col *= (1.0 - fog) * smoothstep(1.0, 6.0, depth);
+  col *= (1.0 - fog * uAtmos.z) * smoothstep(1.0, 6.0, depth);
   fragColor = vec4(sceneOut(col), 1.0); // additive blending
 }
 `;

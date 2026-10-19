@@ -10,6 +10,7 @@ import { createTerrainMaterial, createTileTexture } from '../render/terrainMater
 import { TerrainRig } from '../render/terrainRig';
 import type { MaterialAtlas } from '../render/materials';
 import { ChunkRenderer } from '../render/ChunkRenderer';
+import { prewarmMeshWorkers } from '../render/meshPool';
 import { PropRenderer } from '../render/props/PropRenderer';
 import { applyWorldEdits, encodeWorldEdits } from '../save/worldDelta';
 
@@ -54,6 +55,8 @@ export class WorldSession {
 
   static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed): Promise<WorldSession> {
     onProgress(0.02, 'carve');
+    // The mesh workers start and compile the mesher while the zone is generated.
+    prewarmMeshWorkers();
     await yieldFrame();
     const t0 = performance.now();
     const zone = await loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));

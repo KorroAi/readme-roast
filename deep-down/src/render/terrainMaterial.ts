@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { BLOCKS, SIDE_VARIANTS, VARIANT_COUNT } from '../config/blocks';
 import { RUNE_COUNT, RUNE_FIRST_LAYER, TILE_NAMES, TILE_SIZE } from '../config/tiles';
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
-import { FAMILY, MATERIAL_NAMES } from './materials';
+import { FAMILY, MAT, MATERIAL_NAMES } from './materials';
+import { courseGlsl } from './materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
 import { AO_SCALE, OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
@@ -128,6 +129,12 @@ vec2 worldUv(vec3 p, int face) {
   return uv / MAT_PERIOD;
 }
 
+// Natural rock: the projection is bent by a slow world-space warp (about 6 m features, up to
+// +-0.8 m along and +-1.5 m across the beds), so the 8 m period never lines up along a wall and
+// the strata undulate. n = the macro noise texel already fetched for albedo variation.
+const vec2 ROCK_WARP = vec2(1.6, 3.0) / MAT_PERIOD;
+${courseGlsl({ masonry: MAT.masonry, masonryB: MAT.masonryB, crumbling: MAT.crumbling, crumblingB: MAT.crumblingB })}
+
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 // Height used to decide boundaries: alpha for ordinary layers, brightness for emissive ones.
@@ -153,7 +160,19 @@ void main() {
   int family = vFlags & 3;
   int layer = int(vLayer + 0.5);
   vec2 uv = worldUv(vGrid, vFace);
-  vec4 tex = texture(uMat, vec3(uv, float(layer)));
+  // Material fetch. Rock: warped projection (no 8 m repeat). Masonry: courses laid in world
+  // space from the course libraries (materials/courses.ts); its fetch uses the continuous
+  // projection's gradients, so mip selection does not jump at course joints.
+  vec4 macroN = texture(uNoise, vGrid * (1.0 / 190.0));
+  if (family == ${FAMILY.GEOLOGY}) uv += (macroN.rg - 0.5) * ROCK_WARP;
+  vec2 uvDx = dFdx(uv);
+  vec2 uvDy = dFdy(uv);
+  vec4 crs = vec4(0.0);
+  vec4 tex;
+  if (family == ${FAMILY.MASONRY}) {
+    crs = masonryCourse(uv * MAT_PERIOD, vFace, dot(vGrid, abs(n)));
+    tex = courseSample(layer, crs, uvDx, uvDy);
+  } else tex = texture(uMat, vec3(uv, float(layer)));
   int shownLayer = layer;
 
 #ifdef USE_BLEND
@@ -174,7 +193,7 @@ void main() {
       float nlf = k == 0 ? (side < 0 ? vNb.x : vNb.y) : (side < 0 ? vNb.z : vNb.w);
       if (nlf > 254.5 || d > 0.6) continue;
       int nl = int(nlf + 0.5);
-      vec4 ntex = texture(uMat, vec3(uv, nlf));
+      vec4 ntex = family == ${FAMILY.MASONRY} ? courseSample(nl, crs, uvDx, uvDy) : textureGrad(uMat, vec3(uv, nlf), uvDx, uvDy);
       // Antisymmetric by construction (the neighbour's face computes exactly -claim at the same
       // point), so the two faces draw one boundary curve. No constant bias: it would let both
       // sides claim a strip at the edge and swap the materials there.
@@ -193,7 +212,7 @@ void main() {
 #ifdef NO_MACRO
   float macro = 0.5;
 #else
-  float macro = texture(uNoise, vGrid * (1.0 / 38.0)).a * 0.65 + texture(uNoise, vGrid * (1.0 / 190.0)).b * 0.35;
+  float macro = texture(uNoise, vGrid * (1.0 / 38.0)).a * 0.65 + macroN.b * 0.35;
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
 
@@ -210,7 +229,7 @@ void main() {
   float ao = vAo / 3.0;
   float aoCurve = 0.42 + 0.58 * ao;
   float shade = shadeOf(ng);
-  vec3 ambient = ambientFrom(ls) * shade * aoCurve;
+  vec3 ambient = ambientFrom(ls, ng) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;

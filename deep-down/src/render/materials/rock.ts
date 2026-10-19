@@ -1,4 +1,4 @@
-import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, PeriodicNoise, Rng, beginPaintCache, cached, chip, cloneField, crackPath, endPaintCache, engrave, fbm, hash2, mixHex, resolve, rngFor, wrap, wrapDelta, type Pt } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, PeriodicNoise, Rng, beginPaintCache, cached, chip, cloneField, crackCurve, crackPath, endPaintCache, fbm, groove, hash2, mixHex, resolve, rngFor, wrap, wrapDelta, type Pt } from './paint';
 import * as P from './palette';
 
 /**
@@ -56,7 +56,7 @@ export interface RockMap {
 }
 
 export const STONE_SIDE: RockStyle = {
-  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 5, folds: 1, joints: [18, 60], jointChance: 0.32,
+  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 5, folds: 1, joints: [22, 64], jointChance: 0.24,
   facets: 7, facetStrength: 0.1, fractures: 2, grain: 0.06, laminae: 0.25, chips: 30, base: 0.53, macro: 0.08, height: 150, heightSpread: 80,
 };
 export const DEEP_SIDE: RockStyle = {
@@ -64,7 +64,7 @@ export const DEEP_SIDE: RockStyle = {
   facets: 6, facetStrength: 0.12, fractures: 2, grain: 0.05, laminae: 0.1, chips: 22, base: 0.54, macro: 0.08, height: 165, heightSpread: 70,
 };
 export const WEATHERED_SIDE: RockStyle = {
-  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.13, fold: 3, folds: 2, joints: [12, 40], jointChance: 0.6,
+  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.13, fold: 3, folds: 2, joints: [16, 44], jointChance: 0.45,
   facets: 9, facetStrength: 0.1, fractures: 4, grain: 0.07, laminae: 0.55, chips: 40, base: 0.52, macro: 0.08, height: 115, heightSpread: 80,
 };
 export const BEDROCK_SIDE: RockStyle = {
@@ -133,13 +133,14 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
       bedY[i] = yy;
       bedIdx[i] = bed;
       const m = macro(x, y);
-      const q = facets.query(x, y);
+      // Facets are stretched along the beds and fade out toward their borders, so they read as
+      // broad conchoidal faces, not as a polygon network (craquelure / dried mud).
+      const q = facets.query(x, y, 0.3, 1);
       const cell = facets.cells[q.id];
-      const ddx = wrapDelta(cell.x, x) / cellSize;
+      const ddx = wrapDelta(cell.x, x) / (cellSize * 1.8);
       const ddy = wrapDelta(cell.y, y) / cellSize;
-      // Facet: a tilted plane lit from the upper left, plus a tone; half of the borders are ridges.
-      let facet = (-(cell.r - 0.5) * ddx - (cell.r2 - 0.5) * ddy) * 1.1 + (cell.r3 - 0.5) * 0.6;
-      if (q.d2 - q.d1 < 1.1) facet += cell.r > 0.5 ? 0.55 : -0.45;
+      const fade = Math.min(1, (q.d2 - q.d1) / 5);
+      const facet = ((-(cell.r - 0.5) * ddx - (cell.r2 - 0.5) * ddy) * 1.1 + (cell.r3 - 0.5) * 0.6) * fade;
       let v = st.base + bedTone[bed] + (bedHard[bed] - 0.5) * 0.05 + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain + facet * st.facetStrength;
       if (laminated[bed] && Math.floor(dy) % 3 === 2) v -= 0.045;
       let h = st.height + (bedHard[bed] - 0.5) * st.heightSpread * 0.7 + facet * st.heightSpread * 0.35 + (m - 0.5) * st.heightSpread * 0.4;
@@ -189,13 +190,15 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
       f.code[i] = code;
     }
 
-  // Long fractures crossing several beds, steeply inclined.
+  // Long fractures: most run with the bedding (low angle), the odd one crosses several beds
+  // steeply. Carved grooves that taper and close up, not drawn lines.
   const fractures: Pt[][] = [];
   for (let k = 0; k < st.fractures; k++) {
-    const ang = (rng.chance(0.5) ? 1 : -1) * (0.95 + rng.next() * 0.45) + (rng.chance(0.5) ? 0 : Math.PI);
-    const pts = crackPath(rng, rng.next() * S, rng.next() * S, ang, rng.int(30, 80), 0.14, 0.05);
-    engrave(f, pts, { depth: 0.24, lip: 0.08, shadow: 0.07, height: 22, widen: 0.12, rng });
-    fractures.push(pts);
+    const steep = k % 2 === 1;
+    const ang = (steep ? (rng.chance(0.5) ? 1 : -1) * (0.95 + rng.next() * 0.45) : (rng.next() - 0.5) * 0.5) + (rng.chance(0.5) ? 0 : Math.PI);
+    const pts = crackCurve(rng, rng.next() * S, rng.next() * S, ang, rng.int(30, 80), 0.14, 0.05);
+    groove(f, pts, { width: steep ? 1.6 : 2, depth: 0.2, lip: 0.1, shadow: 0.08, height: 22, gaps: 0.2, rng });
+    fractures.push(pts.map(([x, y]) => [Math.round(x), Math.round(y)] as Pt));
   }
   // Chipped flakes along partings and joints.
   const cracks: number[] = [];
@@ -256,19 +259,19 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
       edge[i] = e;
       const ddx = wrapDelta(cell.x, x) / cellSize;
       const ddy = wrapDelta(cell.y, y) / cellSize;
-      // Worn plates: slightly dished (lighter rim, smoother centre), each with its own tone.
-      const tone = (cell.r - 0.5) * st.plateTone + (-(cell.r2 - 0.5) * ddx - (cell.r3 - 0.5) * ddy) * 0.05;
+      // Worn plates: slightly dished, each with its own tone, which fades toward the plate's
+      // border so the plates read as broad worn patches, not as a polygon network.
+      const fade = Math.min(1, e / 4);
+      const tone = ((cell.r - 0.5) * st.plateTone + (-(cell.r2 - 0.5) * ddx - (cell.r3 - 0.5) * ddy) * 0.05) * fade;
       let v = st.base + tone + (m - 0.5) * st.macro + (grain(x, y) - 0.5) * st.grain;
-      let h = st.height + (cell.r - 0.5) * st.heightSpread * 0.6 + (m - 0.5) * st.heightSpread * 0.5;
+      let h = st.height + (cell.r - 0.5) * st.heightSpread * 0.6 * fade + (m - 0.5) * st.heightSpread * 0.5;
       let code = 0;
       const cn = crackN(x, y);
-      if (e < 1.1 && cn < st.crackShare) {
+      if (e < 1.1 && cn < st.crackShare * 0.35) {
+        // A few plate borders have opened: short shallow cracks.
         code = 1;
-        v -= 0.16;
+        v -= 0.12;
         h = 25;
-      } else if (e < 2.2 && cn < st.crackShare + 0.08) {
-        v -= 0.03; // the plate rounds off toward an open crack
-        h -= 15;
       }
       // Grit and small stones gather near the borders (2-3 texel stones with a lit top).
       if (code === 0) {
@@ -288,9 +291,15 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
       f.h[i] = h;
       f.code[i] = code;
     }
-  for (let k = 0; k < st.fractures; k++) {
-    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(20, 50), 0.2, 0.06);
-    engrave(f, pts, { depth: 0.16, lip: 0.05, shadow: 0.05, height: 25 });
+  // A bedding-plane floor cracks along joint sets roughly at right angles (as a limestone
+  // pavement does): long, nearly straight grooves that taper and close up in places.
+  const theta = rng.next() * Math.PI;
+  for (let set = 0; set < 2; set++) {
+    const a = theta + set * (Math.PI / 2 + (rng.next() - 0.5) * 0.4);
+    for (let k = 0; k < st.fractures; k++) {
+      const pts = crackCurve(rng, rng.next() * S, rng.next() * S, a + (rng.next() - 0.5) * 0.2, rng.int(26, 64), 0.06, 0.02);
+      groove(f, pts, { width: 1.5, depth: 0.12, lip: 0.09, shadow: 0.06, height: 25, gaps: 0.3, rng });
+    }
   }
   const cracks: number[] = [];
   for (let i = 0; i < S * S; i++) if (f.code[i] === 1) cracks.push(i);
@@ -371,34 +380,32 @@ export function weatheredTop(c: MatCanvas, rng: Rng): void {
   deposits(c, rng, m.f.code, false);
 }
 
-/** Ochre iron staining that bleeds from cracks (downward on walls) and thin calcite veins. */
+/**
+ * Ochre iron staining inside a few cracks (a short bleed below them on walls) and thin calcite
+ * veins. The rock itself stays neutral grey: under the amber lantern a broad warm stain turns the
+ * whole surface tan, so the ochre is kept to the cracks, where it reads as mineral, not as paint.
+ */
 function deposits(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
   const patch = fbm(rng, 4, 2);
-  const OCHRE = 0x4a3926;
+  const OCHRE = mixHex(P.WEATHERED[3], 0x7a5a36, 0.6);
   for (let i = 0; i < S * S; i++) {
     if (code[i] !== 1) continue;
     const x = i % S;
     const y = Math.floor(i / S);
     const p = patch(x, y);
-    if (p < 0.66) continue;
-    const strength = Math.min(1, (p - 0.66) * 4);
-    const len = side ? Math.round(2 + strength * 7) : 1;
-    for (let k = 1; k <= len; k++) {
-      const t = (1 - k / (len + 1)) * 0.32 * strength;
-      if (side) c.tint(x, y + k, OCHRE, t);
-      else {
-        c.tint(x + k, y, OCHRE, t * 0.7);
-        c.tint(x - k, y, OCHRE, t * 0.7);
-      }
-    }
+    if (p < 0.7) continue;
+    const strength = Math.min(1, (p - 0.7) * 5);
+    c.tint(x, y, OCHRE, 0.45 * strength);
+    const len = side ? Math.round(1 + strength * 3) : 0;
+    for (let k = 1; k <= len; k++) c.tint(x, y + k, OCHRE, (1 - k / (len + 1)) * 0.2 * strength);
   }
   // Calcite: thin, slightly raised pale veins, broken in places.
-  const CALCITE = 0x504d48;
+  const CALCITE = mixHex(P.WEATHERED[7], 0xd4d8da, 0.3);
   for (let k = 0; k < (side ? 2 : 1); k++) {
     const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(24, 60), 0.18, 0.05);
     for (const [x, y] of pts) {
       if (rng.chance(0.18)) continue;
-      c.tint(x, y, CALCITE, 0.6);
+      c.tint(x, y, CALCITE, 0.45);
       c.setHeight(x, y, Math.max(c.height(x, y), 190));
     }
   }
@@ -461,8 +468,9 @@ function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
   const edge = fbm(rng, 32, 1);
   const clumps = new PeriodicCells(rng, 7, 7, 0.95);
   for (const cl of clumps.cells) {
-    if (cl.r > (side ? 0.45 : 0.45)) continue;
-    const r = 1.5 + cl.r2 * (side ? 4.5 : 5);
+    // Tops get few, small crusts: a lichen-covered top reads as a moss block.
+    if (cl.r > (side ? 0.45 : 0.2)) continue;
+    const r = 1.5 + cl.r2 * (side ? 4.5 : 3.5);
     // A few satellites around each clump.
     const n = 1 + Math.floor(cl.r3 * 4);
     for (let k = 0; k < n; k++) {
@@ -482,7 +490,7 @@ function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
           const t = d / lim;
           const hv = hash2(px, py);
           const tone = t > 0.8 ? 3 : t < 0.4 && hv < 0.18 ? 4 : hv < 0.45 ? 2 : 1;
-          c.set(px, py, mixHex(c.getHex(px, py), P.LICHEN[tone], 0.7), Math.max(c.height(px, py), 165 + (1 - t) * 50));
+          c.set(px, py, mixHex(c.getHex(px, py), P.LICHEN[tone], side ? 0.65 : 0.5), Math.max(c.height(px, py), 165 + (1 - t) * 50));
         }
     }
   }

@@ -10,7 +10,8 @@ import { beginHostCache, endHostCache } from './rock';
  * sampled in world space (16 texels per metre, 8 m period), so a wall of one material is one
  * continuous surface and the voxel grid disappears from the texture. Where two materials of the
  * same family meet, the terrain shader draws an irregular, height-driven boundary instead of
- * the cube edge (see terrainMaterial.ts).
+ * the cube edge (see terrainMaterial.ts). Masonry layers are course libraries instead: the
+ * shader lays their courses in world space (courses.ts), so dressed stone never repeats.
  *
  * The 16 px tile atlas (render/textures.ts) is still used for icons, drops, crack stages and
  * the rune decals carved into glyph stones.
@@ -43,6 +44,10 @@ export const MATERIAL_NAMES = [
   'beamEnd',
   'hearth',
   'bedrock',
+  // Megalithic twins of the wall layers: never on a block, chosen by the shader per course
+  // stretch (see courses.ts).
+  'masonryB',
+  'crumblingB',
 ] as const;
 
 export type MaterialName = (typeof MATERIAL_NAMES)[number];
@@ -82,6 +87,8 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   beamEnd: { glow: 0 },
   hearth: { glow: 0.8 },
   bedrock: { glow: 0 },
+  masonryB: { glow: 0 },
+  crumblingB: { glow: 0.9 },
 };
 
 /** Material families: only materials of the same non-zero family blend at their boundaries. */

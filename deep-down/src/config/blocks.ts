@@ -96,7 +96,7 @@ def({
   drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.glyphStone, bottom: TILE.ancientBrickTop },
   // Inscriptions breathe a faint cold light along their course; the carved runes themselves
   // wake near the lantern (terrain shader). They must never flood a room.
-  emission: [0.025, 0.1, 0.13], glow: 1.25, debris: [0x535a6a],
+  emission: [0.05, 0.24, 0.3], glow: 1.25, debris: [0x535a6a],
 });
 def({ id: B.PLANK, name: 'block.plank', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
 def({ id: B.BEAM, name: 'block.beam', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
@@ -105,7 +105,9 @@ def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, hardness
 def({ id: B.LIGHT_AMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.42] });
 def({ id: B.LIGHT_EMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.6, 0.32] });
 def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.16, 0.6, 0.76] });
-def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.86, 0.56, 0.31] });
+// Route lamps are a deeper amber than the explorer's pale-gold lantern, so their pools read as
+// separate islands of warmth.
+def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.9, 0.52, 0.24] });
 def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
 
 export const BLOCKS: readonly BlockDef[] = defs;

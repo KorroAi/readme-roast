@@ -28,7 +28,8 @@ export const QUALITY: Record<QualityLevel, QualityPreset> = {
 };
 
 /** WebGL2 renderer + post chain + resize handling, shared by the game and the Visual Lab. */
-const BASE_EXPOSURE = 1.05;
+// Exposure for albedos painted as real reflectances (palette.ts) under the round-3 light model.
+const BASE_EXPOSURE = 1.55;
 
 export class Renderer {
   readonly gl: THREE.WebGLRenderer;
