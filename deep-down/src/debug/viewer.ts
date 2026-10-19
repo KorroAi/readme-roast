@@ -4,6 +4,7 @@ import { LightField, LanternField } from '../world/light';
 import { LightingRig } from '../render/lighting';
 import { generateTiles } from '../render/textures';
 import { createTerrainMaterial, createTileTexture } from '../render/terrainMaterial';
+import { TerrainRig } from '../render/terrainRig';
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { Renderer } from '../render/Renderer';
 import { Waterfall } from '../game/effects/Waterfall';
@@ -24,7 +25,8 @@ async function boot(): Promise<void> {
   const lantern = new LanternField(layout.world);
   const rig = new LightingRig(field, lantern, layout.world.sx, layout.world.sy, layout.world.sz);
   const tiles = createTileTexture(generateTiles());
-  const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, params.has('clip')));
+  const terrain = new TerrainRig();
+  const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, terrain.uniforms, params.has('clip'), params.get('blend') !== '0', Object.fromEntries(['NO_DISP', 'NO_MACRO', 'NO_DERIV'].filter((d) => params.has(d.toLowerCase())).map((d) => [d, '']))));
   await chunks.buildAll();
   const scene = new THREE.Scene();
   scene.add(chunks.group);

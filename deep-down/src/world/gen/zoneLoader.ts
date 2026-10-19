@@ -2,6 +2,7 @@ import { generateWorld } from './generateWorld';
 import type { WorldLayout } from './types';
 import { VoxelWorld } from '../VoxelWorld';
 import { LightField } from '../light';
+import { generateMaterials, type MaterialAtlas } from '../../render/materials';
 
 export interface ZoneRequest {
   seed: number;
@@ -16,12 +17,15 @@ export type ZoneResponse =
       size: [number, number, number, number];
       blocks: Uint8Array;
       light: Uint8Array;
-      timings: { generateMs: number; lightMs: number; genPhases: Record<string, number> };
+      materials: MaterialAtlas;
+      timings: { generateMs: number; lightMs: number; materialsMs: number; genPhases: Record<string, number> };
     };
 
 export interface LoadedZone {
   layout: WorldLayout;
   light: LightField;
+  /** Painted terrain material layers (see render/materials). */
+  materials: MaterialAtlas;
   timings: Record<string, number>;
   usedWorker: boolean;
 }
@@ -47,7 +51,9 @@ export async function loadZone(seed: number, onPhase: (phase: 'carve' | 'light')
   await new Promise((r) => setTimeout(r, 0));
   const light = new LightField(layout.world);
   light.computeAll();
-  return { layout, light, timings: { generateMs: Math.round(t1 - t0), lightMs: Math.round(performance.now() - t1) }, usedWorker: false };
+  const t2 = performance.now();
+  const materials = generateMaterials();
+  return { layout, light, materials, timings: { generateMs: Math.round(t1 - t0), lightMs: Math.round(t2 - t1), materialsMs: Math.round(performance.now() - t2) }, usedWorker: false };
 }
 
 function loadInWorker(seed: number, onPhase: (phase: 'carve' | 'light') => void): Promise<LoadedZone> {
@@ -79,7 +85,7 @@ function loadInWorker(seed: number, onPhase: (phase: 'carve' | 'light') => void)
       const world = new VoxelWorld(sx, sy, sz, cs, m.blocks);
       const layout = { ...m.layout, world } as WorldLayout;
       const light = new LightField(world, m.light);
-      resolve({ layout, light, timings: { generateMs: m.timings.generateMs, lightMs: m.timings.lightMs }, usedWorker: true });
+      resolve({ layout, light, materials: m.materials, timings: { generateMs: m.timings.generateMs, lightMs: m.timings.lightMs, materialsMs: m.timings.materialsMs }, usedWorker: true });
     };
     worker.postMessage({ seed } satisfies ZoneRequest);
   });

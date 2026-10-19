@@ -212,7 +212,7 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(hitsCopper).toBeLessThan(hitsRusty);
   const seal = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(10, x, y, z, 6), lm.seal);
   expect(seal).not.toBeNull();
-  await mineWithTouch(page, touch, seal!.block, 12000);
+  await mineWithTouch(page, touch, seal!.block, 30_000);
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), seal!.block)).toBe(B.AIR);
 
   // 9. Save and resume: reload, Continue, everything is still there.

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { CRACK_STAGES } from '../../config/tiles';
 import { CRACK_LAYER } from '../../render/textures';
 import { damp } from '../../core/math';
+import type { TerrainRig } from '../../render/terrainRig';
 
 const crackVert = /* glsl */ `
 out vec3 vLocal;
@@ -37,8 +38,12 @@ void main() {
 `;
 
 /**
- * Feedback on the block being mined: a thin outline, crack stages that grow with damage,
- * and a short punch + flash on every impact. Red outline when the block is too hard.
+ * Feedback on the block being mined: crack stages that grow with damage, a soft rim
+ * highlight and a short flash on every impact; red rim when the block is too hard.
+ *
+ * With a TerrainRig (the game) the terrain shader draws all of it on the sculpted surface
+ * itself, so nothing floats off or sinks into the displaced faces. Without one (tools), a
+ * crack box and outline are drawn instead.
  */
 export class TargetMarker {
   readonly group = new THREE.Group();
@@ -50,7 +55,12 @@ export class TargetMarker {
   private readonly okColor = new THREE.Color(0xffe2b8);
   private readonly blockedColor = new THREE.Color(0xff6b5e);
 
-  constructor(tiles: THREE.DataArrayTexture) {
+  private stage = -1;
+  private blocked = false;
+  private active = false;
+  private cell: { x: number; y: number; z: number } | null = null;
+
+  constructor(tiles: THREE.DataArrayTexture, private readonly terrain: TerrainRig | null = null) {
     const mat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: { uTiles: { value: tiles }, uLayer: { value: -1 }, uFlash: { value: 0 }, uOpacity: { value: 1 } },
@@ -80,12 +90,23 @@ export class TargetMarker {
     if (!target) {
       this.visibleTarget = false;
       this.group.visible = false;
+      this.cell = null;
+      this.terrain?.setTarget(null, -1, 0, false, false);
       return;
     }
     this.visibleTarget = true;
+    const stage = progress <= 0 ? -1 : Math.min(CRACK_STAGES - 1, Math.floor(progress * CRACK_STAGES));
+    this.cell = target;
+    this.stage = stage;
+    this.blocked = blocked;
+    this.active = active;
+    if (this.terrain) {
+      this.group.visible = false;
+      this.terrain.setTarget(target, stage < 0 ? -1 : CRACK_LAYER(stage), this.flash, active, blocked);
+      return;
+    }
     this.group.visible = true;
     this.group.position.set(target.x + 0.5, target.y + 0.5, target.z + 0.5);
-    const stage = progress <= 0 ? -1 : Math.min(CRACK_STAGES - 1, Math.floor(progress * CRACK_STAGES));
     this.crack.material.uniforms.uLayer.value = stage < 0 ? -1 : CRACK_LAYER(stage);
     this.outline.material.color.copy(blocked ? this.blockedColor : this.okColor);
     this.outline.material.opacity = active ? 0.7 : 0.35;
@@ -104,6 +125,7 @@ export class TargetMarker {
     const s = 1 + this.punch * 0.045;
     this.crack.scale.setScalar(s);
     this.crack.material.uniforms.uFlash.value = this.flash;
+    if (this.terrain && this.cell) this.terrain.setTarget(this.cell, this.stage < 0 ? -1 : CRACK_LAYER(this.stage), this.flash, this.active, this.blocked);
   }
 
   dispose(): void {

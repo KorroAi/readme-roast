@@ -1,12 +1,22 @@
-import { B, SIDE_VARIANTS, SOLID, TILE_BOTTOM, TILE_SIDE, TILE_TOP, VARIANT_COUNT, VISIBLE } from '../config/blocks';
+import { B, SOLID, VISIBLE } from '../config/blocks';
 import type { VoxelWorld } from '../world/VoxelWorld';
+import { FAMILY_OF, MAT_BOTTOM, MAT_SIDE, MAT_TOP, RIGIDITY, RUNE_FLAG } from './materials';
 
 /**
  * Chunk mesher: emits one quad per visible block face that touches a non-opaque voxel.
  *
- * Vertex format (8 bytes):
+ * Vertex format (11 bytes, three attributes):
  *   position: Uint8 x3   local block coordinates within the chunk (0..16)
- *   data:     Uint8 x4   [face 0..5, ambient occlusion 0..3, texture layer, uv bits (u | v<<1)]
+ *   data:     Uint8 x4   [face 0..5, ambient occlusion 0..3, material layer,
+ *                         bits: u | v << 1 | rigidity << 2 | family << 4 | rune << 6]
+ *   nb:       Uint8 x4   material layer of the in-plane neighbour across each face edge
+ *                         (-t1, +t1, -t2, +t2), 255 when no boundary should be drawn. The
+ *                         terrain shader uses it to draw a natural boundary between materials
+ *                         of the same family without any texture lookups of its own.
+ *
+ * Rigidity (0..3) says how far the terrain shader may sculpt the vertex. It is the lowest
+ * rigidity of the solid voxels around the vertex, so every face sharing a vertex (in this
+ * chunk or the next) gets the same value and the same displacement: no cracks.
  *
  * Pure function of the voxel data, so it is unit-testable and can move to a worker.
  */
@@ -14,6 +24,7 @@ import type { VoxelWorld } from '../world/VoxelWorld';
 export interface ChunkMeshData {
   positions: Uint8Array;
   data: Uint8Array;
+  nb: Uint8Array;
   indices: Uint16Array | Uint32Array;
   vertexCount: number;
   faceCount: number;
@@ -76,11 +87,35 @@ const FACE_DELTA = FACE_NORMALS.map((n) => n[0] + n[1] * P + n[2] * P2);
 const MAX_FACES = 16 * 16 * 16 * 6;
 const scratchPos = new Uint8Array(MAX_FACES * 4 * 3);
 const scratchData = new Uint8Array(MAX_FACES * 4 * 4);
+const scratchNb = new Uint8Array(MAX_FACES * 4 * 4);
+
+// In-plane tangents per face axis (must match the terrain shader): X faces use (Y, Z),
+// Y faces use (X, Z), Z faces use (X, Y).
+const TANGENT_DELTA = [0, 1, 2].map((axis) => {
+  const t1 = axis === 0 ? 1 : 0;
+  const t2 = axis === 2 ? 1 : 2;
+  const d = (a: number) => (a === 0 ? 1 : a === 1 ? P : P2);
+  return [d(t1), d(t2)];
+});
 const scratchIdx = new Uint32Array(MAX_FACES * 6);
 
 /** Opaque = occludes neighbor faces and casts ambient occlusion. */
 const OPAQUE = new Uint8Array(256);
 for (let i = 0; i < 256; i++) OPAQUE[i] = SOLID[i] && VISIBLE[i] ? 1 : 0;
+
+/** Lowest rigidity among the 8 voxels sharing the vertex at local corner coords (0..16). */
+function vertexRigidity(lx: number, ly: number, lz: number): number {
+  let r = 3;
+  // Voxel (bx,by,bz) in chunk-local coords lives at padded index (bx+1) + (by+1)*P + (bz+1)*P2;
+  // the voxels around vertex (lx,ly,lz) are bx in {lx-1, lx}, i.e. padded {lx, lx+1}.
+  for (let dz = 0; dz < 2; dz++)
+    for (let dy = 0; dy < 2; dy++)
+      for (let dx = 0; dx < 2; dx++) {
+        const v = RIGIDITY[pad[lx + dx + (ly + dy) * P + (lz + dz) * P2]];
+        if (v < r) r = v;
+      }
+  return r;
+}
 
 export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: number): ChunkMeshData {
   const cs = world.chunkSize;
@@ -120,12 +155,24 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
           for (let f = 0; f < 6; f++) {
             const front = i + FACE_DELTA[f];
             if (OPAQUE[pad[front]]) continue;
-            let layer = f === 2 ? TILE_TOP[id] : f === 3 ? TILE_BOTTOM[id] : TILE_SIDE[id];
-            const nv = VARIANT_COUNT[id];
-            if (nv > 1 && f !== 2 && f !== 3) {
-              const h = (Math.imul(bx + x, 73856093) ^ Math.imul(by + y, 19349663) ^ Math.imul(bz + z, 83492791)) >>> 0;
-              layer = SIDE_VARIANTS[id * 4 + (h % nv)];
+            const matOf = f === 2 ? MAT_TOP : f === 3 ? MAT_BOTTOM : MAT_SIDE;
+            const layer = matOf[id];
+            const family = FAMILY_OF[id];
+            // Boundary partners: solid neighbours in the face plane of the same family with a
+            // different material on this face orientation.
+            const [d1, d2] = TANGENT_DELTA[f >> 1];
+            let nb0 = 255;
+            let nb1 = 255;
+            let nb2 = 255;
+            let nb3 = 255;
+            if (family !== 0) {
+              const pick = (n: number) => (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer ? matOf[n] : 255);
+              nb0 = pick(pad[i - d1]);
+              nb1 = pick(pad[i + d1]);
+              nb2 = pick(pad[i - d2]);
+              nb3 = pick(pad[i + d2]);
             }
+            const flags = (family << 4) | (RUNE_FLAG[id] << 6);
             const ao = AO_OFFSETS[f];
             const corners = FACE_CORNERS[f];
             const uvs = FACE_UVS[f];
@@ -151,7 +198,11 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
               scratchData[v * 4] = f;
               scratchData[v * 4 + 1] = occ;
               scratchData[v * 4 + 2] = layer;
-              scratchData[v * 4 + 3] = uvs[c][0] | (uvs[c][1] << 1);
+              scratchData[v * 4 + 3] = uvs[c][0] | (uvs[c][1] << 1) | (vertexRigidity(x - 1 + corner[0], y - 1 + corner[1], z - 1 + corner[2]) << 2) | flags;
+              scratchNb[v * 4] = nb0;
+              scratchNb[v * 4 + 1] = nb1;
+              scratchNb[v * 4 + 2] = nb2;
+              scratchNb[v * 4 + 3] = nb3;
             }
             const k = faces * 6;
             // Split along the diagonal joining the brighter pair so AO gradients stay symmetric.
@@ -182,6 +233,7 @@ export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: numb
   return {
     positions: scratchPos.slice(0, vertexCount * 3),
     data: scratchData.slice(0, vertexCount * 4),
+    nb: scratchNb.slice(0, vertexCount * 4),
     indices,
     vertexCount,
     faceCount: faces,

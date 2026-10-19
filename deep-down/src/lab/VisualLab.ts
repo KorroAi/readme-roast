@@ -7,6 +7,7 @@ import { LightField, LanternField } from '../world/light';
 import { LightingRig } from '../render/lighting';
 import { generateTiles } from '../render/textures';
 import { createTerrainMaterial, createTileTexture } from '../render/terrainMaterial';
+import { TerrainRig } from '../render/terrainRig';
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { Renderer } from '../render/Renderer';
 import { PropRenderer } from '../render/props/PropRenderer';
@@ -75,7 +76,9 @@ export class VisualLab {
   private readonly chunks: ChunkRenderer;
   private readonly props: PropRenderer;
   private readonly explorers: ExplorerModel[] = [];
-  private readonly markers: TargetMarker[] = [];
+  private readonly marker: TargetMarker;
+  private readonly terrain: TerrainRig;
+  private crackStage = -1;
   private readonly debris: DebrisSystem;
   private readonly particles: ParticleSystem;
   private readonly drops: DropSystem;
@@ -95,19 +98,16 @@ export class VisualLab {
     this.rig = new LightingRig(this.light, this.lantern, this.world.sx, this.world.sy, this.world.sz);
     const atlas = generateTiles();
     const tiles = createTileTexture(atlas);
-    this.chunks = new ChunkRenderer(this.world, createTerrainMaterial(this.rig.uniforms, tiles));
+    this.terrain = new TerrainRig();
+    this.chunks = new ChunkRenderer(this.world, createTerrainMaterial(this.rig.uniforms, tiles, this.terrain.uniforms));
     this.props = new PropRenderer(this.rig.uniforms);
     this.debris = new DebrisSystem(this.world, this.rig.uniforms, 400);
     this.particles = new ParticleSystem(this.rig.uniforms, 320);
     this.drops = new DropSystem(this.world, this.rig.uniforms, atlas);
     this.scene.add(this.chunks.group, this.props.group, this.debris.group, this.particles.group, this.drops.group);
-    // Crack stages: one marker per stage on a row of slate blocks.
-    for (let s = 0; s < CRACK_STAGES; s++) {
-      const m = new TargetMarker(tiles);
-      m.set({ x: 19 + s, y: 2, z: 59 }, (s + 0.5) / CRACK_STAGES, false, true);
-      this.markers.push(m);
-      this.scene.add(m.group);
-    }
+    // Crack stages are drawn by the terrain shader on the sculpted surface: one marker cycles
+    // through all stages (with an impact flash per stage) on the centre block of the crack row.
+    this.marker = new TargetMarker(tiles, this.terrain);
     // Explorer line-up: idle, walking, jumping, mining (tier 2 tools).
     const poses = [0, 1, 2, 3];
     for (const i of poses) {
@@ -212,7 +212,15 @@ export class VisualLab {
         for (const item of items) this.drops.spawn(item, 1, 12.5 + this.rng.range(-0.5, 0.5), 3.5, 59.5, this.rng);
       }
     }
-    this.markers.forEach((m) => m.update(dt));
+    if (this.view === 'cracks') {
+      const stage = Math.floor(this.time * 2.5) % (CRACK_STAGES + 2);
+      if (stage !== this.crackStage) {
+        this.crackStage = stage;
+        if (stage < CRACK_STAGES) this.marker.impact(1);
+      }
+      this.marker.set({ x: 24, y: 2, z: 59 }, stage < CRACK_STAGES ? (stage + 0.5) / CRACK_STAGES : 0, false, true);
+    } else this.marker.set(null, 0, false, false);
+    this.marker.update(dt);
     this.explorers.forEach((e, i) => {
       if (i === 3 && !e.swinging) e.swing(0.42);
       e.update(dt, { speed: i === 1 ? 4.6 : 0, grounded: i !== 2, verticalVelocity: i === 2 ? 3 : 0, aimPitch: 0, time: this.time });

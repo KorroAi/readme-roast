@@ -153,7 +153,7 @@ export class Game {
     this.drops = new DropSystem(s.world, s.rig.uniforms, s.atlas);
     this.debris = new DebrisSystem(s.world, s.rig.uniforms, preset.particleBudget);
     this.particles = new ParticleSystem(s.rig.uniforms, preset.particleBudget);
-    this.marker = new TargetMarker(s.tileTexture);
+    this.marker = new TargetMarker(s.tileTexture, s.terrain);
     this.scene.add(this.drops.group, this.debris.group, this.particles.group, this.marker.group);
     s.chunks.viewDistance = preset.viewDistance;
     s.props.viewDistance = preset.viewDistance;

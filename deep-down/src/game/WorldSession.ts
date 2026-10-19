@@ -7,6 +7,8 @@ import { LightField, LanternField } from '../world/light';
 import { LightingRig } from '../render/lighting';
 import { generateTiles, type TileAtlas } from '../render/textures';
 import { createTerrainMaterial, createTileTexture } from '../render/terrainMaterial';
+import { TerrainRig } from '../render/terrainRig';
+import type { MaterialAtlas } from '../render/materials';
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { PropRenderer } from '../render/props/PropRenderer';
 import { applyWorldEdits, encodeWorldEdits } from '../save/worldDelta';
@@ -23,6 +25,8 @@ export class WorldSession {
   readonly light: LightField;
   readonly lantern: LanternField;
   readonly rig: LightingRig;
+  /** Terrain materials, voxel-id volume and mining feedback for the terrain shader. */
+  readonly terrain: TerrainRig;
   readonly atlas: TileAtlas;
   readonly tileTexture: THREE.DataArrayTexture;
   readonly terrainMaterial: THREE.ShaderMaterial;
@@ -33,7 +37,7 @@ export class WorldSession {
   readonly removedProps = new Set<string>();
   readonly timings: Record<string, number> = {};
 
-  private constructor(layout: WorldLayout, atlas: TileAtlas, light: LightField) {
+  private constructor(layout: WorldLayout, atlas: TileAtlas, light: LightField, materials: MaterialAtlas) {
     this.layout = layout;
     this.generated = layout.world.blocks.slice();
     this.light = light;
@@ -42,7 +46,8 @@ export class WorldSession {
     this.rig = new LightingRig(this.light, this.lantern, w.sx, w.sy, w.sz);
     this.atlas = atlas;
     this.tileTexture = createTileTexture(atlas);
-    this.terrainMaterial = createTerrainMaterial(this.rig.uniforms, this.tileTexture);
+    this.terrain = new TerrainRig(materials);
+    this.terrainMaterial = createTerrainMaterial(this.rig.uniforms, this.tileTexture, this.terrain.uniforms);
     this.chunks = new ChunkRenderer(w, this.terrainMaterial);
     this.props = new PropRenderer(this.rig.uniforms);
   }
@@ -53,7 +58,7 @@ export class WorldSession {
     const t0 = performance.now();
     const zone = await loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));
     const atlas = generateTiles();
-    const session = new WorldSession(zone.layout, atlas, zone.light);
+    const session = new WorldSession(zone.layout, atlas, zone.light, zone.materials);
     Object.assign(session.timings, zone.timings, { zoneTotalMs: Math.round(performance.now() - t0), worker: zone.usedWorker ? 1 : 0 });
     onProgress(0.5, 'mesh');
     await yieldFrame();

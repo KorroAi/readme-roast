@@ -124,6 +124,7 @@ export class ChunkRenderer {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(data.positions, 3));
     geo.setAttribute('aData', new THREE.BufferAttribute(data.data, 4));
+    geo.setAttribute('aNb', new THREE.BufferAttribute(data.nb, 4));
     geo.setIndex(new THREE.BufferAttribute(data.indices, 1));
     const cs = w.chunkSize;
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs / 2, cs / 2, cs / 2), (cs * Math.sqrt(3)) / 2 + 0.5);

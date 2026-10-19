@@ -149,7 +149,7 @@ const BEDROCK = [0x08090c, 0x0e1014, 0x14161c, 0x1b1e25];
 
 type Painter = (t: Tile, rng: Rng) => void;
 
-const painters: Record<Exclude<TileName, `crack${number}`>, Painter> = {
+const painters: Record<Exclude<TileName, `crack${number}` | `rune${number}`>, Painter> = {
   slate(t, rng) {
     fillRamp(t, rng, SLATE, { cell: 5, jitter: 0.1 });
     for (let i = 0; i < 2; i++) crack(t, rng, SLATE[0], rng.int(4, 7));
@@ -475,6 +475,48 @@ export interface TileAtlas {
   data: Uint8Array;
 }
 
+/**
+ * The builders' script. Every rune is built from the same few elements (a spine, an eye ring,
+ * a lantern diamond, descending steps) so inscriptions read as one language. RGB = ink colour,
+ * A = ink mask (255 core, 110 soft rim); the terrain shader erodes and lights them.
+ */
+type Stroke = [number, number, number, number];
+const RUNES: Array<{ lines: Stroke[]; rings?: Array<[number, number, number]>; dots?: Array<[number, number]> }> = [
+  { lines: [[8, 2, 8, 12], [8, 5, 5, 8], [8, 5, 11, 8], [6, 11, 10, 11], [4, 13, 12, 13]] }, // descent
+  { lines: [[8, 1, 8, 3], [8, 11, 8, 14]], rings: [[8, 7, 3.6]], dots: [[8, 7]] }, // eye
+  { lines: [[8, 1, 8, 3], [8, 3, 12, 7], [12, 7, 8, 11], [8, 11, 4, 7], [4, 7, 8, 3], [6, 13, 10, 13]], dots: [[8, 7]] }, // lantern
+  { lines: [[5, 2, 5, 13], [11, 2, 11, 13], [5, 5, 11, 8], [11, 8, 5, 11]] }, // chasm
+  { lines: [[8, 2, 13, 13], [13, 13, 3, 13], [3, 13, 8, 2], [6, 9, 10, 9]] }, // spire
+  { lines: [[3, 5, 5, 3], [5, 3, 8, 5], [8, 5, 11, 3], [11, 3, 13, 5], [3, 11, 5, 9], [5, 9, 8, 11], [8, 11, 11, 9], [11, 9, 13, 11]] }, // waves
+  { lines: [[4, 13, 4, 3], [4, 3, 12, 3], [12, 3, 12, 13], [8, 6, 8, 13]], dots: [[8, 4]] }, // gate
+  { lines: [[8, 2, 8, 6], [8, 10, 8, 14], [2, 8, 6, 8], [10, 8, 14, 8], [5, 5, 6, 6], [11, 5, 10, 6], [5, 11, 6, 10], [11, 11, 10, 10]], rings: [[8, 8, 1.6]] }, // star
+];
+
+function paintRune(t: Tile, index: number): void {
+  const r = RUNES[index % RUNES.length];
+  const ink = 0x7ff3ff;
+  const rim = 0x2aa9c0;
+  const plot = (x: number, y: number) => {
+    t.set(x, y, ink, 255);
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const i = x + dx + (y + dy) * S;
+      if (x + dx < 0 || y + dy < 0 || x + dx >= S || y + dy >= S) continue;
+      if (t.a[i] < 110) t.set(x + dx, y + dy, rim, 110);
+    }
+  };
+  for (const [x0, y0, x1, y1] of r.lines) {
+    const n = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0), 1);
+    for (let i = 0; i <= n; i++) plot(Math.round(x0 + ((x1 - x0) * i) / n), Math.round(y0 + ((y1 - y0) * i) / n));
+  }
+  for (const [cx, cy, rad] of r.rings ?? []) {
+    for (let a = 0; a < 48; a++) {
+      const ang = (a / 48) * Math.PI * 2;
+      plot(Math.round(cx + Math.cos(ang) * rad), Math.round(cy + Math.sin(ang) * rad));
+    }
+  }
+  for (const [x, y] of r.dots ?? []) plot(x, y);
+}
+
 export function generateTiles(): TileAtlas {
   const layers = TILE_NAMES.length;
   const data = new Uint8Array(S * S * 4 * layers);
@@ -483,6 +525,8 @@ export function generateTiles(): TileAtlas {
     const rng = new Rng(1000 + layer * 7919);
     if (name.startsWith('crack')) {
       paintCrack(t, Number(name.slice(5)));
+    } else if (name.startsWith('rune')) {
+      paintRune(t, Number(name.slice(4)));
     } else {
       painters[name as keyof typeof painters](t, rng);
     }

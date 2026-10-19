@@ -36,6 +36,15 @@ export const TILE_NAMES = [
   'crack7',
   'crack8',
   'crack9',
+  // Rune decals carved into glyph stones (alpha = ink mask), the builders' script.
+  'rune0',
+  'rune1',
+  'rune2',
+  'rune3',
+  'rune4',
+  'rune5',
+  'rune6',
+  'rune7',
 ] as const;
 
 export type TileName = (typeof TILE_NAMES)[number];
@@ -45,3 +54,5 @@ export const TILE = Object.fromEntries(TILE_NAMES.map((n, i) => [n, i])) as Reco
 export const TILE_SIZE = 16;
 export const CRACK_STAGES = 10;
 export const CRACK_FIRST_LAYER = TILE.crack0;
+export const RUNE_FIRST_LAYER = TILE.rune0;
+export const RUNE_COUNT = 8;
