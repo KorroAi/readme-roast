@@ -4,7 +4,7 @@ import { RUNE_COUNT, RUNE_FIRST_LAYER, TILE_NAMES, TILE_SIZE } from '../config/t
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
 import { FAMILY, MATERIAL_NAMES } from './materials';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
-import { OFFSET_RANGE } from './mesher';
+import { AO_SCALE, OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
 import type { TileAtlas } from './textures';
 
@@ -64,7 +64,7 @@ void main() {
   vec4 g = modelMatrix * vec4(aGeo.xyz, 1.0);
   vGrid = g.xyz;
   vFace = int(aData.x + 0.5);
-  vAo = aData.y;
+  vAo = aData.y * (1.0 / ${AO_SCALE}.0); // 0..3, fractional on natural rock
   vLayer = aData.z;
   int bits = int(aData.w + 0.5);
   vUv = vec2(float(bits & 1), 1.0 - float((bits >> 1) & 1));

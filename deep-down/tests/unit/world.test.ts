@@ -84,7 +84,9 @@ describe('meshChunk', () => {
   it('darkens ambient occlusion where a wall meets a floor', () => {
     const w = emptyWorld();
     for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) w.setRaw(x, 1, z, B.SLATE);
-    w.setRaw(8, 2, 8, B.SLATE); // a bump on the floor
+    // A built block on the floor: built faces keep the per-face voxel AO (natural rock uses the
+    // smooth lattice AO, tested in mesh-sculpt.test.ts, under which a lone 1 m pebble barely occludes).
+    w.setRaw(8, 2, 8, B.ANCIENT_BRICK);
     const m = meshChunk(w, 0, 0, 0);
     // Find the top face of floor block (9,1,8): its corners at x=9 touch the bump.
     let minAo = 3;

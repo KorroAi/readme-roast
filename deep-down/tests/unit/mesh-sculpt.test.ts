@@ -107,6 +107,32 @@ describe('sculpting mesher', () => {
     expect(edges).toBeGreaterThan(100);
   });
 
+  it('keeps rendered rock within 0.4 m of the voxel surface it stands for (camera and body collide with voxels)', () => {
+    const w = terrain();
+    let worst = 0;
+    let sag = 0;
+    for (const { m, ox, oy, oz } of meshes(w)) {
+      const o = [0, 0, 0];
+      for (let v = 0; v < m.vertexCount; v++) {
+        m.offset(v, o);
+        const p = [m.positions[v * 3] + ox + o[0], m.positions[v * 3 + 1] + oy + o[1], m.positions[v * 3 + 2] + oz + o[2]];
+        const c = p.map(Math.floor);
+        if (w.isSolid(c[0], c[1], c[2])) continue;
+        let best = 9;
+        for (let dz = -1; dz <= 1; dz++) for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          if (!w.isSolid(c[0] + dx, c[1] + dy, c[2] + dz)) continue;
+          const d = [0, 1, 2].map((k) => Math.max(c[k] + [dx, dy, dz][k] - p[k], 0, p[k] - (c[k] + [dx, dy, dz][k] + 1)));
+          best = Math.min(best, Math.hypot(d[0], d[1], d[2]));
+        }
+        worst = Math.max(worst, best);
+        // Ceilings (bottom faces) hang at most 0.12 m into the head room below them.
+        if (m.data[v * 4] === 3) sag = Math.max(sag, -o[1]);
+      }
+    }
+    expect(worst).toBeLessThanOrEqual(0.42);
+    expect(sag).toBeLessThanOrEqual(0.125);
+  });
+
   it('keeps masonry crisp and timber exact', () => {
     const w = terrain();
     let brick = 0;
@@ -189,6 +215,35 @@ describe('sculpting mesher', () => {
     const smooth = pts.filter((s) => s.size === 1).length;
     expect(pts.length).toBeGreaterThan(1000);
     expect(smooth / pts.length).toBeGreaterThan(0.97);
+  });
+
+  it('shades natural-rock creases with a smooth AO, and leaves flat ground and gentle voxel slopes unshaded', () => {
+    const w = new VoxelWorld(16, 16, 16);
+    // Floor at y < 4, a wall at x < 3, and a 1:2 voxel staircase climbing toward +z from z = 8.
+    for (let x = 0; x < 16; x++) for (let z = 0; z < 16; z++) {
+      const h = z < 8 ? 4 : 4 + Math.floor((z - 8) / 2);
+      for (let y = 0; y < (x < 3 ? 12 : h); y++) w.setRaw(x, y, z, B.SLATE);
+    }
+    const m = meshChunk(w, 0, 0, 0);
+    let crease = 0;
+    let stair = 0;
+    for (let v = 0; v < m.vertexCount; v++) {
+      const x = m.positions[v * 3];
+      const y = m.positions[v * 3 + 1];
+      const z = m.positions[v * 3 + 2];
+      if (m.data[v * 4] === 2 && x === 3 && y === 4 && z > 1 && z < 7) {
+        expect(m.ao(v), 'crease').toBeGreaterThan(1.5);
+        expect(m.ao(v), 'crease').toBeLessThan(2.4);
+        crease++;
+      }
+      if (x > 6 && x < 14 && z > 9 && z < 14 && y > 4) {
+        expect(m.ao(v), `staircase ${x},${y},${z}`).toBeGreaterThan(2.6);
+        stair++;
+      }
+      if (m.data[v * 4] === 2 && x > 6 && x < 14 && z > 1 && z < 6) expect(m.ao(v), 'flat floor').toBe(3);
+    }
+    expect(crease).toBeGreaterThan(4);
+    expect(stair).toBeGreaterThan(20);
   });
 
   it('re-meshes a neighbour whose seam changed when an edit two voxels away alters it', async () => {
