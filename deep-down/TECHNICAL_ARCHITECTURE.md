@@ -199,13 +199,22 @@ panels average the cap). Behind the pause and death overlays the game renders at
 
 ## Camera
 
-Third-person over-the-shoulder rig (`game/CameraRig.ts`). The shoulder offset (0.7 m) is cast
-sideways first and shortened against walls; when the right side is walled in and the left is
-open, the rig swaps shoulders (smoothed, with hysteresis). The boom is a bundle of 9 rays
-from the shoulder point: it snaps in at once and eases back out, and a last check pulls the
-lens out of rock if a ray grazed a corner. Unit tests sweep fast turns in a tight tunnel and
-assert the camera is never inside rock or behind rock. The explorer dithers out when the
-boom is shorter than 2 m.
+Third-person over-the-shoulder rig (`game/CameraRig.ts`): 1.15 m shoulder, 4.8 m boom, a 67°
+lens in landscape (up to 72° in portrait, where the shoulder also shrinks), and the boom tilted
+against the lens (0.17 rad pitch, 0.06 rad yaw) with the look target about 0.8 m above the chest,
+so the explorer stands in the lower-left third and the route ahead stays visible. Because the
+framing is an angle, it shrinks with the boom as rock pulls it in, so tunnels behave as before.
+The shoulder offset is cast sideways first and shortened against walls: room shrinks at once and
+grows back slowly (no jerks along rough walls); when the right side is walled in and the left is
+open, the rig swaps shoulders through a critically damped spring (no overshoot, with
+hysteresis); when a post or corner behind the shoulder cuts the boom short, the shoulder slides
+in to 0.7 or 0.4 of its width and back out once clear. The boom is a bundle of 9 rays from the
+shoulder point: it snaps in at once and eases back out, and a last check pulls the lens out of
+rock if a ray grazed a corner. Unit tests sweep fast turns in a tight tunnel, fuzz 400 poses
+over the real zone, and assert the camera is never inside or behind rock. When the camera is
+genuinely close, the explorer fades with true alpha: each part writes depth first, then draws
+its colour with constant blend alpha after the opaque scene, so only its nearest surface shows
+and no dither pattern is printed over the world.
 
 ## Gameplay architecture
 

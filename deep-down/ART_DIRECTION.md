@@ -98,9 +98,11 @@ The canonical ramps live in `src/render/materials/palette.ts` and the atmosphere
 
 ## Camera framing
 
-Over the right shoulder, 3.8 m boom, explorer left of centre so the crosshair stays on the
-rock. In tunnels the rig swaps to the left shoulder when the right is walled in, and the
-explorer dithers out when the camera gets close, instead of filling the screen.
+Over the right shoulder, 4.8 m boom, 67° lens, the explorer small in the lower-left third so
+the route, the target and the space ahead read first; the crosshair stays on the rock. In
+tunnels the rig swaps to the left shoulder when the right is walled in, and the explorer fades
+smoothly (true transparency, no dither pattern) when the camera gets close, instead of filling
+the screen.
 
 ## Explorer
 

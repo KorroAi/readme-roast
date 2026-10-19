@@ -343,7 +343,6 @@ export class Game {
 
   private startPlaying(): void {
     this.mode = 'playing';
-    this.cameraRig.camera.fov = 62;
     this.ui.showScreen('none');
     this.ui.setGameplayActive(true);
     this.audio.setPaused(false);
