@@ -14,6 +14,10 @@ export const HAPTIC_PATTERNS = {
   damaged: 45,
   discovery: [18, 60, 28],
   craft: [12, 50, 12],
+  /** The lantern crossed the turn-back mark: two firm knocks. */
+  turnBack: [30, 90, 30],
+  /** The cold bit (once per interval): a heartbeat. */
+  cold: [16, 110, 26],
 } as const;
 
 export type HapticKind = keyof typeof HAPTIC_PATTERNS;
@@ -40,6 +44,8 @@ export class Haptics {
       bus.on('player:damaged', () => this.play('damaged')),
       bus.on('discovery', () => this.play('discovery')),
       bus.on('craft:done', () => this.play('craft')),
+      bus.on('lantern:turnBack', () => this.play('turnBack')),
+      bus.on('player:cold', () => this.play('cold')),
     );
   }
 

@@ -1,6 +1,8 @@
 // The slice of window.__DD__ (src/debug/DebugApi.ts) the e2e specs use, declared once so every
 // spec type-checks together. Game internals are reached through `game` and typed loosely.
 
+import type { Page } from '@playwright/test';
+
 export type Vec3i = [number, number, number];
 
 export type DD = {
@@ -16,7 +18,19 @@ export type DD = {
   standableNear(x: number, y: number, z: number): Vec3i | null;
   block(x: number, y: number, z: number): number;
   give(item: string, n: number): number;
+  isSolid(x: number, y: number, z: number): boolean;
   save(): boolean;
+  input(patch: Record<string, unknown>): void;
+  look(yaw: number, pitch: number): void;
+  step(frames: number, dt?: number): void;
+  loop: {
+    recompute(): { homeMs: number; reachMs: number; cacheMs: number; homeCells: number };
+    homeSteps(x: number, y: number, z: number): number;
+    reachable(x: number, y: number, z: number): boolean;
+    cache(): { x: number; y: number; z: number; depth: number; items: Record<string, number> } | null;
+    report(): any;
+    next(): { id: string; text: string };
+  };
   game: any;
 };
 
@@ -26,4 +40,39 @@ declare global {
     /** Set by the Android shell's Back handling; installed by the game and the Visual Lab. */
     deepDownBack?: () => boolean;
   }
+}
+
+
+// ---------------------------------------------------------------------------------------
+// Load-proof waits. Under machine load SwiftShader renders at 0-1 fps, so a wall-clock budget
+// says nothing about the game: the specs wait on game time instead, under a generous
+// wall-clock ceiling. The assertions themselves are unchanged.
+
+/** Wall-clock ceiling for anything that waits on the game. */
+export const LOADED_CEILING_MS = 240_000;
+
+/** Seconds of play so far (advances only while playing). */
+export const playTime = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.playTime as number);
+
+/** Seconds of game time in any mode (the shader clock). */
+export const gameClock = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value as number);
+
+/**
+ * Poll `done` until it holds, giving up only after `gameSeconds` of game time (the shader clock)
+ * or the wall-clock ceiling. @returns whether `done` held.
+ */
+export async function untilGame(page: Page, done: () => Promise<boolean>, gameSeconds: number, ceilingMs = LOADED_CEILING_MS, pollMs = 250): Promise<boolean> {
+  const t0 = await gameClock(page);
+  const wall = Date.now();
+  for (;;) {
+    if (await done()) return true;
+    if ((await gameClock(page)) - t0 >= gameSeconds || Date.now() - wall >= ceilingMs) return done();
+    await page.waitForTimeout(pollMs);
+  }
+}
+
+/** Wait until `seconds` of play (playTime) have passed, under the wall-clock ceiling. */
+export async function waitPlay(page: Page, seconds: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
+  const t0 = await playTime(page);
+  await page.waitForFunction(([t, s]) => window.__DD__.game.playTime - t >= s, [t0, seconds] as const, { timeout: ceilingMs, polling: 50 });
 }

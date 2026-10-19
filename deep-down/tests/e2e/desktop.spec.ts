@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import './dd';
+import { LOADED_CEILING_MS, untilGame } from './dd';
 
 // Desktop play through real keyboard and mouse input on the production build: WASD moves,
 // Space jumps, right-drag looks, holding the left button mines (with or without pointer lock),
@@ -15,11 +15,11 @@ async function state(page: Page) {
 }
 
 async function waitMode(page: Page, mode: string) {
-  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: 120_000, polling: 200 });
+  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: LOADED_CEILING_MS, polling: 200 });
 }
 
 async function waitScreen(page: Page, screen: string) {
-  await page.waitForFunction((s) => window.__DD__.state().screen === s, screen, { timeout: 10_000, polling: 50 });
+  await page.waitForFunction((s) => window.__DD__.state().screen === s, screen, { timeout: LOADED_CEILING_MS, polling: 50 });
 }
 
 const cameraYaw = (page: Page) => page.evaluate(() => window.__DD__.game.cameraRig.yaw as number);
@@ -31,7 +31,7 @@ const cameraYaw = (page: Page) => page.evaluate(() => window.__DD__.game.cameraR
  */
 async function settle(page: Page): Promise<void> {
   const t0 = await page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value as number);
-  await page.waitForFunction((t) => window.__DD__.game.session.rig.uniforms.uTime.value > t + 0.06 && window.__DD__.game.input.lookDX === 0, t0, { timeout: 15_000, polling: 50 });
+  await page.waitForFunction((t) => window.__DD__.game.session.rig.uniforms.uTime.value > t + 0.06 && window.__DD__.game.input.lookDX === 0, t0, { timeout: LOADED_CEILING_MS, polling: 50 });
 }
 
 /** Record the player's height and ground contact every animation frame until stopped. */
@@ -176,7 +176,7 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
   });
   await page.mouse.move(press!.x, press!.y);
   await page.mouse.down({ button: 'left' });
-  if (canLock) await page.waitForFunction(() => (window as unknown as { __lockAnswer: string }).__lockAnswer !== 'pending', null, { timeout: 10_000 });
+  if (canLock) await page.waitForFunction(() => (window as unknown as { __lockAnswer: string }).__lockAnswer !== 'pending', null, { timeout: LOADED_CEILING_MS });
   await settle(page);
   const locked = await page.evaluate(() => document.pointerLockElement === document.getElementById('game'));
   test.info().annotations.push({ type: 'pointer lock', description: locked ? 'granted: crosshair aim' : 'not granted: cursor aim' });
@@ -199,11 +199,8 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     expect(aim.y).toBeCloseTo(ndc[1], 3);
     await expect(page.locator('.dd-crosshair')).not.toHaveClass(/\bon\b/);
   }
-  const t0 = Date.now();
-  while (Date.now() - t0 < 30_000) {
-    if ((await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), slate!.block)) === B.AIR) break;
-    await page.waitForTimeout(200);
-  }
+  // Hold for up to 30 s of game time (SwiftShader under load runs at a frame or two per second).
+  await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), slate!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
   await page.mouse.up({ button: 'left' });
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), slate!.block)).toBe(B.AIR);
   const onTarget = await page.evaluate(([x, y, z]) => {
@@ -227,6 +224,10 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
   return { locked, press: press! };
 }
 
+
+// SwiftShader under load renders a frame or two per second: give each test a generous budget.
+test.describe.configure({ timeout: 900_000 });
+
 test('desktop controls: keyboard and mouse drive movement, look, mining, screens and pause', async ({ page }) => {
   const errors = watchErrors(page);
   await startExpedition(page);
@@ -240,7 +241,7 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   const playT0 = await page.evaluate(() => window.__DD__.game.playTime as number);
   await page.keyboard.down('KeyW');
   await page.waitForTimeout(1200);
-  await page.waitForFunction((t0) => window.__DD__.game.playTime - t0 >= 1.2, playT0, { timeout: 30_000, polling: 50 });
+  await page.waitForFunction((t0) => window.__DD__.game.playTime - t0 >= 1.2, playT0, { timeout: LOADED_CEILING_MS, polling: 50 });
   await page.keyboard.up('KeyW');
   s = await state(page);
   const walked = Math.hypot(s.player.x - start.x, s.player.z - start.z);
@@ -248,7 +249,7 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   expect(await page.evaluate(() => window.__DD__.game.input.moveY)).toBe(0); // released
 
   // 2. Space: the explorer leaves the ground and lands again.
-  await page.waitForFunction(() => window.__DD__.game.player.grounded && window.__DD__.game.player.speed < 0.05, null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.game.player.grounded && window.__DD__.game.player.speed < 0.05, null, { timeout: LOADED_CEILING_MS });
   const groundY = (await state(page)).player.y;
   await startSampling(page);
   await page.keyboard.down('Space');
@@ -261,7 +262,7 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
       return air >= 0 && w.__samples.slice(air).some((p) => p.grounded);
     },
     groundY,
-    { timeout: 15_000 },
+    { timeout: LOADED_CEILING_MS },
   );
   const jump = await stopSampling(page);
   const apex = Math.max(...jump.map((p) => p.y)) - groundY;
@@ -296,7 +297,7 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   const lm = await page.evaluate(() => window.__DD__.landmarks());
   const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
-  await expect(page.locator('.dd-use-prompt.on')).toContainText(/Workbench/i, { timeout: 15_000 });
+  await expect(page.locator('.dd-use-prompt.on')).toContainText(/Workbench/i, { timeout: LOADED_CEILING_MS });
   // A lock granted by the mining click is still held here, so the release below is the screen's doing.
   expect(await page.evaluate(() => document.pointerLockElement === document.getElementById('game'))).toBe(mined.locked);
   await page.keyboard.press('KeyE');

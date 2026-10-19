@@ -6,7 +6,9 @@ import { t, type TextKey } from '../i18n';
 /**
  * The first-expedition objective chain, shown one at a time on the HUD:
  *
- *   mineStone → findCopper → returnToCamp → craftPickaxe → breakSeal → goDeeper → done
+ *   mineStone → findCopper → returnToCamp → craftPickaxe → breakSeal → goDeeper
+ *
+ * After the last step the HUD shows the Next line (gameplay/NextStep) instead.
  *
  * Progress is stored as plain counters (stats), and each objective is a condition over them.
  * After every change the chain jumps to just past the furthest satisfied objective, so it can
@@ -160,10 +162,18 @@ export class Objectives {
       this.view = { id, text: counted('objective.mineStone', this.stoneProgress(), OBJECTIVE_NEED.stone) };
     } else if (id === 'findCopper') {
       this.view = { id, text: counted('objective.findCopper', this.copperProgress(), OBJECTIVE_NEED.copper) };
+    } else if (id === 'done') {
+      // The chain is over: the HUD shows the Next line instead (gameplay/NextStep).
+      this.view = { id, text: '' };
     } else {
       this.view = { id, text: t(`objective.${id}` as TextKey) };
     }
     return this.view;
+  }
+
+  /** The chain's current step, or null once it is complete (the Next line takes over). */
+  step(): Readonly<ObjectiveView> | null {
+    return this.done ? null : this.current();
   }
 
   /** Optional side objective outside the chain: hint at the shrine once the Hollow is found. */

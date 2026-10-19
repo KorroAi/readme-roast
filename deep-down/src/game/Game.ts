@@ -12,7 +12,7 @@ import { consumeEdges, createInputState, type InputState } from '../input/types'
 import { Renderer } from '../render/Renderer';
 import type { PropSpec, Region } from '../world/gen/types';
 import type { GameUi, UiFactory } from './GameUi';
-import type { HudState, InventoryView, UiActions } from '../ui/types';
+import type { HudState, InventoryView, SaveSummary, UiActions } from '../ui/types';
 import { AudioSystem } from '../audio/AudioSystem';
 import { ExplorerModel } from '../entities/character/ExplorerModel';
 import { Backpack } from '../gameplay/Inventory';
@@ -25,6 +25,7 @@ import { MiningProgress, rollDrop } from '../gameplay/Mining';
 import { Objectives } from '../gameplay/Objectives';
 import { Journal } from '../gameplay/Journal';
 import { SaveSystem, LocalStorageStore } from '../save/SaveSystem';
+import { shiftWorldIfNeeded } from '../save/saveData';
 import { DEFAULT_SETTINGS, type ItemCounts, type SaveData, type Settings } from '../save/types';
 import { CameraRig } from './CameraRig';
 import { PlayerController } from './PlayerController';
@@ -36,15 +37,18 @@ import { TargetMarker } from './effects/TargetMarker';
 import { Waterfall } from './effects/Waterfall';
 import { HaloSystem, collectWorldLights, type HaloSource } from './effects/Halos';
 import { WorldSession } from './WorldSession';
-import { Guidance } from './Guidance';
 import { installDebugApi } from '../debug/DebugApi';
 import { enterGameScreen } from '../ui/screenFormat';
 import { Haptics } from '../ui/haptics';
 import { FOLLOW_LOOK_IDLE_S, followYaw } from './touchCamera';
+import { Progression, summarizeSave } from './Progression';
+import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
+import { FrameGuard } from './FrameGuard';
+import { VERSION } from '../version';
 
-export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead';
+/** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
+export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead' | 'crashed';
 
-const VERSION = '0.1.0';
 const INTERACT_RANGE = 2.4;
 
 /**
@@ -77,8 +81,8 @@ export class Game {
   debris!: DebrisSystem;
   particles!: ParticleSystem;
   marker!: TargetMarker;
-  guidance!: Guidance;
   waterfall: Waterfall | null = null;
+  private menuCamera: MenuCamera | null = null;
   halos!: HaloSystem;
   private halosDirty = false;
   private staticHalos: HaloSource[] | null = null;
@@ -93,6 +97,10 @@ export class Game {
   journal = new Journal();
   stats = { blocksMined: 0, deaths: 0, itemsBanked: 0 };
   playTime = 0;
+  /** Trips, records, the cache, the cold, the walk-home field and the Next line. */
+  readonly progression = new Progression(this);
+  /** Stops the loop and raises 'dd:crash' after three failed frames in a row. */
+  readonly frameGuard = new FrameGuard((err) => this.crash(err));
 
   readonly rng = new Rng(0x5eed);
   private time = 0;
@@ -108,15 +116,13 @@ export class Game {
   /** A New Game / Continue load is in progress (Back and repeated taps are ignored). */
   private loading = false;
   private autosaveTimer: number = SAVE.autosaveSeconds;
-  private hintsShown = new Set<string>();
   private focusedProp: PropSpec | null = null;
   private lanternPos = new THREE.Vector3();
   private lanternSmoothed = new THREE.Vector3();
-  private menuTime = 0;
   private healthLowWarned = false;
   private campRegenCarry = 0;
   private readonly tmpV = new THREE.Vector3();
-  private readonly guidePath: Array<[number, number, number]> = [];
+  private readonly tmpP = new THREE.Vector3();
   private disposers: Array<() => void> = [];
   ready = false;
 
@@ -172,13 +178,7 @@ export class Game {
     }
     this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
     this.scene.add(this.halos.mesh);
-
-    this.guidePath.push([layout.spawn.x, layout.spawn.y, layout.spawn.z], ...layout.route.map((p) => [p[0], p[1], p[2]] as [number, number, number]));
-    for (const key of ['stairsTop', 'landing', 'stairsBottom'] as const) {
-      const p = layout.landmarks[key];
-      if (p) this.guidePath.push([p[0], p[1], p[2]]);
-    }
-    this.guidance = new Guidance(this.guidePath);
+    this.menuCamera = new MenuCamera(layout.landmarks.ledge);
 
     this.mining = new MiningController(s.world, this.bus, this.miningRules, {
       blockBroken: (x, y, z, oldId) => this.onBlockBroken(x, y, z, oldId),
@@ -213,8 +213,12 @@ export class Game {
     };
     bus.on('item:picked', ({ item, count }) => {
       objective(this.objectives.onEvent('item:picked', { item, count }));
+      this.progression.onItemPicked(item, count);
       this.tutorial('pickup', 'hint.pickup');
     });
+    bus.on('objective:changed', () => this.progression.invalidateNext());
+    bus.on('inventory:changed', () => this.progression.invalidateNext());
+    bus.on('player:damaged', ({ amount }) => this.progression.onDamaged(amount));
     bus.on('block:broken', (e) => objective(this.objectives.onEvent('block:broken', e)));
     bus.on('craft:done', (e) => objective(this.objectives.onEvent('craft:done', e)));
     bus.on('discovery', (e) => objective(this.objectives.onEvent('discovery', e)));
@@ -270,23 +274,10 @@ export class Game {
     this.ui.setGameplayActive(false);
     this.ui.showScreen('menu');
     this.audio.setPaused(false);
-    // Stage the explorer on the ledge overlooking the Hollow, like a title card.
-    // Body forward is (sin(yaw), cos(yaw)): 0.85 looks across the chamber toward the stairs and
-    // the temple. Walk the explorer out to the very edge of the ledge for the title composition.
-    const ledge = this.session.layout.landmarks.ledge;
-    const yaw = 0.98;
-    const w = this.session.world;
-    let ex = ledge[0] + 0.5;
-    let ez = ledge[2] + 0.5;
-    for (let i = 0; i < 40; i++) {
-      const nx = ex + Math.sin(yaw) * 0.25;
-      const nz = ez + Math.cos(yaw) * 0.25;
-      if (!w.isSolid(Math.floor(nx + Math.sin(yaw) * 0.9), Math.floor(ledge[1]) - 1, Math.floor(nz + Math.cos(yaw) * 0.9))) break;
-      ex = nx;
-      ez = nz;
-    }
-    this.player.teleport(ex, ledge[1], ez, yaw);
-    this.menuTime = 0;
+    // Stage the explorer on the lip of the ledge overlooking the Hollow, like a title card.
+    const pose = menuExplorerPose(this.session.world, this.session.layout.landmarks.ledge);
+    this.player.teleport(pose.x, pose.y, pose.z, pose.yaw);
+    this.menuCamera?.reset();
   }
 
   async newGame(): Promise<void> {
@@ -332,11 +323,13 @@ export class Game {
       return;
     }
     this.loading = true;
+    // A save from another world generator keeps everything but its world edits (save/saveData).
+    const { data, shifted } = shiftWorldIfNeeded(res.data, this.session.layout.spawn);
     try {
       this.ui.showScreen('loading');
       this.ui.setLoading(0.5, t('menu.loadingMesh'));
-      await this.session.restore(res.data.worldEdits, res.data.removedProps);
-      this.restoreProgress(res.data);
+      await this.session.restore(data.worldEdits, data.removedProps);
+      this.restoreProgress(data);
       this.halosDirty = true;
       this.startPlaying();
     } catch (e) {
@@ -346,6 +339,9 @@ export class Game {
       this.loading = false;
     }
     if (res.recovered) this.ui.toast(t('error.saveCorrupt'), 'warn');
+    if (shifted) this.ui.toast(t('save.worldShifted'), 'info');
+    if (res.dropped) this.ui.toast(t('save.itemsDropped', { count: res.dropped }), 'warn');
+    if (shifted) this.saveNow('worldShifted');
   }
 
   private startPlaying(): void {
@@ -358,6 +354,7 @@ export class Game {
     this.cameraRig.snapTo(this.player.x, this.player.y + 1.45, this.player.z);
     this.atCamp = this.inRegion(this.session.layout.camp);
     this.refreshEquipmentVisuals();
+    this.progression.attachWorld(this.atCamp);
     this.autosaveTimer = SAVE.autosaveSeconds;
   }
 
@@ -401,7 +398,7 @@ export class Game {
 
   private resetProgress(): void {
     const spawn = this.session.layout.spawn;
-    this.backpack = new Backpack(packForTier(1).slots);
+    this.backpack = new Backpack(packForTier(1).slots, packForTier(1).pouch);
     this.storage = new CampStorage();
     this.equipment = new Equipment();
     this.lanternFuel = new Lantern(lanternForTier(1).fuelSeconds);
@@ -410,14 +407,15 @@ export class Game {
     this.journal = new Journal();
     this.stats = { blocksMined: 0, deaths: 0, itemsBanked: 0 };
     this.playTime = 0;
-    this.hintsShown.clear();
+    this.progression.reset();
     this.drops.clear();
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
   }
 
   private restoreProgress(d: SaveData): void {
     this.equipment = new Equipment(d.equipment);
-    this.backpack = Backpack.fromJSON(d.backpack, packForTier(this.equipment.tiers.pack).slots);
+    const pack = packForTier(this.equipment.tiers.pack);
+    this.backpack = Backpack.fromJSON(d.backpack, pack.slots, pack.pouch);
     this.storage = CampStorage.fromJSON(d.storage);
     this.lanternFuel = new Lantern(lanternForTier(this.equipment.tiers.lantern).fuelSeconds, d.player.lanternFuel);
     this.health = new Health(PLAYER.maxHealth, d.player.health);
@@ -427,18 +425,21 @@ export class Game {
     this.playTime = d.playTime;
     this.drops.clear();
     this.player.teleport(d.player.x, d.player.y, d.player.z, d.player.yaw);
-    this.hintsShown = new Set(['move', 'look', 'mine', 'pickup']);
+    this.progression.fromSave(d.progression);
+    // A returning player knows how to move, look, mine and pick up (saves from before hints were kept too).
+    for (const h of ['move', 'look', 'mine', 'pickup']) this.progression.hintsShown.add(h);
   }
 
   // ------------------------------------------------------------------------------------
   // Save
 
   buildSave(): SaveData {
-    // On the death screen, save the respawn the player is about to get (backpack already lost).
+    // On the death screen, save the respawn the player is about to get (the pack is already cached).
     const dead = this.mode === 'dead';
     const spawn = this.session.layout.spawn;
     return {
       version: SAVE.version,
+      genVersion: WORLD.genVersion,
       savedAt: Date.now(),
       worldSeed: WORLD.seed,
       playTime: this.playTime,
@@ -461,12 +462,15 @@ export class Game {
       worldEdits: this.session.worldEdits(),
       removedProps: [...this.session.removedProps],
       stats: { ...this.stats },
+      progression: this.progression.toSave(),
     };
   }
 
   saveNow(reason: string): boolean {
     if (this.mode !== 'playing' && this.mode !== 'paused' && this.mode !== 'dead') return false;
     if (this.loading) return false;
+    // Never save a state a failing frame may have broken (until a frame succeeds again).
+    if (!this.frameGuard.canSave) return false;
     const res = this.saves.save(this.buildSave());
     if (res.ok) this.bus.emit('game:saved', { reason });
     else {
@@ -481,10 +485,13 @@ export class Game {
   // Frame loop
 
   private readonly frame = (now: number): void => {
+    if (this.mode === 'crashed') return;
     requestAnimationFrame(this.frame);
-    // Behind the pause and death overlays the world is frozen: a low rate saves the battery.
+    // Behind the pause and death overlays the world is frozen: a low rate saves the battery. The
+    // title screen is a slow drift: 30 fps is plenty.
     const idle = this.mode === 'paused' || this.mode === 'dead';
-    const cap = idle ? 15 : this.renderer.preset.fpsCap;
+    const preset = this.renderer.preset.fpsCap;
+    const cap = idle ? 15 : this.mode === 'menu' ? (preset > 0 ? Math.min(preset, MENU_FPS) : MENU_FPS) : preset;
     const elapsed = Math.max(0, now - this.lastFrame);
     this.lastFrame = now;
     if (cap > 0) {
@@ -496,8 +503,32 @@ export class Game {
     }
     const dt = (now - this.lastStep) / 1000;
     this.lastStep = now;
-    this.step(Math.min(0.05, Math.max(0, dt)));
+    const step = Math.min(0.05, Math.max(0, dt));
+    this.frameGuard.run(() => this.step(step));
   };
+
+  /**
+   * Stop for good where the game stands: the frame guard tripped, or the shell (src/main.ts) saw
+   * an uncaught error. No frame runs and nothing is saved after this; the screen may sleep, audio
+   * goes quiet, and the window event 'dd:crash' (detail: the error) brings up the crash panel.
+   */
+  crash(err: unknown): void {
+    if (this.mode === 'crashed') return;
+    this.frameGuard.trip(err);
+    this.mode = 'crashed';
+    this.keepAwake = false;
+    try {
+      (window as unknown as { DeepDownAndroid?: { keepScreenOn(on: boolean): void } }).DeepDownAndroid?.keepScreenOn(false);
+    } catch {
+      // The shell bridge is best effort.
+    }
+    try {
+      this.audio?.suspend();
+    } catch {
+      // Audio may be what failed.
+    }
+    window.dispatchEvent(new CustomEvent('dd:crash', { detail: err }));
+  }
 
   /** One simulation + render step. Public so tests can advance deterministically. */
   step(dt: number): void {
@@ -528,19 +559,8 @@ export class Game {
   }
 
   private updateMenu(dt: number): void {
-    this.menuTime += dt;
-    const ledge = this.session.layout.landmarks.ledge;
-    // A slow cinematic drift just past the ledge rim: pillars, the glimmerfall, the stairs and
-    // the sealed gate below. (The explorer waits on the ledge, out of frame.)
-    const t = this.menuTime;
-    const cam = this.cameraRig.camera;
-    cam.position.set(ledge[0] + 5 + Math.sin(t * 0.05) * 1.2, ledge[1] + 3.5 + Math.sin(t * 0.08) * 0.4, ledge[2] + 6 + Math.cos(t * 0.05) * 1.2);
-    cam.rotation.order = 'YXZ';
-    cam.rotation.set(-0.5 + Math.sin(t * 0.06) * 0.04, -2.2 + Math.sin(t * 0.045) * 0.16, 0);
-    cam.fov = 68;
-    cam.aspect = this.renderer.aspect;
-    cam.updateProjectionMatrix();
-    cam.updateMatrixWorld();
+    // A slow cinematic drift just past the ledge rim (game/MenuCamera), in the gameplay lens.
+    this.menuCamera?.update(dt, this.cameraRig.camera, this.renderer.aspect);
     this.player.update(dt, 0, 0, false, 0, false);
     this.updateExplorer(dt, 0);
     this.updateLantern(dt, false);
@@ -597,7 +617,7 @@ export class Game {
     if (ev.rescued) this.ui.hint(t('hint.outOfReach'), 1500);
 
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
-    if (!blocked && this.isTouch() && this.hintsShown.has('mine')) this.tutorial('look', 'hint.look', 5000, 11);
+    if (!blocked && this.isTouch() && this.progression.hintsShown.has('mine')) this.tutorial('look', 'hint.look', 5000, 11);
 
     this.cameraRig.update(dt, p.x, p.y + 1.45 - p.stepOffset, p.z, this.renderer.aspect);
     this.updateExplorer(dt, swinging ? 1 : 0);
@@ -606,7 +626,7 @@ export class Game {
     this.drops.update(
       dt, this.time, p.x, p.y, p.z,
       (item) => ITEMS[item].keyItem || this.backpack.canAccept(item),
-      (item, count) => this.collect(item, count),
+      (item, count, x, y, z) => this.collect(item, count, x, y, z),
       (item) => {
         this.bus.emit('item:rejected', { item });
         this.ui.hint(t('hint.backpackFull'), 2500);
@@ -614,6 +634,12 @@ export class Game {
     );
 
     this.updateCamp(dt);
+    if (this.mode !== 'playing') return;
+    // Cold, the turn-back mark, the cache, records and the compass.
+    if (this.progression.update(dt)) {
+      this.die();
+      return;
+    }
     this.updateDiscoveries();
     this.updateFocus();
     this.updateHealthWarnings();
@@ -668,6 +694,8 @@ export class Game {
 
   private updateLantern(dt: number, burn: boolean): void {
     const def = lanternForTier(this.equipment.tiers.lantern);
+    // On the title screen the explorer's lantern always burns, whatever the save holds.
+    const menu = this.mode === 'menu';
     if (burn) {
       const edges = this.lanternFuel.update(dt, this.atCamp, def);
       if (edges.becameLow) {
@@ -683,8 +711,8 @@ export class Game {
         this.ui.toast(t('hint.lanternRefueled'), 'good');
       }
     }
-    const fuel = this.lanternFuel.fraction;
-    const lit = this.lanternFuel.lit;
+    const fuel = menu ? 1 : this.lanternFuel.fraction;
+    const lit = menu || this.lanternFuel.lit;
     this.explorer.setLantern(fuel, lit);
     this.explorer.getLanternWorldPosition(this.lanternPos);
     if (!Number.isFinite(this.lanternPos.x)) this.lanternPos.set(this.player.x, this.player.y + 1, this.player.z);
@@ -698,7 +726,7 @@ export class Game {
     }
     const u = this.session.rig.uniforms;
     const flicker = 1 + Math.sin(this.time * 13.1) * 0.025 + Math.sin(this.time * 7.3 + 1.2) * 0.035 + (fuel < PLAYER.lanternLowFraction && lit ? Math.sin(this.time * 31) * 0.08 : 0);
-    const radius = def.radius * this.lanternFuel.radiusFactor;
+    const radius = def.radius * (menu ? 1 : this.lanternFuel.radiusFactor);
     u.uLanternPos.value.copy(lp);
     u.uLanternRadius.value = radius;
     u.uLanternIntensity.value = def.intensity * (lit ? 0.75 + 0.25 * Math.min(1, fuel * 4) : 0.45) * flicker;
@@ -708,14 +736,15 @@ export class Game {
     }
   }
 
-  private collect(item: ItemId, count: number): number {
+  private collect(item: ItemId, count: number, x?: number, y?: number, z?: number): number {
     let taken: number;
     if (ITEMS[item].keyItem) {
       this.journal.addKeyItem(item);
       taken = count;
     } else taken = this.backpack.add(item, count);
     if (taken > 0) {
-      this.bus.emit('item:picked', { item, count: taken });
+      const at = x !== undefined && y !== undefined && z !== undefined ? this.screenPoint(x, y, z) : null;
+      this.bus.emit('item:picked', at ? { item, count: taken, sx: at[0], sy: at[1] } : { item, count: taken });
       this.bus.emit('inventory:changed', {});
       this.particles.sparkle(this.player.x, this.player.y + 1.1, this.player.z, ITEMS[item].color, 5, this.rng, 1.2);
     }
@@ -727,15 +756,19 @@ export class Game {
     if (inCamp && !this.atCamp) {
       this.atCamp = true;
       this.bus.emit('camp:entered', {});
-      if (!this.bank() && this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
+      const banked = this.bank();
+      if (!totalOf(banked) && this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
       this.tutorial('workbench', 'hint.workbench', 5000);
       this.saveNow('camp');
+      // The trip ends after the camp save: the report never opens over an unsaved camp.
+      this.progression.onCampEntered(banked);
     } else if (inCamp && !this.backpack.isEmpty) {
       // Drops that fly in after arrival, or a backpack restored from an in-camp save.
-      if (this.bank()) this.saveNow('camp');
+      if (totalOf(this.bank())) this.saveNow('camp');
     } else if (!inCamp && this.atCamp) {
       this.atCamp = false;
       this.bus.emit('camp:left', {});
+      this.progression.onCampLeft();
       this.tutorial('camp', 'hint.camp', 5000);
     }
     if (this.atCamp && this.health.current < this.health.max) {
@@ -747,17 +780,22 @@ export class Game {
     }
   }
 
-  /** Move the backpack into camp storage. @returns the number of items banked. */
-  private bank(): number {
+  /** Move the backpack into camp storage. @returns the counts banked. */
+  private bank(): ItemCounts {
     const banked = this.storage.deposit(this.backpack);
-    const total = Object.values(banked).reduce((a, b) => a + (b ?? 0), 0);
+    const total = totalOf(banked);
     if (total > 0) {
       this.stats.itemsBanked += total;
       this.bus.emit('items:banked', { total, items: banked });
       this.bus.emit('inventory:changed', {});
       this.ui.toast(t('toast.banked', { count: total }), 'good');
     }
-    return total;
+    return banked;
+  }
+
+  /** True while the explorer is inside the camp region. */
+  get inCamp(): boolean {
+    return this.atCamp;
   }
 
   private inRegion(r: Region): boolean {
@@ -777,7 +815,8 @@ export class Game {
     if (!this.journal.addDiscovery(id)) return;
     const titleKey = `discovery.${id}.title` as TextKey;
     const bodyKey = `discovery.${id}.body` as TextKey;
-    this.ui.showDiscovery({ id, title: t(titleKey), body: t(bodyKey) });
+    const n = this.progression.onDiscovery(id);
+    this.ui.showDiscovery({ id, title: t(titleKey), body: t(bodyKey), index: n.index, total: n.total, major: n.major });
     this.bus.emit('discovery', { id });
     this.renderer.post.params.flash = 0.18;
     this.renderer.post.params.flashColor.setRGB(0.25, 0.75, 0.9);
@@ -805,46 +844,25 @@ export class Game {
   }
 
   private interactLabel(spec: PropSpec): string {
-    switch (spec.interact) {
-      case 'craft':
-        return t('hint.interactWorkbench');
-      case 'storage':
-        return t('hint.interactChest');
-      case 'rest':
-        return t('hint.interactCampfire');
-      case 'relic':
-        return t('hint.interactTablet');
-      default:
-        return t('hud.interact');
-    }
+    return this.progression.interactLabel(spec);
   }
 
   interact(spec: PropSpec): void {
-    switch (spec.interact) {
-      case 'craft':
-        this.openCrafting();
-        break;
-      case 'storage':
-        this.openInventory();
-        break;
-      case 'rest':
-        this.health.heal(this.health.max);
-        this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
-        this.ui.toast(t('toast.rested'), 'good');
-        this.saveNow('rest');
-        break;
-      case 'relic':
-        this.collect('ancientTablet', 1);
-        this.session.removeProp(spec.id);
-        this.focusedProp = null;
-        this.ui.touch.setInteractVisible(null);
-        this.discover('tablet');
-        break;
-    }
+    this.progression.interact(spec);
+  }
+
+  /** Read the Ancient Tablet: it goes to the journal and the prop leaves the shrine. */
+  collectRelic(spec: PropSpec): void {
+    this.collect('ancientTablet', 1);
+    this.session.removeProp(spec.id);
+    this.focusedProp = null;
+    this.ui.touch.setInteractVisible(null);
+    this.discover('tablet');
   }
 
   private onBlockBroken(x: number, y: number, z: number, oldId: number): void {
     this.stats.blocksMined++;
+    this.progression.onBlockMined();
     // Mining under a lamp makes it settle (its emitter moves): check before the settle runs.
     for (const p of this.session.liveProps.values()) {
       if (p.anchor && p.anchor[0] === x && p.anchor[1] === y && p.anchor[2] === z) this.halosDirty = true;
@@ -865,7 +883,22 @@ export class Game {
         if (id === B.LIGHT_AMBER || id === B.LIGHT_LAMP || id === B.LIGHT_EMBER) out.push({ x, y, z, id });
       }
     }
+    // The pack left behind glows like an ember so it can be found again.
+    const cache = this.progression.haloSource();
+    if (cache) out.push(cache);
     return out;
+  }
+
+  /** Rebuild the halo list on the next frame (props or the cache moved). */
+  markHalosDirty(): void {
+    this.halosDirty = true;
+  }
+
+  /** A world point on screen, 0..1 from the top left (clamped), for pickup feedback. */
+  private screenPoint(x: number, y: number, z: number): [number, number] {
+    const v = this.tmpP.set(x, y, z).project(this.cameraRig.camera);
+    const c = (n: number) => Math.round(Math.max(0, Math.min(1, n)) * 1000) / 1000;
+    return [c((v.x + 1) / 2), c((1 - v.y) / 2)];
   }
 
   private onPropBroken(spec: PropSpec): void {
@@ -880,20 +913,18 @@ export class Game {
     this.healthLowWarned = low;
   }
 
+  /** A black-out: the pack waits where the explorer last stood safely (game/Progression). */
   private die(): void {
     this.mode = 'dead';
     this.mining.cancel();
     this.input.mining = false;
     this.desktop.releasePointer();
-    const lost: ItemCounts = this.backpack.takeAll();
-    const ground = this.drops.clear();
-    for (const [k, v] of Object.entries(ground)) {
-      if (!ITEMS[k as ItemId].keyItem) lost[k as ItemId] = (lost[k as ItemId] ?? 0) + (v ?? 0);
-    }
+    const left = this.progression.onBlackout();
     this.stats.deaths++;
-    this.bus.emit('player:died', { lost });
+    this.bus.emit('player:died', { lost: left.cached });
     this.ui.setGameplayActive(false);
-    this.ui.showDeath(lost);
+    this.ui.showDeath(left.cached);
+    // The cache is written in the same save as the death.
     this.saveNow('death');
   }
 
@@ -914,12 +945,12 @@ export class Game {
     this.saveNow('respawn');
   }
 
+  /** Give up the trip from the pause menu: the pack stays here as a cache (none at camp). */
   returnToCamp(): void {
-    const lost = this.backpack.takeAll();
-    this.drops.clear();
-    const n = Object.values(lost).reduce((a, b) => a + (b ?? 0), 0);
+    const left = this.atCamp ? null : this.progression.onAbandon();
     this.respawn();
-    if (n > 0) this.ui.toast(t('death.lost') + ': ' + n, 'warn');
+    if (left && left.cache) this.ui.toast(t('death.cacheAt', { depth: left.cache.depth, count: left.count }), 'warn');
+    if (left && left.replaced > 0) this.ui.toast(t('toast.cacheReplaced', { count: left.replaced }), 'warn');
   }
 
   // ------------------------------------------------------------------------------------
@@ -933,7 +964,10 @@ export class Game {
       this.audio.ui('error');
       return;
     }
-    if (this.equipment.tiers.pack !== before.pack) this.backpack.resize(packForTier(this.equipment.tiers.pack).slots);
+    if (this.equipment.tiers.pack !== before.pack) {
+      const pack = packForTier(this.equipment.tiers.pack);
+      this.backpack.resize(pack.slots, pack.pouch);
+    }
     if (this.equipment.tiers.lantern !== before.lantern) this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.refreshEquipmentVisuals();
     this.bus.emit('craft:done', { recipe });
@@ -977,37 +1011,44 @@ export class Game {
       journal: [...this.journal.toJSON().discoveries, ...this.journal.toJSON().keyItems],
       available,
       atCamp: this.atCamp,
+      pouchSlots: this.backpack.pouchSlots,
     };
   }
 
   // ------------------------------------------------------------------------------------
   // HUD / audio state
 
+  private readonly hud: HudState = {
+    health: 0, maxHealth: 0, lantern: 0, lanternLow: false, backpackUsed: 0, backpackMax: 0, depth: 0, atCamp: true,
+    campBearing: 0, campDistance: 0, objectiveText: '', interactLabel: null, target: null, showCrosshair: false,
+    fps: 0, frameMs: 0, drawCalls: 0, triangles: 0, fuelSeconds: 0, fuelCapacity: 1, homeSeconds: null,
+    turnBackFraction: null, fuelState: 'ok', cold: 0, compass: { kind: 'camp', bearing: 0, distance: 0 }, cache: null,
+    bestDepth: 0, newBest: false, packFull: false, pouchSlots: 0,
+  };
+
+  /** The HUD snapshot (one object, refreshed in place every frame). */
   private hudState(): HudState {
     const p = this.player;
-    const target = this.guidance.next(p.x, p.y, p.z);
-    const camp = this.session.layout.landmarks.campfire;
     const info = this.renderer.gl.info.render;
-    return {
-      health: this.health.current,
-      maxHealth: this.health.max,
-      lantern: this.lanternFuel.fraction,
-      lanternLow: this.lanternFuel.low,
-      backpackUsed: this.backpack.usedSlots,
-      backpackMax: this.backpack.slotCount,
-      depth: Math.max(0, Math.round(WORLD.depthOffset - p.y)),
-      atCamp: this.atCamp,
-      campBearing: Guidance.bearing(this.cameraRig.yaw, p.x, p.z, target[0], target[2]),
-      campDistance: Math.round(Math.hypot(camp[0] - p.x, camp[1] - p.y, camp[2] - p.z)),
-      objectiveText: this.objectives.current().text,
-      interactLabel: this.focusedProp ? this.interactLabel(this.focusedProp) : null,
-      target: this.mining.hudTarget(),
-      showCrosshair: this.desktop.pointerLocked,
-      fps: this.fps,
-      frameMs: Math.round(this.frameMs * 10) / 10,
-      drawCalls: info.calls,
-      triangles: Math.round(info.triangles / 1000),
-    };
+    const h = this.hud;
+    h.health = this.health.current;
+    h.maxHealth = this.health.max;
+    h.lantern = this.lanternFuel.fraction;
+    h.lanternLow = this.lanternFuel.low;
+    h.backpackUsed = this.backpack.usedSlots;
+    h.backpackMax = this.backpack.slotCount;
+    h.depth = Math.max(0, Math.round(WORLD.depthOffset - p.y));
+    h.atCamp = this.atCamp;
+    h.interactLabel = this.focusedProp ? this.interactLabel(this.focusedProp) : null;
+    h.target = this.mining.hudTarget();
+    h.showCrosshair = this.desktop.pointerLocked;
+    h.fps = this.fps;
+    h.frameMs = Math.round(this.frameMs * 10) / 10;
+    h.drawCalls = info.calls;
+    h.triangles = Math.round(info.triangles / 1000);
+    // Fuel, the walk home, the compass (walking metres), the cache chip and the Next line.
+    this.progression.hud(h);
+    return h;
   }
 
   private audioState(inMenu: boolean) {
@@ -1091,8 +1132,8 @@ export class Game {
 
   /** Show a tutorial hint once per game. */
   private tutorial(id: string, key: TextKey, ms = 4000, minPlaySeconds = 0): void {
-    if (this.hintsShown.has(id) || this.playTime < minPlaySeconds) return;
-    this.hintsShown.add(id);
+    if (this.progression.hintsShown.has(id) || this.playTime < minPlaySeconds) return;
+    this.progression.hintsShown.add(id);
     this.ui.hint(t(key), ms);
   }
 
@@ -1139,7 +1180,16 @@ export class Game {
       // An unreadable save still counts, so New Game asks before replacing it.
       hasSave: () => this.saves.hasSave() || this.saves.load().error !== undefined,
       saveTimestamp: () => this.saves.timestamp(),
+      getSaveSummary: () => this.saveSummary(),
+      getReport: () => this.progression.report,
+      dismissReport: () => this.progression.dismissReport(),
     };
+  }
+
+  /** The saved game for the Continue card (null when there is none or it cannot be read). */
+  saveSummary(): SaveSummary | null {
+    const res = this.saves.load();
+    return res.data ? summarizeSave(res.data) : null;
   }
 
   get version(): string {
@@ -1160,13 +1210,18 @@ export class Game {
       backpack: this.backpack.toJSON(),
       storage: this.storage.toJSON(),
       equipment: { ...this.equipment.tiers },
-      objective: this.objectives.current(),
+      // What the objective pill shows: the tutorial step, then the Next line.
+      objective: { ...this.progression.nextStep },
       journal: this.journal.toJSON(),
       target: this.mining.target ? { key: this.mining.target.key, inReach: this.mining.target.inReach, name: this.mining.target.name } : null,
       progress: this.miningRules.progress,
       drops: this.drops.count,
       stats: { ...this.stats },
       blockNames: BLOCKS.length,
+      cache: this.progression.cache ? { ...this.progression.cache, items: { ...this.progression.cache.items } } : null,
+      trip: this.progression.records.trip ? { ...this.progression.records.trip } : null,
+      records: { ...this.progression.records.records },
+      home: { steps: this.progression.walkToCamp, seconds: this.progression.homeSeconds, fuelState: this.progression.fuelState },
     };
   }
 
@@ -1179,4 +1234,10 @@ export class Game {
     this.session.dispose();
     this.renderer.dispose();
   }
+}
+
+function totalOf(c: ItemCounts): number {
+  let n = 0;
+  for (const k in c) n += c[k as ItemId] ?? 0;
+  return n;
 }

@@ -1,9 +1,10 @@
 import { angleDelta } from '../core/math';
 
 /**
- * Breadcrumb guidance back to camp. The marked route (camp -> tunnel -> ledge -> stairs)
- * is a polyline; the compass points at the next point toward camp from wherever the player
- * is, so it follows the path instead of pointing straight through rock.
+ * Compass helpers. The HUD compass follows the walk-home field (world/analysis/homeField, via
+ * game/Progression): it aims a few steps down the field's steepest descent and shows walking
+ * metres. bearing() turns that aim point into the needle angle. next() is the older breadcrumb
+ * guide along a marked polyline (path[0] is the camp end), kept for tools and tests.
  */
 export class Guidance {
   constructor(private readonly path: ReadonlyArray<readonly [number, number, number]>) {}

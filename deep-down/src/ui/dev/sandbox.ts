@@ -5,7 +5,7 @@ import { Noise } from '../../core/noise';
 import { t, type TextKey } from '../../i18n';
 import { consumeEdges, createInputState } from '../../input/types';
 import { DEFAULT_SETTINGS, type ItemCounts, type Settings, type SlotData } from '../../save/types';
-import type { HudState, InventoryView, ScreenId, UiActions } from '../types';
+import type { ExpeditionReport, HudState, InventoryView, SaveSummary, ScreenId, UiActions } from '../types';
 import { UI } from '../UI';
 
 /**
@@ -77,7 +77,43 @@ const hud: HudState = {
   frameMs: 12.4,
   drawCalls: 118,
   triangles: 71,
+  fuelSeconds: 165,
+  fuelCapacity: 300,
+  homeSeconds: 31,
+  turnBackFraction: (31 * 1.25 + 10) / 300,
+  fuelState: 'ok',
+  cold: 0,
+  compass: { kind: 'camp', bearing: 0.6, distance: 24 },
+  cache: null,
+  bestDepth: 128,
+  newBest: false,
+  packFull: false,
+  pouchSlots: 0,
 };
+
+/** The last expedition, for the report fixtures (W3 builds the screen). */
+const report: ExpeditionReport = {
+  n: 3,
+  outcome: 'returned',
+  duration: 252,
+  deepest: 96,
+  newBest: true,
+  previousBest: 71,
+  mined: 58,
+  found: { stone: 31, copperOre: 9, rootFibre: 4, glimmerShard: 3 },
+  banked: { stone: 31, copperOre: 9, rootFibre: 4, glimmerShard: 3 },
+  bankedTotal: 47,
+  cached: null,
+  cacheDepth: null,
+  lostCount: 0,
+  damage: 18,
+  fuelLeft: 61,
+  discoveries: ['hollow'],
+  runes: [],
+  records: ['deepest', 'biggestHaul'],
+  show: true,
+};
+let reportOpen: ExpeditionReport | null = report;
 
 const actions: UiActions = {
   continueGame: () => startPlaying(),
@@ -136,10 +172,30 @@ const actions: UiActions = {
     journal: [...inv.journal],
     available: available(),
     atCamp: inv.atCamp,
+    pouchSlots: inv.equipment.pack >= 3 ? 2 : 0,
   }),
   getSettings: () => settings,
   hasSave: () => savedAt !== null,
   saveTimestamp: () => savedAt,
+  getSaveSummary: (): SaveSummary | null =>
+    savedAt === null
+      ? null
+      : {
+          savedAt,
+          playTime: 1520,
+          expeditions: 3,
+          bestDepth: 96,
+          discoveries: 3,
+          discoveriesTotal: 6,
+          runes: 1,
+          runesTotal: 8,
+          equipment: { ...inv.equipment },
+          cacheWaiting: false,
+        },
+  getReport: () => reportOpen,
+  dismissReport: () => {
+    reportOpen = null;
+  },
 };
 
 const ui = new UI(document.getElementById('ui') as HTMLElement, actions, bus, input);
@@ -197,7 +253,12 @@ function scene(name: string): void {
     atCamp: false,
     interactLabel: null,
     target: { name: t('block.copperOre'), progress: 0.45, blocked: false },
+    fuelSeconds: 165,
+    fuelState: 'ok',
+    cold: 0,
+    cache: null,
   });
+  reportOpen = report;
   savedAt = Date.now() - 7 * 60_000;
   settings = { ...DEFAULT_SETTINGS };
   ui.applySettings(settings);
@@ -226,6 +287,10 @@ function scene(name: string): void {
           health: 25,
           lantern: 0.12,
           lanternLow: true,
+          fuelSeconds: 36,
+          fuelState: 'critical',
+          cold: 0,
+          cache: { bearing: -0.9, distance: 84, count: 23 },
           interactLabel: t('hint.interactWorkbench'),
           target: { name: t('block.hardenedSlate'), progress: 0, blocked: true },
         });
@@ -245,7 +310,7 @@ function scene(name: string): void {
     case 'discovery':
       play();
       hud.target = null;
-      ui.showDiscovery({ id: 'hollow', title: t('discovery.hollow.title'), body: t('discovery.hollow.body') });
+      ui.showDiscovery({ id: 'hollow', title: t('discovery.hollow.title'), body: t('discovery.hollow.body'), index: 2, total: 6, major: true });
       break;
     case 'inventory':
       play('inventory');
@@ -275,6 +340,7 @@ function scene(name: string): void {
     case 'death':
       mode = 'playing';
       ui.setGameplayActive(false);
+      reportOpen = { ...report, outcome: 'blackout', cached: { stone: 6, copperOre: 3, glimmerShard: 1 }, cacheDepth: 84, banked: {}, bankedTotal: 0, records: [], newBest: false };
       ui.showDeath({ stone: 6, copperOre: 3, glimmerShard: 1 });
       break;
   }

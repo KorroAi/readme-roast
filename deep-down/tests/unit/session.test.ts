@@ -119,3 +119,61 @@ describe('WorldSession', () => {
     expect(session.liveProps.has(id)).toBe(true);
   });
 });
+
+describe('Frame guard', () => {
+  it('a frame that throws every time trips the guard after exactly 3 frames, with no save after the first error', async () => {
+    const { FrameGuard } = await import('../../src/game/FrameGuard');
+    const crashes: unknown[] = [];
+    const guard = new FrameGuard((e) => crashes.push(e));
+    const boom = new Error('boom');
+    const saves: number[] = [];
+    const errors = console.error;
+    console.error = () => undefined;
+    try {
+      for (let frame = 1; frame <= 5; frame++) {
+        guard.run(() => {
+          throw boom;
+        });
+        if (guard.canSave) saves.push(frame);
+        if (frame < 3) expect(guard.crashed).toBe(false);
+      }
+    } finally {
+      console.error = errors;
+    }
+    expect(guard.crashed).toBe(true);
+    expect(crashes).toEqual([boom]);
+    expect(saves).toEqual([]);
+    // Once tripped, no frame runs again.
+    let ran = false;
+    expect(guard.run(() => (ran = true))).toBe(false);
+    expect(ran).toBe(false);
+  });
+
+  it('a single transient throw recovers on the next good frame', async () => {
+    const { FrameGuard } = await import('../../src/game/FrameGuard');
+    const guard = new FrameGuard(() => undefined);
+    const errors = console.error;
+    console.error = () => undefined;
+    try {
+      expect(guard.run(() => undefined)).toBe(true);
+      expect(guard.canSave).toBe(true);
+      expect(
+        guard.run(() => {
+          throw new Error('once');
+        }),
+      ).toBe(false);
+      expect(guard.canSave).toBe(false);
+      expect(guard.consecutiveFailures).toBe(1);
+      expect(guard.run(() => undefined)).toBe(true);
+      expect(guard.consecutiveFailures).toBe(0);
+      expect(guard.canSave).toBe(true);
+      // Two failures, a good frame, two more: never three in a row, never tripped.
+      for (const fail of [true, true, false, true, true, false]) guard.run(() => {
+        if (fail) throw new Error('x');
+      });
+      expect(guard.crashed).toBe(false);
+    } finally {
+      console.error = errors;
+    }
+  });
+});

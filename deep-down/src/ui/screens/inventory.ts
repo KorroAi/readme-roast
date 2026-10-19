@@ -164,7 +164,9 @@ export function equipInfo(slot: EquipmentSlot, tier: number): EquipInfo {
     };
   }
   const k = packForTier(tier);
-  return { name: k.name, desc: k.desc, stats: [['equip.stat.slots', String(k.slots)]] };
+  const stats: Array<[TextKey, string]> = [['equip.stat.slots', String(k.slots)]];
+  if (k.pouch > 0) stats.push(['equip.stat.pouch', String(k.pouch)]);
+  return { name: k.name, desc: k.desc, stats };
 }
 
 const SLOT_LABEL: Record<EquipmentSlot, TextKey> = { pickaxe: 'equip.pickaxe', lantern: 'equip.lantern', pack: 'equip.pack' };

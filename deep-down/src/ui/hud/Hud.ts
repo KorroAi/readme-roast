@@ -22,7 +22,13 @@ export class Hud {
   private readonly hearts: HTMLElement;
   private readonly heartEls: HTMLElement[] = [];
   private readonly lantern: HTMLElement;
+  private readonly fuelBar: HTMLElement;
   private readonly fuelFill: HTMLElement;
+  /** The turn-back mark: a 2 px tick on the fuel bar (W4-B redesigns the gauge). */
+  private readonly fuelTick: HTMLElement;
+  private readonly cacheChip: HTMLElement;
+  private readonly cacheDial: HTMLElement;
+  private readonly cacheText: HTMLElement;
   private readonly depth: HTMLElement;
   private readonly compass: HTMLElement;
   private readonly compassDial: HTMLElement;
@@ -48,6 +54,12 @@ export class Hud {
   private fuelQ = -1;
   private fuelPct = -1;
   private low: boolean | null = null;
+  private tickQ = NaN;
+  private fuelState: string | null = null;
+  private coldOn: boolean | null = null;
+  private cacheOn: boolean | null = null;
+  private cacheBearingQ = NaN;
+  private cacheDist = NaN;
   private depthV = NaN;
   private atCamp: boolean | null = null;
   private bearingQ = NaN;
@@ -69,17 +81,38 @@ export class Hud {
     for (let i = 0; i < HEART_COUNT; i++) this.heartEls.push(h('span', { class: 'dd-heart f2' }));
     this.hearts = h('div', { class: 'dd-hearts', role: 'img' }, ...this.heartEls);
     this.fuelFill = h('div', { class: 'dd-bar-fill' });
+    this.fuelTick = h('span', {
+      class: 'dd-bar-tick',
+      'aria-hidden': 'true',
+      style: 'position:absolute;top:0;bottom:0;left:0;width:2px;margin-left:-1px;background:#fff4dc;box-shadow:0 0 3px rgba(255,214,160,0.9);display:none;pointer-events:none',
+    });
+    this.fuelBar = h('div', { class: 'dd-bar', style: 'position:relative' }, this.fuelFill, this.fuelTick);
     this.lantern = h(
       'div',
       { class: 'dd-lantern', role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100 },
       h('img', { class: 'dd-lantern-icon', src: equipmentIconDataUrl('lantern', 1, iconPx(18)), width: 18, height: 18, alt: '', 'aria-hidden': 'true' }),
-      h('div', { class: 'dd-bar' }, this.fuelFill),
+      this.fuelBar,
     );
     this.depth = h('span', { class: 'dd-depth-value' });
     this.compassDial = h('span', { class: 'dd-compass-dial', 'aria-hidden': 'true' });
     this.compassDial.innerHTML = ARROW_SVG;
     this.compassText = h('span', { class: 'dd-compass-text' });
     this.compass = h('div', { class: 'dd-compass' }, h('span', { class: 'dd-compass-ring' }, this.compassDial), this.compassText);
+    // The pack left behind: a second chip beside the camp compass (W4-B redesigns it).
+    this.cacheDial = h('span', { class: 'dd-compass-dial', 'aria-hidden': 'true' });
+    this.cacheDial.innerHTML = ARROW_SVG;
+    this.cacheText = h('span', { class: 'dd-compass-text' });
+    this.cacheChip = h(
+      'div',
+      {
+        class: 'dd-cache-chip',
+        role: 'status',
+        style:
+          'display:none;align-items:center;gap:7px;height:32px;box-sizing:border-box;padding:0 11px 0 3px;border-radius:999px;background:var(--chip, rgba(9,14,22,0.82));border:1px solid rgba(255,179,92,0.55);font-size:calc(13px * var(--s, 1));font-weight:700;white-space:nowrap;font-variant-numeric:tabular-nums;color:#ffd9a8',
+      },
+      h('span', { class: 'dd-compass-ring' }, this.cacheDial),
+      this.cacheText,
+    );
     this.pillText = h('span');
     this.pill = h('div', { class: 'dd-pill' }, h('span', { class: 'dd-pill-icon', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 1, iconPx(20))}")` }), this.pillText);
     this.objective = h('div', { class: 'dd-objective', 'aria-live': 'polite' });
@@ -100,7 +133,7 @@ export class Hud {
         'div',
         { class: 'dd-hud-tr' },
         h('div', { class: 'dd-depth' }, h('span', { class: 'dd-depth-label', text: t('hud.depth') }), this.depth),
-        h('div', { class: 'dd-hud-row' }, this.compass, this.pill),
+        h('div', { class: 'dd-hud-row' }, this.cacheChip, this.compass, this.pill),
         this.objective,
       ),
       this.perf,
@@ -130,9 +163,31 @@ export class Hud {
         this.lantern.setAttribute('aria-label', t('hud.lanternValue', { value: pct }));
       }
     }
-    if (s.lanternLow !== this.low) {
-      this.low = s.lanternLow;
-      this.lantern.classList.toggle('low', s.lanternLow);
+    // Low fuel, or no more than the walk home left: the bar pulses red.
+    const low = s.lanternLow || s.fuelState === 'critical';
+    if (low !== this.low) {
+      this.low = low;
+      this.lantern.classList.toggle('low', low);
+    }
+    if (s.fuelState !== this.fuelState) {
+      this.fuelState = s.fuelState;
+      this.lantern.classList.toggle('is-tight', s.fuelState === 'tight');
+      this.lantern.classList.toggle('is-critical', s.fuelState === 'critical');
+      this.lantern.classList.toggle('is-empty', s.fuelState === 'empty');
+      this.fuelBar.style.borderColor = s.fuelState === 'tight' ? 'rgba(255,179,92,0.9)' : '';
+    }
+    const cold = s.cold > 0;
+    if (cold !== this.coldOn) {
+      this.coldOn = cold;
+      this.lantern.classList.toggle('is-cold', cold);
+      this.hearts.style.filter = cold ? 'drop-shadow(0 0 4px rgba(143,227,238,0.85))' : '';
+    }
+    // The turn-back mark: where the fuel must turn for home (none at camp).
+    const tickQ = s.turnBackFraction === null ? -1 : Math.round(Math.max(0, Math.min(1, s.turnBackFraction)) * FUEL_STEPS);
+    if (tickQ !== this.tickQ) {
+      this.tickQ = tickQ;
+      this.fuelTick.style.display = tickQ < 0 ? 'none' : '';
+      if (tickQ >= 0) this.fuelTick.style.left = `${(tickQ / FUEL_STEPS) * 100}%`;
     }
 
     // Compare what is displayed (whole meters), so a fractional input never rewrites the DOM.
@@ -165,6 +220,8 @@ export class Hud {
         this.compassText.textContent = t('hud.campDistance', { distance: dist });
       }
     }
+
+    this.updateCache(s.cache);
 
     if (s.backpackUsed !== this.used || s.backpackMax !== this.max) {
       this.used = s.backpackUsed;
@@ -239,6 +296,26 @@ export class Hud {
       this.hpText = hp;
       this.hpMax = max;
       this.hearts.setAttribute('aria-label', t('hud.healthValue', { value: hp, max: Math.round(max) }));
+    }
+  }
+
+  private updateCache(c: HudState['cache']): void {
+    const on = c !== null;
+    if (on !== this.cacheOn) {
+      this.cacheOn = on;
+      this.cacheChip.style.display = on ? 'flex' : 'none';
+      this.cacheDist = NaN;
+    }
+    if (!c) return;
+    const q = Math.round((c.bearing * 90) / Math.PI);
+    if (q !== this.cacheBearingQ) {
+      this.cacheBearingQ = q;
+      this.cacheDial.style.transform = `rotate(${q * 2}deg)`;
+    }
+    const dist = Math.max(0, Math.round(c.distance));
+    if (dist !== this.cacheDist) {
+      this.cacheDist = dist;
+      this.cacheText.textContent = t('hud.cacheDistance', { distance: dist });
     }
   }
 

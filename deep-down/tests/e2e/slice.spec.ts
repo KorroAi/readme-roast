@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
-import './dd';
+import { LOADED_CEILING_MS, untilGame, waitPlay } from './dd';
 
 // The brief's definition of success, step by step, on a phone-sized landscape viewport:
 // start -> underground -> move with touch -> mine & collect -> discover -> return to camp ->
@@ -14,7 +14,7 @@ async function state(page: Page) {
 }
 
 async function waitMode(page: Page, mode: string) {
-  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: 120_000, polling: 200 });
+  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: LOADED_CEILING_MS, polling: 200 });
 }
 
 /** The save the game would resume from (active slot of the two-slot store). */
@@ -57,8 +57,12 @@ async function recordHudTargets(page: Page): Promise<void> {
 
 const hudTargets = (page: Page) => page.evaluate(() => (window as unknown as { __hudTargets: string[] }).__hudTargets.slice());
 
-/** Mine a block with one press-and-hold at the screen center until it breaks; returns hits used. */
-async function mineWithTouch(page: Page, touch: Touch, block: [number, number, number], maxMs = 20_000): Promise<number> {
+/**
+ * Mine a block with one press-and-hold at the screen center until it breaks; returns hits used.
+ * The hold lasts up to `gameSeconds` of game time (not wall time: SwiftShader under load runs at
+ * a frame or two per second).
+ */
+async function mineWithTouch(page: Page, touch: Touch, block: [number, number, number], gameSeconds = 20): Promise<number> {
   const vp = page.viewportSize()!;
   await page.evaluate(() => window.__DD__.clearEvents());
   await page.waitForTimeout(250);
@@ -66,16 +70,32 @@ async function mineWithTouch(page: Page, touch: Touch, block: [number, number, n
   const at = { x: Math.ceil(vp.width / 2) + 6, y: Math.round(vp.height * 0.5) };
   await page.evaluate(([x, y, z, ax, ay]) => window.__DD__.aimAt(x, y, z, ax, ay), [...block, (at.x / vp.width) * 2 - 1, 1 - (at.y / vp.height) * 2]);
   await touch.down(at);
-  const start = Date.now();
-  while (Date.now() - start < maxMs) {
-    await page.waitForTimeout(250);
-    // Rock in front of the target is mined through first, as a player would.
-    if ((await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === B.AIR) break;
-  }
+  // Rock in front of the target is mined through first, as a player would.
+  await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === B.AIR, gameSeconds);
   await touch.up();
   // Hits on the target only (rock mined through on the way is not the pickaxe comparison).
   return page.evaluate(([x, y, z]) => window.__DD__.events('block:hit').filter((e) => e.payload.x === x && e.payload.y === y && e.payload.z === z).length, block);
 }
+
+/** Joystick drag held for `playSeconds` of game time (a wall-clock hold under load moves nothing). */
+async function dragFor(page: Page, from: { x: number; y: number }, to: { x: number; y: number }, playSeconds: number, id = 1): Promise<void> {
+  const cdp = await page.context().newCDPSession(page);
+  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', points: Array<{ x: number; y: number }>) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: points.map((p) => ({ x: p.x, y: p.y, id, radiusX: 8, radiusY: 8, force: 1 })) });
+  await send('touchStart', [from]);
+  const steps = 8;
+  for (let i = 1; i <= steps; i++) {
+    await send('touchMove', [{ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps }]);
+    await page.waitForTimeout(16);
+  }
+  await waitPlay(page, playSeconds);
+  await send('touchEnd', []);
+  await cdp.detach();
+}
+
+
+// SwiftShader under load renders a frame or two per second: give each test a generous budget.
+test.describe.configure({ timeout: 900_000 });
 
 test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }) => {
   const errors: string[] = [];
@@ -121,7 +141,7 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
 
   // 3. Move naturally with the floating joystick (left half of the screen).
   const before = s.player;
-  await touch.drag({ x: 140, y: 300 }, { x: 140, y: 230 }, 1300, 1);
+  await dragFor(page, { x: 140, y: 300 }, { x: 140, y: 230 }, 1.3);
   s = await state(page);
   const moved = Math.hypot(s.player.x - before.x, s.player.z - before.z);
   expect(moved).toBeGreaterThan(1.5);
@@ -135,7 +155,7 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), copper!.block)).toBe(B.AIR);
   // While the block was being mined, the HUD target panel named it.
   expect(await hudTargets(page)).toContain('Copper Vein');
-  await page.waitForFunction(() => window.__DD__.events('item:picked').some((e) => e.payload.item === 'copperOre'), null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.events('item:picked').some((e) => e.payload.item === 'copperOre'), null, { timeout: LOADED_CEILING_MS });
   s = await state(page);
   const backpackCopper = s.backpack.filter((x: any) => x && x.item === 'copperOre').reduce((a: number, x: any) => a + x.count, 0);
   expect(backpackCopper).toBeGreaterThan(0);
@@ -148,24 +168,33 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   // 5. Discover something unexpected: walk out onto the ledge above the Lantern Hollow.
   const ledge = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), lm.ledge);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), ledge!);
-  await page.waitForFunction(() => window.__DD__.events('discovery').some((e) => e.payload.id === 'hollow'), null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.events('discovery').some((e) => e.payload.id === 'hollow'), null, { timeout: LOADED_CEILING_MS });
   await expect(page.getByText(/Lantern Hollow/i).first()).toBeVisible();
   // A discovery is saved at once.
   expect(await saveReasonAfter(page, 'discovery', { id: 'hollow' })).toBe('discovery');
   expect((await persisted(page)).discoveries).toContain('hollow');
-  // Away from camp the compass gives the distance back to the campfire.
+  // Away from camp the compass gives the walking distance back to camp (the walk-home field),
+  // which is never shorter than the straight line to the campfire.
   await expect(hud.locator('.dd-compass')).not.toHaveClass(/\bat-camp\b/);
+  await expect.poll(() => page.evaluate(() => document.querySelector('.dd-hud .dd-compass')?.textContent ?? ''), { timeout: LOADED_CEILING_MS }).toMatch(/^Camp \d+ m$/);
   const away = await page.evaluate((c) => {
     const p = window.__DD__.state().player;
-    return { text: document.querySelector('.dd-hud .dd-compass')?.textContent ?? '', dist: Math.hypot(c[0] - p.x, c[1] - p.y, c[2] - p.z) };
+    return {
+      text: document.querySelector('.dd-hud .dd-compass')?.textContent ?? '',
+      walk: window.__DD__.loop.homeSteps(p.x, p.y, p.z),
+      dist: Math.hypot(c[0] - p.x, c[1] - p.y, c[2] - p.z),
+    };
   }, lm.campfire);
   expect(away.text).toMatch(/^Camp \d+ m$/);
-  expect(Math.abs(Number(away.text.match(/\d+/)![0]) - away.dist), `compass "${away.text}" vs ${away.dist.toFixed(1)} m`).toBeLessThanOrEqual(1);
+  const shown = Number(away.text.match(/\d+/)![0]);
+  expect(away.walk, 'the ledge has a walk home').toBeGreaterThan(0);
+  expect(Math.abs(shown - away.walk), `compass "${away.text}" vs a ${away.walk} m walk`).toBeLessThanOrEqual(1);
+  expect(shown, `compass "${away.text}" vs ${away.dist.toFixed(1)} m straight`).toBeGreaterThanOrEqual(Math.floor(away.dist) - 1);
 
   // 6. Return to camp: the backpack is banked.
   const camp = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), lm.campfire.map((v, i) => (i === 0 ? v - 2 : v)) as [number, number, number]);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), camp!);
-  await page.waitForFunction(() => window.__DD__.state().atCamp && window.__DD__.events('items:banked').length > 0, null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.state().atCamp && window.__DD__.events('items:banked').length > 0, null, { timeout: LOADED_CEILING_MS });
   s = await state(page);
   expect(s.storage.copperOre ?? 0).toBeGreaterThan(0);
   // Banking at camp is saved at once: the saved game has the copper in storage, not in the pack.
@@ -191,16 +220,16 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   // 7. Craft an upgrade at the Workbench: walk up, tap Use, tap Craft.
   const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
-  await page.getByRole('button', { name: /Workbench/i }).first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('button', { name: /Workbench/i }).first().waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
   await page.getByRole('button', { name: /Workbench/i }).first().tap();
-  await page.waitForFunction(() => window.__DD__.state().screen === 'crafting', null, { timeout: 10_000 });
+  await page.waitForFunction(() => window.__DD__.state().screen === 'crafting', null, { timeout: LOADED_CEILING_MS });
   await page.getByRole('button', { name: /^Craft/ }).first().tap();
-  await page.waitForFunction(() => window.__DD__.state().equipment.pickaxe === 2, null, { timeout: 10_000 });
+  await page.waitForFunction(() => window.__DD__.state().equipment.pickaxe === 2, null, { timeout: LOADED_CEILING_MS });
   // Crafting is saved at once.
   expect(await saveReasonAfter(page, 'craft:done', { recipe: 'copperPickaxe' })).toBe('craft');
   expect((await persisted(page)).equipment.pickaxe).toBe(2);
   await page.getByRole('button', { name: /Close/i }).first().tap();
-  await page.waitForFunction(() => window.__DD__.state().screen === 'none', null, { timeout: 10_000 });
+  await page.waitForFunction(() => window.__DD__.state().screen === 'none', null, { timeout: LOADED_CEILING_MS });
   // The objective has moved on since the start, and the HUD line follows it.
   const objectiveNow = (await state(page)).objective.text as string;
   expect(objectiveNow).not.toBe(firstObjective);
@@ -212,7 +241,7 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(hitsCopper).toBeLessThan(hitsRusty);
   const seal = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(10, x, y, z, 6), lm.seal);
   expect(seal).not.toBeNull();
-  await mineWithTouch(page, touch, seal!.block, 30_000);
+  await mineWithTouch(page, touch, seal!.block, 30);
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), seal!.block)).toBe(B.AIR);
 
   // 9. Save and resume: reload, Continue, everything is still there.

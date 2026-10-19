@@ -19,6 +19,8 @@ export function installDebugApi(game: Game): void {
     'block:hit', 'block:broken', 'block:tooHard', 'prop:hit', 'prop:broken', 'item:picked', 'items:banked', 'craft:done',
     'craft:failed', 'discovery', 'player:damaged', 'player:died', 'player:respawned', 'camp:entered', 'camp:left',
     'lantern:low', 'lantern:empty', 'lantern:refueled', 'game:saved', 'game:saveFailed', 'tool:swing',
+    // Loop core (W1). Later waves append theirs.
+    'expedition:started', 'expedition:ended', 'cache:created', 'cache:recovered', 'lantern:turnBack', 'player:cold', 'record:depth',
   ];
   for (const type of types) {
     game.bus.on(type, (payload) => {
@@ -74,6 +76,8 @@ export function installDebugApi(game: Game): void {
       particles: { debris: game.debris.activeCount, puffs: game.particles.activeCount, drops: game.drops.count },
       quality: game.renderer.quality,
       pixelRatio: game.renderer.pixelRatio,
+      // Walk-home field, reach set and cache field: last recompute times (ms) and size.
+      loop: game.progression.fieldTimings(),
     }),
     /** Merge into the live InputState (e.g. { moveY: 1 }). */
     input: (patch: Partial<InputState>) => Object.assign(game.input, patch),
@@ -180,6 +184,30 @@ export function installDebugApi(game: Game): void {
       for (let i = 0; i < frames; i++) game.step(dt);
     },
     setQuality: (q: 'battery' | 'balanced' | 'high') => game.updateSettings({ quality: q }),
+    /** Loop core: the walk-home field, the cache and the expedition (game/Progression). */
+    loop: {
+      /** Recompute the walking fields now; @returns their timings in ms. */
+      recompute: () => {
+        game.progression.recomputeFields();
+        return game.progression.fieldTimings();
+      },
+      timings: () => game.progression.fieldTimings(),
+      /** Walking steps to camp from a feet position (-1: no walk home from there). */
+      homeSteps: (x: number, y: number, z: number) => {
+        const f = game.progression.home;
+        const c = f ? f.cellNear(x, y, z) : -1;
+        return f && c >= 0 ? f.dist[c] : -1;
+      },
+      /** Is the cell on the walkable set from the camp spawn? */
+      reachable: (x: number, y: number, z: number) => game.progression.reach?.has(Math.floor(x), Math.floor(y), Math.floor(z)) ?? false,
+      cache: () => (game.progression.cache ? { ...game.progression.cache, items: { ...game.progression.cache.items } } : null),
+      report: () => game.progression.report,
+      next: () => ({ ...game.progression.nextStep }),
+      hud: () => {
+        const h = { fuelState: game.progression.fuelState, homeSeconds: game.progression.homeSeconds, walkToCamp: game.progression.walkToCamp, walkToCache: game.progression.walkToCache };
+        return h;
+      },
+    },
     /** Fullbright amount and an optional section clip height (compiles the clip into the terrain shader). */
     debugLight: (fullbright: number, clipY = 9999) => {
       game.session.rig.uniforms.uDebug.value.set(fullbright, clipY, 0);

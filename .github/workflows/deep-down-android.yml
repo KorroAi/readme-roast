@@ -1,0 +1,120 @@
+# DEEP DOWN: the Play bundle (AAB) and a release APK, built and signed in CI.
+# Unverified until its first run: it was written in a container where Google's SDK and Gradle
+# downloads are blocked (deep-down/android/README.md). The upload key is read from GitHub
+# secrets only; see deep-down/docs/release-checklist.md for creating it.
+name: deep-down-android
+
+on:
+  workflow_dispatch:
+    inputs:
+      build:
+        description: Build number 0-99 (versionCode = (MAJOR*10000 + MINOR*100 + PATCH)*100 + build)
+        required: false
+        default: "0"
+  push:
+    tags:
+      - "deep-down-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deep-down-android-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: deep-down
+    env:
+      # Tag pushes build number 0; a dispatch can raise it for another upload of the same version.
+      DD_BUILD: ${{ github.event.inputs.build || '0' }}
+      DD_RELEASE: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: deep-down/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Version
+        id: version
+        run: |
+          node tools/version.mjs
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then node tools/version.mjs check-tag "$GITHUB_REF_NAME"; fi
+          echo "name=$(node tools/version.mjs name)" >> "$GITHUB_OUTPUT"
+          echo "code=$(node tools/version.mjs code)" >> "$GITHUB_OUTPUT"
+
+      - name: Type-check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run
+
+      - name: Web build (release)
+        run: npx vite build
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: "platforms;android-36 build-tools;36.0.0 platform-tools"
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Upload key
+        env:
+          DD_UPLOAD_KEYSTORE_B64: ${{ secrets.DD_UPLOAD_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$DD_UPLOAD_KEYSTORE_B64" ]; then
+            echo "::warning::DD_UPLOAD_KEYSTORE_B64 is not set: the bundle and APK will be unsigned (Play refuses them)."
+            exit 0
+          fi
+          umask 077
+          printf '%s' "$DD_UPLOAD_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/dd-upload.p12"
+          echo "DD_UPLOAD_STORE_FILE=$RUNNER_TEMP/dd-upload.p12" >> "$GITHUB_ENV"
+
+      - name: Gradle bundleRelease + assembleRelease
+        working-directory: deep-down/android
+        env:
+          DD_UPLOAD_STORE_PASSWORD: ${{ secrets.DD_UPLOAD_STORE_PASSWORD }}
+          DD_UPLOAD_KEY_ALIAS: ${{ secrets.DD_UPLOAD_KEY_ALIAS }}
+          DD_UPLOAD_KEY_PASSWORD: ${{ secrets.DD_UPLOAD_KEY_PASSWORD }}
+        run: gradle --no-daemon --stacktrace :app:bundleRelease :app:assembleRelease
+
+      - name: Check the APK
+        working-directory: deep-down/android
+        run: |
+          AAPT2="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)aapt2"
+          APK="$(ls app/build/outputs/apk/release/*.apk | head -1)"
+          "$AAPT2" dump badging "$APK" | tee badging.txt | head -5
+          grep -q "versionCode='${{ steps.version.outputs.code }}' versionName='${{ steps.version.outputs.name }}'" badging.txt
+          grep -q "targetSdkVersion:'36'" badging.txt
+          grep -q "application-icon-65534:'res/mipmap-anydpi-v26/ic_launcher.xml'" badging.txt
+          if unzip -l "$APK" | grep -qE "visuallab|sandbox"; then echo "::error::the release APK contains the Visual Lab or the UI sandbox"; exit 1; fi
+          ls -la app/build/outputs/bundle/release/ app/build/outputs/apk/release/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deep-down-${{ steps.version.outputs.name }}-${{ steps.version.outputs.code }}
+          path: |
+            deep-down/android/app/build/outputs/bundle/release/*.aab
+            deep-down/android/app/build/outputs/apk/release/*.apk
+          if-no-files-found: error
+
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/dd-upload.p12"

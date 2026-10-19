@@ -1,0 +1,10 @@
+# Gradle (the Play bundle build) and local SDK paths.
+.gradle/
+app/build/
+local.properties
+.kotlin/
+# Signing keys never enter git: the upload key lives in a password manager and in CI secrets.
+*.jks
+*.p12
+*.keystore
+*.pem

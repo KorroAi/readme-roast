@@ -4,7 +4,7 @@
 export const core = {
   // Title & menus
   'game.title': 'DEEP DOWN',
-  'game.tagline': 'EXPLORE • MINE • CRAFT • GO DEEPER',
+  'game.tagline': 'FOLLOW THE LIGHT DOWN',
   'menu.continue': 'Continue',
   'menu.newGame': 'New Expedition',
   'menu.settings': 'Settings',
@@ -17,7 +17,7 @@ export const core = {
   'menu.loading': 'Carving the depths…',
   'menu.loadingLight': 'Lighting the crystals…',
   'menu.loadingMesh': 'Shaping the stone…',
-  'menu.version': 'Vertical slice {version}',
+  'menu.version': 'v{version}',
   'menu.rotateHint': 'Best played in landscape: turn your phone sideways.',
   'menu.saveFound': 'Last saved {time}',
   'menu.credits.body':
@@ -36,9 +36,9 @@ export const core = {
   'pause.resume': 'Resume',
   'pause.settings': 'Settings',
   'pause.returnToCamp': 'Return to Camp',
-  'pause.returnToCampHint': 'Unbanked backpack items will be lost.',
+  'pause.returnToCampHint': 'Leave your pack here and return to camp',
   'pause.quit': 'Save and Quit to Menu',
-  'pause.confirmReturn': 'Return to camp now? Items in your backpack will be lost.',
+  'pause.confirmReturn': 'Return to camp now? Your pack stays here, and you can come back for it.',
   'pause.confirmReturnYes': 'Return',
   'pause.confirmReturnNo': 'Stay',
 
@@ -119,7 +119,7 @@ export const core = {
   'hint.outOfReach': 'Out of reach.',
   'hint.backpackFull': 'Backpack full! Return to camp to bank your finds.',
   'hint.lanternLow': 'Your lantern is running low.',
-  'hint.lanternEmpty': 'Your lantern has burned out. Find your way back to camp.',
+  'hint.lanternEmpty': 'Your lantern is out. The cold is coming: get back to camp.',
   'hint.lanternRefueled': 'Lantern refilled.',
   'hint.healthLow': 'You are badly hurt.',
   'hint.interactWorkbench': 'Workbench',
@@ -144,7 +144,7 @@ export const core = {
   'discovery.crystals.title': 'Glimmer Crystals',
   'discovery.crystals.body': 'Crystals that glow with a cold inner light. They hum when you come near.',
   'discovery.shrine.title': 'The Sealed Shrine',
-  'discovery.shrine.body': 'A hidden chamber behind crumbling brick. The glyphs on the walls still shine.',
+  'discovery.shrine.body': 'A hidden chamber behind loose masonry. The glyphs on the walls still shine.',
   'discovery.tablet.title': 'Ancient Tablet',
   'discovery.tablet.body':
     '"We followed the light down. The deeper we went, the more it remembered us." The rest is worn away.',
@@ -159,9 +159,8 @@ export const core = {
   'objective.returnToCamp': 'Return to camp',
   'objective.craftPickaxe': 'Craft a Copper Pickaxe at the Workbench',
   'objective.breakSeal': 'Break through the Hardened Slate in the Hollow',
-  'objective.findShrine': 'Something glows behind the old brick…',
+  'objective.findShrine': 'Something glows behind the loose masonry…',
   'objective.goDeeper': 'Go deeper',
-  'objective.done': 'All objectives complete',
 
   // Inventory
   'inventory.title': 'Inventory',
@@ -194,9 +193,9 @@ export const core = {
 
   // Death
   'death.title': 'You Blacked Out',
-  'death.body': 'You wake beside the campfire, aching. Your backpack is lighter.',
+  'death.body': 'You wake beside the campfire, aching.',
   'death.lost': 'Lost',
-  'death.nothingLost': 'Nothing was lost.',
+  'death.nothingLost': 'Your pack was empty. Nothing was left behind.',
   'death.respawn': 'Wake Up at Camp',
 
   // Blocks
@@ -206,18 +205,18 @@ export const core = {
   'block.umber': 'Umber Stone',
   'block.soil': 'Cave Soil',
   'block.gravel': 'Gravel',
-  'block.moss': 'Glowmoss Stone',
+  'block.moss': 'Lichen Stone',
   'block.copperOre': 'Copper Vein',
   'block.ironOre': 'Iron Vein',
   'block.crystal': 'Glimmer Crystal',
   'block.hardenedSlate': 'Hardened Slate',
-  'block.ancientBrick': 'Ancient Brick',
+  'block.ancientBrick': 'Ancient Ashlar',
   'block.ancientTile': 'Ancient Tile',
-  'block.crumblingBrick': 'Crumbling Brick',
+  'block.crumblingBrick': 'Loose Masonry',
   'block.glyphStone': 'Glyph Stone',
   'block.plank': 'Wooden Planks',
   'block.beam': 'Support Beam',
-  'block.hearth': 'Hearth Brick',
+  'block.hearth': 'Hearth Stone',
   'block.bedrock': 'Abyssal Bedrock',
   'block.light': 'Light',
 
@@ -248,7 +247,7 @@ export const core = {
   'equip.oilLantern.desc': 'A small, flickering flame.',
   'equip.copperLantern.desc': 'Light radius +35%. Burns twice as long.',
   'equip.tinyPack.desc': '6 slots.',
-  'equip.sturdyPack.desc': '10 slots.',
+  'equip.sturdyPack.desc': '8 slots.',
   'equip.stat.speed': 'Mining speed',
   'equip.stat.tier': 'Hardness tier',
   'equip.stat.radius': 'Light radius',

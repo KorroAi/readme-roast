@@ -80,7 +80,8 @@ describe('Objectives', () => {
     expect(o.onEvent('discovery', { id: 'hollow' })).toBe(false);
     expect(o.onEvent('discovery', { id: 'gate' })).toBe(true);
     expect(o.done).toBe(true);
-    expect(o.current()).toEqual({ id: 'done', text: t('objective.done') });
+    expect(o.current()).toEqual({ id: 'done', text: '' });
+    expect(o.step()).toBeNull();
     expect(o.completed).toEqual([...OBJECTIVE_CHAIN]);
   });
 

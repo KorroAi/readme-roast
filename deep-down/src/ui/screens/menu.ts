@@ -126,8 +126,23 @@ export function buildPause(host: ScreenHost): HTMLElement {
   );
 }
 
+/**
+ * The black-out screen. Nothing is lost outright: the pack (minus the Sealed Pouch) waits where
+ * the explorer fell, and the screen says where. Only an older pack it replaced is gone.
+ */
 export function buildDeath(host: ScreenHost): HTMLElement {
-  const lost = Object.entries(host.state.deathLost).filter(([, n]) => (n ?? 0) > 0) as Array<[ItemId, number]>;
+  const left = Object.entries(host.state.deathLost).filter(([, n]) => (n ?? 0) > 0) as Array<[ItemId, number]>;
+  const report = host.actions.getReport();
+  const count = left.reduce((a, [, n]) => a + n, 0);
+  // What the Sealed Pouch kept (the last slots of the Expedition Pack).
+  const inv = host.actions.getInventory();
+  const kept = inv.pouchSlots > 0 ? (inv.backpack.slice(inv.backpack.length - inv.pouchSlots).filter((s) => s !== null) as Array<{ item: ItemId; count: number }>) : [];
+  const chips = (list: Array<[ItemId, number]>) =>
+    h(
+      'ul',
+      { class: 'dd-chips' },
+      ...list.map(([id, n]) => h('li', { class: 'dd-chip' }, icon(itemIconDataUrl(id, iconPx(24)), 24), h('span', { text: t(ITEMS[id].name) }), h('b', { text: t('inventory.count', { count: n }) }))),
+    );
   return h(
     'section',
     { class: 'dd-screen dd-overlay dd-death' },
@@ -136,16 +151,14 @@ export function buildDeath(host: ScreenHost): HTMLElement {
       { class: 'dd-panel dd-death-panel', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': t('death.title') },
       h('h2', { class: 'dd-death-title', text: t('death.title') }),
       h('p', { class: 'dd-death-body', text: t('death.body') }),
-      h('h3', { class: 'dd-section-title', text: t('death.lost') }),
-      lost.length
-        ? h(
-            'ul',
-            { class: 'dd-chips' },
-            ...lost.map(([id, n]) =>
-              h('li', { class: 'dd-chip lost' }, icon(itemIconDataUrl(id, iconPx(24)), 24), h('span', { text: t(ITEMS[id].name) }), h('b', { text: t('inventory.count', { count: n }) })),
-            ),
-          )
-        : h('p', { class: 'dd-muted', text: t('death.nothingLost') }),
+      h('h3', { class: 'dd-section-title', text: t('death.cached') }),
+      left.length ? chips(left) : h('p', { class: 'dd-muted', text: t('death.nothingLost') }),
+      left.length && report?.cacheDepth !== null && report?.cacheDepth !== undefined
+        ? h('p', { class: 'dd-death-cache', text: t('death.cacheAt', { depth: report.cacheDepth, count }) })
+        : null,
+      report && report.lostCount > 0 ? h('p', { class: 'dd-muted', text: t('death.cacheReplaced', { count: report.lostCount }) }) : null,
+      kept.length ? h('h3', { class: 'dd-section-title', text: t('death.pouchKept') }) : null,
+      kept.length ? chips(kept.map((s) => [s.item, s.count] as [ItemId, number])) : null,
       btn(t('death.respawn'), () => host.actions.respawn(), { variant: 'primary', key: 'respawn', autofocus: true }),
     ),
   );

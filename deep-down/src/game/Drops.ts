@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ITEMS, type ItemId } from '../config/items';
 import { SOLID } from '../config/blocks';
-import { PLAYER } from '../config/balance';
+import { DROPS, PLAYER } from '../config/balance';
 import type { LightingUniforms } from '../render/lighting';
 import { createEntityMaterial } from '../render/entityMaterial';
 import { VoxBuilder } from '../render/voxModel';
@@ -33,7 +33,8 @@ interface Drop {
 /**
  * Resource drops: miniature blocks (painted from the same pixel tiles as the terrain) or
  * glowing shards that pop out of a broken block, settle, then fly into the explorer's
- * backpack when it has room. Drops that cannot fit stay on the ground.
+ * backpack when it has room. Drops that cannot fit stay on the ground for DROPS.lifeSeconds,
+ * shrinking away over the last DROPS.dimSeconds (a black-out takes them into the cache).
  */
 export class DropSystem {
   readonly group = new THREE.Group();
@@ -93,7 +94,7 @@ export class DropSystem {
   }
 
   /**
-   * @param collect called when a drop reaches the explorer; returns how many were accepted.
+   * @param collect called when a drop reaches the explorer (with where it was); returns how many were accepted.
    * @param onRejected called once per drop when the backpack cannot take it.
    */
   update(
@@ -103,7 +104,7 @@ export class DropSystem {
     py: number,
     pz: number,
     canAccept: (item: ItemId) => boolean,
-    collect: (item: ItemId, count: number) => number,
+    collect: (item: ItemId, count: number, x: number, y: number, z: number) => number,
     onRejected: (item: ItemId) => void,
   ): void {
     const w = this.world;
@@ -140,7 +141,7 @@ export class DropSystem {
         d.y += d.vy * dt;
         d.z += d.vz * dt;
         if (dist < 0.45) {
-          const taken = collect(d.item, d.count);
+          const taken = collect(d.item, d.count, d.x, d.y, d.z);
           d.count -= taken;
           if (d.count <= 0) {
             this.remove(i);
@@ -182,11 +183,18 @@ export class DropSystem {
           d.freeZ = d.z;
         }
       }
+      // Uncollected drops fade: they shrink over their last seconds, then are gone.
+      const left = DROPS.lifeSeconds - d.age;
+      if (!d.magnet && left <= 0) {
+        this.remove(i);
+        continue;
+      }
+      const fade = d.magnet ? 1 : Math.max(0.15, Math.min(1, left / DROPS.dimSeconds));
       const bob = d.magnet ? 0 : Math.sin(time * 3 + i) * 0.04;
       d.mesh.position.set(d.x, d.y + bob, d.z);
       d.mesh.rotation.y += d.spin * dt;
       const appear = Math.min(1, d.age * 8);
-      d.mesh.scale.setScalar(appear * (d.magnet ? Math.max(0.4, Math.min(1, dist)) : 1));
+      d.mesh.scale.setScalar(appear * fade * (d.magnet ? Math.max(0.4, Math.min(1, dist)) : 1));
     }
   }
 

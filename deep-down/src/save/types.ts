@@ -1,4 +1,6 @@
 import type { ItemId } from '../config/items';
+import type { CacheState } from '../gameplay/Expedition';
+import type { RecordsState, TripState } from '../gameplay/Records';
 import type { QualityLevel } from '../render/Renderer';
 
 /** Player settings, persisted separately from game progress. */
@@ -53,9 +55,43 @@ export interface SlotData {
   count: number;
 }
 
+/**
+ * Long-term progress (save v2). Every field has a default filled by normalizeSave, so later waves
+ * add optional fields here without bumping SAVE.version.
+ */
+export interface ProgressionSave {
+  /** Days passed in the Hollow (W3: the Bloom). */
+  day: number;
+  /** Expeditions started so far (the next one is expeditions + 1). */
+  expeditions: number;
+  /** The expedition in progress, or null at camp. */
+  trip: TripState | null;
+  records: RecordsState;
+  /** The pack left behind on a black-out, or null. */
+  cache: CacheState | null;
+  /** Camp stations built (W2). */
+  stations: string[];
+  /** Gear nodes built (W2). */
+  gear: string[];
+  /** Relics placed on the shelf (W3). */
+  relics: string[];
+  /** Active ore seams (W3). */
+  seams: unknown[];
+  /** Day each mined cell was mined: flat [index, day, ...] (W3). */
+  minedDay: number[];
+  /** Tutorial hints already shown. */
+  hintsShown: string[];
+  /** The finale has been seen (W3). */
+  finale: boolean;
+  /** The compass target the player picked (a seam or a site id), or null for camp. */
+  compassTarget: string | null;
+}
+
 /** Everything needed to resume an expedition. Versioned; see save/SaveSystem migrations. */
 export interface SaveData {
   version: number;
+  /** WORLD.genVersion of the generator that made the world these edits apply to. */
+  genVersion: number;
   savedAt: number;
   worldSeed: number;
   /** Total play time in seconds. */
@@ -79,4 +115,5 @@ export interface SaveData {
   /** Props removed by the player (mined crystal clusters, collected relics). */
   removedProps: string[];
   stats: { blocksMined: number; deaths: number; itemsBanked: number };
+  progression: ProgressionSave;
 }

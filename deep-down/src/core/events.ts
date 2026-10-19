@@ -1,5 +1,6 @@
 import type { ItemId } from '../config/items';
 import type { RecipeId } from '../config/recipes';
+import type { ExpeditionReport } from '../gameplay/Records';
 
 /**
  * Every cross-system notification in the game. Systems never call each other's
@@ -12,7 +13,8 @@ export interface GameEvents {
   'prop:hit': { propId: string; progress: number; x: number; y: number; z: number };
   'prop:broken': { propId: string; x: number; y: number; z: number };
   'tool:swing': { tier: number };
-  'item:picked': { item: ItemId; count: number };
+  /** sx, sy: the drop's point on screen (0..1 from the top left) when it flew in. */
+  'item:picked': { item: ItemId; count: number; sx?: number; sy?: number };
   'item:rejected': { item: ItemId };
   'inventory:changed': Record<string, never>;
   'items:banked': { total: number; items: Partial<Record<ItemId, number>> };
@@ -23,7 +25,7 @@ export interface GameEvents {
   'player:footstep': { block: number; speed: number };
   'player:jump': Record<string, never>;
   'player:land': { fallSpeed: number; block: number };
-  'player:damaged': { amount: number; cause: 'fall' | 'hazard' };
+  'player:damaged': { amount: number; cause: 'fall' | 'hazard' | 'cold' };
   'player:died': { lost: Partial<Record<ItemId, number>> };
   'player:respawned': Record<string, never>;
   'camp:entered': Record<string, never>;
@@ -34,6 +36,15 @@ export interface GameEvents {
   'game:saved': { reason: string };
   'game:saveFailed': { reason: string };
   toast: { text: string; tone?: 'info' | 'warn' | 'good' };
+  // Loop core (final pass W1).
+  'expedition:started': { n: number };
+  'expedition:ended': { report: ExpeditionReport };
+  'cache:created': { x: number; y: number; z: number; count: number; replaced: number };
+  'cache:recovered': { count: number; left: number };
+  'lantern:turnBack': { seconds: number };
+  /** One full interval of cold has bitten (the heartbeat / haptic moment). */
+  'player:cold': { damage: number };
+  'record:depth': { depth: number };
 }
 
 type Handler<T> = (payload: T) => void;

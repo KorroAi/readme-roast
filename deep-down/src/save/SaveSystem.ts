@@ -1,9 +1,9 @@
 import { SAVE } from '../config/balance';
-import { validateSaveData } from './saveData';
+import { migrateV1, normalizeSave, validateSaveData } from './saveData';
 import { sanitizeSettings } from './settings';
 import type { SaveData, Settings } from './types';
 
-export { createNewSave, validateSaveData } from './saveData';
+export { createNewSave, normalizeSave, shiftWorldIfNeeded, validateSaveData } from './saveData';
 
 /**
  * Versioned two-slot persistence.
@@ -117,10 +117,11 @@ const other = (s: SlotId): SlotId => (s === 'a' ? 'b' : 'a');
 export type Migration = (old: Record<string, unknown>) => Record<string, unknown>;
 
 /**
- * Save format history. Version 1 is the first released format, so there is nothing to
- * migrate yet. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
+ * Save format history. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
+ * - 1 -> 2: the progression block and genVersion; stacks above the new stack sizes move into
+ *   camp storage (save/saveData migrateV1).
  */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = {};
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1 };
 
 export type SaveErrorCode = 'invalid' | 'serialize' | 'quota' | 'unavailable' | 'verify';
 export type LoadErrorCode = 'corrupt' | 'version';
@@ -136,6 +137,8 @@ export interface LoadResult {
   recovered: boolean;
   /** Set when save data existed but none of it could be loaded. */
   error?: LoadErrorCode;
+  /** Items with ids this build does not know, removed while loading (only set when > 0). */
+  dropped?: number;
 }
 
 export interface SaveSystemOptions {
@@ -144,7 +147,7 @@ export interface SaveSystemOptions {
   migrations?: Readonly<Record<number, Migration>>;
 }
 
-type SlotRead = { data: SaveData } | { error: LoadErrorCode } | null;
+type SlotRead = { data: SaveData; dropped: number } | { error: LoadErrorCode } | null;
 
 export class SaveSystem {
   private readonly version: number;
@@ -205,7 +208,13 @@ export class SaveSystem {
     }
     const data = slot ? valid(slot) : null;
     this.good = slot && data ? { slot, savedAt: data.savedAt } : null;
-    if (data) return { data, recovered: active !== null && slot !== active };
+    if (data && slot) {
+      const r = reads[slot];
+      const dropped = r && 'dropped' in r ? r.dropped : 0;
+      const res: LoadResult = { data, recovered: active !== null && slot !== active };
+      if (dropped > 0) res.dropped = dropped;
+      return res;
+    }
     return { data: null, recovered: false, error: loadError(reads.a, reads.b) };
   }
 
@@ -279,15 +288,18 @@ export class SaveSystem {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'corrupt' };
       const version = (parsed as { version?: unknown }).version;
       if (typeof version === 'number' && version > this.version) return { error: 'version' };
-      const data = this.migrate(parsed as Record<string, unknown>);
-      return data ? { data } : { error: 'corrupt' };
+      const res = this.migrate(parsed as Record<string, unknown>);
+      return res ?? { error: 'corrupt' };
     } catch {
       return { error: 'corrupt' };
     }
   }
 
-  /** Bring an older save up to the current version. Returns null if impossible or invalid. */
-  private migrate(data: Record<string, unknown>): SaveData | null {
+  /**
+   * Bring an older save up to the current version, then normalize it (unknown item ids are
+   * removed and counted rather than failing the load). Returns null if impossible or invalid.
+   */
+  private migrate(data: Record<string, unknown>): { data: SaveData; dropped: number } | null {
     let v = data.version;
     if (!Number.isInteger(v) || (v as number) < 1) return null;
     let cur = data;
@@ -297,7 +309,8 @@ export class SaveSystem {
       v = (v as number) + 1;
       cur = { ...step(cur), version: v };
     }
-    return validateSaveData(cur) ? cur : null;
+    const { data: norm, report } = normalizeSave(cur);
+    return validateSaveData(norm) ? { data: norm, dropped: report.dropped } : null;
   }
 }
 

@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { ITEMS } from '../../src/config/items';
 import { Backpack } from '../../src/gameplay/Inventory';
 import { CampStorage } from '../../src/gameplay/Storage';
-import { onCampEntry, onDeath, totalCount } from '../../src/gameplay/Expedition';
+import { makeCache, onCampEntry, totalCount } from '../../src/gameplay/Expedition';
 import { addCounts, isItemId, toAmount } from '../../src/gameplay/counts';
 
-const STONE = ITEMS.stone.stackSize; // 40
-const COPPER = ITEMS.copperOre.stackSize; // 30
+const STONE = ITEMS.stone.stackSize; // 30
+const COPPER = ITEMS.copperOre.stackSize; // 15
+const IRON = ITEMS.ironOre.stackSize; // 10
 
 describe('Backpack', () => {
   it('starts empty with the requested slot count', () => {
@@ -46,8 +47,8 @@ describe('Backpack', () => {
   it('tops up a partial stack in a later slot before using an empty earlier slot', () => {
     const b = new Backpack(3);
     b.add('copperOre', 1);
-    b.add('stone', 38);
-    b.remove('copperOre', 1); // slot 0 is now empty, slot 1 holds 38 stone
+    b.add('stone', STONE - 2);
+    b.remove('copperOre', 1); // slot 0 is now empty, slot 1 holds a stone stack 2 short of full
     expect(b.add('stone', 5)).toBe(5);
     expect(b.toJSON()).toEqual([{ item: 'stone', count: 3 }, { item: 'stone', count: STONE }, null]);
   });
@@ -63,7 +64,7 @@ describe('Backpack', () => {
 
   it('accepts into a partial stack even when no slot is empty', () => {
     const b = new Backpack(1);
-    b.add('stone', 39);
+    b.add('stone', STONE - 1);
     expect(b.canAccept('stone')).toBe(true);
     expect(b.canAccept('copperOre')).toBe(false);
     expect(b.add('stone', 5)).toBe(1);
@@ -89,10 +90,10 @@ describe('Backpack', () => {
 
   it('removes from the last stacks first and frees emptied slots', () => {
     const b = new Backpack(4);
-    b.add('stone', STONE + 10); // [40, 10]
+    b.add('stone', STONE + 10); // [30, 10]
     expect(b.remove('stone', 15)).toBe(15);
-    expect(b.toJSON()).toEqual([{ item: 'stone', count: 35 }, null, null, null]);
-    expect(b.remove('stone', 100)).toBe(35);
+    expect(b.toJSON()).toEqual([{ item: 'stone', count: STONE - 5 }, null, null, null]);
+    expect(b.remove('stone', 100)).toBe(STONE - 5);
     expect(b.usedSlots).toBe(0);
     expect(b.remove('copperOre', 3)).toBe(0);
   });
@@ -115,7 +116,7 @@ describe('Backpack', () => {
     expect(b.count('stone')).toBe(12);
     expect(b.count('copperOre')).toBe(8);
     expect(b.slots[1]).toEqual({ item: 'copperOre', count: 8 });
-    expect(b.add('ironOre', COPPER * 8)).toBe(COPPER * 8);
+    expect(b.add('ironOre', IRON * 8)).toBe(IRON * 8);
   });
 
   it('shrinks by truncating empty tail slots', () => {
@@ -138,9 +139,9 @@ describe('Backpack', () => {
   });
 
   it('merges split partial stacks of the same item to make room', () => {
-    const b = Backpack.fromJSON([{ item: 'stone', count: 20 }, { item: 'copperOre', count: 5 }, { item: 'stone', count: 20 }], 3);
+    const b = Backpack.fromJSON([{ item: 'stone', count: 12 }, { item: 'copperOre', count: 5 }, { item: 'stone', count: 12 }], 3);
     b.resize(2);
-    expect(b.toJSON()).toEqual([{ item: 'stone', count: STONE }, { item: 'copperOre', count: 5 }]);
+    expect(b.toJSON()).toEqual([{ item: 'stone', count: 24 }, { item: 'copperOre', count: 5 }]);
   });
 
   it('throws and keeps every item when shrinking would lose items', () => {
@@ -185,7 +186,7 @@ describe('Backpack', () => {
   it('fromJSON drops malformed entries and re-stacks overflow', () => {
     const c = Backpack.fromJSON(
       [
-        { item: 'stone', count: 55 }, // over stack size: 40 stay, 15 overflow
+        { item: 'stone', count: 55 }, // over stack size: 30 stay, 25 overflow
         { item: 'nope', count: 3 },
         { item: 'ancientTablet', count: 1 },
         { item: 'copperOre', count: -2 },
@@ -202,6 +203,45 @@ describe('Backpack', () => {
     expect(c.slots[0]).toEqual({ item: 'stone', count: STONE });
   });
 
+  it('the Sealed Pouch protects the last slots from a black-out', () => {
+    const b = new Backpack(10, 2);
+    expect(b.pouchSlots).toBe(2);
+    expect([b.isProtected(7), b.isProtected(8), b.isProtected(9)]).toEqual([false, true, true]);
+    for (let i = 0; i < 8; i++) b.add('stone', STONE); // the eight open slots
+    b.add('glimmerShard', 3); // fills slot 8, inside the pouch
+    expect(b.takeUnprotected()).toEqual({ stone: STONE * 8 });
+    expect(b.toJSON().slice(0, 8).every((s) => s === null)).toBe(true);
+    expect(b.slots[8]).toEqual({ item: 'glimmerShard', count: 3 });
+    expect(b.pouchTotals()).toEqual({ glimmerShard: 3 });
+  });
+
+  it('a pack without a pouch gives everything up', () => {
+    const b = new Backpack(6);
+    b.add('copperOre', 4);
+    expect(b.takeUnprotected()).toEqual({ copperOre: 4 });
+    expect(b.isEmpty).toBe(true);
+  });
+
+  it('resizing to a pack with a pouch keeps the items and sets the pouch', () => {
+    const b = new Backpack(8);
+    b.add('stone', 9);
+    b.resize(10, 2);
+    expect(b.slotCount).toBe(10);
+    expect(b.pouchSlots).toBe(2);
+    expect(b.count('stone')).toBe(9);
+    expect(Backpack.fromJSON(b.toJSON(), 10, 2).pouchSlots).toBe(2);
+  });
+
+  it('dropStack empties one slot and returns what it held', () => {
+    const b = new Backpack(3);
+    b.add('stone', 4);
+    b.add('copperOre', 2);
+    expect(b.dropStack(1)).toEqual({ item: 'copperOre', count: 2 });
+    expect(b.toJSON()).toEqual([{ item: 'stone', count: 4 }, null, null]);
+    expect(b.dropStack(1)).toBeNull();
+    expect(b.dropStack(7)).toBeNull();
+  });
+
   it('fromJSON tolerates non-array input', () => {
     expect(Backpack.fromJSON(undefined, 6).usedSlots).toBe(0);
     expect(Backpack.fromJSON({ 0: { item: 'stone', count: 1 } }, 6).usedSlots).toBe(0);
@@ -216,10 +256,10 @@ describe('CampStorage', () => {
     b.add('copperOre', 9);
     expect(s.deposit(b)).toEqual({ stone: 120, copperOre: 9 });
     expect(b.usedSlots).toBe(0);
-    b.add('stone', 200);
+    b.add('stone', 150);
     s.deposit(b);
-    expect(s.count('stone')).toBe(320);
-    expect(s.total).toBe(329);
+    expect(s.count('stone')).toBe(270);
+    expect(s.total).toBe(279);
   });
 
   it('deposit of an empty backpack moves nothing', () => {
@@ -267,20 +307,20 @@ describe('CampStorage', () => {
 });
 
 describe('Expedition', () => {
-  it('death loses the whole backpack and loose drops, but keeps storage', () => {
+  it('a black-out caches the whole pack and loose drops, but keeps storage', () => {
     const b = new Backpack(6);
     const s = new CampStorage();
     s.add('stone', 30);
     b.add('copperOre', 6);
     b.add('stone', 2);
-    const lost = onDeath(b, { stone: 3, glimmerShard: 1, ancientTablet: 1 });
-    expect(lost).toEqual({ copperOre: 6, stone: 5, glimmerShard: 1 });
+    const cached = makeCache(b, { stone: 3, glimmerShard: 1, ancientTablet: 1 });
+    expect(cached).toEqual({ copperOre: 6, stone: 5, glimmerShard: 1 });
     expect(b.usedSlots).toBe(0);
     expect(s.count('stone')).toBe(30);
   });
 
-  it('death with an empty backpack loses nothing', () => {
-    expect(onDeath(new Backpack(6))).toEqual({});
+  it('a black-out with an empty backpack caches nothing', () => {
+    expect(makeCache(new Backpack(6))).toEqual({});
   });
 
   it('camp entry banks everything and reports the total', () => {

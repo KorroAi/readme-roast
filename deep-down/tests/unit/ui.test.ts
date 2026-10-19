@@ -284,6 +284,6 @@ describe('workbench rules shown in the UI', () => {
     expect(equipInfo('pickaxe', 1).stats[0][1]).toBe('100%');
     expect(equipInfo('pickaxe', 2).stats[0][1]).toBe('160%');
     expect(equipInfo('lantern', 2).stats.map((s) => s[1])).toEqual(['14.5 m', '10 min']);
-    expect(equipInfo('pack', 2).stats[0][1]).toBe('10');
+    expect(equipInfo('pack', 2).stats[0][1]).toBe('8');
   });
 });

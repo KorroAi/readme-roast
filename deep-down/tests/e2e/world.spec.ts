@@ -1,15 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
-import './dd';
+import { LOADED_CEILING_MS, waitPlay } from './dd';
 
-// Beyond the success path: every discovery can be triggered and shows its banner, death costs
-// the unbanked backpack and returns the explorer to camp, and the death itself is saved.
+// Beyond the success path: every discovery can be triggered and shows its banner; a black-out
+// leaves the pack where the explorer last stood (a cache), returns the explorer to camp and is
+// saved with the cache; the cache survives a reload and walking back to it restores the items.
+
+// SwiftShader under load renders a frame or two per second: give the test a generous budget.
+test.describe.configure({ timeout: 900_000 });
 
 
 const IRON_ORE = 8;
 
 async function waitMode(page: Page, mode: string) {
-  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: 120_000, polling: 200 });
+  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: LOADED_CEILING_MS, polling: 200 });
 }
 
 async function visit(page: Page, at: [number, number, number]) {
@@ -19,7 +23,7 @@ async function visit(page: Page, at: [number, number, number]) {
 }
 
 async function discovered(page: Page, id: string, title: RegExp) {
-  await page.waitForFunction((d) => window.__DD__.events('discovery').some((e) => e.payload.id === d), id, { timeout: 15_000 });
+  await page.waitForFunction((d) => window.__DD__.events('discovery').some((e) => e.payload.id === d), id, { timeout: LOADED_CEILING_MS });
   // Every discovery is saved at once: the next save after it is a 'discovery' save.
   const reason = await page.evaluate((d) => {
     const ev = window.__DD__.events();
@@ -28,10 +32,18 @@ async function discovered(page: Page, id: string, title: RegExp) {
   }, id);
   expect(reason, `save after the ${id} discovery`).toBe('discovery');
   // Banners play in turn, so a discovery right after another one shows a few seconds later.
-  await expect(page.locator('.dd-discovery-title', { hasText: title })).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator('.dd-discovery-title', { hasText: title })).toBeVisible({ timeout: LOADED_CEILING_MS });
 }
 
-test('every discovery triggers; death loses the backpack, respawns at camp and is saved', async ({ page }) => {
+/** The save the game would resume from (active slot of the two-slot store). */
+async function persisted(page: Page) {
+  return page.evaluate(() => {
+    const raw = localStorage.getItem('deepdown.save.' + localStorage.getItem('deepdown.save.active'));
+    return raw ? JSON.parse(JSON.parse(raw).json ?? raw) : null;
+  });
+}
+
+test('every discovery triggers; a black-out leaves a cache, respawns at camp, is saved, and the pack can be recovered', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
   page.on('console', (m) => {
@@ -54,7 +66,7 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
   await discovered(page, 'shrine', /Sealed Shrine/i);
 
   // The tablet is read with the Use button.
-  await page.getByRole('button', { name: /Ancient Tablet/i }).first().waitFor({ state: 'visible', timeout: 15_000 });
+  await page.getByRole('button', { name: /Ancient Tablet/i }).first().waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
   await page.getByRole('button', { name: /Ancient Tablet/i }).first().tap();
   await discovered(page, 'tablet', /Ancient Tablet/i);
 
@@ -68,7 +80,7 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
   await page.waitForFunction(
     (b) => window.__DD__.events('block:tooHard').some((e) => e.payload.block === b) || window.__DD__.events('discovery').some((e) => e.payload.id === 'ironVein'),
     IRON_ORE,
-    { timeout: 20_000 },
+    { timeout: LOADED_CEILING_MS },
   );
   await touch.up();
   await discovered(page, 'ironVein', /Iron Vein/i);
@@ -81,7 +93,7 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
   await expect(hearts.locator('.dd-heart.f2')).toHaveCount(5);
   await page.evaluate(() => window.__DD__.clearEvents());
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 3, y + 6, z), floor!);
-  await page.waitForFunction(() => window.__DD__.events('player:damaged').some((e) => e.payload.cause === 'fall'), null, { timeout: 15_000 });
+  await page.waitForFunction(() => window.__DD__.events('player:damaged').some((e) => e.payload.cause === 'fall'), null, { timeout: LOADED_CEILING_MS });
   const hp = (await page.evaluate(() => window.__DD__.state())).health as number;
   expect(hp, 'health after a 6 m fall').toBeGreaterThan(0);
   expect(hp).toBeLessThan(100);
@@ -104,31 +116,103 @@ test('every discovery triggers; death loses the backpack, respawns at camp and i
       const shown = Number(el?.getAttribute('aria-valuenow'));
       return { shown, label: el?.getAttribute('aria-label'), low: !!el?.classList.contains('low'), fuel: window.__DD__.game.lanternFuel.fraction * 100 };
     });
-  await expect.poll(async () => { const m = await meterVsFuel(); return m.shown < 20 && Math.abs(m.shown - m.fuel) <= 1; }, { message: 'lantern meter shows the burnt-down fuel' }).toBe(true);
+  await expect.poll(async () => { const m = await meterVsFuel(); return m.shown < 20 && Math.abs(m.shown - m.fuel) <= 1; }, { message: 'lantern meter shows the burnt-down fuel', timeout: LOADED_CEILING_MS }).toBe(true);
   const meter = await meterVsFuel();
   expect(meter.fuel).toBeLessThan(20);
   expect(meter.label).toBe(`Lantern fuel ${meter.shown}%`);
   expect(meter.low, 'low-fuel warning on the meter').toBe(true);
 
-  // Death: carry unbanked finds, fall 30 m onto the hall floor.
+  // Black-out: carry unbanked finds, fall 30 m onto the hall floor. The pack stays behind as a
+  // cache where the explorer last stood (the hall floor after the 6 m fall), not at the bottom.
+  // Stand there a moment first (a cache spot needs 0.3 s on the ground, in game time).
+  await waitPlay(page, 0.6);
+  const stood = await page.evaluate(() => {
+    const p = window.__DD__.state().player;
+    return [Math.floor(p.x), Math.floor(p.y + 0.2), Math.floor(p.z)] as [number, number, number];
+  });
   await page.evaluate(() => window.__DD__.give('copperOre', 3));
+  const carried = (await page.evaluate(() => window.__DD__.state().backpack)).filter(Boolean).reduce((a: Record<string, number>, sl: any) => ({ ...a, [sl.item]: (a[sl.item] ?? 0) + sl.count }), {});
+  expect(carried.copperOre ?? 0).toBeGreaterThanOrEqual(3);
   const deathsBefore = (await page.evaluate(() => window.__DD__.game.stats.deaths)) as number;
+  await page.evaluate(() => window.__DD__.clearEvents());
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 3, y + 30, z), floor!);
   await waitMode(page, 'dead');
   await expect(page.getByText(/You Blacked Out/i).first()).toBeVisible();
-  // The death is saved immediately (closing the app now cannot undo it).
-  const saved = await page.evaluate(() => {
-    const raw = localStorage.getItem('deepdown.save.' + localStorage.getItem('deepdown.save.active'));
-    return raw ? JSON.parse(JSON.parse(raw).json ?? raw) : null;
-  });
+  await expect(page.getByText(/Left in your pack/i).first()).toBeVisible();
+  await expect(page.getByText(/Your pack lies at -\d+ m — \d+ items/).first()).toBeVisible();
+  const cache = await page.evaluate(() => window.__DD__.loop.cache());
+  expect(cache, 'a cache was left').not.toBeNull();
+  expect(cache!.items).toEqual(carried);
+  expect(await page.evaluate(([x, y, z]) => window.__DD__.loop.reachable(x, y, z), [cache!.x, cache!.y, cache!.z] as [number, number, number]), 'the cache lies where it can be walked to').toBe(true);
+  // It lies where the explorer stood on the hall floor, not 30 m up in the air.
+  expect([Math.floor(cache!.x), cache!.y, Math.floor(cache!.z)], 'the cache cell is where the explorer last stood').toEqual(stood);
+  const ended = await page.evaluate(() => window.__DD__.events('expedition:ended').map((e) => e.payload.report));
+  expect(ended.map((r: any) => r.outcome)).toEqual(['blackout']);
+  expect(ended[0].cached).toEqual(carried);
+  // The death is saved immediately, in the same write as the cache (closing the app now cannot undo it).
+  const saved = await persisted(page);
   expect(saved?.stats?.deaths).toBe(deathsBefore + 1);
   expect(saved.backpack.filter(Boolean).length).toBe(0);
+  expect(saved.progression.cache.items).toEqual(carried);
   await page.getByRole('button', { name: /Wake Up at Camp/i }).tap();
   await waitMode(page, 'playing');
-  const s = await page.evaluate(() => window.__DD__.state());
+  let s = await page.evaluate(() => window.__DD__.state());
   expect(s.atCamp).toBe(true);
   expect(s.backpack.filter(Boolean).length).toBe(0);
   expect(await page.evaluate(() => window.__DD__.game.audio.paused ?? false)).toBe(false);
+  // The HUD points at the pack, and the Next line says to recover it.
+  await expect(page.locator('.dd-hud.on .dd-cache-chip')).toHaveText(/^Pack \d+ m$/, { timeout: LOADED_CEILING_MS });
+  await expect(page.locator('.dd-hud.on .dd-objective')).toHaveText(/^Recover your pack — \d+ m$/, { timeout: LOADED_CEILING_MS });
+
+  // The cache survives a reload.
+  expect(await page.evaluate(() => window.__DD__.save())).toBe(true);
+  await page.reload();
+  await waitMode(page, 'menu');
+  await page.getByRole('button', { name: /Continue/i }).click();
+  await waitMode(page, 'playing');
+  expect(await page.evaluate(() => window.__DD__.loop.cache())).toEqual(cache);
+
+  // Walk back to it: within 1.6 m the items return to the pack.
+  await page.evaluate(() => window.__DD__.clearEvents());
+  const near = await page.evaluate(([x, y, z]) => {
+    // A cell on the cache's level two to four steps away, with every cell between standable too
+    // (a straight, flat walk to the pack).
+    const dd = window.__DD__;
+    const cx = Math.floor(x);
+    const cz = Math.floor(z);
+    const stand = (i: number, k: number) => !dd.isSolid(i, y, k) && !dd.isSolid(i, y + 1, k) && dd.isSolid(i, y - 1, k);
+    for (const n of [3, 4, 2])
+      for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        let ok = true;
+        for (let s = 1; s <= n && ok; s++) ok = stand(cx + dx * s, cz + dz * s);
+        if (ok) return [cx + dx * n + 0.5, y, cz + dz * n + 0.5] as [number, number, number];
+      }
+    return null;
+  }, [cache!.x, cache!.y, cache!.z] as [number, number, number]);
+  expect(near, `a standable spot a few steps from the cache at ${cache!.x},${cache!.y},${cache!.z}`).not.toBeNull();
+  await page.evaluate(([x, y, z, cx, cz]) => {
+    const dd = window.__DD__;
+    dd.teleport(x, y, z);
+    // Camera forward is (-sin(yaw), -cos(yaw)): face the cache and walk.
+    dd.look(Math.atan2(-(cx - x), -(cz - z)), -0.2);
+    dd.input({ moveY: 1 });
+  }, [...near!, cache!.x, cache!.z] as [number, number, number, number, number]);
+  await page.waitForFunction(() => window.__DD__.events('cache:recovered').length > 0, null, { timeout: LOADED_CEILING_MS });
+  await page.evaluate(() => window.__DD__.input({ moveY: 0 }));
+  const rec = await page.evaluate(() => window.__DD__.events('cache:recovered')[0].payload);
+  expect(rec).toEqual({ count: Object.values(carried).reduce((a: number, n) => a + (n as number), 0), left: 0 });
+  s = await page.evaluate(() => window.__DD__.state());
+  expect(s.cache).toBeNull();
+  const back = s.backpack.filter(Boolean).reduce((a: Record<string, number>, sl: any) => ({ ...a, [sl.item]: (a[sl.item] ?? 0) + sl.count }), {});
+  expect(back).toEqual(carried);
+  await expect(page.locator('.dd-hud.on .dd-cache-chip')).toBeHidden({ timeout: LOADED_CEILING_MS });
+  // The recovery is saved at once.
+  expect((await persisted(page)).progression.cache).toBeNull();
+
+  // Back to camp for the lifecycle checks below.
+  const campSpot = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x - 2, y, z), lm.campfire);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), campSpot!);
+  await page.waitForFunction(() => window.__DD__.state().atCamp, null, { timeout: LOADED_CEILING_MS });
 
   // Backgrounding (Android onPause / tab hidden) saves at once and pauses play; coming back
   // stays paused until the player resumes.

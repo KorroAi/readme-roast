@@ -1,9 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">DEEP DOWN</string>
+    <!-- API 24-30 cold start: the window background is the splash (depth colour + crystal mark)
+         until the WebView paints. API 31+ uses the system splash screen (src/modern/res/values-v31). -->
     <style name="DeepDownTheme" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
-        <item name="android:windowBackground">@android:color/black</item>
-        <item name="android:statusBarColor">@android:color/black</item>
-        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowBackground">@drawable/splash_background</item>
+        <item name="android:statusBarColor">@color/dd_depth</item>
+        <item name="android:navigationBarColor">@color/dd_depth</item>
     </style>
 </resources>

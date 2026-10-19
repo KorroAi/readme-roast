@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The colour of the depths: the page background, the splash, the system bars. -->
+    <color name="dd_depth">#FF05080C</color>
+</resources>

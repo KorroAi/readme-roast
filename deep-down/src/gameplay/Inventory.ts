@@ -8,12 +8,32 @@ import { isItemId, toAmount } from './counts';
  * Slot positions are stable (removing items never shifts other stacks) so the inventory UI
  * does not reshuffle under the player's finger. Key items never enter the backpack: they
  * go to the Journal and can never be lost.
+ *
+ * The last `pouchSlots` slots are the Sealed Pouch (Expedition Pack): a black-out takes
+ * everything else (takeUnprotected) and leaves what is in the pouch.
  */
 export class Backpack {
   private data: Array<SlotData | null>;
+  private pouch = 0;
 
-  constructor(slotCount: number) {
+  constructor(slotCount: number, pouchSlots = 0) {
     this.data = new Array<SlotData | null>(validSlotCount(slotCount)).fill(null);
+    this.setPouch(pouchSlots);
+  }
+
+  /** Number of protected slots at the end of the pack (0 without a Sealed Pouch). */
+  get pouchSlots(): number {
+    return this.pouch;
+  }
+
+  /** Set the Sealed Pouch size (clamped to [0, slotCount]). */
+  setPouch(n: number): void {
+    this.pouch = Number.isInteger(n) && n > 0 ? Math.min(n, this.data.length) : 0;
+  }
+
+  /** True for a slot index inside the Sealed Pouch. */
+  isProtected(i: number): boolean {
+    return i >= this.data.length - this.pouch && i < this.data.length;
   }
 
   /** Read-only view of the slots; mutate through add/remove/resize/takeAll. */
@@ -97,15 +117,17 @@ export class Backpack {
    * every item, consolidating stacks if needed, and throws a RangeError (leaving the pack
    * untouched) when the contents cannot fit.
    */
-  resize(slotCount: number): void {
+  resize(slotCount: number, pouchSlots = this.pouch): void {
     const n = validSlotCount(slotCount);
     const cur = this.data.length;
     if (n >= cur) {
       for (let i = cur; i < n; i++) this.data.push(null);
+      this.setPouch(pouchSlots);
       return;
     }
     if (this.data.slice(n).every((s) => s === null)) {
       this.data.length = n;
+      this.setPouch(pouchSlots);
       return;
     }
     const totals = this.totals();
@@ -115,12 +137,47 @@ export class Backpack {
     const items = this.data;
     this.data = new Array<SlotData | null>(n).fill(null);
     for (const s of items) if (s) this.add(s.item, s.count);
+    this.setPouch(pouchSlots);
   }
 
-  /** Empty the backpack. @returns everything it held (for banking at camp, or loss on death). */
+  /** Empty the backpack. @returns everything it held (for banking at camp). */
   takeAll(): ItemCounts {
     const out = this.totals();
     this.data.fill(null);
+    return out;
+  }
+
+  /**
+   * Empty every slot outside the Sealed Pouch (a black-out). @returns what was taken; the
+   * pouch keeps its stacks in place.
+   */
+  takeUnprotected(): ItemCounts {
+    const out: ItemCounts = {};
+    const end = this.data.length - this.pouch;
+    for (let i = 0; i < end; i++) {
+      const s = this.data[i];
+      if (!s) continue;
+      out[s.item] = (out[s.item] ?? 0) + s.count;
+      this.data[i] = null;
+    }
+    return out;
+  }
+
+  /** Empty one slot (the player drops a stack). @returns what it held, or null if it was empty. */
+  dropStack(i: number): SlotData | null {
+    if (!Number.isInteger(i) || i < 0 || i >= this.data.length) return null;
+    const s = this.data[i];
+    this.data[i] = null;
+    return s ? { item: s.item, count: s.count } : null;
+  }
+
+  /** Totals per item held in the Sealed Pouch. */
+  pouchTotals(): ItemCounts {
+    const out: ItemCounts = {};
+    for (let i = this.data.length - this.pouch; i < this.data.length; i++) {
+      const s = this.data[i];
+      if (s) out[s.item] = (out[s.item] ?? 0) + s.count;
+    }
     return out;
   }
 
@@ -141,8 +198,8 @@ export class Backpack {
    * dropped, and oversized stacks or stacks beyond `slotCount` are re-added into free space
    * (whatever still does not fit is discarded, which only happens with damaged data).
    */
-  static fromJSON(slots: unknown, slotCount: number): Backpack {
-    const pack = new Backpack(slotCount);
+  static fromJSON(slots: unknown, slotCount: number, pouchSlots = 0): Backpack {
+    const pack = new Backpack(slotCount, pouchSlots);
     if (!Array.isArray(slots)) return pack;
     const overflow: SlotData[] = [];
     slots.forEach((raw: unknown, i) => {

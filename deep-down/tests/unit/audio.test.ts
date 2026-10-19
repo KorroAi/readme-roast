@@ -41,6 +41,18 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'game:saved': { reason: 'camp' },
   'game:saveFailed': { reason: 'quota' },
   toast: { text: 'hello' },
+  'expedition:started': { n: 1 },
+  'expedition:ended': {
+    report: {
+      n: 1, outcome: 'returned', duration: 200, deepest: 60, newBest: true, previousBest: 0, mined: 30, found: { stone: 20 }, banked: { stone: 20 },
+      bankedTotal: 20, cached: null, cacheDepth: null, lostCount: 0, damage: 0, fuelLeft: 100, discoveries: [], runes: [], records: ['deepest'], show: true,
+    },
+  },
+  'cache:created': { x: 1, y: 2, z: 3, count: 12, replaced: 0 },
+  'cache:recovered': { count: 12, left: 0 },
+  'lantern:turnBack': { seconds: 40 },
+  'player:cold': { damage: 10 },
+  'record:depth': { depth: 60 },
 };
 
 const WORLD_STATE: AudioWorldState = {

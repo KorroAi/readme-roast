@@ -15,6 +15,7 @@ export interface LanternEdges {
 export class Lantern {
   private fuelS: number;
   private cap: number;
+  private ember: number = PLAYER.emptyLanternFactor;
   // Reused every update so the per-frame call allocates nothing.
   private readonly edges: LanternEdges = { becameLow: false, becameEmpty: false, refueled: false };
 
@@ -46,7 +47,7 @@ export class Lantern {
 
   /** Light radius multiplier: full when lit, a dim ember when empty. */
   get radiusFactor(): number {
-    return this.lit ? 1 : PLAYER.emptyLanternFactor;
+    return this.lit ? 1 : this.ember;
   }
 
   /**
@@ -57,6 +58,7 @@ export class Lantern {
     const e = this.edges;
     e.becameLow = e.becameEmpty = e.refueled = false;
     this.setCapacity(def.fuelSeconds);
+    this.setEmber(def.ember);
     if (atCamp) {
       e.refueled = this.fill();
       return e;
@@ -72,8 +74,26 @@ export class Lantern {
 
   /** Fill to capacity (campfire rest, respawn, lantern upgrade). @returns true if it was not full. */
   refill(def?: LanternDef): boolean {
-    if (def) this.setCapacity(def.fuelSeconds);
+    if (def) {
+      this.setCapacity(def.fuelSeconds);
+      this.setEmber(def.ember);
+    }
     return this.fill();
+  }
+
+  /**
+   * Add burn time in the field (e.g. a Lantern Ember), capped at the capacity.
+   * @returns the seconds actually added.
+   */
+  add(seconds: number): number {
+    if (!(seconds > 0) || !Number.isFinite(seconds)) return 0;
+    const before = this.fuelS;
+    this.fuelS = clampFuel(this.fuelS + seconds, this.cap);
+    return this.fuelS - before;
+  }
+
+  private setEmber(f: number | undefined): void {
+    if (typeof f === 'number' && Number.isFinite(f) && f > 0) this.ember = Math.min(1, f);
   }
 
   private fill(): boolean {

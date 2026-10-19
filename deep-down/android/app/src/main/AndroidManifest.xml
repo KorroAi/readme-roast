@@ -1,10 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.korroai.deepdown"
-    android:versionCode="1"
-    android:versionName="0.1.0">
+<!-- Base manifest, linkable against the API 23 platform (android/build-apk.sh). The package,
+     versions and SDK levels come from the build: build-apk.sh passes them to aapt2, Gradle from
+     app/build.gradle.kts. Gradle merges src/modern/AndroidManifest.xml over this file. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <uses-sdk android:minSdkVersion="23" android:targetSdkVersion="34" />
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <!-- navigator.vibrate in the WebView: short haptics on hits, breaks and pickups (Settings > Vibration). -->

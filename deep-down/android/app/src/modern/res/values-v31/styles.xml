@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Gradle builds only (compileSdk 36): the API 23 platform that android/build-apk.sh links
+     against does not know the splash-screen attributes. API 31+ shows the system splash: the
+     adaptive launcher icon on the depth colour. The window behind it is plain, so the mark does
+     not appear a second time before the WebView paints. -->
+<resources>
+    <style name="DeepDownTheme" parent="@android:style/Theme.Material.NoActionBar.Fullscreen">
+        <item name="android:windowBackground">@color/dd_depth</item>
+        <item name="android:windowSplashScreenBackground">@color/dd_depth</item>
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
+        <item name="android:statusBarColor">@color/dd_depth</item>
+        <item name="android:navigationBarColor">@color/dd_depth</item>
+    </style>
+</resources>
