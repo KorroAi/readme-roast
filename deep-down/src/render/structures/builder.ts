@@ -279,10 +279,35 @@ export class StructureBuilder {
       segN.push([dy / l, -dr / l]);
     }
     const ang = Array.from({ length: segments + 1 }, (_, j) => a0 + (sweep * j) / segments);
+    const smoothAt = (k: number) => {
+      const a = segN[k - 1];
+      const b = segN[k];
+      return !!a && !!b && a[0] * b[0] + a[1] * b[1] >= 0.77;
+    };
+    // A ring of vertices at profile point `pk` with normal n (r, y in the profile plane).
+    const ring = (r: number, y: number, n: [number, number], pk: number): number => {
+      const base = this.vertexCount;
+      for (const a of ang) {
+        const c = Math.cos(a);
+        const sn = -Math.sin(a);
+        const rr = wobble ? r * wobble(a, pk) : r;
+        const lp: V3 = [c * rr, y, sn * rr];
+        const wn = norm(this.dirToWorld([c * n[0], n[1], sn * n[0]]));
+        const wp = this.toWorld(lp);
+        this.vertex(wp, lp, wn, wn, dominantFace(wn), ao(y, r, wp, wn), uv(a, rr, y));
+      }
+      return base;
+    };
+    // Rings are shared between two segments where the profile is smooth (same position, normal,
+    // texture and occlusion on both sides); a crease gets a ring per side.
+    let shared = -1;
     for (let k = 0; k + 1 < m; k++) {
       const [r0, y0] = profile[k];
       const [r1, y1] = profile[k + 1];
-      if (Math.abs(r0 - r1) < 1e-6 && Math.abs(y0 - y1) < 1e-6) continue;
+      if (Math.abs(r0 - r1) < 1e-6 && Math.abs(y0 - y1) < 1e-6) {
+        shared = -1;
+        continue;
+      }
       const nAt = (other: number): [number, number] => {
         const o = segN[other];
         const n = segN[k];
@@ -292,23 +317,10 @@ export class StructureBuilder {
         const l = Math.hypot(x, y) || 1;
         return [x / l, y / l];
       };
-      const nA = nAt(k - 1);
-      const nB = nAt(k + 1);
-      // Two rings of shared vertices per profile segment (smooth around).
-      const base = this.vertexCount;
-      for (const [r, y, n, pk] of [[r0, y0, nA, k], [r1, y1, nB, k + 1]] as const) {
-        for (const a of ang) {
-          const c = Math.cos(a);
-          const sn = -Math.sin(a);
-          const rr = wobble ? r * wobble(a, pk) : r;
-          const lp: V3 = [c * rr, y, sn * rr];
-          const wn = norm(this.dirToWorld([c * n[0], n[1], sn * n[0]]));
-          const wp = this.toWorld(lp);
-          this.vertex(wp, lp, wn, wn, dominantFace(wn), ao(y, r, wp, wn), uv(a, rr, y));
-        }
-      }
-      const row = segments + 1;
-      for (let j = 0; j < segments; j++) this.idx.push(base + j, base + j + 1, base + row + j + 1, base + j, base + row + j + 1, base + row + j);
+      const lo = shared >= 0 ? shared : ring(r0, y0, nAt(k - 1), k);
+      const hi = ring(r1, y1, nAt(k + 1), k + 1);
+      shared = smoothAt(k + 1) ? hi : -1;
+      for (let j = 0; j < segments; j++) this.idx.push(lo + j, lo + j + 1, hi + j + 1, lo + j, hi + j + 1, hi + j);
     }
   }
 

@@ -29,7 +29,7 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
   const rng = new Rng(c.seed);
   const R = c.radius;
   const ph = plinthHalf(R);
-  const segs = R > 2.5 ? 40 : 32;
+  const segs = 32; // 1.4 cm off round at R 2.9, under smooth normals
   const around = aroundUv(R);
   const fy = c.y;
   const full = c.state === 'full';
@@ -170,7 +170,7 @@ export function buildDrum(b: StructureBuilder, d: Drum): void {
   const pieces = d.length > 2.5 ? 2 : 1;
   const r = d.radius + 0.04;
   const around = aroundUv(r);
-  const segs = r > 2.5 ? 40 : 32;
+  const segs = 32;
   const len = d.length / pieces;
   b.aoAt = b.contactAo();
   for (let i = 0; i < pieces; i++) {
