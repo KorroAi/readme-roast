@@ -113,8 +113,9 @@ describe('world generation', () => {
 
   it('keeps the light budget: little cyan, warm lamps at every navigation point', () => {
     // Cyan is reserved for crystal and the builders' inscriptions (ART_DIRECTION.md); warm lamps
-    // mark the way. Measured with tools/emission-budget.ts: 98 cyan/violet emitter voxels (86 plus
-    // the 12 round-3 key lights: Spindle uplight, seal, frieze, shrine dais, chasm), lamps <= 6.3 m.
+    // mark the way. Measured with tools/emission-budget.ts: 99 cyan/violet emitter voxels (86 plus
+    // the 13 round-3 key lights: Spindle uplight, seal, frieze, shrine dais and tablet, chasm),
+    // lamps <= 6.3 m.
     // The 120 cap is unchanged.
     const w = layout.world;
     let cyan = 0;

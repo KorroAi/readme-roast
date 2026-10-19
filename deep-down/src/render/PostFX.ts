@@ -117,7 +117,7 @@ layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
-const float CONTRAST = 1.2;
+const float CONTRAST = 1.22;
 const float CONTRAST_PIVOT = 0.16;
 
 // Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep
@@ -170,7 +170,7 @@ void main() {
   lum = sl;
   float ws = 1.0 - smoothstep(0.0, 0.14, lum);
   float wh = smoothstep(0.2, 0.75, lum);
-  c *= mix(vec3(1.0), vec3(0.84, 0.95, 1.18), ws * 0.55);
+  c *= mix(vec3(1.0), vec3(0.82, 0.94, 1.22), ws * 0.65);
   c *= mix(vec3(1.0), vec3(1.07, 1.0, 0.86), wh * 0.6);
   // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
   // bottom where the joystick and jump button sit.

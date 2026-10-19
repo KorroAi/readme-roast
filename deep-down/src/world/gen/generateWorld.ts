@@ -901,6 +901,21 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         while (r < 12 && !isAir(Math.floor(sp[0] + dx * r), fy, Math.floor(sp[2] + dz * r))) r += 0.5;
         keyLight(Math.floor(sp[0] + dx * (r + 1)), fy, Math.floor(sp[2] + dz * (r + 1)), B.LIGHT_CYAN);
       }
+      // Up its shaft, the Glimmerfall's cold light rims the flutes on the side that faces the fall
+      // and the ledge, so its silhouette reads from the reveal as a lit edge against dark haze.
+      const top = Math.floor(landmarks.fallTop?.[1] ?? fy + 40); // the dome over the fall and the Spindle
+      let k = 0;
+      for (let y = fy + 12; y <= top - 6; y += 11, k++) {
+        const ang = k % 2 === 0 ? -0.25 : -0.85;
+        const dx = Math.cos(ang);
+        const dz = Math.sin(ang);
+        // The shaft wanders (naturalColumn): march out from its axis at this height.
+        const ox = sp[0] + Math.sin(y * 0.07) * 1.1;
+        const oz = sp[2] + Math.cos(y * 0.05) * 0.8;
+        let r = 1;
+        while (r < 12 && !isAir(Math.floor(ox + dx * r), y, Math.floor(oz + dz * r))) r += 0.5;
+        if (r < 12) keyLight(Math.floor(ox + dx * (r + 1.5)), y, Math.floor(oz + dz * (r + 1.5)), B.LIGHT_CYAN);
+      }
     }
     // The sealed gate: a cold underglow on the seal from its threshold, and the frieze lit from
     // inside its recess between the lintel and the cornice (the inscription answers from afar).
@@ -908,8 +923,10 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     keyLight(136, floorBase + 1, 102, B.LIGHT_CYAN);
     keyLight(134, floorBase + 10, 98, B.LIGHT_CYAN);
     keyLight(134, floorBase + 10, 103, B.LIGHT_CYAN);
-    // The shrine: the inscription's light pools on the dais in front of it.
+    // The shrine: the inscription's light pools on the dais in front of it, and the tablet on
+    // the dais answers with its own faint glow.
     keyLight(51, floorBase + 2, 104, B.LIGHT_CYAN);
+    keyLight(55, floorBase + 2, 104, B.LIGHT_CYAN);
     // The chasm under the bridge: violet glow low along its length, so it reads as depth.
     for (const [x, y, z] of [[111, 35, 128], [117, 34, 129], [128, 35, 128], [134, 34, 129]] as V3[]) keyLight(x, y, z, B.LIGHT_ABYSS);
   }

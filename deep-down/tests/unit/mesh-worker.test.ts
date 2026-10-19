@@ -90,7 +90,8 @@ const chunkMesh = (cr: ChunkRenderer, cx: number, cy: number, cz: number) => cr.
 const gpuBytes = (m: THREE.Mesh) => Array.from((m.geometry.getAttribute('aGeo') as THREE.InterleavedBufferAttribute).data.array as Uint8Array);
 
 async function built(hub: Hub, w = terrain(), workers = 2): Promise<{ w: VoxelWorld; cr: ChunkRenderer }> {
-  const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers, spawn: hub.spawn });
+  // No warm-up here: these tests count the requests each worker receives.
+  const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers, spawn: hub.spawn, warmUp: 0 });
   await cr.buildAll();
   // Jobs the main thread stole at the end of the build are still answered (and dropped).
   await cr.flush();
@@ -166,9 +167,41 @@ describe('mesh worker', () => {
 });
 
 describe('ChunkRenderer with mesh workers', () => {
-  it('builds the whole zone through the workers and the main thread, exactly as the synchronous path', async () => {
+  it('builds on the main thread by default, then warms the idle workers on real chunks', async () => {
     const hub = new Hub();
-    const cr = new ChunkRenderer(zone, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn });
+    hub.auto = false;
+    const w = terrain();
+    const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, warmUp: 3 });
+    expect(hub.workers.length).toBe(0); // nothing competes with the first build
+    await cr.buildAll();
+    expect(cr.stats.workers).toBe(2);
+    expect(cr.stats.workerMeshes).toBe(0);
+    expect(cr.stats.syncMeshes).toBe(w.cx * w.cy * w.cz);
+    expect(cr.verify().mismatched).toEqual([]);
+    // One warm-up job per worker at a time, one chunk per request.
+    expect(hub.workers.map((f) => f.inbox.length)).toEqual([1, 1]);
+    // An edit meanwhile waits behind one warm-up job at most.
+    const [x, y, z] = surfaceBlock(w, 1, 1);
+    w.set(x, y, z, B.AIR);
+    expect(cr.update(focus)).toBe(1);
+    expect(Math.max(...hub.workers.map((f) => f.inbox.length))).toBe(2);
+    hub.drain();
+    // 3 warm-up chunks per worker (results dropped, nothing drawn from them), then the edit.
+    const log = hub.workers.flatMap((f) => f.log);
+    expect(log.every((r) => r.jobs.length === 1)).toBe(true);
+    expect(log.length).toBe(3 * 2 + 1);
+    expect(cr.stats.workerMeshes).toBe(1);
+    expect(cr.stats.staleResults).toBe(0);
+    expect(cr.verify().mismatched).toEqual([]);
+    // A second build (New Game after edits) does not warm up again.
+    await cr.buildAll();
+    expect(hub.workers.every((f) => f.inbox.length === 0)).toBe(true);
+    cr.dispose();
+  });
+
+  it('with buildOnWorkers, builds the whole zone through the workers and the main thread, exactly as the synchronous path', async () => {
+    const hub = new Hub();
+    const cr = new ChunkRenderer(zone, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, buildOnWorkers: true });
     const progress: number[] = [];
     await cr.buildAll((p) => progress.push(p));
     expect(cr.stats.workers).toBe(2);
@@ -360,14 +393,20 @@ describe('ChunkRenderer with mesh workers', () => {
       },
     });
     expect(cr.stats.workers).toBe(0);
-    expect(cr.stats.workerFallback).toMatch(/no module workers/);
+    expect(cr.stats.workerFallback).toBeNull(); // workers start after the first build
     await cr.buildAll();
+    expect(cr.stats.workers).toBe(0);
+    expect(cr.stats.workerFallback).toMatch(/no module workers/);
     expect(cr.verify().mismatched).toEqual([]);
+    const [x, y, z] = surfaceBlock(w, 1, 1);
+    w.set(x, y, z, B.AIR);
+    cr.update(focus); // meshed on the main thread within the frame
+    expect(gpuBytes(chunkMesh(cr, 1, 0, 1)!)).toEqual(Array.from(meshChunk(w, 1, 0, 1).vertices));
     cr.dispose();
     // A worker that dies during buildAll: what it owed is meshed on the main thread.
     const hub = new Hub();
     hub.auto = false;
-    const cr2 = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn });
+    const cr2 = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, buildOnWorkers: true });
     const build = cr2.buildAll();
     await new Promise((r) => setTimeout(r, 0));
     expect(hub.workers.some((f) => f.inbox.length > 0)).toBe(true);
@@ -415,7 +454,7 @@ describe('ChunkRenderer with mesh workers', () => {
     const hub = new Hub();
     MESH_OPTIONS.sculpt = false;
     const w = terrain();
-    const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn });
+    const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, buildOnWorkers: true });
     await cr.buildAll();
     expect(cr.stats.workerMeshes).toBeGreaterThan(0);
     // The first request to each worker carries the options; later ones only when they change.

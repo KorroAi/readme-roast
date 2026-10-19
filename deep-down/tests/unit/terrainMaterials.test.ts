@@ -42,10 +42,13 @@ describe('terrain material layers', () => {
         maxCol = Math.max(maxCol, colDiff(l, k - 1, k));
       }
       const name = MATERIAL_NAMES[l];
+      // Course libraries (masonry) are not tiled: the shader lays them strip by strip in 4 m
+      // pieces and never samples across a strip or piece edge, so their wrap is not a seam
+      // (each piece starting with a stone and ending on a joint is tested below).
+      if (COURSE_LAYERS.includes(name)) continue;
       // Structured materials have joints (mortar, board gaps) at the wrap like anywhere else;
-      // a seam is a boundary rougher than every interior one. Course libraries (masonry) are
-      // laid strip by strip by the shader and never wrap vertically (see the course tests).
-      if (!COURSE_LAYERS.includes(name)) expect(rowDiff(l, S - 1, 0), `${name} vertical wrap`).toBeLessThanOrEqual(maxRow * 1.1 + 1);
+      // a seam is a boundary rougher than every interior one.
+      expect(rowDiff(l, S - 1, 0), `${name} vertical wrap`).toBeLessThanOrEqual(maxRow * 1.1 + 1);
       expect(colDiff(l, S - 1, 0), `${name} horizontal wrap`).toBeLessThanOrEqual(maxCol * 1.1 + 1);
     }
   });

@@ -1,7 +1,6 @@
 /// <reference lib="webworker" />
 import { MESH_OPTIONS, meshPadded } from './mesher';
-import { warmUpMesher } from './meshWarmup';
-import type { MeshRequest, MeshResponse, MeshResult, WorkerRequest } from './meshPool';
+import type { MeshRequest, MeshResponse, MeshResult } from './meshPool';
 
 /**
  * Chunk mesh worker (loaded by meshPool.ts). Each request carries padded voxel blocks
@@ -28,12 +27,8 @@ export function handleMeshRequest(req: MeshRequest): { response: MeshResponse; t
 const scope = globalThis as unknown as { WorkerGlobalScope?: unknown };
 if (typeof scope.WorkerGlobalScope === 'function' && globalThis instanceof (scope.WorkerGlobalScope as typeof WorkerGlobalScope)) {
   const ctx = globalThis as unknown as DedicatedWorkerGlobalScope;
-  ctx.onmessage = (e: MessageEvent<WorkerRequest>) => {
+  ctx.onmessage = (e: MessageEvent<MeshRequest>) => {
     try {
-      if (e.data.type === 'warm') {
-        ctx.postMessage({ type: 'warm', ms: warmUpMesher() } satisfies MeshResponse);
-        return;
-      }
       const { response, transfer } = handleMeshRequest(e.data);
       ctx.postMessage(response, transfer);
     } catch (err) {

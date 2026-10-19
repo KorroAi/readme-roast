@@ -29,14 +29,7 @@ export interface MeshResult {
   ms: number;
 }
 
-/** Asks a fresh worker to compile the mesher on synthetic chunks (meshWarmup.ts). */
-export interface WarmRequest {
-  type: 'warm';
-}
-
-export type WorkerRequest = MeshRequest | WarmRequest;
-
-export type MeshResponse = { type: 'ready' } | { type: 'warm'; ms: number } | { type: 'meshed'; results: MeshResult[] } | { type: 'error'; message: string };
+export type MeshResponse = { type: 'ready' } | { type: 'meshed'; results: MeshResult[] } | { type: 'error'; message: string };
 
 /** The part of a Worker the pool uses (unit tests pass a fake). */
 export interface WorkerLike {
@@ -48,53 +41,7 @@ export interface WorkerLike {
 }
 
 /** The module worker, bundled by Vite as its own file (dist/assets/meshWorker-*.js). */
-function createMeshWorker(): Worker {
-  return new Worker(new URL('./meshWorker.ts', import.meta.url), { type: 'module' });
-}
-
-/** Workers started ahead of time by prewarmMeshWorkers, with the error they hit, if any. */
-const spares: Array<{ worker: Worker; failed: string | null }> = [];
-
-/**
- * Start the mesh workers early (the game calls this before generating the zone) and let them
- * compile the mesher on synthetic chunks, so the zone's first meshing runs at full speed instead
- * of paying V8's warm-up in every fresh isolate. The next pool adopts them. Skipped below four
- * hardware threads, where the warm-up would take CPU from the zone worker (the pool then starts
- * its workers cold, and buildAll's work stealing keeps that from slowing the build).
- */
-export function prewarmMeshWorkers(count = meshWorkerCount()): void {
-  if (typeof navigator === 'undefined' || (navigator.hardwareConcurrency || 2) < 4) return;
-  for (let k = spares.length; k < count; k++) {
-    let worker: Worker;
-    try {
-      worker = createMeshWorker();
-    } catch {
-      return; // the pool will find out (and fall back) on its own
-    }
-    const spare = { worker, failed: null as string | null };
-    worker.onerror = (e) => {
-      e.preventDefault(); // handled: the pool falls back to the main thread
-      spare.failed = e.message || 'failed to load or run';
-    };
-    worker.onmessageerror = () => (spare.failed = 'message could not be deserialized');
-    worker.onmessage = (e: MessageEvent<MeshResponse>) => {
-      if (e.data.type === 'error') spare.failed = e.data.message;
-    };
-    worker.postMessage({ type: 'warm' } satisfies WarmRequest);
-    spares.push(spare);
-  }
-}
-
-/** A prewarmed worker if one is waiting, else a new one. Throws if it cannot run. */
-export function spawnMeshWorker(): WorkerLike {
-  const spare = spares.shift();
-  if (!spare) return createMeshWorker();
-  if (spare.failed) {
-    spare.worker.terminate();
-    throw new Error(`mesh worker failed to start: ${spare.failed}`);
-  }
-  return spare.worker;
-}
+export const spawnMeshWorker = (): WorkerLike => new Worker(new URL('./meshWorker.ts', import.meta.url), { type: 'module' });
 
 /**
  * How many mesh workers to start: 0 where module workers are unavailable (Node, very old
@@ -116,6 +63,20 @@ export function meshWorkerCount(): number {
   }
   const hc = typeof navigator !== 'undefined' && navigator.hardwareConcurrency ? navigator.hardwareConcurrency : 2;
   return hc >= 3 ? 2 : 1;
+}
+
+/**
+ * `?meshbuild=pool`: let the workers share whole-zone builds with the main thread (opt-in). On
+ * the oversubscribed dev container that build was slower than the main thread alone (median
+ * +130 to +350 ms per zone at load 10-14, equal at load ~5), so builds stay on the main thread
+ * until it is measured on a device.
+ */
+export function meshBuildOnWorkers(): boolean {
+  try {
+    return new URLSearchParams(globalThis.location?.search ?? '').get('meshbuild') === 'pool';
+  } catch {
+    return false;
+  }
 }
 
 interface Slot {
@@ -219,7 +180,7 @@ export class MeshPool {
 
   private receive(slot: Slot, m: MeshResponse): void {
     if (this.closed) return;
-    if (m.type === 'ready' || m.type === 'warm') return;
+    if (m.type === 'ready') return;
     if (m.type === 'error') {
       this.fail(`mesh worker job failed: ${m.message}`);
       return;

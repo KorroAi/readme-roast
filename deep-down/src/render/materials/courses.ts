@@ -46,11 +46,13 @@ export const COURSE_SLOT = 0.5;
 const SLOT_TEXELS = COURSE_SLOT * MAT_DENSITY;
 
 /**
- * Chance of a bed joint at slot edges 1, 2 (the whole metre) and 3 of each 2 m block, for wall
- * faces and for horizontal faces (paving rows, cap stones). About a third of a wall is 2 m
- * courses, 40 % 1 m, the rest 1.5 m and a few thin 0.5 m levelling courses.
+ * Each 2 m block is one of four patterns: one 2 m course, two 1 m courses (chance `metre`), or a
+ * 1.5 m course with a thin 0.5 m levelling course above or below it (chance `thin`). Thin
+ * courses never come in pairs: stacked thin courses read as a brick bond. Walls get about 40 %
+ * 2 m, 45 % 1 m, 11 % 1.5 m and 4 % 0.5 m courses; horizontal faces (paving rows, cap stones)
+ * their own mix.
  */
-export const BED_JOINT_CHANCE = { wall: [0.12, 0.48, 0.12], flat: [0.1, 0.42, 0.1] } as const;
+export const COURSE_PATTERN = { wall: { metre: 0.45, thin: 0.25 }, flat: { metre: 0.42, thin: 0.15 } } as const;
 
 /**
  * Region vocabularies: chance that a 4 m piece of a course (1 m or taller) is megalithic (B)
@@ -106,8 +108,8 @@ function hasExpr(lib: CourseLibrary): string {
  * mip selection does not jump at course joints).
  */
 export function courseGlsl(layers: { masonry: number; masonryB: number; crumbling: number; crumblingB: number }): string {
-  const [p1, p2, p3] = BED_JOINT_CHANCE.wall.map((p) => f1(p * 1024));
-  const [q1, q2, q3] = BED_JOINT_CHANCE.flat.map((p) => f1(p * 1024));
+  const pw = [COURSE_PATTERN.wall.metre, COURSE_PATTERN.wall.thin].map((p) => f1(p * 1024));
+  const pf = [COURSE_PATTERN.flat.metre, COURSE_PATTERN.flat.thin].map((p) => f1(p * 1024));
   const [v0, v1, v2] = VOCABULARY_MEGALITHIC.map((p) => (p * 1024).toFixed(1));
   const [cx, cy, cz] = VOCABULARY_CELL.map(f1);
   return /* glsl */ `
@@ -142,10 +144,12 @@ vec4 masonryCourse(vec2 st, int face, float plane) {
   float k = floor((st.y - b * 2.0) * 2.0);
   bool horiz = face == 2 || face == 3;
   highp uint hb = ddHash(uint(int(b) + 65536) * 2654435761u ^ (horiz ? 0x5bd1e995u : 0x1b873593u));
-  vec3 pj = horiz ? vec3(${q1}, ${q2}, ${q3}) : vec3(${p1}, ${p2}, ${p3});
-  bool j1 = float(hb & 1023u) < pj.x;
-  bool j2 = float((hb >> 10u) & 1023u) < pj.y;
-  bool j3 = float((hb >> 20u) & 1023u) < pj.z;
+  vec2 pj = horiz ? vec2(${pf[0]}, ${pf[1]}) : vec2(${pw[0]}, ${pw[1]});
+  // Bed joints at slot edges 1, 2, 3 of the block: 2 m | 1 + 1 | 0.5 + 1.5 | 1.5 + 0.5.
+  bool j2 = float((hb >> 10u) & 1023u) < pj.x;
+  bool thin = !j2 && float(hb & 1023u) < pj.y;
+  bool j1 = thin && ((hb >> 20u) & 1u) == 0u;
+  bool j3 = thin && !j1;
   float lo = k > 2.5 && j3 ? 3.0 : k > 1.5 && j2 ? 2.0 : k > 0.5 && j1 ? 1.0 : 0.0;
   float hi = k < 0.5 && j1 ? 1.0 : k < 1.5 && j2 ? 2.0 : k < 2.5 && j3 ? 3.0 : 4.0;
   float n = hi - lo;

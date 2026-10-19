@@ -89,10 +89,10 @@ vec3 ambientFrom(vec4 ls) {
 }
 
 // The same with a hemisphere on the open-space fill: in big spaces that cool fill is the haze
-// glowing above, so up-facing ground catches it, walls get half and overhangs nothing.
+// glowing above, so up-facing ground catches it, walls get 40 % and overhangs nothing.
 // Unlit forms keep their shape (and silhouette against the haze) instead of an even blue wash.
 vec3 ambientFrom(vec4 ls, vec3 n) {
-  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.5 + 0.5 * n.y)) + ls.rgb;
+  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y)) + ls.rgb;
 }
 
 // Emitter light + ambient at a sample point that lies in open space next to the surface.
@@ -115,7 +115,7 @@ float lanternVisibility(vec3 samplePos) {
 // Colour: uLanternColor is the pale-gold core; it deepens to amber toward the rim of the pool
 // (a flame's light reads warmer as it falls off). A diffuse term with a little wrap so the
 // sculpted facets catch it, and a soft bounce (light scattered back by the grey rock around the
-// explorer, so it is closer to neutral than the flame) gated by the same visibility, so nothing
+// explorer: cool grey stone, so it is much closer to neutral than the flame) gated by the same visibility, so nothing
 // leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
 // in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
 // who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
@@ -134,7 +134,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   vec3 tint = mix(vec3(1.0, 0.6, 0.34), vec3(1.0), 1.0 - smoothstep(0.06, 0.5, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
-  vec3 bounceTint = mix(tint, vec3(0.8, 0.86, 0.95), 0.5);
+  vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
   return uLanternColor * (tint * (LANTERN_GAIN * diff) + bounceTint * bounce) * (uLanternIntensity * vis * att);
 }
 
@@ -165,16 +165,19 @@ float poolDepth(vec3 wp, float depth) {
 }
 
 // Fog colour (rgb) and amount (a) for a fragment: distance haze plus the pool of denser haze low
-// in the space. The haze is darker where it pools and a little lighter in mid-air (so near
-// forms silhouette against it), and the light volume at the fragment scatters into it, so lamps
-// and crystals glow in the air around them instead of being cut out of a flat fog.
+// in the space. The haze is darker where it pools and a little lighter in mid-air, and the light
+// volume at the fragment scatters into it, so lamps and crystals glow in the air around them
+// instead of being cut out of a flat fog. Aerial perspective: a thin veil of haze is dark and a
+// deep one glows (light scattered many times), so mid-distance forms (pillars, the Spindle, stair
+// flights) stand as darker silhouettes against the lighter depth behind them.
 vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
   float f = depth * uFogDensity;
   float od = f * f * 0.6 + f * 0.4 + poolDepth(wp, depth);
+  float a = 1.0 - exp(-od);
   float lift = smoothstep(-3.0, 10.0, wp.y - uFogPool.x);
   // In-scatter saturates softly: a lamp warms the air around it without a solid glowing cloud.
-  vec3 col = mix(uFogLow, uFogColor, lift) + emit * (uAtmos.x / (1.0 + max(emit.r, max(emit.g, emit.b))));
-  return vec4(col, 1.0 - exp(-od));
+  vec3 col = mix(uFogLow, uFogColor, lift) * (0.55 + 0.9 * a) + emit * (uAtmos.x / (1.0 + max(emit.r, max(emit.g, emit.b))));
+  return vec4(col, a);
 }
 
 float hash13(vec3 p) {
@@ -224,8 +227,8 @@ export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 0.85 },
-  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x10141c, ambientGain: 0.55, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 0.62 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x0a0e16, ambientGain: 0.5, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.16, absorb: 0.6, exposure: 1.08 },
+  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 0.62 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 1.08 },
   rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.0 },
 };
 

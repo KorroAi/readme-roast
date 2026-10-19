@@ -98,22 +98,23 @@ function layoutA(rng: Rng): Bond {
   lib.forEach((st, si) => {
     const courseTone = rng.next();
     // Thin courses are long levelling slabs; the tall ones carry the big blocks.
-    const [lo, hi] = st.h <= 8 ? [26, 50] : st.h <= 16 ? [20, 48] : st.h <= 24 ? [22, 52] : [24, 60];
+    // Stones are long for their course (2:1 to 4:1), never brick-sized.
+    const [lo, hi] = st.h <= 8 ? [32, 64] : st.h <= 16 ? [24, 56] : st.h <= 24 ? [28, 56] : [30, 64];
     // Each strip is two 4 m pieces, each starting with a stone and ending on a joint, so the
     // shader can lay pieces in any order (and mirrored) along a course.
     const ws = [0, 1].flatMap(() => widths(rng, COURSE_PIECE, lo, Math.min(hi, COURSE_PIECE), st.h >= 24 ? 0.12 : 0.05));
     let x = 0;
     for (const w of ws) {
-      if (st.h >= 24 && w >= 30 && rng.chance(0.22)) {
+      if (st.h >= 24 && w >= 40 && rng.chance(0.15)) {
         // Broken bond: two thin courses over this stretch, joints staggered.
         const a = Math.round(st.h * (0.4 + rng.next() * 0.2));
         let xx = x;
-        for (const ww of widths(rng, w, 12, 30)) {
+        for (const ww of widths(rng, w, 20, 40)) {
           b.rect(xx, ww, st.y0, a, b.stone(si, courseTone, { drafted: 0.3, pillow: [0, 0.1] }));
           xx += ww;
         }
         xx = x;
-        for (const ww of widths(rng, w, 12, 30)) {
+        for (const ww of widths(rng, w, 20, 40)) {
           b.rect(xx, ww, st.y0 + a, st.h - a, b.stone(si, courseTone, { drafted: 0.3, pillow: [0, 0.1] }));
           xx += ww;
         }
@@ -168,7 +169,9 @@ function layoutB(rng: Rng): Bond {
     for (const j of joggles) for (let xx = j.a; xx <= j.c; xx++) b.ids[wrap(xx) + (st.y0 + j.row) * S] = -1;
     // Small stones fitted into a notch at the foot of some big stones.
     for (let k = 0; k < ws.length; k++) {
-      if (ws[k] < 36 || !rng.chance(0.35)) continue;
+      // Rare, and only in tall courses (whose strips have 8 piece variants): a distinctive mark
+      // in the single 1 m strip would recur every few metres along every megalithic course.
+      if (st.h < 24 || ws[k] < 36 || !rng.chance(0.25)) continue;
       const rw = rng.int(8, 14);
       const rh = Math.min(st.h - 4, rng.int(7, 12));
       const start = ws.slice(0, k).reduce((a, v) => a + v, 0);
@@ -307,10 +310,10 @@ function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
       if (st.drafted) h += 12;
     }
     if (st.pillow > 0) {
-      // Cushioned face: the middle swells toward the light, the edges roll away into the joint.
-      const t = Math.min(m, 7) / 7;
-      v += st.pillow * (t * (2 - t) - 0.55) * 0.2;
-      h += st.pillow * t * 22;
+      // Cushioned face: the edges roll away into the joint (a step darker), the face swells
+      // (height only: a lighter centre in a dark rim prints a framed panel on every stone).
+      if (m <= 2) v -= STEP * Math.min(1, st.pillow * 1.2);
+      h += st.pillow * (Math.min(m, 7) / 7) * 22;
     }
     // Foot wear shows as rounded, darker edges (above) and fewer sharp details, not as a lighter
     // dished centre: a lit centre in a dark rim prints a frame on every slab, a tile.

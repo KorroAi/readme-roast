@@ -63,7 +63,7 @@ export const ABYSS_VEIN = 0x3c2f5d;
 
 /** Ancient builders' stone: finer and slightly cooler than the natural rock it was cut from. */
 export const ASHLAR = [0x1d2128, 0x252931, 0x2e323c, 0x383e47, 0x434955, 0x515764, 0x606675, 0x717988] as const;
-export const JOINT = 0x111216;
+export const JOINT = 0x0e121c;
 /** Soot-black hearth stones and their ash. */
 export const SOOT = [0x131212, 0x1b1818, 0x23211f, 0x2e2a27, 0x3a3431, 0x47403c, 0x554d47] as const;
 export const ASH = [0x433f3d, 0x534f4b, 0x655f5a] as const;

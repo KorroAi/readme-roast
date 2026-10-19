@@ -170,7 +170,10 @@ void main() {
   vec4 crs = vec4(0.0);
   vec4 tex;
   if (family == ${FAMILY.MASONRY}) {
-    crs = masonryCourse(uv * MAT_PERIOD, vFace, dot(vGrid, abs(n)));
+    // The face's plane from its solid cell (half a voxel inside), not the interpolated vGrid:
+    // on a plane that is a multiple of the vocabulary cell, interpolation noise would flip the
+    // region hash per pixel.
+    crs = masonryCourse(uv * MAT_PERIOD, vFace, dot(vec3(cell), abs(n)) + 0.5);
     tex = courseSample(layer, crs, uvDx, uvDy);
   } else tex = texture(uMat, vec3(uv, float(layer)));
   int shownLayer = layer;
@@ -227,13 +230,13 @@ void main() {
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
   float ao = vAo / 3.0;
-  float aoCurve = 0.25 + 0.75 * ao;
+  float aoCurve = 0.18 + 0.82 * ao;
   float shade = shadeOf(ng);
   vec3 ambient = ambientFrom(ls, ng) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
-  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.55 + 0.45 * ao);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
 
   float glow = tex.a * uMatGlow[shownLayer];

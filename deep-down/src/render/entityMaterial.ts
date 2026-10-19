@@ -68,9 +68,10 @@ layout(location = 0) out highp vec4 fragColor;
 void main() {
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
-  // The explorer (uRim) is demoted a little: a slightly darker coat, so the route and the
-  // landmarks, not the carrier of the lantern, hold the brightest values of the frame.
-  vec3 albedo = vColor * uTint * (1.0 - 0.2 * uRim);
+  // The explorer (uRim) is demoted: a darker coat (it is far more reflective than the rock
+  // around it), so the route and the landmarks, not the carrier of the lantern, hold the
+  // brightest values of the frame, even next to a lamp.
+  vec3 albedo = vColor * uTint * (1.0 - 0.28 * uRim);
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
