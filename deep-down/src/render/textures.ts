@@ -1,6 +1,7 @@
 import { CRACK_STAGES, TILE, TILE_NAMES, TILE_SIZE, type TileName } from '../config/tiles';
 import { Rng } from '../core/rng';
 import { hexToRgb } from '../core/math';
+import * as MP from './materials/palette';
 
 /**
  * Procedural pixel-art tiles for every block material, generated deterministically.
@@ -134,9 +135,6 @@ const UMBER = [0x271f1a, 0x30271f, 0x3b3027, 0x473a2f, 0x544538];
 const SOIL = [0x1f1813, 0x271e18, 0x30251d, 0x3a2d23];
 const PEBBLE = [0x34373d, 0x45484f, 0x5a5e66, 0x737882];
 const MOSS = [0x11283a, 0x163444, 0x1b4150, 0x22505e, 0x2a5f6c];
-const COPPER = [0x6b3519, 0xa9582a, 0xdb8547, 0xffc58e];
-const VERDIGRIS = [0x21564c, 0x318373, 0x48b29c, 0x86e2cc];
-const IRON = [0x4a3d35, 0x7d6857, 0xb9a38c, 0xece0cf];
 const CRYSTAL = [0x0a3a4c, 0x10617a, 0x1a90ab, 0x30bfd8, 0x7eeefc, 0xe2ffff];
 const HARD = [0x0e1015, 0x13161c, 0x191c24, 0x20242e, 0x2a2e3b];
 const ANCIENT = [0x2a2f3a, 0x343a46, 0x3f4552, 0x4b5260, 0x58606f];
@@ -151,10 +149,7 @@ type Painter = (t: Tile, rng: Rng) => void;
 
 const painters: Record<Exclude<TileName, `crack${number}` | `rune${number}`>, Painter> = {
   slate(t, rng) {
-    fillRamp(t, rng, SLATE, { cell: 5, jitter: 0.1 });
-    for (let i = 0; i < 2; i++) crack(t, rng, SLATE[0], rng.int(4, 7));
-    for (let i = 0; i < 5; i++) t.set(rng.int(1, 14), rng.int(1, 14), SLATE[5]);
-    bevel(t);
+    stoneTile(t, rng);
   },
   deepSlate(t, rng) {
     fillRamp(t, rng, DEEP, { cell: 4, jitter: 0.08 });
@@ -204,27 +199,41 @@ const painters: Record<Exclude<TileName, `crack${number}` | `rune${number}`>, Pa
     }
     for (let i = 0; i < S; i++) t.shade(i, 0, 1.1);
   },
+  // Ore tiles are only used for item icons and drop miniatures now (terrain uses the world-space
+  // material layers), so they follow the material library: a vein running through rock, not
+  // nuggets stamped on a block. Copper must read as copper at icon size; iron as banded metal.
   copperOre(t, rng) {
-    painters.slate(t, rng);
-    const spots = [[4, 4], [11, 5], [6, 11], [12, 12], [8, 7]];
-    for (const [x, y] of spots) {
-      if (rng.chance(0.15)) continue;
-      nugget(t, rng, x + rng.int(-1, 1), y + rng.int(-1, 1), COPPER, rng.chance(0.4) ? 2 : 1, 0);
+    stoneTile(t, rng);
+    // A main vein corner to corner with a branch, dark oxidised body, lit upper edge.
+    const vein: Array<[number, number]> = [];
+    for (let i = 0; i < S; i++) {
+      const x = Math.round(2 + i * 0.75 + Math.sin(i * 0.9) * 0.8);
+      vein.push([x, S - 1 - i]);
     }
-    for (let i = 0; i < 4; i++) {
-      const x = rng.int(2, 13);
-      const y = rng.int(2, 13);
-      t.set(x, y, VERDIGRIS[rng.int(1, 2)]);
-      t.set(x + 1, y, VERDIGRIS[1]);
-      t.set(x, y - 1, VERDIGRIS[3]);
+    for (let i = 0; i < 6; i++) vein.push([7 + i, 7 + Math.round(i * 0.6)]);
+    for (const [x, y] of vein) {
+      for (const [dx, dy] of [[1, 0], [0, 1], [-1, 0], [0, -1]]) if (t.get(x + dx, y + dy) !== MP.COPPER[2]) t.set(x + dx, y + dy, mixTile(t.get(x + dx, y + dy), MP.VERDIGRIS[2], 0.55));
     }
+    for (const [x, y] of vein) {
+      t.set(x, y, MP.COPPER[3]);
+      t.set(x + 1, y, MP.COPPER[2]);
+      t.set(x, y - 1, MP.COPPER[5]);
+    }
+    for (const [x, y] of [vein[4], vein[10], vein[S + 3]]) t.set(x, y - 1, MP.COPPER_GLINT);
   },
   ironOre(t, rng) {
-    painters.slate(t, rng);
-    for (const [x, y] of [[4, 5], [10, 3], [12, 10], [5, 12], [8, 8]]) {
-      if (rng.chance(0.2)) continue;
-      nugget(t, rng, x + rng.int(-1, 1), y + rng.int(-1, 1), IRON, rng.chance(0.35) ? 2 : 1);
-    }
+    stoneTile(t, rng, MP.DEEP);
+    // Banded iron: two steel bands and a jasper band, pinching, with a rust stain below.
+    const bands: Array<[number, readonly number[], number]> = [[4, MP.IRON, 2], [8, MP.JASPER, 1], [11, MP.IRON, 2]];
+    for (const [y0, pal, th] of bands)
+      for (let x = 0; x < S; x++) {
+        const yy = y0 + Math.round(Math.sin(x * 0.45 + y0) * 0.7);
+        const thick = th + (x % 7 === 3 ? -1 : 0);
+        for (let k = 0; k < thick; k++) t.set(x, yy + k, pal[Math.min(pal.length - 1, (k === 0 ? 4 : 2) + (x % 5 === 0 ? 1 : 0))]);
+        if (pal === MP.IRON && x % 4 === 1) t.set(x, yy + thick, mixTile(t.get(x, yy + thick), MP.RUST, 0.6));
+      }
+    t.set(5, 4, MP.IRON_GLINT);
+    t.set(12, 11, MP.IRON_GLINT);
   },
   crystal(t) {
     // Faceted crystal: diagonal facets, bright core, dark edges. Emissive mask follows brightness.
@@ -415,6 +424,33 @@ const painters: Record<Exclude<TileName, `crack${number}` | `rune${number}`>, Pa
     bevel(t, 1.2, 0.7);
   },
 };
+
+/**
+ * Stone for icon cubes: the material library's charcoal ramp in two strata with a parting
+ * line and a joint, clustered tones, and a soft 1 px edge (icons are small objects, so the
+ * edge keeps the cube readable; terrain itself has no per-block edge any more).
+ */
+function stoneTile(t: Tile, rng: Rng, ramp: readonly number[] = MP.STONE): void {
+  const a = clusterField(rng, 6);
+  const parting = rng.int(6, 9);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const bed = y < parting ? 0.06 : -0.02;
+      const v = 0.6 + (a[x + y * S] - 0.5) * 0.3 + bed + (y === parting + 1 ? 0.08 : 0);
+      t.set(x, y, ramp[Math.max(0, Math.min(ramp.length - 1, Math.floor(v * ramp.length)))]);
+    }
+  for (let x = 0; x < S; x++) if (x % 6 !== 2) t.set(x, parting, ramp[0]);
+  const jx = rng.int(4, 11);
+  for (let y = parting + 1; y < S; y++) t.set(jx + (y > 12 ? 1 : 0), y, ramp[1]);
+  bevel(t, 1.06, 0.86);
+}
+
+function mixTile(a: number, b: number, f: number): number {
+  const [ar, ag, ab] = hexToRgb(a);
+  const [br, bg, bb] = hexToRgb(b);
+  const m = (u: number, v: number) => Math.round(u + (v - u) * f);
+  return (m(ar, br) << 16) | (m(ag, bg) << 8) | m(ab, bb);
+}
 
 function lighten(hex: number, f: number): number {
   const [r, g, b] = hexToRgb(hex);

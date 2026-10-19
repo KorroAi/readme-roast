@@ -52,6 +52,8 @@ function layoutCourses(rng: Rng, rule: CourseRule): Stone[] {
   let y = 0;
   let prevJoints: number[] = [];
   for (const course of courses) {
+    // Stones of one course were cut from the same bed: they share a tone, with small variation.
+    const courseTone = rng.next();
     const [wlo, whi] = rule.widths[course.kind];
     const joints: number[] = [];
     const start = rng.next() * S;
@@ -76,7 +78,8 @@ function layoutCourses(rng: Rng, rule: CourseRule): Stone[] {
     for (let j = 0; j < sorted.length; j++) {
       const x0 = sorted[j];
       const x1 = j + 1 < sorted.length ? sorted[j + 1] : sorted[0] + S;
-      stones.push({ x0: Math.round(x0), y0: y, w: Math.max(3, Math.round(x1) - Math.round(x0)), h: course.h, tone: rng.next(), drafted: rng.chance(rule.drafted), wear: rng.next() });
+      const tone = Math.max(0, Math.min(1, courseTone * 0.6 + rng.next() * 0.4 + (rng.chance(0.12) ? 0.25 : 0)));
+      stones.push({ x0: Math.round(x0), y0: y, w: Math.max(3, Math.round(x1) - Math.round(x0)), h: course.h, tone, drafted: rng.chance(rule.drafted), wear: rng.next() });
     }
     prevJoints = sorted;
     y += course.h;
@@ -115,7 +118,7 @@ function ashlarField(rng: Rng, stones: Stone[], o: AshlarOptions): Field2 {
           f.code[k] = 1;
           continue;
         }
-        let v = 0.4 + (st.tone - 0.5) * 0.34 + (face(x, y) - 0.5) * 0.14;
+        let v = 0.4 + (st.tone - 0.5) * 0.26 + (face(x, y) - 0.5) * 0.14;
         let h = 195 + (st.tone - 0.5) * 40;
         // Arris: lit top / left edge, shadowed bottom / right edge.
         if (j === 0 || i === 0) v += 0.1;
@@ -247,16 +250,16 @@ export function crumbling(c: MatCanvas, rng: Rng): void {
         }
         f.v[k] += (rubble(x, y) - 0.5) * 0.18 - (sunk ? 0.13 : 0.06);
       }
-    if (rng.chance(0.6)) {
-      const r = Math.min(st.h, st.w) * (0.35 + rng.next() * 0.3);
+    if (rng.chance(0.75)) {
+      const r = Math.min(st.h, st.w) * (0.4 + rng.next() * 0.3);
       const cx = st.x0 + rng.int(1, Math.max(1, st.w - 3));
       const cy = st.y0 + (rng.chance(0.5) ? 1 : st.h - 3);
       blob(cx, cy, r, holeEdge, (px, py, t, _dx, dy) => {
         const k = f.i(px, py);
         if (f.code[k] === 1) return;
-        if (t > 0.8 && dy > 0) f.v[k] += 0.12; // lit lower rim of the break
+        if (t > 0.8 && dy > 0) f.v[k] += 0.16; // lit lower rim of the break
         else {
-          f.v[k] = 0.04 + (rubble(px, py) - 0.5) * 0.1;
+          f.v[k] = (rubble(px, py) > 0.6 ? 0.14 : 0) + (holeEdge(px * 2, py * 2) - 0.5) * 0.08;
           f.h[k] = 30;
         }
       });

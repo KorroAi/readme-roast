@@ -319,9 +319,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   rubble(route[4], route[5], 0.4, -1);
   // A side pocket with the first glimmer crystals: an early, safe taste of the mystery.
   carveRoom([76, 96, 55], 3.2, 3.0, 3.2);
-  // The seam the cluster grows from, low in the wall, and a thinner one across the pocket.
-  crystalSeam([78.6, 96.2, 53.2], [79.4, 97.2, 55.2], 0.9, 7);
-  crystalSeam([75.5, 95.5, 52.2], [77, 95.5, 52.2], 0.8, 3);
+  // The seam the cluster grows from, low in the back wall of the pocket.
+  crystalSeam([78.6, 96.2, 53.2], [79.4, 97.2, 55.6], 0.9, 8);
   // A glint at the pocket's mouth, beside the route lamp, pulls the eye into the side pocket.
   crystalSeam([76.5, 97.5, 58.5], [78.5, 98.5, 58.5], 0.8, 3);
   addProp({ kind: 'crystalCluster', x: 77.6, y: 96, z: 54.4, rotY: 0.7, scale: 1.25, emitters: [[77, 96, 54]], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 } });
@@ -353,11 +352,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     for (let x = 82; x <= 100; x++) {
       const d = Math.hypot((x - 91) / 8.5, (z - 76) / 7.5);
       const lim = 1 + detail.noise2(x * 0.3, z * 0.3) * 0.12;
-      if (d > lim || d < lim - 0.13 || isAir(x, 87, z)) continue;
+      if (d > lim || d < lim - 0.2 || isAir(x, 87, z)) continue;
       const a = (Math.atan2(z - 76, x - 91) * 180) / Math.PI;
       if (!((a > 66 && a < 176) || (a > -70 && a < 14))) continue;
       if (x >= 93 && z >= 70 && z <= 77) continue;
-      if (detail.noise2(x * 0.6 + 3.3, z * 0.6 - 1.1) > -0.18) put(x, 88, z, B.SLATE);
+      // Long runs with a few breaks read as a natural kerb, not a row of loose blocks.
+      if (detail.noise2(x * 0.22 + 3.3, z * 0.22 - 1.1) > -0.25) put(x, 88, z, B.SLATE);
     }
   lanternPost(94.5, 88, 73.5, 0.2, true);
   discoveries.push({ id: 'hollow', min: [84, 86, 68], max: [100, 96, 84] });
@@ -457,17 +457,18 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // 7. The colonnade: a processional way from the shrine (west) to the sealed gate (east),
   // flanked by octagonal columns, older than the camp by ages. Some still hold the dome,
   // some are broken, one lies where it fell.
-  column(74, 94, 'full', true);
-  column(88, 94, 'broken', true);
-  column(102, 94, 'full', true);
-  column(74, 116, 'full', true);
-  column(102, 116, 'stump', true);
+  // Spaced so that from the ledge the sight line to the Glimmerfall passes between them.
+  column(76, 94, 'full', true);
+  column(91, 94, 'broken', true);
+  column(106, 94, 'full', true);
+  column(76, 116, 'full', true);
+  column(106, 116, 'stump', true);
   // The fallen column: its drums rolled apart to the west, the capital at the far end.
   lyingDrum('x', 95, 116, 3, 2.9, 1);
   lyingDrum('x', 90, 115, 4, 2.9, 2);
   lyingDrum('x', 85, 117, 3, 2.9, 1);
-  slab(79, 114, 4, 5, B.ANCIENT_BRICK, 1);
-  slab(80, 115, 2, 3, B.ANCIENT_BRICK, 0, 1);
+  slab(81, 112, 4, 5, B.ANCIENT_BRICK, 1);
+  slab(82, 113, 2, 3, B.ANCIENT_BRICK, 0, 1);
   column(82, 128, 'broken', false);
   lyingDrum('z', 87, 130, 2, 1.95, 1);
   slab(81, 98, 3, 2, B.ANCIENT_TILE, 0);
@@ -544,8 +545,10 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   }
   // Beside it the Spindle: a flowstone column grown from floor to dome, the Hollow's
   // landmark silhouette from the ledge.
-  naturalColumn(104, 122, 6.0, 2.3, 7.5);
-  landmarks.spindle = [104.5, floorHeight(104, 122), 122.5];
+  // It stands left of the fall as seen from the ledge, so it never hides it, and close
+  // enough that the fall's cold light rims its flutes.
+  naturalColumn(100, 124, 6.0, 2.3, 6.2);
+  landmarks.spindle = [100.5, floorHeight(100, 124), 124.5];
   landmarks.bridge = [122.5, floorBase + 1, 128.5];
   landmarks.monolith = [123.5, 6, 135.5];
   mark('rift');
@@ -717,7 +720,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     const c: V3 = [113, floorBase + 1, 108];
     const fy = floorHeight(113, 108);
     blob([113.5, fy - 0.5, 108.5], 2.3, (x, y, z) => { if (y >= fy - 2 && y <= fy + 1) put(x, y, z, B.DEEP_SLATE); });
-    crystalSeam([112.5, fy + 0.5, 107.2], [114.5, fy - 0.5, 109.8], 1.0, 10);
+    crystalSeam([112.5, fy + 0.5, 107.2], [114.5, fy - 0.5, 109.8], 1.45, 8);
     let top = fy + 1;
     while (top < fy + 4 && !isAir(113, top, 108)) top++;
     addProp({ kind: 'crystalCluster', x: 113.5, y: top, z: 108.5, rotY: 0.4, scale: 2.1, emitters: [[113, top, 108]], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 } });
@@ -765,7 +768,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   const oldCamp: V3 = [101, floorHeight(101, 104), 103.5];
   lanternPost(oldCamp[0], oldCamp[1], oldCamp[2], 0.7);
   lanternPost(84.5, floorHeight(84, 105), 105.5, 0.3);
-  lanternPost(108.5, floorHeight(108, 115), 115.5, -0.6);
+  lanternPost(110.5, floorHeight(110, 112), 112.5, -0.6);
   addProp({ kind: 'brokenCart', x: oldCamp[0] + 2.2, y: floorHeight(103, 105), z: oldCamp[2] + 1.6, rotY: 2.1 });
   addProp({ kind: 'crate', x: oldCamp[0] - 1.4, y: floorHeight(100, 103), z: oldCamp[2] - 0.8, rotY: 0.6, scale: 0.85 });
   addProp({ kind: 'ropeCoil', x: oldCamp[0] + 0.6, y: floorHeight(101, 102), z: oldCamp[2] - 1.5 });

@@ -325,7 +325,7 @@ export function crystal(c: MatCanvas, rng: Rng): void {
         alpha = Math.min(150, g * 170);
       }
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
-      if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.75, alpha / 200));
+      if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.6, alpha / 220));
       if (e < 1 && facesLight && glintN(x, y) > 0.78) {
         hex = P.CRYSTAL_EDGE;
         alpha = 230;

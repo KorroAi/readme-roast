@@ -59,14 +59,15 @@ const PRESETS: Record<LabView, Preset> = {
  * the material system must join naturally, under an orbiting lantern and a fixed cyan source.
  * Camera stops: overview, two close-ups and a grazing look along the chunk seam at x = 96.
  */
-export type TransitionCam = 'overview' | 'geology' | 'minerals' | 'masonry' | 'seam';
-export const TRANSITION_CAMS: TransitionCam[] = ['overview', 'geology', 'minerals', 'masonry', 'seam'];
+export type TransitionCam = 'overview' | 'geology' | 'minerals' | 'masonry' | 'crumble' | 'seam';
+export const TRANSITION_CAMS: TransitionCam[] = ['overview', 'geology', 'minerals', 'masonry', 'crumble', 'seam'];
 /** Camera stops, each with the lantern orbit it is judged under (centre, radii, height). */
 const TR_CAMS: Record<TransitionCam, { cam: [number, number, number]; target: [number, number, number]; orbit: { x: number; z: number; rx: number; rz: number; y: number } }> = {
   overview: { cam: [96, 12, 11], target: [96, 4.5, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
   geology: { cam: [83, 5.2, 21.5], target: [83, 4.8, 30], orbit: { x: 83, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   minerals: { cam: [96, 5.6, 21.5], target: [96, 5.4, 30], orbit: { x: 96, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   masonry: { cam: [112, 5.2, 21.5], target: [112, 4.8, 30], orbit: { x: 112, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
+  crumble: { cam: [108.5, 4.2, 25.5], target: [108.5, 4, 30], orbit: { x: 108.5, z: 27.5, rx: 2.5, rz: 0.8, y: 4.2 } },
   seam: { cam: [89.5, 3.9, 8.5], target: [97, 3.2, 13.5], orbit: { x: 96, z: 9.5, rx: 5, rz: 1.2, y: 3.6 } },
 };
 const TR_FOG = { off: 0.012, on: 0.055 };
