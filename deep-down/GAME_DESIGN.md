@@ -124,3 +124,19 @@ resource variants, hidden relic sets, optional challenge rooms, and the speciali
 | E6. Creatures | Lumen moths + Gloomcrawler with readable behaviours and tests |
 | E7–E9 | Forgotten Works, Buried Sea, Hollow Core, Abyss, each on the reusable zone system |
 | E10 | long-session soak, device profiling, store build |
+
+## Stage E1 in detail — "The Lantern Hollow", one exceptional expedition
+
+Built on the existing zone (camp → tunnel → ledge → stairs → hall → seal/gate → shrine → bridge →
+balcony). What it adds, each item testable:
+
+| # | Element | Design | Test |
+|---|---|---|---|
+| 1 | First-time path | the tunnel's warm lantern pools lead to the ledge; the ledge frames the Hollow (reveal); the stairs read as the obvious way down | route-walk test (exists) + a tour screenshot judged by the panel |
+| 2 | Secret | the shrine behind crumbling masonry: hinted by a thin light leak and a rune band that wakes as the lantern passes | e2e: crumbling wall breaks, shrine discovery (exists) |
+| 3 | Shortcut | once the hall floor is reached, a rope ledge (unlocked by mining a loose block) drops the explorer back toward the tunnel end, so returning to camp is faster than the way in | route test: hall → camp distance with the shortcut < without |
+| 4 | Hazard | rockfall under cracked ceilings in the hall: dust trickle + creak warns 1.5 s before a fall; standing still under it costs half a heart, never a death | unit test: warning always precedes damage; damage never lethal from full health |
+| 5 | Landmarks | the glimmerfall, the temple facade and the gate frieze readable from the ledge; the camp's warm glow visible from the stairs top on the way back | screenshot panel |
+| 6 | The decision | a rich glimmer pocket beyond the bridge with the lantern below half: the HUD shows fuel vs. distance home so the choice is informed | unit test of the fuel/distance estimate |
+| 7 | Black-out cache | dying drops the unbanked backpack as a cache marked on the compass; picking it up restores the items | unit + e2e: die, return, recover |
+| 8 | Return | camp banks, refuels, heals, plays the home cue; the expedition summary lists found / banked / lost | e2e |
