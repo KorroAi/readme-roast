@@ -146,50 +146,48 @@ vec4 matGrad(vec2 uv, float layer, vec2 gx, vec2 gy, float soft) {
   return textureGrad(uMat, vec3(sharpUv(uv, gx, gy, soft), layer), gx, gy);
 }
 
-// Natural rock is sampled where the sculpted surface really is (vWorldPos, not the voxel lattice)
-// with a biplanar projection: the two axis planes the smooth normal faces most, blended by it.
-// The third plane weighs 0 wherever the choice switches, so there is no seam, and chamfers and
-// smoothed steps take the texture at its true scale instead of a stretched face projection.
-// Projections are upright (v = -y on walls) and unmirrored as seen from outside, like worldUv.
-// bias scales n.y against the horizontal components: side layers (< 1) keep horizontal beds on
-// the wall planes, which draws them as the level contours they are on any slope.
-struct Planes { vec2 uv0; vec2 gx0; vec2 gy0; vec2 uv1; vec2 gx1; vec2 gy1; float w1; };
+// Texel softness of the sharp-bilinear edge per family (texels): rock and earth soften up close
+// (adaptive), dressed stone stays crisp.
+const float SOFT_ROCK = -0.025;
+const float SOFT_CUT = 0.12;
 
-void projectAxis(int ax, vec3 p, vec3 dx, vec3 dy, vec3 n, out vec2 uv, out vec2 gx, out vec2 gy) {
-  if (ax == 0) {
-    float s = n.x >= 0.0 ? 1.0 : -1.0;
-    uv = vec2(-p.z * s, -p.y); gx = vec2(-dx.z * s, -dx.y); gy = vec2(-dy.z * s, -dy.y);
-  } else if (ax == 1) {
-    float s = n.y >= 0.0 ? 1.0 : -1.0;
-    uv = vec2(p.x, p.z * s); gx = vec2(dx.x, dx.z * s); gy = vec2(dy.x, dy.z * s);
-  } else {
-    float s = n.z >= 0.0 ? 1.0 : -1.0;
-    uv = vec2(p.x * s, -p.y); gx = vec2(dx.x * s, -dx.y); gy = vec2(dy.x * s, -dy.y);
-  }
-  uv *= 1.0 / MAT_PERIOD;
-  gx *= 1.0 / MAT_PERIOD;
-  gy *= 1.0 / MAT_PERIOD;
+// Natural rock is sampled where the sculpted surface really is (vWorldPos, not the voxel lattice),
+// so chamfers and smoothed steps take the texture at its true scale instead of a stretched face
+// projection. Top layers (chosen only where the smooth normal is within ~45 degrees of up) are
+// projected from above. Side layers use the two wall planes, blended by the normal (biplanar:
+// both have v = -y, so beds line up around corners and are drawn as the level contours they are
+// on any slope), and ceilings the plane from below. Projections are upright and unmirrored as
+// seen from outside, like worldUv; a second fetch happens only where two planes really blend.
+vec2 rockUv;  // main plane of the fragment (for partners and the near grain)
+vec2 rockGx;
+vec2 rockGy;
+vec4 rockTop(vec3 p, vec3 dx, vec3 dy, vec3 n, float layer) {
+  float s = n.y >= 0.0 ? 1.0 : -1.0;
+  rockUv = vec2(p.x, p.z * s) * (1.0 / MAT_PERIOD);
+  rockGx = vec2(dx.x, dx.z * s) * (1.0 / MAT_PERIOD);
+  rockGy = vec2(dy.x, dy.z * s) * (1.0 / MAT_PERIOD);
+  return matGrad(rockUv, layer, rockGx, rockGy, SOFT_ROCK);
 }
-
-Planes planesFor(vec3 p, vec3 dx, vec3 dy, vec3 n, float bias) {
-  vec3 a = normalize(abs(n) * vec3(1.0, bias, 1.0) + 1e-4);
-  int ma = a.x >= a.y ? (a.x >= a.z ? 0 : 2) : (a.y >= a.z ? 1 : 2);
-  int o1 = ma == 0 ? 1 : 0;
-  int o2 = ma == 2 ? 1 : 2;
-  int me = a[o1] >= a[o2] ? o1 : o2;
-  vec2 w = clamp((vec2(a[ma], a[me]) - 0.5773) * (1.0 / 0.4227), 0.0, 1.0);
-  w.x = max(w.x, 1e-3);
-  Planes q;
-  projectAxis(ma, p, dx, dy, n, q.uv0, q.gx0, q.gy0);
-  projectAxis(me, p, dx, dy, n, q.uv1, q.gx1, q.gy1);
-  q.w1 = w.y / (w.x + w.y);
-  return q;
-}
-
-// One layer through the planes: one fetch on most of the rock, two only near a 45-degree normal.
-vec4 planeSample(Planes q, float layer, float soft) {
-  vec4 c = matGrad(q.uv0, layer, q.gx0, q.gy0, soft);
-  if (q.w1 > 0.03) c = mix(c, matGrad(q.uv1, layer, q.gx1, q.gy1, soft), q.w1);
+vec4 rockSide(vec3 p, vec3 dx, vec3 dy, vec3 n, float layer) {
+  if (n.y < -0.72) return rockTop(p, dx, dy, n, layer); // ceiling: from below
+  float sx = n.x >= 0.0 ? 1.0 : -1.0;
+  float sz = n.z >= 0.0 ? 1.0 : -1.0;
+  vec2 uvX = vec2(-p.z * sx, -p.y) * (1.0 / MAT_PERIOD);
+  vec2 gxX = vec2(-dx.z * sx, -dx.y) * (1.0 / MAT_PERIOD);
+  vec2 gyX = vec2(-dy.z * sx, -dy.y) * (1.0 / MAT_PERIOD);
+  vec2 uvZ = vec2(p.x * sz, -p.y) * (1.0 / MAT_PERIOD);
+  vec2 gxZ = vec2(dx.x * sz, -dx.y) * (1.0 / MAT_PERIOD);
+  vec2 gyZ = vec2(dy.x * sz, -dy.y) * (1.0 / MAT_PERIOD);
+  vec2 w = n.xz * n.xz;
+  w *= w;
+  float tz = w.y / max(w.x + w.y, 1e-6);
+  bool zMain = tz > 0.5;
+  rockUv = zMain ? uvZ : uvX;
+  rockGx = zMain ? gxZ : gxX;
+  rockGy = zMain ? gyZ : gyX;
+  vec4 c = matGrad(rockUv, layer, rockGx, rockGy, SOFT_ROCK);
+  float wo = zMain ? 1.0 - tz : tz;
+  if (wo > 0.03) c = mix(c, zMain ? matGrad(uvX, layer, gxX, gyX, SOFT_ROCK) : matGrad(uvZ, layer, gxZ, gyZ, SOFT_ROCK), wo);
   return c;
 }
 
@@ -199,10 +197,6 @@ const int GEO_SIDE[${MATERIAL_NAMES.length}] = int[](${Array.from(GEO_SIDE_OF).j
 const float SCRIPT_LAYER = ${MAT.script}.0;
 const float CRACK0 = ${CRACK_FIRST_LAYER}.0;
 const float CRACKS = ${CRACK_STAGES}.0;
-// Texel softness of the sharp-bilinear edge per family (texels): rock and earth soften up close
-// (adaptive), dressed stone stays crisp.
-const float SOFT_ROCK = -0.025;
-const float SOFT_CUT = 0.12;
 ${courseGlsl({ masonry: MAT.masonry, masonryB: MAT.masonryB, crumbling: MAT.crumbling, crumblingB: MAT.crumblingB })}
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
@@ -295,7 +289,6 @@ void main() {
   vec4 crs = vec4(0.0);
   vec4 tex;
   int shownLayer = layer;
-  Planes pl;
   bool topShown = false;
   if (family == ${FAMILY.MASONRY}) {
     // The face's plane from its solid cell (half a voxel inside), not the interpolated vGrid:
@@ -312,21 +305,21 @@ void main() {
     float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.13);
     if (topL == sideL) t = ng.y > 0.0 ? 2.0 : -2.0;
     if (t >= 1.0) {
-      pl = planesFor(rp, rpDx, rpDy, ng, 1.7);
-      tex = planeSample(pl, float(topL), SOFT_ROCK);
+      tex = rockTop(rp, rpDx, rpDy, ng, float(topL));
       topShown = true;
     } else if (t <= -1.0) {
-      pl = planesFor(rp, rpDx, rpDy, ng, 0.55);
-      tex = planeSample(pl, float(sideL), SOFT_ROCK);
+      tex = rockSide(rp, rpDx, rpDy, ng, float(sideL));
     } else {
-      Planes pt = planesFor(rp, rpDx, rpDy, ng, 1.7);
-      Planes ps = planesFor(rp, rpDx, rpDy, ng, 0.55);
-      vec4 a = planeSample(pt, float(topL), SOFT_ROCK);
-      vec4 b = planeSample(ps, float(sideL), SOFT_ROCK);
+      vec4 b = rockSide(rp, rpDx, rpDy, ng, float(sideL));
+      vec2 su = rockUv, sgx = rockGx, sgy = rockGy;
+      vec4 a = rockTop(rp, rpDx, rpDy, ng, float(topL));
       topShown = (a.a - b.a) * 1.1 + t * 0.6 > 0.0;
       tex = topShown ? a : b;
-      if (topShown) pl = pt;
-      else pl = ps;
+      if (!topShown) {
+        rockUv = su;
+        rockGx = sgx;
+        rockGy = sgy;
+      }
     }
     shownLayer = topShown ? topL : sideL;
   } else tex = matGrad(uv, vLayer, uvDx, uvDy, SOFT_CUT);
@@ -352,7 +345,7 @@ void main() {
       int nl = int(nlf + 0.5);
       if (natural) nl = topShown ? GEO_TOP[nl] : GEO_SIDE[nl];
       if (nl == shownLayer) continue;
-      vec4 ntex = family == ${FAMILY.MASONRY} ? courseSample(nl, crs, uvDx, uvDy) : natural ? matGrad(pl.uv0, float(nl), pl.gx0, pl.gy0, SOFT_ROCK) : matGrad(uv, float(nl), uvDx, uvDy, SOFT_CUT);
+      vec4 ntex = family == ${FAMILY.MASONRY} ? courseSample(nl, crs, uvDx, uvDy) : natural ? matGrad(rockUv, float(nl), rockGx, rockGy, SOFT_ROCK) : matGrad(uv, float(nl), uvDx, uvDy, SOFT_CUT);
       // Antisymmetric by construction (the neighbour's face computes exactly -claim at the same
       // point), so the two faces draw one boundary curve. No constant bias: it would let both
       // sides claim a strip at the edge and swap the materials there.
@@ -380,10 +373,10 @@ void main() {
   // the main projection, no fetch, about 25 ALU) fades in there, so close rock reads as stone,
   // not as a magnified pixel. Skipped wherever a texel is under 5 px.
   if (natural) {
-    vec2 fwr = (abs(pl.gx0) + abs(pl.gy0)) * ${MAT_SIZE}.0;
+    vec2 fwr = (abs(rockGx) + abs(rockGy)) * ${MAT_SIZE}.0;
     float ppt = 1.0 / max(max(fwr.x, fwr.y), 1e-4);
     if (ppt > 5.0) {
-      vec2 dq = pl.uv0 * ${MAT_SIZE * 4}.0;
+      vec2 dq = rockUv * ${MAT_SIZE * 4}.0;
       vec2 i = floor(dq);
       vec2 f = fract(dq);
       f = f * f * (3.0 - 2.0 * f);

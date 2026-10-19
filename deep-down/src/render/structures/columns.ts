@@ -90,6 +90,7 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
     if (full || y1 < yEnd - 1e-6) profile.push([r1 - g, y1]);
     stone(STRIPS_2M[rng.int(0, 1)], y1);
     b.surface = { ...b.surface, mode: TexMode.Monolith };
+    b.stone(Math.round(y0 * 4), 1, c.seed);
     const u0 = b.surface.u0;
     b.revolve(profile, segs, (a, _r, y) => [around(a, u0), (y1 - y) * D], (y) => (first && y < y0 + 0.2 ? 0.78 : 1), rng.range(0, TAU));
     y0 = y1;
@@ -114,9 +115,11 @@ export function buildColumn(b: StructureBuilder, c: Column): void {
       [re, neck + CAPITAL_H],
     ];
     stone(STRIP_A.two, neck + CAPITAL_H);
+    b.stone(2, 2, c.seed);
     const uc = b.surface.u0;
     b.revolve(cap, segs, (a, _r, y) => [around(a, uc), (neck + CAPITAL_H - y) * D], (y) => (y < neck + 0.3 ? 0.8 : y > neck + 1.5 ? 0.7 : 1));
     // Abacus: a square slab running well into the rock it carries.
+    b.stone(3, 2, c.seed);
     stone(STRIP_A.metre, neck + CAPITAL_H + 1, -ph);
     b.box(-ph, neck + CAPITAL_H, -ph, ph, c.top + 3.5, ph, 0.06, 4);
   } else {
@@ -214,6 +217,7 @@ export function buildDrum(b: StructureBuilder, d: Drum): void {
     const p2 = rng.range(0, TAU);
     const w = (a: number, edge: number) => 1 + 0.008 * Math.sin(a * 3 + p1) - edge * 0.012 * (1 + Math.sin(a * 11 + p2) * Math.sin(a * 5 + p1));
     b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIPS_2M[rng.int(0, 1)], axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0 };
+    b.stone(i, 1, d.seed);
     const u0 = b.surface.u0;
     b.revolve(side, segs, (a, _rr, y) => [around(a, u0), Math.min(31, (h - y) * (31 / (2 * h)))], ao, 0, TAU, (a, k) => w(a, k === 0 || k === 3 ? 1 : 0.4));
     // The bed faces in the raw stone layer, planar at its natural scale.
@@ -239,6 +243,8 @@ export function buildBlock(b: StructureBuilder, k: Block): void {
   const hz = (z1 - z0) / 2 - 0.03;
   const along = k.axis === 'x';
   b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: y1 - y0 > 0.7 ? STRIP_A.metre : STRIP_A.half, axis: along ? [1, 0, 0] : [0, 0, 1], across: along ? [0, 0, 1] : [1, 0, 0], u0: rng.int(0, 1023), top: y1, vRef: along ? -hz : -hx };
+  b.stone(0, 1, k.seed);
   b.box(-hx, y0 - 0.06, -hz, hx, y1, hz, k.chamfer, 8);
+  b.tone = 1;
   b.pop();
 }

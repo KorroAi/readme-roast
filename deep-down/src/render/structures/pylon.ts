@@ -138,6 +138,7 @@ export function buildCoping(b: StructureBuilder, c: Coping): void {
     b.rotate(1, Math.PI / 2);
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: y1, vRef: -hw };
     const e = y0 + c.height * 0.45;
+    b.stone(Math.round(x * 8), 1, c.seed);
     b.prism([[-hw, y0], [hw, y0], [hw, e], [0, y1], [-hw, e]], 0.006, l - 0.006);
     b.pop();
     x += l;

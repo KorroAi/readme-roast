@@ -1,5 +1,6 @@
 import { SOLID, VISIBLE } from '../../config/blocks';
 import { MAT_DENSITY } from '../materials/paint';
+import { hash01 } from '../../world/gen/architecture';
 import type { VoxelWorld } from '../../world/VoxelWorld';
 
 /**
@@ -74,6 +75,12 @@ export class StructureBuilder {
   aoAt: (p: V3, n: V3) => number = () => 1;
   /** Fixed AO override for the next polygons (null = aoAt). */
   aoFixed: number[] | null = null;
+  /**
+   * Value of the next polygons' stone (multiplies their AO): dressed stones are each a little
+   * lighter or darker than the next, so a run of coping, a flight of steps or a shaft of drums
+   * reads stone by stone. 1 = as painted.
+   */
+  tone = 1;
   private frame: Mat = IDENTITY.slice() as Mat;
   private readonly stack: Mat[] = [];
 
@@ -81,6 +88,12 @@ export class StructureBuilder {
 
   get vertexCount(): number {
     return this.pos.length / 3;
+  }
+
+  /** Set `tone` for one stone from a deterministic key (0.86..1, or `lo`..1). */
+  stone(a: number, b: number, seed: number, lo = 0.86): this {
+    this.tone = lo + (1 - lo) * hash01(a, b, seed);
+    return this;
   }
 
   /**
@@ -332,7 +345,7 @@ export class StructureBuilder {
     this.st.push(clampI16(Math.round(u * 8)), clampI16(Math.round(v * 8)));
     const q = this.lightPoint(p, n);
     this.light.push(clampI8(Math.round((q[0] - p[0]) * 50)), clampI8(Math.round((q[1] - p[1]) * 50)), clampI8(Math.round((q[2] - p[2]) * 50)), 0);
-    this.info.push(s.layer, face | (s.mode << 3), Math.round(Math.max(0, Math.min(1, ao)) * 255), s.row);
+    this.info.push(s.layer, face | (s.mode << 3), Math.round(Math.max(0, Math.min(1, ao * this.tone)) * 255), s.row);
   }
 
   /** Light-volume sample point for a surface point (see the class comment). */

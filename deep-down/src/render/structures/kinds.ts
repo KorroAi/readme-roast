@@ -11,6 +11,7 @@ export function buildStructure(b: StructureBuilder, spec: StructureSpec): void {
   // Every piece starts from contact occlusion against the terrain (a builder may override it).
   b.aoAt = b.contactAo();
   b.aoFixed = null;
+  b.tone = 1;
   switch (spec.kind) {
     case 'stairFlight':
       buildStairFlight(b, spec);

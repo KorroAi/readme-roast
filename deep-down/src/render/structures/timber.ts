@@ -28,6 +28,7 @@ export function buildBeam(b: StructureBuilder, t: Beam): void {
     Y = y2;
   }
   b.aoAt = b.contactAo();
+  b.stone(1, 1, t.seed, 0.82);
   b.push();
   b.basis(t.a, X, Y, Z);
   const hy = t.h / 2;
@@ -107,6 +108,7 @@ export function buildDeck(b: StructureBuilder, k: Deck): void {
     const pieces: Array<[number, number]> = cut ? [[L0 - rng.range(0, 0.12), cut - 0.006], [cut + 0.006, L1 + rng.range(0, 0.12)]] : [[L0 - rng.range(0, 0.12), L1 + rng.range(0, 0.12)]];
     for (const [a, e] of pieces) {
       const sag = rng.range(-0.008, 0.006);
+      b.stone(Math.round(c * 50), Math.round(a * 8), k.seed, 0.78);
       b.surface = { mode: TexMode.Plain, layer: MAT.beamSide, row: 0, axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 127), top: 0, grainAlongV: true };
       b.box(a, top - th + sag, c + gap / 2, e, top + sag, c + w - gap / 2, 0, 8);
     }

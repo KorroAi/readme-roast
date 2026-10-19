@@ -11,7 +11,7 @@ import { MATERIAL_INFO, MATERIAL_NAMES, generateMaterials, type MaterialAtlas } 
  *              shader so they follow the sculpted surface exactly); uTargetHit the point the
  *              mining ray strikes (w = 0: unknown, the shader takes the line of sight)
  *
- * Material layers are linear-filtered with mipmaps and 4x anisotropy: the shader snaps its
+ * Material layers are linear-filtered with mipmaps and 2x anisotropy: the shader snaps its
  * samples to the texel grid ("sharp bilinear", terrainMaterial.ts), so texels keep crisp pixel
  * edges at reading distance without nearest sampling's shimmer and staircase up close.
  *
@@ -43,8 +43,9 @@ export class TerrainRig {
     m.colorSpace = THREE.SRGBColorSpace;
     m.magFilter = THREE.LinearFilter;
     m.minFilter = THREE.LinearMipmapLinearFilter;
-    // Grazing floors keep their texture a little further (clamped to what the GPU supports).
-    m.anisotropy = 4;
+    // Grazing floors keep their texture a little further (clamped to what the GPU supports). 2x:
+    // anisotropic taps cost real bandwidth on mobile GPUs, unlike bilinear.
+    m.anisotropy = 2;
     m.wrapS = m.wrapT = THREE.RepeatWrapping;
     m.generateMipmaps = true;
     m.unpackAlignment = 1;

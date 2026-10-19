@@ -62,6 +62,7 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
     const end = j === 0 || j === n;
     const h = top - RISER * j + (end ? 0.03 : 0);
     const below = j === n ? h - 0.12 : top - RISER * (j + 1);
+    b.stone(j, 1, f.seed);
     b.surface = { mode: TexMode.Stone, layer: MAT.floorSlab, row: STRIP_A.half, axis: Z, across: X, u0: rng.int(0, 1023), top: h, vRef: nose };
     // The nosing is worn: its chamfer is deeper toward the middle of the walk.
     const ws = zs.map((_, k) => {
@@ -82,6 +83,7 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
   }
 
   // Parapets.
+  b.tone = 1;
   const y = (s: number, dy: number) => top - s + dy;
   const capLo = STAIR_COPING - 0.3;
   const s0 = 0;
@@ -100,18 +102,21 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
     band(cIn, -0.4, capLo, inward, 0.55, 1);
     // Outer band, proud of the flank wall, from two metres below the walk to the coping.
     band(cBand, -2.1, capLo, out);
-    // A raking plinth course at the band's foot: a fascia of dressed stones 0.45 m deep standing
-    // 0.12 m proud, a drip chamfer under it and a weathered (sloped) top, so it reads as a band
-    // of masonry rather than a rail.
+    // A raking plinth course at the band's foot: a plain fascia 0.7 m deep standing 0.16 m
+    // proud, a drip chamfer under it and a weathered (sloped) top. It is dressed as one run of
+    // stone (no head joints: short joints on a long thin band read as a pipe's couplings), so
+    // it reads as the flight's moulded base line rather than a rail.
     const n0 = -2.1 / Math.SQRT2;
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: n0 + 0.15 };
+    b.surface = { mode: TexMode.Monolith, layer: MAT.masonry, row: STRIP_A.metre, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: n0 + 0.2 };
+    b.tone = 0.9;
     b.push();
     // Frame: z runs down the rake (slope length), y normal to the walking plane, x across.
     b.translate(0, top, cBand).rotate(2, -Math.PI / 4).rotate(1, Math.PI / 2);
     const L = f.run * Math.SQRT2;
     const o = -side; // across, outward is -x in this frame for side +1
-    const sec: Array<[number, number]> = [[0, n0 - 0.3], [o * 0.12, n0 - 0.25], [o * 0.12, n0 + 0.05], [o * 0.04, n0 + 0.14], [0, n0 + 0.15]];
+    const sec: Array<[number, number]> = [[0, n0 - 0.5], [o * 0.16, n0 - 0.44], [o * 0.16, n0 + 0.08], [o * 0.05, n0 + 0.19], [0, n0 + 0.2]];
     b.prism(o > 0 ? sec : sec.map(([u, v]) => [u, v] as [number, number]).reverse(), -n0 * 0.5, L - n0 * 0.5);
+    b.tone = 1;
     b.pop();
     // Coping: long sloped stones, overhanging both faces, chamfered, end to end (V joints).
     const cA = Math.min(cIn, cOut) - (side > 0 ? 0.07 : 0.13);
@@ -122,7 +127,9 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
       b.push();
       b.translate(s, y(s, STAIR_COPING), 0).rotate(2, -Math.PI / 4);
       b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.oneHalf, axis: X, across: Z, u0: rng.int(0, 1023), top: 0, vRef: cA };
+      b.stone(Math.round(s * 8), 3 + side, f.seed);
       b.box(0, -0.3 / Math.SQRT2, cA, len * Math.SQRT2, 0, cB, 0.035);
+      b.tone = 1;
       b.pop();
       s += len;
     }
@@ -132,6 +139,7 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
   // Bays: each a rampant arch under the flight, a raking barrel soffit of voussoirs between the
   // flanks and the arch ring standing proud of both flanks.
   for (const [s0, s1] of f.bays) bay(b, f, s0, s1, rng);
+  b.tone = 1;
   b.pop();
 }
 
@@ -160,6 +168,7 @@ function bay(b: StructureBuilder, f: Flight, s0: number, s1: number, rng: Rng): 
   for (let k = 0; k + 1 < pts.length; k++) {
     const a = pts[k];
     const c = pts[k + 1];
+    b.stone(k, 10 + Math.round(s0), f.seed);
     // Soffit: the voussoir's intrados face, across the whole flight, two segments for its curve.
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: Z, across: X, u0: rng.int(0, 1023), top: 0, vRef: a };
     const m = (a + c) / 2;

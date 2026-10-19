@@ -36,6 +36,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
   for (let k = 0; k < nv; k++) {
     const p0 = -phi0 + (2 * phi0 * k) / nv;
     const p1 = -phi0 + (2 * phi0 * (k + 1)) / nv;
+    b.stone(k, 1, br.seed);
     const [za, ya] = at(p0, r);
     const [zb, yb] = at(p1, r);
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: 0, vRef: za };
@@ -47,6 +48,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
     const xf = side < 0 ? xL : xR;
     const out: V3 = [side, 0, 0];
     // Spandrel wall: from the arch ring (or the rock at the abutments) up to the deck.
+    b.tone = 1;
     b.surface = { mode: TexMode.World, layer: MAT.masonry, row: 0, axis: [0, 0, 1], across: [1, 0, 0], u0: 0, top: 0 };
     const steps = 48;
     for (let k = 0; k < steps; k++) {
@@ -62,6 +64,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
     // Arch ring: voussoirs standing 6 cm proud, V-jointed, the keystone taller and prouder.
     for (let k = 0; k < nv; k++) {
       const key = k === (nv - 1) / 2;
+      b.stone(k, 1, br.seed);
       const d = 0.006;
       const p0 = -phi0 + (2 * phi0 * k) / nv + d;
       const p1 = -phi0 + (2 * phi0 * (k + 1)) / nv - d;
@@ -83,6 +86,7 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
       b.quadOut(q(p0, ri, xo), q(p1, ri, xo), q(p1, ri, xi), q(p0, ri, xi), [0, -Math.cos((p0 + p1) / 2), -Math.sin((p0 + p1) / 2)]);
     }
     // String course under the deck edge.
+    b.tone = 1;
     b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck - 0.95 };
     b.box(Math.min(xf + side * 0.15, xf - side * 0.1), deck - 1.3, br.z0 - 0.15, Math.max(xf + side * 0.15, xf - side * 0.1), deck - 0.95, br.z1 + 0.15, 0.03);
     // Ledge outside the parapet (the top of the bridge body).
@@ -92,11 +96,21 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
     const ledgeB = side < 0 ? xp0 : xf;
     b.surface = { mode: TexMode.Stone, layer: MAT.floorSlab, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck, vRef: ledgeA };
     b.quadOut([ledgeA, deck + 0.01, br.z0], [ledgeB, deck + 0.01, br.z0], [ledgeB, deck + 0.01, br.z1], [ledgeA, deck + 0.01, br.z1], [0, 1, 0]);
-    // Parapet: one course of stones on the deck, between the newels.
+    // Parapet: one course of stones on the deck between the newels, each its own block (V
+    // joints, a value of its own); the faces where two stones meet are not drawn.
     const zp0 = br.z0 + 0.95;
     const zp1 = br.z1 - 0.95;
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.metre, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck + 0.95, vRef: xp0 };
-    b.box(xp0, deck - 0.08, zp0, xp1, deck + 0.95, zp1, 0.025, 8);
+    let zs = zp0;
+    for (let k = 0; zs < zp1 - 0.05; k++) {
+      const len = zp1 - zs < 2.4 ? zp1 - zs : rng.range(1.2, 1.9);
+      const first = zs === zp0;
+      const last = zs + len >= zp1 - 0.05;
+      b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.metre, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck + 0.95, vRef: xp0 };
+      b.stone(k, 5 + side, br.seed);
+      b.box(xp0, deck - 0.08, zs, xp1, deck + 0.95, zs + len, 0.025, 8 | (last ? 0 : 16) | (first ? 0 : 32));
+      zs += len;
+    }
+    b.tone = 1;
     // Saddleback coping, stone by stone.
     const mid = (xp0 + xp1) / 2;
     let z = zp0;
@@ -105,10 +119,12 @@ export function buildBridge(b: StructureBuilder, br: Bridge): void {
       b.push();
       b.translate(0, 0, z);
       b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: deck + 1.2, vRef: xp0 };
+      b.stone(Math.round(z * 8), 7 + side, br.seed);
       b.prism([[xp0 - 0.05, deck + 0.95], [xp1 + 0.05, deck + 0.95], [xp1 + 0.05, deck + 1.03], [mid, deck + 1.18], [xp0 - 0.05, deck + 1.03]], 0.012, len - 0.012);
       b.pop();
       z += len;
     }
+    b.tone = 1;
     // Newels at both ends, and the lamp's pedestal at mid-span on the west parapet.
     for (const zn of side < 0 ? [br.z0, br.mid, br.z1 - 1] : [br.z0, br.z1 - 1]) newel(b, rng, (xp0 + xp1) / 2 + side * 0.06, zn + 0.5, 0.36, 0.36, deck, BRIDGE_NEWEL, zn === br.mid);
   }
