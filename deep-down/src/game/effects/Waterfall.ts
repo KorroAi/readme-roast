@@ -38,10 +38,12 @@ float hash12(vec2 p) {
 void main() {
   float fall = 1.0 - vUv.y; // 0 at the lip, 1 at the impact
   // The water leaves the lip as a narrow rope and spreads into broken sheets as it falls.
-  float halfW = mix(0.16, 0.42, smoothstep(0.0, 0.8, fall));
+  // (UV units of the 2.4 m ribbon: 0.45 m wide at the lip, up to ~2.1 m. halfW + wander stays
+  // under 0.5, so the stream never touches the quad's edge.)
+  float halfW = mix(0.19, 0.44, smoothstep(0.0, 0.8, fall));
   // Drafts make the stream waver: a slow sideways drift that grows with the fall.
   float h0 = vUv.y * uHeight;
-  float wander = (sin(h0 * 0.11 + uTime * 0.6) * 0.06 + sin(h0 * 0.37 - uTime * 1.1) * 0.025) * smoothstep(0.05, 0.6, fall);
+  float wander = (sin(h0 * 0.11 + uTime * 0.6) * 0.04 + sin(h0 * 0.37 - uTime * 1.1) * 0.015) * smoothstep(0.05, 0.6, fall);
   float x = (vUv.x - 0.5 - wander) / halfW; // -1..1 across the stream
   float drop = h0 + uTime * 6.0;
   // Ragged edges: every 1.6 m of the fall has its own edge on each side, scrolling with the water.
@@ -93,7 +95,7 @@ export class Waterfall {
     lighting: LightingUniforms,
     top: THREE.Vector3,
     private readonly bottom: THREE.Vector3,
-    width = 2.8,
+    width = 2.4,
   ) {
     const height = top.y - bottom.y;
     this.material = new THREE.ShaderMaterial({

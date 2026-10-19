@@ -79,13 +79,12 @@ void main() {
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
-  // Contact darkening: openness is 0 inside solid voxels, so the filtered volume just below the
-  // fragment fades toward floors (and walls) compared with the open voxel the fragment is in.
-  // Crates, barrels and boots sit in the world instead of floating on it.
-  float own = texelFetch(uLightTex, clamp(ivec3(floor(vWorldPos)), ivec3(0), ivec3(uWorldSize) - 1), 0).a;
-  float below = texture(uLightTex, (vWorldPos - vec3(0.0, 0.22, 0.0)) / uWorldSize).a;
-  float contact = own > 0.02 ? clamp(below / own, 0.0, 1.0) : 1.0;
-  contact = 0.42 + 0.58 * smoothstep(0.1, 0.95, contact);
+  // Contact darkening: openness is 0 inside solid voxels, so the filtered volume 0.45 m below the
+  // fragment fades toward the floor compared with the open space beside the fragment (ls.a).
+  // Crates, barrels and boots sit in the world instead of floating on it (one extra fetch).
+  float below = texture(uLightTex, (vWorldPos - vec3(0.0, 0.45, 0.0)) / uWorldSize).a;
+  float contact = ls.a > 0.02 ? clamp(below / ls.a, 0.0, 1.0) : 1.0;
+  contact = 0.4 + 0.6 * smoothstep(0.08, 0.9, contact);
   vec3 env = ambientFrom(ls);
   vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a);
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
