@@ -83,6 +83,23 @@ light, off the main thread, so the loading bar keeps moving. If module workers a
 unavailable the same code runs on the main thread. The first whole-zone meshing then runs on
 the main thread, time-sliced; remeshing in play runs in mesh workers (see Meshing).
 
+### Structures (`render/structures/*`, `world/gen/architecture.ts`)
+
+Built architecture is not drawn by the voxel mesher. The generator emits structure specs
+(stair flights, columns, bridge, kerbs and copings, the landing tower cornice, camp timber, drums
+and slabs) and fills their volume with hidden collision ids (`STRUCTURE`, `STRUCTURE_TIMBER`,
+`RAMP_*`, `RAMP_BASE_*`, ids 24–33: solid, invisible, unbreakable, non-occluding for meshing), so
+light, raycasts, mining, reachability and camera collision keep working on whole cubes and the
+terrain mesher stays byte-identical. `StructureRenderer` builds one merged mesh per 32 m cell
+(lazily, nearest first, at least one per frame, then within 6 ms), culled with the chunk view
+distance and drawn at `renderOrder −1`. Vertices are 28 B (position f32×3, normal i8×4, texture
+st i16×2, light-sampling offset i8×4, info u8×4). `structureMaterial.ts` reuses the terrain's
+lighting composition and the masonry course libraries (`courseGlsl`), with world-course,
+strip-stone, monolith and plain (timber) modes, contact occlusion against the terrain and a tone
+per stone. Stair flights have a walking plane: `RAMP_*` wedge cells are solid below a 1:1 plane
+and `PlayerController` supports, lifts and snaps the feet along it (`STAIR_EDGE` 0.34 m), so the
+drawn feet stay within 0.15 m of the treads (unit-tested). Viewer flag `structures=0` hides them.
+
 ### Meshing (`render/mesher.ts`)
 
 Culled faces, one quad per visible face, **sculpted on the CPU** into modelled rock:

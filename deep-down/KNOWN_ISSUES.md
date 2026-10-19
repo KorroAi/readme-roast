@@ -57,8 +57,11 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 - Natural rock is chamfered on the CPU: walkable edges sit up to ≈0.3 m below their collision
   height at convex corners (0 on flat interiors), and rock can reach 0.36 m into voxels the
   physics treats as open (the camera keeps 0.4 m from voxel hits for this reason).
-- Masonry columns and kerbs are deliberately crisp voxel forms, so round columns still read as
-  stepped octagons up close; masonry head joints are not registered to each structure's corners.
+- Only built forms (stairs, columns, bridge, kerbs, copings, camp timber, the monolith) are meshes
+  over voxel collision; the temple gate portal, its stepped buttresses, the hall walls and the
+  shrine are still 1 m voxel masonry. Terrain faces next to hidden structure cells are still
+  meshed (depth-rejected behind the structures, but they cost vertices), and building a
+  structure cell can take a few tens of ms in one frame while the menu shows.
 - Under heavy machine load (load average 8–13 on 4 cores) the desktop e2e spec's 10 s wait for
   a pointer-lock answer can time out; it passes on an idle machine (4/4 e2e, October 2026).
 - Building a save scans the whole 3.3 MB voxel volume (~2 ms here, ~8 ms for the whole save

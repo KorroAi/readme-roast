@@ -93,6 +93,37 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   at the feet is targetable (fails on the unfixed rig, passes at 0.66 rad), and the explorer
   stays left and low at normal pitch.
 
+### Round 4 — architecture off the voxel lattice (`render/structures/*`, `architecture.ts`)
+- Built forms are procedural meshes drawn over hidden collision cells (new block ids 24–33:
+  solid, invisible, unbreakable), so light, raycasts, mining, reachability and camera collision
+  still work on whole cubes and the terrain mesher and mesh workers are untouched:
+  - stair flights: 0.25 m monolithic treads with worn nosings, raking parapets with sloped
+    coping, newels, rampant-arch bays with voussoirs; a jointless plinth course hides the 1 m
+    flank;
+  - columns: 32-segment lathe with entasis, attic base, grooved drums, echinus and abacus, or a
+    fractured broken shaft;
+  - the bridge: a segmental arch over a chasm widened to a 6.2 m half-width, voussoirs, keystone,
+    a parapet of separate stones, saddleback coping, newels and a mid-span lamp pedestal;
+  - kerbs and copings as dressed stone; the processional way levelled with kerb slopes; the
+    landing tower cornice;
+  - camp timber in real sections (0.18–0.34 m), a butt-jointed frame with knee braces, one
+    fallen beam, plank decks on joists;
+  - the abyss monolith rebuilt as a battered octagonal pylon with incised rings and a
+    pyramidion; violet only in the portal niche, cyan only in the core.
+- Stairs get a walking-plane collision (wedge cells solid below a 1:1 plane; the player is lifted
+  along it and snapped down when descending): the drawn feet stay within 0.141 m of the treads
+  (36 measured walks, unit-tested at 60 and 30 fps).
+- Rendering: a dedicated structure material sharing the terrain's lighting composition and
+  course libraries (world-course, strip-stone, monolith and plain modes, contact occlusion, a tone
+  per stone); one mesh per 32 m cell (10 meshes, 63k vertices, 49k triangles, 2.06 MB), built
+  lazily nearest-first and drawn before the terrain.
+- Verified: `tsc`, 398 unit tests (new `structures.test.ts`: closed outward meshes, every hidden
+  cell covered, stair planes match the spec, feet within 0.15 m), Playwright e2e 4/4 on the first
+  run. Perf (5 alternating runs each, shared machine): boot and zone load within noise; triangles
+  +19–39k at four spots; GPU geometry 6.4 → 7.5 MB; CPU frame time ×0.97–1.33 with overlapping
+  ranges (a same-session toggle shows the structures CPU-neutral and slightly faster on fill,
+  since they hide voxel faces).
+
 ### Round 4 — surface presentation (`terrainMaterial.ts` sampling, `materials/*`, `Waterfall.ts`)
 - Natural rock is textured from the sculpted surface (top from above, sides from two blended wall
   planes with level beds, ceilings from below; top/side chosen from the smooth normal), so

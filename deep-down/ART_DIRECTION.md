@@ -7,16 +7,22 @@ The reference image is a mood target, not a source. Everything is generated in c
 1. **Darkness with intent.** The underground is dark, never unreadable. Big spaces get a
    faint blue haze (openness ambient + fog) so silhouettes read against it.
 2. **Warm safety vs. cold mystery.** Amber = people, camp, lanterns, safety. Cyan = minerals
-   and the ancient builders. Violet = the deep and the unknown. Faint teal moss is the only
-   other glow.
+   and the ancient builders. Violet = the deep and the unknown. Nothing
+   else glows (moss, lichen and damp stone do not).
 3. **Make the player forget the cubes.** The world is still built from 1 m voxels (mining,
    collision and light depend on it), but nothing on screen should frame a single block:
    materials are continuous in world space (16 texels per metre, 8 m period), materials of one
    family meet along irregular, texture-driven boundaries, and natural rock is sculpted
-   (crack-free vertex displacement) so edges read as chipped stone. Only things that are
-   built are straight: dressed masonry stays nearly straight, timber is exact. Props and the
-   explorer use smaller boxes (about 1/16 – 1/4 m) so they read as crafted objects.
-4. **Restraint.** Glow is reserved for things that matter (crystals, glyphs, lanterns, the
+   (chamfered, relaxed and relieved on the CPU, smooth-shaded) so it reads as rock, with its
+   texture following the sculpted surface. Built forms are authored meshes over the voxel
+   collision — stairs with 0.25 m treads, lathed columns with entasis, base and capital, an
+   arched bridge, dressed coping, timber in real sections — so architecture is drawn at
+   architectural scale, not in 1 m steps. Props and the explorer use smaller boxes (about
+   1/16 – 1/4 m) so they read as crafted objects.
+4. **Pixel art without a pixel grid.** Materials are painted at 16 texels per metre and sampled
+   sharp-bilinear: crisp texel edges where they mean something (cracks, joints, edges), no
+   flat nearest-filtered grid on every surface.
+5. **Restraint.** Glow is reserved for things that matter (crystals, glyphs, lanterns, the
    abyss). Particles are short-lived and few. No full-screen effects except bloom, vignette,
    colour grading, and brief flashes on discoveries (cyan) and damage (red).
 
