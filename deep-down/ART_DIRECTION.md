@@ -9,12 +9,51 @@ The reference image is a mood target, not a source. Everything is generated in c
 2. **Warm safety vs. cold mystery.** Amber = people, camp, lanterns, safety. Cyan = minerals
    and the ancient builders. Violet = the deep and the unknown. Faint teal moss is the only
    other glow.
-3. **Chunky, deliberate voxels.** 1 m blocks with 16×16 pixel-art faces, a 1-pixel bevel on
-   every block, per-vertex AO, per-face directional shading. Props and the explorer use
-   smaller boxes (about 1/16 – 1/4 m) so they read as crafted objects against the terrain.
+3. **Make the player forget the cubes.** The world is still built from 1 m voxels (mining,
+   collision and light depend on it), but nothing on screen should frame a single block:
+   materials are continuous in world space (16 texels per metre, 8 m period), materials of one
+   family meet along irregular, texture-driven boundaries, and natural rock is sculpted
+   (crack-free vertex displacement) so edges read as chipped stone. Only things that are
+   built are straight: dressed masonry stays nearly straight, timber is exact. Props and the
+   explorer use smaller boxes (about 1/16 – 1/4 m) so they read as crafted objects.
 4. **Restraint.** Glow is reserved for things that matter (crystals, glyphs, lanterns, the
    abyss). Particles are short-lived and few. No full-screen effects except bloom, vignette,
    colour grading, and brief flashes on discoveries (cyan) and damage (red).
+
+## Visual audit and identity pass (October 2026)
+
+A director's review found the slice "too reminiscent of Minecraft". The baseline was captured
+and scored before any change (12 gameplay shots + 4 Visual Lab views, three independent
+critics, details in CHANGELOG.md and TEST_REPORT.md):
+
+| Category | Baseline (avg of 3) | Main reasons |
+|---|---|---|
+| Geometry & silhouettes | 3 | every surface a flat plane of 1 m cubes; square shafts; stepped cones |
+| Textures & material detail | 3 | a framed 16 px tile per block face, bevel + per-block tint print the grid |
+| Material transitions & seams | ~2 | every change on a voxel edge; grass-block style moss caps |
+| Lighting & atmosphere | ~5 | good warm/cold idea; one flat navy fog; crushed blacks; per-axis face shade |
+| Cyan restraint & glyphs | ~3 | glyph lattice on every wall, inlays on every floor tile, blown-out crystal cubes |
+| Originality | 2 | brick, ore blocks, grass-sided moss, planks: a resource-pack vocabulary |
+| Readability on a phone | ~5 | clean HUD; explorer hides the path; ledges dissolve into the void |
+| Character & props | 5 | props are the most crafted assets; explorer is a box avatar |
+| Post-processing | ~5 | bloom glare on every glyph; vignette over the touch controls |
+
+Agreed top three: (1) continuous world-space materials with natural transitions, (2) sculpted
+geology and large-format architecture instead of brick boxes, (3) a strict cyan budget with
+carved, clustered inscriptions and an authored lighting/atmosphere model.
+
+## Material families
+
+| Family | Materials | Boundary rule | Sculpting |
+|---|---|---|---|
+| Geology | ancient dark stone, deep stone, weathered rock, damp stone, soil, gravel, copper vein, iron vein, bedrock | blend with each other along height-driven, wobbling boundaries | natural (≈0.19 m) |
+| Crystal | crystal | hard boundary with rock (credible), dark glass with lit facet edges | slight |
+| Masonry | ashlar walls, cap stones, floor slabs, crumbling masonry, glyph stones | blend within masonry (crumbling ↔ sound stone) | chipped (≈0.05 m) |
+| Timber & hearth | planks, beams, hearth stones | never blend | none / slight |
+
+Cyan budget: emission only where it means something — crystal facet edges, rune strokes in a few
+authored inscription panels, rare lichen. Inscriptions are carved (dark groove, faint ink) and
+wake up when the explorer's lantern comes near.
 
 ## Palette (sRGB)
 
