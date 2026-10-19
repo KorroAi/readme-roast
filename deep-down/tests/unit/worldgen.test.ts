@@ -138,7 +138,7 @@ describe('world generation', () => {
     }
   });
 
-  it('gives each space its key light: the Spindle, the seal, the frieze, the shrine dais and the chasm', () => {
+  it('gives each space its key light (the Spindle, the seal, the frieze, the shrine dais, the chasm) and the cyan-keyed ones a warm practical', () => {
     // One motivated light per space (ART_DIRECTION.md, composition rules), authored in
     // generateWorld's key-light pass: a cold emitter near each landmark, violet low in the chasm.
     const w = layout.world;

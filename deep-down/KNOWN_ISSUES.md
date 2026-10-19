@@ -55,6 +55,17 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 - A mined chunk is drawn one frame after the edit (meshing runs in workers); a phone's worker
   latency at 60 fps is unmeasured. The worker-assisted initial build (`?meshbuild=pool`) is
   opt-in until it is measured on a device.
+- Lighting (round 4): the camp's cool counterpoint is subtle. The cool-hue share in the camp
+  is still 0 %, because the umber rock sits under the fire's warm light. The lows stay lifted
+  in the open Hollow (p5 luma 21–36) so the darkest shot stays navigable. a04's
+  whole-foreground saturation is 0.22 (target 0.25): the dim charcoal floor neutralises.
+  Structure meshes still use the 4-argument `ambientFrom` (no lantern share), so stairs and
+  the bridge under the lantern keep slightly more cool fill than rock.
+- Camera (round 4): the explorer's size and the lens vary with the space by design (about
+  120–125 px and 94° in passages, 165 px and 105° in the shrine). The longer boom can bring a
+  newel or a crystal cluster large into the foreground (tour a14, a15). In the look-up shot
+  over the bridge approach (a16), a parapet cuts the boom and the explorer is cropped at the
+  bottom edge.
 - Natural rock is chamfered on the CPU: walkable edges sit up to ≈0.3 m below their collision
   height at convex corners (0 on flat interiors), and rock can reach 0.36 m into voxels the
   physics treats as open (the camera keeps 0.4 m from voxel hits for this reason).

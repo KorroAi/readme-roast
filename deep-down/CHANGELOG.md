@@ -130,6 +130,52 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   at the feet is targetable (fails on the unfixed rig, passes at 0.66 rad), and the explorer
   stays left and low at normal pitch.
 
+### Round 4 — near-field light and warm/cold ownership (`lighting.ts`, `PostFX.ts`, `terrainMaterial.ts`, key lights)
+- **Lantern.** The core is warm-pale (`#ffe6c6`) and reaches amber by about 1.8 m. Gain went
+  1.85 → 1.6 with a flatter falloff (K 9 → 6), so the pool carries ahead of the explorer.
+  - Up-facing ground 2.5–4.5 m out takes 40 % of the diffuse with 0.25 wrap: the pool reads as
+    a ring on the floor.
+  - A wider fuel-tank shadow leaves a dark disc under the flame instead of a hot spot at the boots.
+- **Warm/cool ownership.** `ambientFrom(ls, n, facing, ao, lantern)`: lamp plus lantern light
+  cuts the cool open fill by up to 75 %, so a face reads amber or blue and the lavender band
+  where they meet stays narrow. The terrain uses it.
+- **Split tone.** The PostFX split tone is now chroma-aware. Neutral darks lerp to a blue-black
+  of the same luminance, while amber, cyan and violet darks keep their hue. This removes the
+  rose/mauve falloff.
+- **Lamps.** Route and amber lamps are amber-gold, no longer red-orange. The red-orange light,
+  mixed with the blue fill on bluish stone, came out lavender after the light curve.
+- **Atmosphere.** Hollow fill `#8a9ab5` at 0.95, exposure 2.25. The camp has cool charcoal air
+  (`#1b1a1c`) and a cool base ambient.
+- **Warm practicals.** A lamp in the shrine's first bay and one at the Spindle's foot, appended
+  last so no prop id moves. Cyan emitters stay at 103 of 120.
+- **Verified.** Full 17-shot same-camera A/B, control → this pass:
+  - a04 foreground p90: 134 → 113.
+  - Hue 270–360 share in Hollow shots: a06 29.5 → 1.1, a10 21.5 → 1.1, a13 16.2 → 1.1.
+  - Lit floor hue 316–10° → 26–30°.
+  - Feet-zone share of the brightest pixels: a08 79 → 60, a04 59 → 32.
+  - Averages p95 125, std 35, local 10.0, dark 5.5, clip 0.
+  - Battery and `?ldr=1` were captured and read.
+  - A worldgen test guards the two practicals. tsc and vitest pass (416/416).
+  - Not met: a04's whole-foreground saturation is 0.22 against the 0.25 target. The camp's cool
+    counterpoint is subtle.
+
+### Round 4 — the lens (`CameraRig.ts`, Visual Lab)
+- **Lens.** A 90° horizontal lens, locked in landscape (vertical 48.5° at 915×412), and at most
+  72° vertical in portrait. It opens toward 106° only while rock holds the boom short.
+- **Framing.** 8.3 m boom, 1.0 m shoulder, 0.14 rad pitch and 0.21 rad yaw framing. The explorer
+  is 90–111 px tall at a third of the width, clear of the joystick.
+- **Space-aware.** The boom eases in for passages (5.4 m), bends, facing rock, looking down and
+  looking up. It steps to the other shoulder when one side is walled in (a12: explorer box
+  9.5 % → 1.3 % of the frame).
+- **Visual Lab.** The props camera is fixed (std 3.4 → 29.5). The lantern view shows the explorer
+  carrying the tier-1 lantern under the gameplay rig.
+- **Verified.**
+  - `camera.test.ts` 18/18, 6 of them new: lens lock, shoulder step, short-boom framing, passage
+    boom, facing rock and looking up. The 400-pose fuzz still passes.
+  - Aim over 260 sampled spots: 54.6 % (round-3 rig 50.0 %). Seal, copper, slate and iron
+    aimchecks all mine.
+  - Same-tree A/B: dark 7.3 → 5.8, heroTop 24.9 → 14.8.
+
 ### Round 4 — architecture off the voxel lattice (`render/structures/*`, `architecture.ts`)
 - Built forms are procedural meshes drawn over hidden collision cells (new block ids 24–33:
   solid, invisible, unbreakable), so light, raycasts, mining, reachability and camera collision

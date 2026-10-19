@@ -847,8 +847,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
   }
   addProp({ kind: 'tablet', x: 55.5, y: shrine.y0, z: 104, rotY: Math.PI / 2, interact: 'relic', emitters: [] });
-  // No lamp in the shrine: the tablet's own glow and the waking inscription are the only
-  // cold light, so the room stays dark until the explorer's lantern enters it.
+  // The tablet's own glow and the waking inscription are the shrine's cold light; its one warm
+  // practical (a lamp the earlier expedition left in the first bay) is placed in the key-light pass.
   addProp({ kind: 'crystalCluster', x: 52.6, y: shrine.y0, z: 109.4, rotY: 2.2, scale: 0.9, emitters: [], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 2, max: 3 } });
   lanternPost(65.5, floorBase + 1, 100.5, Math.PI / 2);
   discoveries.push({ id: 'shrine', min: [shrine.x0, shrine.y0 - 1, shrine.z0], max: [shrine.x1 + 1, shrine.y1, shrine.z1 + 1] });

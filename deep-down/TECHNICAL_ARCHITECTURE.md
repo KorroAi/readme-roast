@@ -187,10 +187,13 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
    never leaks through walls, and it costs 0.2–0.6 ms where ray-marching each voxel cost
    1.75–5.7 ms. It recomputes when the flame moves 0.35 m, the radius changes or the world
    changes; a flame a few cm inside a wall starts from the nearest open voxel. The shader
-   applies a windowed inverse-square falloff from the flame's exact position (scaled with the
-   radius; about 4× lower at 6 m than at 1 m), a nearly neutral core with amber beyond about
-   2.5 m, a shadow cone under the fuel tank (no hot spot at the explorer's feet) and a cool-grey
-   tinted bounce; `minDist` lets the explorer measure its own lantern from 3 m.
+   applies a windowed inverse-square falloff from the flame's exact position (K 6, gain 1.6:
+   0.95 at 1 m, 0.68 at 3 m, 0.30 at 6 m). The core is warm-pale (#ffe6c6) and reaches amber by
+   about 1.8 m. A fuel-tank shadow cuts 90 % over 17–50° below the flame, leaving a dark disc
+   about 1 m across under a flame that hangs about 0.66 m above the feet. Up-facing ground
+   2.5–4.5 m out takes 40 % of the diffuse with 0.25 wrap, so the pool reads as a ring ahead of
+   the explorer. The bounce is partly tank-shaded. `minDist` lets the explorer measure its own
+   lantern from 3 m.
 3. Surfaces sample both volumes at `position + normal * 0.5` (the open voxel in front of the
    face), so trilinear filtering yields soft light and natural corner darkening.
 4. Atmosphere: four zone presets (`ATMOSPHERES` in `lighting.ts`: camp warm umber, tunnel
@@ -205,8 +208,14 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
    float as specks, while a clearer near haze and a darker thin veil let nearer forms stand out
    against deeper, brighter haze. Each zone carries ambient and a cool hemispheric open-space
    fill (floors get it fully, walls 40 %, overhangs none), a lantern bounce amount and the
-   scene exposure handed to post (camp 1.8, tunnel 1.36, Hollow 2.3, rift 2.1; the player's
-   brightness multiplies it). Placed light gets a direction (`LAMP_DIR`): one extra light-volume
+   scene exposure handed to post (camp 1.8, tunnel 1.36, Hollow 2.25, rift 2.1; the player's
+   brightness multiplies it). The Hollow fill is #8a9ab5 at 0.95. The camp has cool charcoal
+   air (fog #1b1a1c) and a cool base ambient. Warm and cool light own faces:
+   `ambientFrom(ls, n, facing, ao, lantern)` cuts the cool open fill by up to 75 % by the ratio
+   of warm light (lamps plus lantern) to the fill (0.6×–1.8×). A face reads either amber or
+   blue, and the lavender band where they meet stays narrow. The terrain uses the lantern-aware
+   overload. Structures still use the 4-argument form, which includes the lamp-light part
+   only. Placed light gets a direction (`LAMP_DIR`): one extra light-volume
    tap one voxel further out along the normal gives the gradient of placed light and of open
    space, so faces turned away from a lamp, and recesses, fall to the cool fill (Battery
    compiles it out). Albedos are real reflectances (`materials/palette.ts`), so darkness comes
@@ -215,8 +224,9 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
    resolved), 4-level dual-filter bloom extracted on luminance (threshold 1.2, strength 0.4),
    a hue-preserving tone map (the filmic curve drives the brightest channel, mixed 50 % with
    the per-channel curve in the darks; ACES-like toe, not lifted), a hue-keeping contrast
-   S-curve (pivot 0.1, power 1.3) and a split grade (blue-black shadows that keep black at
-   black, amber highlights), an elliptical vignette
+   S-curve (pivot 0.1, power 1.3) and a chroma-aware split grade (neutral darks lerp to a
+   blue-black of the same luminance, weighted by 1 − smoothstep(0.15, 0.45, saturation), so
+   amber, cyan and violet darks keep their hue; amber highlights), an elliptical vignette
    weighted to the top so the touch-control corners stay clean, dithering, player brightness
    (exposure ×0.7–1.5). If the device cannot render to float targets (no
    `EXT_color_buffer_(half_)float`), 8-bit targets are used and the scene is encoded as
@@ -311,21 +321,49 @@ panels average the cap). Behind the pause and death overlays the game renders at
 
 ## Camera
 
-Third-person over-the-shoulder rig (`game/CameraRig.ts`): 1.15 m shoulder, 4.8 m boom, a 67°
-lens in landscape (up to 72° in portrait, where the shoulder also shrinks), and the boom tilted
-against the lens (0.17 rad pitch, 0.06 rad yaw) with the look target about 0.8 m above the chest,
-so the explorer stands in the lower-left third and the route ahead stays visible. Because the
-framing is an angle, it shrinks with the boom as rock pulls it in, so tunnels behave as before.
-Looking down (pitch −0.3 → −1.0 rad, smoothstep) the framing eases toward a plain
-over-the-shoulder view: the pitch tilt and yaw framing fade out and the shoulder comes in to
-55 %. Without it, a block at the boots could not be put under the crosshair at all (the lens
-would have to pitch past its −1.2 rad limit); a unit test guards it, and over 260 sampled
-mining spots the aim success equals the round-2 rig (50.4 % vs 49.6 %; the rest are blocks with
-no face toward the camera).
+Third-person over-the-shoulder rig (`game/CameraRig.ts`).
+
+**Lens**
+- 90° horizontal, locked in landscape. The vertical angle comes from the aspect every frame
+  through `lockedVerticalFov()`: 48.5° at 915×412, 58.7° at 16:9.
+- At most 72° vertical in portrait and 4:3.
+- The lens opens toward 106° only while rock holds the boom short. It eases in, is full at 3 m
+  and gone from 7.8 m, and fades out when looking up (pitch 0.1–0.4).
+
+**Framing**
+- 8.3 m boom: the explorer is 90–111 px tall at 412 px.
+- 1.0 m shoulder, 0.14 rad pitch framing, 0.21 rad yaw framing.
+- The explorer's centre sits at about 33–35 % of the width, feet at about 85 % of the height,
+  clear of the joystick zone.
+
+**Space-aware**
+- In a passage (roof within 4–6.5 m, walls all round, mean free length 3.8–6 m), the boom eases
+  to 5.4 m.
+- The boom eases in to keep the route 3.5 m ahead in view on bends.
+- Facing rock within 2.2–3.8 m, the yaw framing eases out, so the crosshair lands on the face
+  being mined.
+- Looking down, the boom comes in to 62 % and the shoulder to 55 %.
+- Looking up, past 0.08 rad below the pivot, only 15 % of the extra pitch tips the boom down.
+
+**Short boom**
+- The yaw framing gives back what the shorter boom adds, so the explorer keeps its screen place
+  down to about a 2.9 m boom.
+- Slides scale the shoulder and the yaw framing together (0.7, 0.4).
+- The rig steps to the other shoulder when no framing gets 4.4 m and that side gets 2 m more
+  (with at least half a shoulder of side room). It steps back when the first side has 4.8 m,
+  or is within 0.4 m of the other.
+- Boom regrowth is capped at 5 m/s.
+
+**Cost and aim**
+- About 19 short rays per frame in open space, up to about 90 while a cut boom is judged; 12 µs
+  per update in Node.
+- Mining aim succeeds on 54.6 % of 260 sampled spots (round-3 rig: 50.0 %). The rest are blocks
+  with no face toward the camera, which the touch aim assist covers.
+
 The shoulder offset is cast sideways first and shortened against walls: room shrinks at once and
 grows back slowly (no jerks along rough walls); when the right side is walled in and the left is
-open, the rig swaps shoulders through a critically damped spring (no overshoot, with
-hysteresis); when a post or corner behind the shoulder cuts the boom short, the shoulder slides
+open, the rig swaps shoulders through a critically damped spring (no overshoot, with the
+step-over rule above as hysteresis); when a post or corner behind the shoulder cuts the boom short, the shoulder slides
 in to 0.7 or 0.4 of its width and back out once clear. The boom is a bundle of 9 rays from the
 shoulder point: it snaps in at once and eases back out, and a last check pulls the lens out of
 rock if a ray grazed a corner. Unit tests sweep fast turns in a tight tunnel, fuzz 400 poses

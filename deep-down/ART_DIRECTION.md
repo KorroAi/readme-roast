@@ -79,9 +79,9 @@ near. The budget is a test (≤ 120 cyan emitter voxels; measured 86) and a capt
 | Copper | `#3d2115` … `#e58444`, glints `#ffb978`, verdigris grey-green `#2b453d` … `#56856b` (not cyan) |
 | Iron | steel `#24252a` … `#7f848d`, red jasper `#3a201a` … `#834434`, rust `#7e5232` |
 | Timber / hearth | timber `#201915` … `#7f634d`; soot `#131212` … `#554d47`, embers `#4a1606` … `#d8722a` |
-| Lantern / camp amber | lantern nearly neutral at the core → amber beyond ~2.5 m; route lamps a deeper amber |
+| Lantern / camp amber | lantern warm-pale at the core (`#ffe6c6`) → amber by ~1.8 m; route lamps amber-gold, never red-orange |
 | Abyss violet | bedrock `#0b0b0f` … `#2f2c3d`, vein `#3c2f5d`, emitter (0.50, 0.32, 1.0) |
-| Atmosphere (per zone) | Hollow fog `#203046` over a low pool `#121638`, cool open-space fill `#95b3e7`; camp `#22190f`; tunnel `#161a20`; rift `#1e1a36` over `#2a1a4a` |
+| Atmosphere (per zone) | Hollow fog `#203046` over a low pool `#121638`, cool open-space fill `#8a9ab5`; camp air cool charcoal `#1b1a1c`; tunnel `#161a20`; rift `#1e1a36` over `#2a1a4a` |
 
 The canonical ramps live in `src/render/materials/palette.ts` and the atmosphere presets in
 `src/render/lighting.ts` (`ATMOSPHERES`); this table is a summary.
@@ -100,10 +100,16 @@ The canonical ramps live in `src/render/materials/palette.ts` and the atmosphere
 - The lantern casts soft shadows: visibility is propagated outward from the flame, so shadow
   edges are crisp near an occluder and widen with distance, like a real flame. It falls off
   like a real flame (windowed inverse square, about 4× dimmer at 6 m than at 1 m): pale and
-  nearly neutral close by, amber at the rim, and the fuel tank shades the ground under it.
+  warm-pale close by, amber within about 1.8 m, and the pool reads as a ring on the ground
+  ahead. The fuel tank leaves a dark disc about 1 m across under the flame, so the boots are
+  never a hot spot.
 - Unlit sides go blue-black, not brown: the Hollow, the shrine and the rift get a cool
   hemispheric fill from open space (floors most, walls less, overhangs none), and faces turned
-  away from a lamp fall to that cool fill. Warm against cold is the main contrast.
+  away from a lamp fall to that cool fill. Warm against cold is the main contrast, and each
+  face belongs to one of them: warm light cuts the cool fill (up to 75 %), so a face reads
+  amber or blue, never lavender.
+- Every cyan-keyed space also has one warm practical (the shrine lamp, the Spindle-foot lamp),
+  so cold light is always read against a human flame.
 - Every space has one key light that tells the player where to look: the Spindle's uplight and
   rim lights, the seal's underglow and the lit frieze recess, the shrine dais and tablet,
   violet light low in the chasm under the bridge.
@@ -112,12 +118,16 @@ The canonical ramps live in `src/render/materials/palette.ts` and the atmosphere
 - Placed lights get a soft additive halo so distant lamps read across the dark.
 - Warm pools along the route alternate with dark gaps; the eye follows the next pool.
 - The grade has real highlights and blacks that stay black (no lifted toe): a hue-keeping
-  S-curve and a split grade, blue-black shadows and amber highlights.
+  S-curve and a chroma-aware split grade. Neutral darks go blue-black; amber, cyan and violet
+  darks keep their hue (no rose or mauve falloff). Highlights lean amber.
 
 ## Camera framing
 
-Over the right shoulder, 4.8 m boom, 67° lens, the explorer small in the lower-left third so
-the route, the target and the space ahead read first; the crosshair stays on the rock. In
+Over the right shoulder on a 90° locked horizontal lens and an 8.3 m boom. The explorer is
+about a quarter of the frame height (90–110 px on a 412 px screen), centred at about a third of
+the width, feet near the bottom: clear of the joystick, with the route, the target and the space
+ahead reading first, and the crosshair on the rock. Passages pull the boom in to 5.4 m, and the
+lens opens toward 106° only while rock holds the boom short. In
 tunnels the rig swaps to the left shoulder when the right is walled in, and the explorer fades
 smoothly (true transparency, no dither pattern) when the camera gets close, instead of filling
 the screen.
