@@ -88,6 +88,7 @@ re-run after each round, so scores are comparable. Screenshots live in `artifact
 |---|---|---|---|---|---|---|---|---|---|
 | Baseline (pre-refactor) | 3 / 3 / 3 | 3 / 3 / 3 | 2 / 1 / 2 | 5 / 6 / 4 | 3 / 3 / 2 | 2 / 2 / 2 | 5 / 6 / 5 | 5 / 5 / 5 | 5 / 5 / 4 |
 | Round 2 (materials, architecture, lighting, explorer) | 4 / 4 / 4 | 5 / 5 / 5 | 5 / 4 / 5 | 5 / 5 / 4 | 6 / 6 / 6 | 4 / 4 / 4 | 5 / 5 / 5 | 6 / 6 / 6 | 6 / 5 / 5 |
+| Round 3 (sculpted rock, camera, exposure chain, masonry courses) | 5 / 5 / 5 | 5 / 5 / 5 | 5 / 4 / 5 | 6 / 6 / 6 | 6 / 6 / 6 | 5 / 5 / 5 | 6 / 6 / 6 | 6 / 6 / 6 | 6 / 6 / 6 |
 
 (three critics' scores per cell; later rounds are added below as they are run)
 
@@ -114,6 +115,35 @@ regressions and weaknesses, which set round 3:
 | Ledge vista | 9 | 6 |
 | Hollow floor | 9 | 8 |
 | Bridge | 12 | 9 |
+
+Round 3 (`artifacts/round3`, 17 shots: a01–a13 unchanged, plus a14 gate frieze, a15 hall columns,
+a16 Spindle, a17 ledge reveal at a flatter pitch). Tour metrics (`metrics.py`, averages, round 2 →
+round 3): p95 luma 64 → 134, std 20 → 38, local contrast 5.5 → 10.1, below luma 12 10.1 → 8.3 %,
+clipped 0 → 0 %, saturated cyan 0.4 → 0.6 %, coldDark 45 → 76 %, explorer share of the brightest 1 %
+60 → 26 %. Agreed wins: no 1 m step on natural rock, the Spindle and the Hollow read as silhouettes
+against haze, masonry reads as large-format ashlar, crumbling as a wall coming apart, the explorer
+is demoted. Agreed weaknesses, which set round 4:
+- built architecture is the main voxel tell: 1 m stair risers, square-reading columns, box
+  parapets and kerbs, a 5 m chasm that reads as a corridor, 1 m camp timber, the ziggurat
+  monolith's glowing slits;
+- near field: the white lantern core and raised floor albedo make the floor ahead read as snow
+  (a04 foreground p90 163, saturation 0.13); warm share in the Hollow fell (a11 30 → 8.5 %); a
+  mauve cast on Hollow stone (hue 300–360 a06 4.7 → 18.8 %); every key light is cyan, so the shrine
+  is monochrome blue;
+- surface presentation: textures still project from the undisplaced lattice (stretched chamfers,
+  1 m top/side stripes on smooth rock), nearest-filtered camouflage speckle, facet wedges and
+  sine-wave strata in the rock painter, runes as one icon per cell, a cube outline on the mining
+  target, a pixel-column Glimmerfall;
+- lens: a vertical 67° at 2.22:1 is a 111° horizontal view that stretches edge boxes; the boom
+  collapses into a giant explorer at the balcony;
+- Lab: the props capture is blank (camera), the game-light lantern room is still near-black.
+
+Round 3 against round 2 (commit dc24090 vs 69a9f43, production builds, three alternating runs
+each, wall FPS): camp 10 / 11 / 12 → 10 / 9 / 10, tunnel 5 / 5 / 5 → 4 / 4 / 5, ledge vista
+5 / 6 / 6 → 6 / 6 / 5, Hollow floor 5 / 5 / 5 → 4 / 3 / 4, bridge 7 / 5 / 7 → 6 / 6 / 7; triangles
++3–16 % (wider lens, longer boom), GPU geometry 5.1 → 6.4 MB, boot to menu +0.15–0.2 s; mining
+main-thread cost per block 0.64–0.91 → 0.68–0.79 ms with the chunk drawn one frame later (mesh
+workers).
 
 Round 2 against round 1 (commit e49ffd2 vs dc24090, production builds, alternating runs, two
 each, wall FPS): camp 12 / 12 → 11 / 9, tunnel 6 / 6 → 5 / 5, ledge vista 5 / 6 → 6 / 5, Hollow
