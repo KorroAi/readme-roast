@@ -91,6 +91,12 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   crumblingB: { glow: 0.9 },
 };
 
+/**
+ * Course libraries (see courses.ts): every masonry-family layer. The terrain shader lays their
+ * strips course by course, so they wrap along x (pieces end on a joint) but never vertically.
+ */
+export const COURSE_LAYERS: readonly MaterialName[] = ['masonry', 'masonryTop', 'floorSlab', 'crumbling', 'masonryB', 'crumblingB'];
+
 /** Material families: only materials of the same non-zero family blend at their boundaries. */
 export const FAMILY = { NONE: 0, GEOLOGY: 1, CRYSTAL: 2, MASONRY: 3 } as const;
 

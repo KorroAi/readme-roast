@@ -10,8 +10,9 @@ export interface ChunkStats {
   triangles: number;
   /** GPU bytes of all terrain vertex and index buffers. */
   bytes: number;
-  /** Main-thread ms of the last chunk update and the largest one: the whole mesh when meshing on
-   *  the main thread; with workers, the copy + post of its voxels or the upload of its result. */
+  /** Main-thread ms of the last chunk update in play (not buildAll) and the largest one: the whole
+   *  mesh when meshing on the main thread; with workers, the copy + post of its voxels or the
+   *  upload of its result. */
   lastRebuildMs: number;
   maxRebuildMs: number;
   /** Mesh workers in use; 0 = meshing on the main thread (no workers, or they failed). */
@@ -79,8 +80,9 @@ interface BuildState {
 
 /** Gameplay: jobs in flight per worker (an edit waits behind at most this many). */
 const JOBS_PER_WORKER = 4;
-/** buildAll: jobs in flight per worker (covers a main-thread slice), and per message. */
-const BUILD_JOBS_PER_WORKER = 32;
+/** buildAll: jobs in flight per worker (a few ms of work: enough to cover a main-thread slice,
+ *  few enough that little is meshed twice when the main thread steals the tail), per message. */
+const BUILD_JOBS_PER_WORKER = 16;
 const BUILD_BATCH = 8;
 /** buildAll with workers: the main thread meshes from the back of the queue in slices this long. */
 const BUILD_MAIN_SLICE_MS = 6;
@@ -397,7 +399,7 @@ export class ChunkRenderer {
     w.dirty[i] = 0;
     this.applyMesh(i, cx, cy, cz, meshChunk(w, cx, cy, cz), w.revision);
     this.stats.syncMeshes++;
-    this.noteRebuild(now() - t0);
+    if (!this.building) this.noteRebuild(now() - t0);
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -507,10 +509,10 @@ export class ChunkRenderer {
       const r = job.result!;
       const t0 = now();
       this.applyMesh(i, job.cx, job.cy, job.cz, new ChunkMeshData(r.vertices, r.indices, r.vertexCount, r.faceCount, r.seams), job.rev);
-      this.noteRebuild(now() - t0);
       this.stats.workerMeshes++;
       if (job.build) this.markBuilt(i);
       else {
+        this.noteRebuild(now() - t0);
         const s = this.stats;
         s.lastRoundTripMs = now() - job.t;
         s.lastLatencyFrames = this.frame - job.frame + 1;

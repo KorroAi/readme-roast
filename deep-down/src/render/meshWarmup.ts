@@ -8,7 +8,7 @@ import { PADDED_VOXELS, meshPadded } from './mesher';
  * timber, so every sculpting, AO and seam path runs. Output is discarded; MESH_OPTIONS are not
  * touched. Stops after `reps` meshes or `budgetMs`. Returns the ms spent.
  */
-export function warmUpMesher(reps = 32, budgetMs = 900): number {
+export function warmUpMesher(reps = 16, budgetMs = 500): number {
   const t0 = performance.now();
   const v = new Uint8Array(PADDED_VOXELS);
   for (let rep = 0; rep < reps && performance.now() - t0 < budgetMs; rep++) {

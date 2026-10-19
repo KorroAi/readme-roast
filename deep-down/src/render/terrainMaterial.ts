@@ -227,7 +227,7 @@ void main() {
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
   float ao = vAo / 3.0;
-  float aoCurve = 0.42 + 0.58 * ao;
+  float aoCurve = 0.25 + 0.75 * ao;
   float shade = shadeOf(ng);
   vec3 ambient = ambientFrom(ls, ng) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)

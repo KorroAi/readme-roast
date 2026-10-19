@@ -16,16 +16,16 @@
  */
 
 /** Charcoal / blue-black base rock (slate). */
-export const STONE = [0x191d24, 0x21272f, 0x2a303c, 0x343c48, 0x404755, 0x4d5563, 0x5c6472, 0x6f7582] as const;
+export const STONE = [0x151920, 0x1d232b, 0x272d38, 0x323944, 0x3e4553, 0x4c5461, 0x5c6472, 0x717784] as const;
 /** Deep stone: the same family one step darker and denser. */
-export const DEEP = [0x13151b, 0x191d23, 0x1f242c, 0x272d38, 0x2f3743, 0x3b4350, 0x48505e, 0x575e6a] as const;
+export const DEEP = [0x0f1217, 0x161a1f, 0x1d2129, 0x252b35, 0x2e3541, 0x3a424f, 0x48505e, 0x595f6c] as const;
 /**
  * Weathered rock: lighter and neutral grey (never beige: the warm lantern already warms it);
  * its only warmth is the ochre deposits in its cracks.
  */
-export const WEATHERED = [0x212328, 0x2a2c33, 0x34373e, 0x3f434a, 0x4c5057, 0x595d65, 0x686c75, 0x787d84] as const;
+export const WEATHERED = [0x1b1d21, 0x24262c, 0x2d3036, 0x373a41, 0x43464d, 0x4f525a, 0x5d6068, 0x6c7077] as const;
 /** Damp stone: the slate family, cooler and darker where water sits on it. */
-export const DAMP = [0x13181e, 0x192027, 0x1f2830, 0x27313b, 0x2f3b47, 0x394654, 0x445362, 0x536273] as const;
+export const DAMP = [0x0f141a, 0x161c23, 0x1c252d, 0x252f38, 0x2d3945, 0x384553, 0x445363, 0x546475] as const;
 /** Wet sheen and water traces (used sparingly, on streak edges). */
 export const WET_SHEEN = 0x5d728b;
 /** Lichen crust: muted grey-olive, a step above the rock it grows on. */
@@ -54,7 +54,7 @@ export const CRYSTAL_GLOW = 0x2fb6cc;
 export const CRYSTAL_EDGE = 0x8fe3ee;
 
 /** The seal's dense plated stone. */
-export const SEAL = [0x15171f, 0x1b1f28, 0x222832, 0x2a303e, 0x343c4b, 0x40495a] as const;
+export const SEAL = [0x11141b, 0x181c25, 0x20252f, 0x292f3c, 0x343c4b, 0x414b5c] as const;
 export const SEAL_FLECK = 0x8290ae;
 
 /** Abyssal bedrock: near-black with violet undertone. */
@@ -62,7 +62,7 @@ export const BEDROCK = [0x0b0b0f, 0x101015, 0x14141c, 0x1a1923, 0x201f2b, 0x2725
 export const ABYSS_VEIN = 0x3c2f5d;
 
 /** Ancient builders' stone: finer and slightly cooler than the natural rock it was cut from. */
-export const ASHLAR = [0x22262d, 0x292d36, 0x323641, 0x3b414b, 0x464c57, 0x525865, 0x606674, 0x6f7785] as const;
+export const ASHLAR = [0x1d2128, 0x252931, 0x2e323c, 0x383e47, 0x434955, 0x515764, 0x606675, 0x717988] as const;
 export const JOINT = 0x111216;
 /** Soot-black hearth stones and their ash. */
 export const SOOT = [0x131212, 0x1b1818, 0x23211f, 0x2e2a27, 0x3a3431, 0x47403c, 0x554d47] as const;

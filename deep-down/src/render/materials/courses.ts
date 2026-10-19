@@ -50,13 +50,13 @@ const SLOT_TEXELS = COURSE_SLOT * MAT_DENSITY;
  * faces and for horizontal faces (paving rows, cap stones). About a third of a wall is 2 m
  * courses, 40 % 1 m, the rest 1.5 m and a few thin 0.5 m levelling courses.
  */
-export const BED_JOINT_CHANCE = { wall: [0.15, 0.5, 0.15], flat: [0.1, 0.42, 0.1] } as const;
+export const BED_JOINT_CHANCE = { wall: [0.12, 0.48, 0.12], flat: [0.1, 0.42, 0.1] } as const;
 
 /**
  * Region vocabularies: chance that a 4 m piece of a course (1 m or taller) is megalithic (B)
  * rather than coursed ashlar (A), and the size of the region cells (m).
  */
-export const VOCABULARY_MEGALITHIC = [0.08, 0.42, 0.82] as const;
+export const VOCABULARY_MEGALITHIC = [0.12, 0.5, 0.85] as const;
 export const VOCABULARY_CELL = [24, 16, 24] as const;
 
 export interface Strip {

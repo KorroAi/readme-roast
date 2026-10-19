@@ -58,9 +58,12 @@ const spares: Array<{ worker: Worker; failed: string | null }> = [];
 /**
  * Start the mesh workers early (the game calls this before generating the zone) and let them
  * compile the mesher on synthetic chunks, so the zone's first meshing runs at full speed instead
- * of paying V8's warm-up in every fresh isolate. The next pool adopts them.
+ * of paying V8's warm-up in every fresh isolate. The next pool adopts them. Skipped below four
+ * hardware threads, where the warm-up would take CPU from the zone worker (the pool then starts
+ * its workers cold, and buildAll's work stealing keeps that from slowing the build).
  */
 export function prewarmMeshWorkers(count = meshWorkerCount()): void {
+  if (typeof navigator === 'undefined' || (navigator.hardwareConcurrency || 2) < 4) return;
   for (let k = spares.length; k < count; k++) {
     let worker: Worker;
     try {
@@ -69,7 +72,10 @@ export function prewarmMeshWorkers(count = meshWorkerCount()): void {
       return; // the pool will find out (and fall back) on its own
     }
     const spare = { worker, failed: null as string | null };
-    worker.onerror = (e) => (spare.failed = e.message || 'failed to load or run');
+    worker.onerror = (e) => {
+      e.preventDefault(); // handled: the pool falls back to the main thread
+      spare.failed = e.message || 'failed to load or run';
+    };
     worker.onmessageerror = () => (spare.failed = 'message could not be deserialized');
     worker.onmessage = (e: MessageEvent<MeshResponse>) => {
       if (e.data.type === 'error') spare.failed = e.data.message;
@@ -146,7 +152,10 @@ export class MeshPool {
       for (let k = 0; k < count; k++) {
         const slot: Slot = { worker: spawn(), jobs: 0, requests: [], options: '' };
         slot.worker.onmessage = (e) => this.receive(slot, e.data as MeshResponse);
-        slot.worker.onerror = (e) => this.fail(`mesh worker error: ${e?.message || 'failed to load or run'}`);
+        slot.worker.onerror = (e) => {
+          e?.preventDefault?.(); // handled: the owner falls back to the main thread
+          this.fail(`mesh worker error: ${e?.message || 'failed to load or run'}`);
+        };
         slot.worker.onmessageerror = () => this.fail('mesh worker message could not be deserialized');
         this.slots.push(slot);
       }

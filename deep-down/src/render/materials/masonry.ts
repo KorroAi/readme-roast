@@ -23,6 +23,8 @@ import * as P from './palette';
  */
 
 const S = MAT_SIZE;
+/** One step of the ashlar ramp in value units. */
+const STEP = 1 / P.ASHLAR.length;
 
 interface Stone {
   tone: number;
@@ -131,7 +133,8 @@ function layoutB(rng: Rng): Bond {
   const lib = strips('B');
   lib.forEach((st, si) => {
     const courseTone = rng.next();
-    const [lo, hi] = st.h <= 16 ? [26, 54] : st.h <= 24 ? [28, 62] : [32, 74];
+    // Mostly two stones per 4 m piece (so the slanted and joggled joints show), sometimes one.
+    const [lo, hi] = st.h <= 16 ? [20, 40] : st.h <= 24 ? [22, 42] : [24, 46];
     // Joint lines between stones; the piece edges (x = 0 and 64) stay straight, because the
     // shader lays 4 m pieces in any order there.
     const ws = [0, 1].flatMap(() => widths(rng, COURSE_PIECE, lo, Math.min(hi, COURSE_PIECE), 0.1));
@@ -231,6 +234,12 @@ function finish(lib: CourseLibrary, b: BondBuilder, list: Strip[]): Bond {
 
 const bond = (lib: CourseLibrary): Bond => cached(`bond${lib}`, () => (lib === 'A' ? layoutA(rngFor('masonryBondA')) : layoutB(rngFor('masonryBondB'))));
 
+/** Stone ids per texel (-1 = joint) of a wall library, for tests and tools. */
+export function masonryBond(lib: CourseLibrary): { ids: Int32Array; strips: Strip[] } {
+  const b = bond(lib);
+  return { ids: b.ids, strips: b.strips };
+}
+
 interface DressOptions {
   /** Light from above baked into the arrises (walls); floors get rounded, unlit arrises. */
   topLit: boolean;
@@ -246,8 +255,8 @@ interface DressOptions {
 function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
   const f = new Field2();
   const bedding = fbm(rng, 4, 3, 0.5, 16); // faint horizontal bedding inside each block
-  const grain = fbm(rng, 32, 2, 0.5);
-  const spallN = fbm(rng, 16, 2);
+  const grain = fbm(rng, 16, 2, 0.5); // 3-8 texel clusters: a finer octave quantizes into speckle
+  const spallN = fbm(rng, 24, 1);
   const jointN = fbm(rng, 16, 1);
   const { ids, stones, up, down, left, right } = bd;
   for (let i = 0; i < S * S; i++) {
@@ -277,35 +286,41 @@ function dress(rng: Rng, bd: Bond, o: DressOptions): Field2 {
     const dR = right[i];
     const m = Math.min(dU, dD, dL, dR);
     const rough = 0.5 + st.wear * 0.8;
-    let v = 0.44 + (st.tone - 0.5) * 0.26 + (bedding(x, y) - 0.5) * 0.07;
+    // Pixel-art discipline: each stone sits in the middle of one ramp step, and its surface
+    // noise stays under half a step, so a stone reads as one tone with drawn details (arrises,
+    // margin, spalls, chips, cracks) instead of quantized two-tone camouflage blotches.
+    let v = (Math.floor((0.44 + (st.tone - 0.5) * 0.32) / STEP) + 0.5) * STEP + (bedding(x, y) - 0.5) * 0.05;
     let h = 195 + (st.tone - 0.5) * 40;
     // Cut-stone arrises: the edge under a bed joint catches light, the edge above one is in shadow.
     if (o.topLit) {
-      if (dU === 1) v += 0.1;
-      else if (dD === 1) v -= 0.09;
-      else if (dL === 1 || dR === 1) v -= 0.035;
-    } else if (m === 1) v -= 0.05;
+      if (dU === 1) v += STEP;
+      else if (dD === 1) v -= STEP;
+      else if (dL === 1 || dR === 1) v -= STEP * 0.5;
+    } else if (m === 1) v -= STEP * 0.6;
     if (st.drafted && m <= 2) {
-      // Drafted margin: a smooth band around a rougher, slightly raised boss.
-      v += (grain(x, y) - 0.5) * 0.03 + 0.02;
+      // Drafted margin: a smooth tooled band around a rougher, slightly raised boss (a change
+      // of texture, not a lighter frame: a printed frame per stone reads as a tile).
     } else {
-      v += (grain(x, y) - 0.5) * 0.09 * rough;
+      v += (grain(x, y) - 0.5) * (st.drafted ? 0.07 : 0.05) * rough;
       if (st.drafted) h += 12;
     }
     if (st.pillow > 0) {
       // Cushioned face: the middle swells toward the light, the edges roll away into the joint.
       const t = Math.min(m, 7) / 7;
-      v += st.pillow * (t * (2 - t) - 0.55) * 0.16;
+      v += st.pillow * (t * (2 - t) - 0.55) * 0.2;
       h += st.pillow * t * 22;
     }
-    if (o.worn > 0) v += (Math.min(m, 6) / 6) * 0.05 * o.worn - (m < 2 ? 0.03 * o.worn : 0);
-    if (st.wear > 1 - o.spalls && m > 1) {
-      // Spalled patch: a recessed rough scar with a lit lower rim.
+    // Foot wear shows as rounded, darker edges (above) and fewer sharp details, not as a lighter
+    // dished centre: a lit centre in a dark rim prints a frame on every slab, a tile.
+    if (o.worn > 0 && m === 2) v -= STEP * 0.4 * Math.min(1, o.worn);
+    if (st.wear > 1 - o.spalls && m > 1 && m <= 5) {
+      // Spalled edges: small recessed scars along the arrises (where frost and load break the
+      // stone), two steps darker, with a lit lower rim.
       const sp = spallN(x, y);
-      if (sp > 0.63) {
-        v -= 0.1 + (grain(x, y) - 0.5) * 0.08;
+      if (sp > 0.68) {
+        v -= STEP * 1.8;
         h -= 45;
-      } else if (sp > 0.59 && spallN(x, y - 1) > 0.63) v += 0.07;
+      } else if (sp > 0.62 && spallN(x, y - 1) > 0.68) v += STEP;
     }
     f.v[i] = v;
     f.h[i] = h;
@@ -355,7 +370,7 @@ function stains(c: MatCanvas, rng: Rng, bd: Bond, amount: number): void {
   }
 }
 
-const WALL: DressOptions = { topLit: true, chips: 0.3, cracks: 0.12, worn: 0, spalls: 0.25 };
+const WALL: DressOptions = { topLit: true, chips: 0.3, cracks: 0.08, worn: 0, spalls: 0.2 };
 
 /** A wall library (dressed field + bond), built once per pass and shared with crumbling. */
 function wall(lib: CourseLibrary): { f: Field2; bd: Bond } {
@@ -369,7 +384,7 @@ function wall(lib: CourseLibrary): { f: Field2; bd: Bond } {
 function paintWall(c: MatCanvas, lib: CourseLibrary): void {
   const { f, bd } = wall(lib);
   resolve(c, f, P.ASHLAR, P.JOINT, 0, 0.55);
-  stains(c, rngFor(`masonryStains${lib}`), bd, 0.3);
+  stains(c, rngFor(`masonryStains${lib}`), bd, 0.15);
 }
 
 /** Wall faces: coursed ashlar (library A). */
@@ -417,10 +432,10 @@ function paintCrumbling(c: MatCanvas, rng: Rng, lib: CourseLibrary): void {
   const { f, bd } = wall(lib);
   const { ids, stones, up, down, left, right } = bd;
   const rubble = fbm(rng, 16, 2);
-  const erode = fbm(rng, 32, 1);
+  const erode = fbm(rng, 24, 1);
   // The rubble core of the wall, seen where a facing stone has fallen out.
   const core = new PeriodicCells(rng, 26, 26, 0.9);
-  const grain = fbm(rng, 32, 2);
+  const grain = fbm(rng, 16, 2);
   const area = new Int32Array(stones.length);
   for (let i = 0; i < S * S; i++) if (ids[i] >= 0) area[ids[i]]++;
   const slipped = stones.map(() => rng.chance(0.35));
@@ -474,7 +489,7 @@ function paintCrumbling(c: MatCanvas, rng: Rng, lib: CourseLibrary): void {
     }
     // Arrises eaten back into the joint: the joint looks wider.
     const m = Math.min(dU, dD, dL, dR);
-    if (m === 1 && erode(x, y) > 0.38) {
+    if (m === 1 && erode(x, y) > 0.28) {
       f.code[i] = 1;
       f.v[i] = 0.08;
       f.h[i] = 6;

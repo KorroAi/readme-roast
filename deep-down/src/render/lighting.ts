@@ -108,9 +108,10 @@ float lanternVisibility(vec3 samplePos) {
 // explorer, about 5x dimmer 6 m away) and the pool ends softly at uLanternRadius instead of a
 // flat floodlight with a cliff edge. The falloff is relative to the radius (k = K / R^2), so a
 // bigger lantern throws a proportionally bigger pool and a dying one shrinks to an ember.
-// R = 11 m: 1 m 0.93, 3 m 0.60, 6 m 0.22, 9 m 0.06 (x LANTERN_GAIN). The lantern's fuel tank
-// shades the cone straight below the flame, so there is no hot spot at the carrier's feet: the
-// brightest ground is a ring around the explorer and the way ahead.
+// R = 11 m: 1 m 0.93, 3 m 0.60, 6 m 0.22, 9 m 0.06 (x LANTERN_GAIN). A hand lantern throws its
+// light out through the glass, not down: the fuel tank shades the steep cone below the flame
+// (more than ~25 degrees down), so there is no hot spot at the carrier's feet and the brightest
+// ground is the way ahead.
 // Colour: uLanternColor is the pale-gold core; it deepens to amber toward the rim of the pool
 // (a flame's light reads warmer as it falls off). A diffuse term with a little wrap so the
 // sculpted facets catch it, and a soft bounce (light scattered back by the grey rock around the
@@ -119,7 +120,7 @@ float lanternVisibility(vec3 samplePos) {
 // in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
 // who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
 const float LANTERN_K = 9.0;
-const float LANTERN_GAIN = 3.0;
+const float LANTERN_GAIN = 2.5;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
@@ -127,9 +128,9 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
   float below = -d.y / max(dist, 1e-3);
-  att *= 1.0 - 0.7 * smoothstep(0.55, 0.92, below);
+  att *= 1.0 - 0.6 * smoothstep(0.42, 0.9, below);
   float ndl = dot(n, d / max(dist, 1e-3));
-  float diff = clamp(ndl * 0.92 + 0.08, 0.0, 1.0);
+  float diff = clamp(ndl * 0.95 + 0.05, 0.0, 1.0);
   vec3 tint = mix(vec3(1.0, 0.6, 0.34), vec3(1.0), 1.0 - smoothstep(0.06, 0.5, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
@@ -222,8 +223,8 @@ export interface AtmospherePreset {
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 0.9 },
-  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x10141c, ambientGain: 0.55, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.18, absorb: 0.85, exposure: 0.76 },
+  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 0.85 },
+  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x10141c, ambientGain: 0.55, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 0.62 },
   hollow: { fog: 0x1c2a3c, fogLow: 0x141030, density: 0.016, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x0a0e16, ambientGain: 0.5, open: 0x95b3e7, openGain: 0.65, scatter: 0.12, bounce: 0.16, absorb: 0.6, exposure: 1.08 },
   rift: { fog: 0x171428, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.0 },
 };
@@ -324,12 +325,12 @@ export class LightingRig {
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
       // Pale-gold core (the shader deepens it to amber toward the rim of the pool).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffe2c0)).multiplyScalar(1.1) },
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffeacc)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
       uOpenAmbient: { value: new THREE.Color() },
-      uEmitGain: { value: 2.9 },
+      uEmitGain: { value: 3.3 },
       uFogColor: { value: new THREE.Color() },
       uFogLow: { value: this.fogLow },
       uFogPool: { value: this.fogPool },

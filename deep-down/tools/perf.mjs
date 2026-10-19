@@ -34,6 +34,13 @@ const t0 = Date.now();
 await page.goto(`${url}index.html`);
 await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: 180000 });
 const bootMs = Date.now() - t0;
+// Zone load and initial meshing at boot (mesh workers: 0 = main thread only, or a build without them).
+const boot = await page.evaluate(() => {
+  const r = window.__DD__.report();
+  const c = r.chunks;
+  return { ...r.timings, meshWorkers: c.workers ?? 0, workerFallback: c.workerFallback ?? null, bootWorkerMeshes: c.workerMeshes ?? 0, bootMainMeshes: c.syncMeshes ?? null };
+});
+console.log('boot', JSON.stringify({ bootToMenuMs: bootMs, ...boot }));
 await page.evaluate(async (q) => {
   const g = window.__DD__.game;
   g.updateSettings({ quality: q });
@@ -48,7 +55,7 @@ const spots = {
   hollowFloor: { lm: 'stairsBottom', dx: -4, yaw: 1.2, pitch: -0.05 },
   bridge: { lm: 'bridge', dx: 0, yaw: 3.1, pitch: -0.4 },
 };
-const results = { quality: opt.quality, viewport: opt.size, bootToMenuMs: bootMs, spots: {}, mining: null, save: null, memory: null };
+const results = { quality: opt.quality, viewport: opt.size, bootToMenuMs: bootMs, boot, spots: {}, mining: null, save: null, memory: null };
 for (const [name, s] of Object.entries(spots)) {
   await page.evaluate(({ s }) => {
     const dd = window.__DD__;
@@ -91,45 +98,117 @@ for (const [name, s] of Object.entries(spots)) {
   console.log(name, JSON.stringify(sample));
 }
 
-// Mining cost: break 20 slate blocks near the hall floor and time light + remesh work.
-results.mining = await page.evaluate(() => {
+// Mining cost, in the real frame loop: break 20 blocks near the hall floor, each at the start of a
+// frame's ChunkRenderer.update() (where a block broken in Game.step lands), and let the game render
+// on. Per block: the main-thread chunk work of every frame until nothing is left to mesh (update()
+// itself, plus worker results applied between frames on builds with mesh workers), the worst single
+// frame of it, and how late the mined chunk's new mesh is drawn (0 = in the frame of the edit, as
+// the synchronous mesher does; 1 = the next frame). The same code measures builds with and without
+// workers. The light update is timed on its own.
+results.mining = await page.evaluate(async () => {
   const g = window.__DD__.game;
   const s = g.session;
+  const cr = s.chunks;
   const w = s.world;
   const p = window.__DD__.landmarks().stairsBottom;
-  const lightMs = [];
-  const meshMs = [];
-  let n = 0;
   const minable = new Set([1, 2, 3, 4, 5, 6]);
   const exposed = (x, y, z) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([a, b, c]) => w.get(x + a, y + b, z + c) === 0);
-  for (let z = Math.floor(p[2]) - 12; z < p[2] + 12 && n < 20; z++)
-    for (let y = Math.floor(p[1]) - 3; y < p[1] + 3 && n < 20; y++)
-    for (let x = Math.floor(p[0]) - 16; x < p[0] && n < 20; x++) {
-      if (!minable.has(w.get(x, y, z)) || !exposed(x, y, z)) continue;
-      const old = w.get(x, y, z);
-      w.set(x, y, z, 0);
-      const t1 = performance.now();
-      s.blockChanged(x, y, z, old);
-      lightMs.push(performance.now() - t1);
-      const t2 = performance.now();
-      s.chunks.update(g.cameraRig.camera.position, 1000);
-      meshMs.push(performance.now() - t2);
-      n++;
+  const blocks = [];
+  for (let z = Math.floor(p[2]) - 12; z < p[2] + 12 && blocks.length < 20; z++)
+    for (let y = Math.floor(p[1]) - 3; y < p[1] + 3 && blocks.length < 20; y++)
+      for (let x = Math.floor(p[0]) - 16; x < p[0] && blocks.length < 20; x++) if (minable.has(w.get(x, y, z)) && exposed(x, y, z)) blocks.push([x, y, z]);
+  // Exclude boot from the per-chunk maxima.
+  for (const k of ['maxRebuildMs', 'maxWorkerMs', 'maxRoundTripMs', 'maxLatencyFrames']) if (k in cr.stats) cr.stats[k] = 0;
+  const mainMs = () => cr.stats.mainMs ?? 0;
+  const geoOf = (x, y, z) => cr.group.getObjectByName(`chunk_${x >> 4}_${y >> 4}_${z >> 4}`)?.geometry ?? null;
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  let edit = null;
+  let log = null;
+  let exitMain = mainMs();
+  const update = cr.update;
+  cr.update = function (focus, budget) {
+    if (edit) {
+      const e = edit;
+      edit = null;
+      e();
     }
-  // Worst case: remove an emitter (crystal) -> local light rebuild.
-  let crystalMs = null;
-  for (let i = 0; i < w.blocks.length && crystalMs === null; i++) {
-    if (w.blocks[i] !== 9) continue;
-    const z = Math.floor(i / (w.sx * w.sy));
-    const y = Math.floor(i / w.sx) % w.sy;
-    const x = i % w.sx;
-    w.set(x, y, z, 0);
-    const t = performance.now();
-    s.blockChanged(x, y, z, 9);
-    crystalMs = performance.now() - t;
+    const between = mainMs() - exitMain; // worker results applied since the last frame
+    const t0 = performance.now();
+    const n = update.call(this, focus, budget);
+    const ms = performance.now() - t0;
+    exitMain = mainMs();
+    log?.push({ ms: ms + Math.max(0, between), geo: log.geo() });
+    return n;
+  };
+  const lightMs = [];
+  const perBlock = [];
+  const frameMs = [];
+  const late = [];
+  const settle = [];
+  const crystalMs = [];
+  try {
+    for (const [x, y, z] of blocks) {
+      const before = geoOf(x, y, z);
+      log = [];
+      log.geo = () => geoOf(x, y, z);
+      edit = () => {
+        const old = w.get(x, y, z);
+        w.set(x, y, z, 0);
+        const t1 = performance.now();
+        s.blockChanged(x, y, z, old);
+        lightMs.push(performance.now() - t1);
+      };
+      for (let f = 0; f < 120; f++) {
+        await nextFrame();
+        if (edit || !log.length) continue;
+        if (log.at(-1).geo !== before && !w.dirty.includes(1) && !(cr.stats.pending > 0)) break;
+      }
+      const shown = log.findIndex((e) => e.geo !== before);
+      late.push(shown);
+      settle.push(log.length);
+      perBlock.push(log.reduce((a, e) => a + e.ms, 0));
+      frameMs.push(Math.max(...log.map((e) => e.ms)));
+    }
+    // Worst case for light: remove an emitter (crystal) -> local light rebuild.
+    for (let i = 0; i < w.blocks.length && !crystalMs.length; i++) {
+      if (w.blocks[i] !== 9) continue;
+      const z = Math.floor(i / (w.sx * w.sy));
+      const y = Math.floor(i / w.sx) % w.sy;
+      const x = i % w.sx;
+      w.set(x, y, z, 0);
+      const t = performance.now();
+      s.blockChanged(x, y, z, 9);
+      crystalMs.push(performance.now() - t);
+    }
+    await nextFrame();
+  } finally {
+    log = null;
+    delete cr.update; // back to the prototype method
   }
   const avg = (a) => +(a.reduce((x, y) => x + y, 0) / Math.max(1, a.length)).toFixed(2);
-  return { blocks: n, lightMsAvg: avg(lightMs), lightMsMax: +Math.max(...lightMs).toFixed(2), remeshMsAvg: avg(meshMs), remeshMsMax: +Math.max(...meshMs).toFixed(2), emitterRemovalLightMs: +crystalMs.toFixed(2), maxChunkRebuildMs: +s.chunks.stats.maxRebuildMs.toFixed(2) };
+  const max = (a) => +Math.max(...a).toFixed(2);
+  const st = cr.stats;
+  const check = window.__DD__.meshCheck ? await window.__DD__.meshCheck() : null;
+  return {
+    blocks: perBlock.length,
+    lightMsAvg: avg(lightMs),
+    lightMsMax: max(lightMs),
+    remeshMsAvg: avg(perBlock),
+    remeshMsMax: max(perBlock),
+    remeshFrameMsMax: max(frameMs),
+    framesLateAvg: avg(late),
+    framesLateMax: Math.max(...late),
+    framesToSettleAvg: avg(settle),
+    framesToSettleMax: Math.max(...settle),
+    emitterRemovalLightMs: +crystalMs[0].toFixed(2),
+    maxChunkRebuildMs: +st.maxRebuildMs.toFixed(2),
+    meshWorkers: st.workers ?? 0,
+    workerMeshMsMax: st.maxWorkerMs !== undefined ? +st.maxWorkerMs.toFixed(2) : null,
+    workerRoundTripMsMax: st.maxRoundTripMs !== undefined ? +st.maxRoundTripMs.toFixed(2) : null,
+    workerLatencyFramesMax: st.maxLatencyFrames ?? null,
+    staleResults: st.staleResults ?? null,
+    meshCheck: check ? { checked: check.checked, mismatched: check.mismatched.length } : null,
+  };
 });
 console.log('mining', JSON.stringify(results.mining));
 

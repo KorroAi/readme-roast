@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { B, BLOCKS } from '../../src/config/blocks';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 import { meshChunk } from '../../src/render/mesher';
-import { BLOCK_SURFACES, FAMILY_OF, MAT_SIDE, MATERIAL_NAMES, generateMaterials } from '../../src/render/materials';
+import { BLOCK_SURFACES, COURSE_LAYERS, FAMILY, FAMILY_OF, MAT_SIDE, MATERIAL_NAMES, generateMaterials } from '../../src/render/materials';
+import { COURSE_PIECE, courseGlsl, strips } from '../../src/render/materials/courses';
+import { masonryBond } from '../../src/render/materials/masonry';
+import { MAT_SIZE } from '../../src/render/materials/paint';
 
 // Guarantees of the world-space terrain material system (see TECHNICAL_ARCHITECTURE.md).
 
@@ -40,8 +43,9 @@ describe('terrain material layers', () => {
       }
       const name = MATERIAL_NAMES[l];
       // Structured materials have joints (mortar, board gaps) at the wrap like anywhere else;
-      // a seam is a boundary rougher than every interior one.
-      expect(rowDiff(l, S - 1, 0), `${name} vertical wrap`).toBeLessThanOrEqual(maxRow * 1.1 + 1);
+      // a seam is a boundary rougher than every interior one. Course libraries (masonry) are
+      // laid strip by strip by the shader and never wrap vertically (see the course tests).
+      if (!COURSE_LAYERS.includes(name)) expect(rowDiff(l, S - 1, 0), `${name} vertical wrap`).toBeLessThanOrEqual(maxRow * 1.1 + 1);
       expect(colDiff(l, S - 1, 0), `${name} horizontal wrap`).toBeLessThanOrEqual(maxCol * 1.1 + 1);
     }
   });
@@ -124,5 +128,39 @@ describe('mesher data for the terrain shader', () => {
     expect(checked).toBe(2);
     expect(FAMILY_OF[B.SLATE]).toBe(FAMILY_OF[B.SOIL]);
     expect(FAMILY_OF[B.SLATE]).not.toBe(FAMILY_OF[B.ANCIENT_BRICK]);
+  });
+});
+
+describe('masonry course libraries (laid in courses by the terrain shader)', () => {
+  it('fills every library layer with strips whose 4 m pieces start with a stone and end on a joint', () => {
+    for (const lib of ['A', 'B'] as const) {
+      const { ids, strips: list } = masonryBond(lib);
+      expect(list.reduce((a, s) => a + s.h, 0), `library ${lib} rows`).toBe(MAT_SIZE);
+      for (const st of list) {
+        for (let y = st.y0; y < st.y0 + st.h; y++) {
+          // The shader may lay any piece after any other, mirrored or not, so the joint must sit
+          // exactly on each piece's last column and never on the one before it.
+          for (let p = 0; p < MAT_SIZE; p += COURSE_PIECE) {
+            expect(ids[p + COURSE_PIECE - 1 + y * MAT_SIZE], `${lib} row ${y} piece ${p} last column`).toBe(-1);
+            if (y < st.y0 + st.h - 1 && ids[p + y * MAT_SIZE] >= 0) expect(ids[p + COURSE_PIECE - 2 + y * MAT_SIZE], `${lib} row ${y} piece ${p}`).toBeGreaterThanOrEqual(0);
+          }
+        }
+        // The bottom row of every course is its bed joint.
+        for (let x = 0; x < MAT_SIZE; x++) expect(ids[x + (st.y0 + st.h - 1) * MAT_SIZE]).toBe(-1);
+      }
+    }
+  });
+
+  it('treats exactly the masonry-family layers as course libraries (the shader courses that family)', () => {
+    const masonryLayers = new Set<string>();
+    for (const sfc of Object.values(BLOCK_SURFACES)) if (sfc.family === FAMILY.MASONRY) for (const n of [sfc.top, sfc.side, sfc.bottom]) masonryLayers.add(n);
+    for (const n of masonryLayers) expect(COURSE_LAYERS, n).toContain(n);
+    for (const n of COURSE_LAYERS) expect(MATERIAL_NAMES).toContain(n);
+  });
+
+  it('gives the shader a strip for every course height of library A', () => {
+    const glsl = courseGlsl({ masonry: 1, masonryB: 2, crumbling: 3, crumblingB: 4 });
+    for (const st of strips('A')) expect(glsl).toContain(`${st.y0.toFixed(1)}`);
+    expect(new Set(strips('A').map((s) => s.h))).toEqual(new Set([8, 16, 24, 32]));
   });
 });
