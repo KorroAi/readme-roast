@@ -93,6 +93,29 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   at the feet is targetable (fails on the unfixed rig, passes at 0.66 rad), and the explorer
   stays left and low at normal pitch.
 
+### Round 3 — exposure chain, value and hue structure, key lights (`lighting.ts`, `PostFX.ts`, palette)
+- Albedos are real reflectances (rock and ashlar 1.8–3.1× brighter in linear, darkest steps
+  kept low, weathered rock raised less so it never goes pale or beige); the darkness comes from
+  light. Scene exposure lives in each zone preset (camp 1.8, tunnel 1.36, Hollow 2.3, rift 2.1).
+- Lantern: windowed inverse-square falloff (≈4× lower at 6 m), nearly neutral core and amber
+  rim, a shadow cone under the fuel tank, cool-grey bounce.
+- Cool hemispheric open-space fills in the Hollow, tunnel and rift; placed light gets a
+  direction from the light volume (`LAMP_DIR`, one extra fetch, off on Battery) so faces turned
+  away from lamps and recesses fall to the cool fill; clearer near haze with a darker veil.
+- Post: no lifted toe, a hue-keeping contrast S-curve and a split grade (blue-black shadows,
+  amber highlights).
+- The explorer is demoted (coat 28 % darker, its own lantern measured from 3 m, a faint rim only
+  on edges away from the flame); the screen-door fade branch is gone.
+- Key lights authored per space (a pass after all geometry): the Spindle's uplight and rim
+  lights, the seal's underglow and the frieze recess, the shrine dais and tablet, four violet
+  lights low in the chasm. Cyan/violet emitter voxels 86 → 103 (the tested cap stays 120); a new
+  test checks every key light exists.
+- Measured on the 16-shot tour (`metrics.py`, before → after): p95 luma 56 → 135, std 17.9 → 38.4,
+  local contrast 4.9 → 10.3, below luma 12 11.9 → 7.5 % (worst shot 18 %), clipped 0 %, saturated
+  cyan 0.6 %, coldDark 50 → 75 %, explorer share of the brightest 1 % 54 → 26 %. Battery and
+  `?ldr=1` checked (0 % clipped). SwiftShader A/B within noise; GPU cost on a phone unmeasured
+  (+1 3D fetch per terrain fragment on Balanced/High, ≈+25 ALU).
+
 ### Round 3 — masonry vocabulary, grooved cracks, no texture repeat (`materials/*`, sampling)
 - Masonry is laid in world space from course libraries: 2 m of height becomes one 2 m course,
   two 1 m courses or 1.5 + 0.5 m (thin courses never stack — what made the old wall read as

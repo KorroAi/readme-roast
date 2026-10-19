@@ -45,8 +45,22 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 - Dust and sparkle particles are point sprites: a large puff very close to the screen edge can
   blink out when its centre leaves the screen (halos were converted to quads; particles are
   small and short-lived, so they were left as points).
-- On devices without renderable float targets the game falls back to 8-bit render targets:
-  playable, but with no HDR headroom, so bloom and bright highlights are weaker.
+- On devices without renderable float targets the game falls back to 8-bit render targets with
+  an encoded scene (`?ldr=1` forces it): values above 1 survive, but bloom has less headroom.
+- The round-3 renderer (sculpted mesh, per-zone atmosphere, `LAMP_DIR`, course-library masonry)
+  has only been timed on SwiftShader (relative A/B within noise). Its GPU cost on a Mali or
+  Adreno phone is unmeasured: +1 3D-texture fetch and ~25 ALU per terrain fragment on
+  Balanced/High, ~75–90 ALU on masonry fragments. Battery compiles the blend and `LAMP_DIR` out.
+- A mined chunk is drawn one frame after the edit (meshing runs in workers); a phone's worker
+  latency at 60 fps is unmeasured. The worker-assisted initial build (`?meshbuild=pool`) is
+  opt-in until it is measured on a device.
+- Natural rock is chamfered on the CPU: walkable edges sit up to ≈0.3 m below their collision
+  height at convex corners (0 on flat interiors), and rock can reach 0.36 m into voxels the
+  physics treats as open (the camera keeps 0.4 m from voxel hits for this reason).
+- Masonry columns and kerbs are deliberately crisp voxel forms, so round columns still read as
+  stepped octagons up close; masonry head joints are not registered to each structure's corners.
+- Under heavy machine load (load average 8–13 on 4 cores) the desktop e2e spec's 10 s wait for
+  a pointer-lock answer can time out; it passes on an idle machine (4/4 e2e, October 2026).
 - Building a save scans the whole 3.3 MB voxel volume (~2 ms here, ~8 ms for the whole save
   build); expect a few times that on a phone, on camp entry / craft / autosave.
 - No positional (3D) audio: only ambient drips and rumbles get a random stereo pan.
