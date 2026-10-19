@@ -89,6 +89,13 @@ const PRESETS: Record<LabView, Preset> = {
  * from a far corner of a sealed room. ?lt=<angle> freezes the walk for captures.
  */
 const LANTERN_WALK = { x: 40, z: 42.5, r: 2.4, rate: 0.3, pitch: -0.24 };
+/**
+ * The sealed lantern room has no light volume at all (nowhere in the game is that dark: every
+ * space gets some open-space fill or a practical), so the game-light lantern view adds the
+ * Hollow's open-space fill at the openness of the Hollow floor (about 0.55, squared 0.3): the
+ * room's shape reads in the Hollow's cool fill and the lantern's warm pool is judged against it.
+ */
+const WALK_OPEN_FILL = 0.3;
 
 /**
  * Transitions court (x 70..124, z 4..33, east of the original lab): the wall and floor pairs
@@ -169,6 +176,7 @@ export class VisualLab {
   private time = 0;
   private burstTimer = 0;
   private readonly tmpV = new THREE.Vector3();
+  private readonly tmpC = new THREE.Color();
   frames = 0;
   ready = false;
 
@@ -419,6 +427,7 @@ export class VisualLab {
       u.uLanternColor.value.setRGB(...REVIEW.key);
     } else {
       u.uAmbient.value.copy(g.ambient);
+      if (this.walking) u.uAmbient.value.add(this.tmpC.copy(g.open).multiplyScalar(WALK_OPEN_FILL));
       u.uOpenAmbient.value.copy(g.open);
       u.uLanternColor.value.copy(g.lantern);
     }
@@ -433,7 +442,10 @@ export class VisualLab {
     this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
   }
 
-  /** View options: transitions camera stop and fog, and a frozen lantern angle (transitions orbit, lantern orbit or walk) for captures. */
+  /**
+   * View options for repeatable captures: the transitions camera stop and fog, and a frozen
+   * lantern angle (the transitions orbit, the lantern view's orbit or its walk).
+   */
   setTransitionOptions(o: { cam?: TransitionCam; fog?: boolean; lanternAngle?: number | null }): void {
     if (o.cam) this.trCam = o.cam;
     if (o.fog !== undefined) this.trFog = o.fog;

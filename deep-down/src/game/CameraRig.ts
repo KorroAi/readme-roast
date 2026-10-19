@@ -39,8 +39,38 @@ const SIDE_SMOOTH_TIME = 0.32;
  * so the lens drifts instead of popping when the boom snaps in.
  */
 const HFOV_CLOSE = 106;
-const CLOSE_BOOM: readonly [number, number] = [2.4, 5.8];
-const LENS_RATE = 3;
+const CLOSE_BOOM: readonly [number, number] = [3, 7.8];
+const LENS_RATE = 1.6;
+/** Fastest the boom grows back (m/s): an 8.3 m boom easing out at its rate alone would rush. */
+const BOOM_OUT_SPEED = 5;
+/**
+ * Passages: a roof (rock straight above the pivot, or 2 m or 4 m back along the boom) within
+ * ROOF_LOW metres, fading out by ROOF_HIGH, and walls around (the mean free length of FREE_DIRS
+ * level probes of FREE_PROBE metres, two a frame in turn) within FREE_LOW, fading out by
+ * FREE_HIGH, make a tunnel; either one open (a ledge under an overhang facing the Hollow, a
+ * hall) makes open cave. In a tunnel the boom is TUNNEL_BOOM (eased at ROOF_RATE): an 8.3 m boom
+ * would back the lens round the last bend, where the near wall fills the frame and the way on is
+ * lost.
+ */
+const ROOF_LOW = 4;
+const ROOF_HIGH = 6.5;
+const FREE_DIRS = 8;
+const FREE_PROBE = 7;
+const FREE_LOW = 3.8;
+const FREE_HIGH = 6;
+const ROOF_RATE = 1.5;
+const TUNNEL_BOOM = 5.4;
+/**
+ * Route ahead: the lens must see the point LOOK_AHEAD metres in front of the explorer (at
+ * LOOK_DROP below the pivot) whenever the explorer does. Backing round a bend, the inside wall
+ * of the bend would come between the lens and the way on and fill half the frame, so the boom
+ * comes in (eased, as for open space) to the longest of these shares of itself that sees it,
+ * never below LOOK_MIN metres (if none does, it stays).
+ */
+const LOOK_AHEAD = 3.5;
+const LOOK_DROP = 0.6;
+const LOOK_SHARES = [0.82, 0.66, 0.52];
+const LOOK_MIN = 2.6;
 /**
  * Looking up, the boom would dive into the floor behind the explorer and drag the lens in to a
  * huge foreground figure. Past LOW_BOOM rad below the pivot only LOW_BOOM_SHARE of the extra
@@ -48,6 +78,7 @@ const LENS_RATE = 3;
  * out of the way of what is above).
  */
 const LOW_BOOM = 0.08;
+const LOW_BOOM_SHARE = 0.15;
 /**
  * Facing rock: probes straight ahead of the explorer at these heights above the pivot (waist,
  * chest, head). Rock within NEAR_FULL metres (fading out by NEAR_NONE) narrows the yaw framing to
@@ -60,8 +91,16 @@ const NEAR_FULL = 2.2;
 const NEAR_NONE = 3.8;
 const NEAR_YAW = 0;
 const NEAR_RATE = 3;
-const LOW_BOOM_SHARE = 0.15;
 const DEG = Math.PI / 180;
+
+/**
+ * Vertical field of view (deg) that spans `hfov` degrees across a screen of `aspect` (width /
+ * height), at most `maxVfov` vertically: a locked horizontal lens on landscape screens, a capped
+ * vertical one on narrow (portrait) screens. At 915 x 412 a 90 degree lens is 48.5 degrees tall.
+ */
+export function lockedVerticalFov(aspect: number, hfov = 90, maxVfov = 72): number {
+  return (2 * Math.atan(Math.min(Math.tan(hfov * 0.5 * DEG) / aspect, Math.tan(maxVfov * 0.5 * DEG)))) / DEG;
+}
 
 /**
  * Third-person over-the-shoulder camera with voxel collision.
@@ -69,25 +108,31 @@ const DEG = Math.PI / 180;
  * Yaw/pitch come from look input and set the lens direction (the crosshair). The camera sits
  * behind and to the right of a pivot at the explorer's upper chest: a sideways shoulder offset
  * plus a boom that is turned a little against the lens (`frameYaw`, `framePitch`), so the
- * explorer stands low and left of the crosshair and the route ahead stays in view. The lens
- * keeps a fixed horizontal field of view on landscape screens (no stretched edges on a wide
- * phone). When rock pulls the boom in, the yaw framing gives back what the shorter boom adds
- * (the explorer keeps its place on screen, clear of the left thumb), the lens opens a little,
- * and if the other shoulder sees clearly further the rig steps over to it. The boom is pulled in
- * (at once) when rock is in the way and eases back out (slowly) when space opens up, so tight
- * tunnels never put rock between the camera and the explorer.
+ * explorer stands low in the left third of the frame and the route ahead stays in view. The lens
+ * keeps a fixed 90 degree horizontal field of view on landscape screens (no stretched edges on a
+ * wide phone), so the boom is long (8.3 m) to keep the explorer about 100 px tall.
+ *
+ * The space shapes the framing: in a passage the boom is shorter (TUNNEL_BOOM) and it comes in
+ * until the lens sees the way on (LOOK_*); facing rock, the yaw framing narrows so the crosshair
+ * line comes back toward the explorer (NEAR_*); looking down the boom and shoulder come in;
+ * looking up the boom stays above the floor (LOW_BOOM). When rock pulls the boom in, the yaw
+ * framing gives back what the shorter boom adds (the explorer keeps its place on screen, clear of
+ * the left thumb), the lens opens a little (HFOV_CLOSE), the framing slides in past posts, and
+ * if the other shoulder sees clearly further the rig steps over to it (STEP_*). The boom is
+ * pulled in at once when rock is in the way and eases back out (slowly) when space opens up, so
+ * rock never comes between the camera and the explorer.
  */
 export class CameraRig {
   readonly camera: THREE.PerspectiveCamera;
   yaw = 0;
   pitch = -0.18;
   /** Smoothed current boom length. */
-  distance = 8;
+  distance = 8.3;
   /**
-   * Boom length in open space: with the 90 degree lens it keeps the explorer about 100 px tall
-   * on a 412 px high phone screen (the round-3 4.8 m boom had a 111 degree lens).
+   * Boom length in open space: with the 90 degree lens it keeps the explorer 90-110 px tall on a
+   * 412 px high phone screen, by pitch (the round-3 4.8 m boom had a 111 degree lens).
    */
-  maxDistance = 8;
+  maxDistance = 8.3;
   /** Sideways shoulder offset in landscape (m); cast first and shortened against walls. */
   shoulder = 1.0;
   /**
@@ -118,12 +163,17 @@ export class CameraRig {
   private sideVel = 0;
   /** Side the boom check stepped to (+1/-1), 0 when the sideways rule decides. */
   private stepped = 0;
-  /** Boom length allowed this frame: maxDistance, shorter when looking down. */
-  private boomLen = 8;
+  /** Boom length allowed this frame: maxDistance (TUNNEL_BOOM in a passage), shorter when looking down. */
+  private boomLen = 8.3;
+  /** Open cave (1) or passage (0), eased (-1: snap at the next update). */
+  private openness = -1;
+  /** Free length of each level probe (m), and the next one to cast. */
+  private readonly free = new Float32Array(FREE_DIRS).fill(FREE_PROBE);
+  private freeNext = 0;
   /** Rock straight ahead (0..1, eased): narrows the yaw framing (NEAR_*). */
   private near = 0;
   /** Boom eased both ways (LENS_RATE): drives the close lens and the yaw framing give-back. */
-  private lensDist = 8;
+  private lensDist = 8.3;
   private trauma = 0;
   private shakeTime = 0;
   private readonly pivot = new THREE.Vector3();
@@ -132,6 +182,7 @@ export class CameraRig {
   private readonly tmp = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
   private readonly probeDir = new THREE.Vector3();
+  private readonly lookPoint = new THREE.Vector3();
 
   constructor(private readonly world: VoxelWorld, hfov = 90) {
     this.hfov = hfov;
@@ -158,6 +209,7 @@ export class CameraRig {
     this.distance = this.maxDistance;
     this.lensDist = this.maxDistance;
     this.near = -1;
+    this.openness = -1;
     this.side = 1;
     this.sideVel = 0;
     this.stepped = 0;
@@ -195,7 +247,25 @@ export class CameraRig {
     const down = d0 * d0 * (3 - 2 * d0);
     const shoulder = this.shoulder * lerp(0.45, 1, wide) * lerp(1, LOOK_DOWN_SHOULDER, down);
     // ... and the boom comes in (to 62 %), so the boots are not seen from a lens 6 m overhead.
-    this.boomLen = this.maxDistance * lerp(1, LOOK_DOWN_BOOM, down);
+    // In a passage (ROOF_*) the boom is shorter.
+    let roof = ROOF_HIGH;
+    for (const back of [0, 2, 4]) {
+      const hit = raycastVoxels(this.world, this.pivot.x + Math.sin(this.yaw) * back, this.pivot.y, this.pivot.z + Math.cos(this.yaw) * back, 0, 1, 0, ROOF_HIGH);
+      if (hit) roof = Math.min(roof, hit.distance);
+    }
+    const snapRoom = this.openness < 0;
+    let free = 0;
+    for (let k = 0; k < (snapRoom ? FREE_DIRS : 2); k++) {
+      const i = this.freeNext;
+      this.freeNext = (i + 1) % FREE_DIRS;
+      const a = (i / FREE_DIRS) * Math.PI * 2;
+      const hit = raycastVoxels(this.world, this.pivot.x, this.pivot.y, this.pivot.z, Math.cos(a), 0, Math.sin(a), FREE_PROBE);
+      this.free[i] = hit ? hit.distance : FREE_PROBE;
+    }
+    for (let i = 0; i < FREE_DIRS; i++) free += this.free[i];
+    const passage = (1 - smoothstep(ROOF_LOW, ROOF_HIGH, roof)) * (1 - smoothstep(FREE_LOW, FREE_HIGH, free / FREE_DIRS));
+    this.openness = snapRoom ? 1 - passage : damp(this.openness, 1 - passage, ROOF_RATE, dt);
+    this.boomLen = lerp(Math.min(TUNNEL_BOOM, this.maxDistance), this.maxDistance, this.openness) * lerp(1, LOOK_DOWN_BOOM, down);
     // Rock right in front: narrow the yaw framing (eased, so walking up to a face glides).
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
@@ -239,7 +309,7 @@ export class CameraRig {
     // adds (down to none), from the eased boom: the explorer keeps its place on screen for any
     // boom down to about shoulder / tan(angle), 2.8 m. It follows the shoulder side (on the left
     // shoulder the explorer stands right of the crosshair).
-    const angle = Math.atan2(shoulder, this.maxDistance) + yawFull;
+    const angle = Math.atan2(shoulder, this.boomLen) + yawFull;
     const frameYaw = clamp(angle - Math.atan2(Math.abs(full), Math.max(0.05, this.lensDist)), 0, yawFull) * this.side;
 
     // 2) Boom: a small bundle of rays cast back from the (open) shoulder point, turned against
@@ -272,8 +342,25 @@ export class CameraRig {
     const oz = this.pivot.z + right.z * lateral;
     let allowed = fullRoom;
     if (this.shoulderUse < 0.999) allowed = this.boomRoom(right, lateral, this.boomDir(this.dir, bp, this.yaw + frameYaw * this.shoulderUse));
-    // Snap in at once (never let rock come between camera and explorer); ease back out slowly.
-    this.distance = allowed < this.distance ? allowed : damp(this.distance, allowed, 3, dt);
+    // Route ahead (LOOK_*): the longest boom that also sees the way on, if the explorer sees it.
+    const look = this.lookPoint.set(this.pivot.x + fx * LOOK_AHEAD, this.pivot.y - LOOK_DROP, this.pivot.z + fz * LOOK_AHEAD);
+    let target = allowed;
+    const route = segmentClear(this.world, this.pivot.x, this.pivot.y, this.pivot.z, look.x, look.y, look.z);
+    if (route && allowed > LOOK_MIN && !this.seesFrom(ox, oy, oz, allowed, look)) {
+      for (const k of LOOK_SHARES) {
+        if (allowed * k > LOOK_MIN && this.seesFrom(ox, oy, oz, allowed * k, look)) {
+          target = allowed * k;
+          break;
+        }
+      }
+    }
+    // Snap in at once when rock is in the way (never let it come between camera and explorer);
+    // ease back out slowly, and ease in toward a boom that sees the route ahead.
+    if (allowed < this.distance) this.distance = allowed;
+    else {
+      const eased = damp(this.distance, target, 3, dt);
+      this.distance = eased > this.distance ? Math.min(eased, this.distance + BOOM_OUT_SPEED * dt) : eased;
+    }
     this.lensDist = damp(this.lensDist, this.distance, LENS_RATE, dt);
 
     // 3) Shoulder step (decided for the next frame): when no framing on this side gets even a
@@ -321,13 +408,20 @@ export class CameraRig {
     // horizontal field of view is locked, so a wider phone sees more of the cave instead of a
     // stretched image; narrow screens keep at most maxVfov vertically. The close lens opens both
     // by the same factor.
-    const close = 1 - smoothstep(CLOSE_BOOM[0], CLOSE_BOOM[1], this.lensDist);
-    const tanH = Math.tan(this.hfov * 0.5 * DEG);
-    const open = lerp(1, Math.tan(HFOV_CLOSE * 0.5 * DEG) / tanH, close);
-    cam.fov = (2 * Math.atan(Math.min(tanH / aspect, Math.tan(this.maxVfov * 0.5 * DEG)) * open)) / DEG;
+    // Looking up, the explorer drops out of the bottom of the frame instead of swelling, and a
+    // wider lens would only steepen the converging verticals: the close lens fades out.
+    const close = (1 - smoothstep(CLOSE_BOOM[0], CLOSE_BOOM[1], this.lensDist)) * (1 - smoothstep(0.1, 0.4, this.pitch));
+    const open = lerp(1, Math.tan(HFOV_CLOSE * 0.5 * DEG) / Math.tan(this.hfov * 0.5 * DEG), close);
+    cam.fov = (2 * Math.atan(Math.tan(lockedVerticalFov(aspect, this.hfov, this.maxVfov) * 0.5 * DEG) * open)) / DEG;
     cam.aspect = aspect;
     cam.updateProjectionMatrix();
     cam.updateMatrixWorld();
+  }
+
+  /** True when the lens at `d` metres along the boom from (ox, oy, oz) has a clear line to `p`. */
+  private seesFrom(ox: number, oy: number, oz: number, d: number, p: THREE.Vector3): boolean {
+    const dir = this.dir;
+    return segmentClear(this.world, ox + dir.x * d, oy + dir.y * d, oz + dir.z * d, p.x, p.y, p.z);
   }
 
   /** Horizontal field of view (deg) the lens has now. */

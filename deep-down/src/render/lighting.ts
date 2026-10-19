@@ -104,7 +104,7 @@ vec3 ambientFrom(vec4 ls, vec3 n) {
 // lights in the same way, so the pool reads amber on charcoal, not lilac.
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
   vec3 placed = ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
-  float own = 1.0 - 0.5 * smoothstep(0.03, 0.3, dot(placed + lantern, vec3(0.2126, 0.7152, 0.0722)));
+  float own = 1.0 - 0.6 * smoothstep(0.02, 0.22, dot(placed + lantern, vec3(0.2126, 0.7152, 0.0722)));
   return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y * own) + placed;
 }
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
@@ -139,13 +139,15 @@ float lanternVisibility(vec3 samplePos) {
 }
 
 // The lantern: a windowed inverse-square falloff, so the flame models form (bright near the
-// explorer, about 4x dimmer 6 m away) and the pool ends softly at uLanternRadius instead of a
+// explorer, about 3x dimmer 6 m away) and the pool ends softly at uLanternRadius instead of a
 // flat floodlight with a cliff edge. The falloff is relative to the radius (k = K / R^2), so a
 // bigger lantern throws a proportionally bigger pool and a dying one shrinks to an ember.
-// R = 11 m: 1 m 0.93, 3 m 0.59, 6 m 0.23, 9 m 0.04 (x LANTERN_GAIN). A hand lantern throws its
-// light out through the glass, not down: the fuel tank shades the cone below the flame (from ~15
-// degrees down, 80 % at ~45 degrees), and ground near the carrier takes it at a grazing angle, so
-// the pool is a ring on the way ahead, not a disc at the boots (no snowfield under the explorer).
+// R = 11 m: 1 m 0.95, 3 m 0.68, 6 m 0.30, 9 m 0.06 (x LANTERN_GAIN): flatter than a bare inverse
+// square, so the pool carries out to the way ahead instead of peaking at the carrier. A hand
+// lantern throws its light out through the glass, not down: the fuel tank shades the cone below
+// the flame (from ~15 degrees down, 80 % at ~45 degrees), and ground near the carrier takes it at
+// a grazing angle, so the pool is a ring on the way ahead, not a disc at the boots (no snowfield
+// under the explorer).
 // Colour: uLanternColor is the warm-pale core (pale gold, never white); it deepens to amber by
 // ~1.8 m (a flame's light reads warmer as it falls off), so the pool reads amber on charcoal. A
 // diffuse term with very little wrap so the sculpted facets catch it, and a soft bounce (light
@@ -154,8 +156,8 @@ float lanternVisibility(vec3 samplePos) {
 // walls. open: openness at the sample (light volume alpha): the bounce is stronger in enclosed
 // spaces and weaker in open halls. minDist: entities next to the flame (the explorer who carries
 // it) clamp the distance, so the carrier is never the brightest thing on screen.
-const float LANTERN_K = 9.0;
-const float LANTERN_GAIN = 1.75;
+const float LANTERN_K = 6.0;
+const float LANTERN_GAIN = 1.6;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
@@ -167,7 +169,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float diff = clamp(dot(n, l) * 0.95 + 0.05, 0.0, 1.0);
   // Ground within ~4 m of the flame: up-facing surfaces take less (they are seen at a grazing
   // angle around the carrier, and would otherwise be the largest bright area of the frame).
-  diff *= 1.0 - 0.35 * smoothstep(0.5, 0.9, n.y) * (1.0 - smoothstep(2.5, 4.5, dist));
+  diff *= 1.0 - 0.45 * smoothstep(0.5, 0.9, n.y) * (1.0 - smoothstep(2.5, 4.5, dist));
   vec3 tint = mix(vec3(1.0), vec3(1.0, 0.73, 0.43), smoothstep(0.05, 0.18, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
@@ -274,7 +276,7 @@ export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 0.5, open: 0x3e4a60, openGain: 0.6, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
   tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.36 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.45, open: 0x8a9ab5, openGain: 0.85, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.2 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.55, open: 0x8a9ab5, openGain: 0.85, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.2 },
   rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 2.1 },
 };
 

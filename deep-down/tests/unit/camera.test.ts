@@ -196,6 +196,42 @@ describe('CameraRig collision', () => {
     expect(rig.horizontalFov).toBeLessThan(107);
   });
 
+  it('keeps a shorter boom in a passage than in the open cave', () => {
+    // Long straight 3 x 3 tunnel, looking along it: rock overhead and walls all round.
+    const w = new VoxelWorld(64, 16, 32);
+    w.blocks.fill(B.SLATE);
+    w.fill(1, 5, 15, 62, 7, 17, B.AIR);
+    const rig = new CameraRig(w);
+    rig.yaw = -Math.PI / 2; // lens along +X
+    rig.pitch = -0.15;
+    rig.snapTo(40.5, 6.45, 16.5);
+    for (let i = 0; i < 240; i++) rig.update(1 / 60, 40.5, 6.45, 16.5, 915 / 412);
+    expect(rig.distance).toBeLessThan(5.6);
+    expect(rig.distance).toBeGreaterThan(4);
+    const c = rig.camera.position;
+    expect(segmentClear(w, 40.5, 6.45, 16.5, c.x, c.y, c.z)).toBe(true);
+  });
+
+  it('narrows the yaw framing when facing a rock face (the crosshair line comes back to the explorer)', () => {
+    const open = new VoxelWorld(48, 48, 48);
+    const faced = new VoxelWorld(48, 48, 48);
+    faced.fill(0, 18, 21, 47, 30, 21, B.SLATE); // a face 2 m in front (lens along -Z from z 23.5)
+    const x = (w: VoxelWorld) => {
+      const rig = new CameraRig(w);
+      rig.yaw = 0;
+      rig.pitch = -0.15;
+      rig.snapTo(24.5, 21.45, 23.5);
+      for (let i = 0; i < 180; i++) rig.update(1 / 60, 24.5, 21.45, 23.5, 915 / 412);
+      return new THREE.Vector3(24.5, 21.45, 23.5).project(rig.camera).x;
+    };
+    const free = x(open);
+    const near = x(faced);
+    expect(free).toBeLessThan(-0.25);
+    // Still left of the crosshair, but much nearer to it.
+    expect(near).toBeLessThan(-0.05);
+    expect(near).toBeGreaterThan(free + 0.12);
+  });
+
   it('keeps the lens back when looking up, instead of diving into the floor behind', () => {
     const w = new VoxelWorld(48, 48, 48);
     w.fill(0, 0, 0, 47, 19, 47, B.SLATE); // floor top at y = 20
