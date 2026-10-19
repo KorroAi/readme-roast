@@ -156,8 +156,9 @@ void main() {
   hdr *= uExposure;
   hdr += uFlashColor * uFlash;
   vec3 c = tonemap(hdr);
-  // Split balance (the look): blue-black shadows (multiplied, so black stays black) and amber
-  // highlights; the mids keep the light's own colour (warm pools stay warm, haze stays blue).
+  // Split balance (the look): blue-black shadows (toward a cool neutral of the same luminance, so
+  // black stays black) and amber highlights; the mids keep the light's own colour (warm pools stay
+  // warm, haze stays blue).
   // Weights are in display-linear luminance: 0.03 ~ sRGB 48, 0.12 ~ sRGB 97, 0.5 ~ sRGB 188.
   float lum = dot(c, LUMA);
   // Contrast: an S-curve on luminance around a pivot (display-linear 0.1 ~ sRGB 89), a power
@@ -170,7 +171,13 @@ void main() {
   lum = sl;
   float ws = 1.0 - smoothstep(0.0, 0.14, lum);
   float wh = smoothstep(0.2, 0.75, lum);
-  c *= mix(vec3(1.0), vec3(0.82, 0.94, 1.22), ws * 0.65);
+  // Shadows are chroma-aware: a neutral dark drifts toward a cool blue-black of the same luminance,
+  // while a dark that already has a colour (amber falloff, cyan glow, violet haze) keeps its hue.
+  // A plain multiply would add blue to the amber falloff of every lamp and turn it rose and mauve.
+  // Saturation is measured in display-linear (dark neutral stone ~0.2-0.3, lamp falloff 0.5+).
+  float cmx = max(c.r, max(c.g, c.b));
+  float sat = (cmx - min(c.r, min(c.g, c.b))) / max(cmx, 1e-5);
+  c = mix(c, vec3(lum) * vec3(0.84, 1.02, 1.4), ws * 0.6 * (1.0 - smoothstep(0.15, 0.45, sat)));
   c *= mix(vec3(1.0), vec3(1.07, 1.0, 0.86), wh * 0.6);
   // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
   // bottom where the joystick and jump button sit.

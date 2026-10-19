@@ -19,6 +19,7 @@ import { DropSystem } from '../game/Drops';
 import { CRACK_STAGES } from '../config/tiles';
 import type { ItemId } from '../config/items';
 import { lanternForTier } from '../config/balance';
+import { CameraRig } from '../game/CameraRig';
 
 /** The explorer's starting lantern (the lab's 'game' lighting uses its pool and intensity). */
 const GAME_LANTERN = lanternForTier(1);
@@ -76,8 +77,18 @@ const PRESETS: Record<LabView, Preset> = {
   particles: { cam: [51.5, 4.6, 54.6], target: [51.5, 2.8, 59.5], lantern: [51.5, 5, 56], lanternRadius: 12 },
   pickup: { cam: [11.5, 4.2, 54.2], target: [11.5, 2.6, 59.5], lantern: [11.5, 5, 56], lanternRadius: 12 },
   character: { cam: [57, 3.6, 25.2], target: [57, 3.0, 30.5], lantern: [57, 4.4, 28], lanternRadius: 11 },
-  props: { cam: [24, 6.5, 22], target: [26, 3.2, 30], lantern: [24, 5.5, 25], lanternRadius: 13 },
+  // Just in front of the gallery's back wall (z = 22), the two rows of props (x 18.5..30.5,
+  // z 29.5 and 32.5) across the frame.
+  props: { cam: [24.5, 5.2, 23.6], target: [24.5, 2.4, 31.5], lantern: [24.5, 5.5, 26], lanternRadius: 13 },
 };
+
+/**
+ * Lantern view under the game lighting: an explorer carries the tier-1 lantern on a slow circle
+ * between the pillars and the gameplay camera rig follows, so the lantern is judged as a player
+ * sees it (its pool at the explorer's feet, its shadows, the room's own atmosphere) instead of
+ * from a far corner of a sealed room. ?lt=<angle> freezes the walk for captures.
+ */
+const LANTERN_WALK = { x: 40, z: 42.5, r: 2.4, rate: 0.3, pitch: -0.24 };
 
 /**
  * Transitions court (x 70..124, z 4..33, east of the original lab): the wall and floor pairs
@@ -145,8 +156,11 @@ export class VisualLab {
   private view: LabView = 'materials';
   private trCam: TransitionCam = 'overview';
   private trFog = false;
-  /** Fixed lantern orbit angle for repeatable captures (null = animate). */
+  /** Fixed lantern orbit / walk angle for repeatable captures (null = animate). */
   private trLanternAngle: number | null = null;
+  /** The explorer and gameplay camera of the game-light lantern view (LANTERN_WALK). */
+  private readonly walker: ExplorerModel;
+  private readonly walkRig: CameraRig;
   /** Optional fill-light override (?amb=0..1) to inspect albedo without the lantern. */
   ambientOverride: number | null = null;
   private lighting: LabLight = 'review';
@@ -154,6 +168,7 @@ export class VisualLab {
   private readonly gameLight: { ambient: THREE.Color; open: THREE.Color; lantern: THREE.Color; fog: number };
   private time = 0;
   private burstTimer = 0;
+  private readonly tmpV = new THREE.Vector3();
   frames = 0;
   ready = false;
 
@@ -189,6 +204,12 @@ export class VisualLab {
       this.explorers.push(e);
       this.scene.add(e.root);
     }
+    this.walker = new ExplorerModel(this.rig.uniforms);
+    this.walker.setEquipment(1, 1);
+    this.walker.setLantern(1, true);
+    this.walker.root.visible = false;
+    this.scene.add(this.walker.root);
+    this.walkRig = new CameraRig(this.world);
     this.props.add({ id: 'lab_crystal', kind: 'crystalCluster', x: 16.5, y: 2, z: 44.5, rotY: 0, scale: 1.3, anchor: null, emitters: [], seed: 7 });
     const kinds = ['campfire', 'workbench', 'chest', 'bedroll', 'crate', 'barrel', 'lanternPost', 'tablet', 'pickaxeRack', 'ropeCoil', 'brokenCart', 'hangingLantern'] as const;
     kinds.forEach((kind, i) => {
@@ -322,6 +343,52 @@ export class VisualLab {
     this.rig.uniforms.uLanternPos.value.set(...p.lantern);
     this.applyLighting();
     if (view === 'transitions') this.applyTransitionOptions();
+    this.syncWalker();
+  }
+
+  /** True in the lantern view under the game lighting (an explorer carries the lantern). */
+  private get walking(): boolean {
+    return this.view === 'lantern' && this.lighting === 'game';
+  }
+
+  /** Show the lantern walker only where it is used, and start its camera behind it. */
+  private syncWalker(): void {
+    const on = this.walking;
+    if (on && !this.walker.root.visible) this.placeWalker(0, true);
+    this.walker.root.visible = on;
+  }
+
+  /** Lantern walk: place the explorer and its lantern, and run the gameplay camera rig. */
+  private placeWalker(dt: number, snap = false): void {
+    const w = LANTERN_WALK;
+    const frozen = this.trLanternAngle !== null;
+    const a = this.trLanternAngle ?? this.time * w.rate;
+    const x = w.x + Math.cos(a) * w.r;
+    const z = w.z + Math.sin(a) * w.r;
+    // Walking counter-clockwise: heading along the circle's tangent.
+    const dx = -Math.sin(a);
+    const dz = Math.cos(a);
+    const e = this.walker;
+    e.root.position.set(x, 2, z);
+    e.root.rotation.y = Math.atan2(dx, dz);
+    e.update(dt, { speed: frozen ? 0 : w.rate * w.r, grounded: true, verticalVelocity: 0, aimPitch: -w.pitch * 0.5, time: this.time });
+    const rig = this.walkRig;
+    rig.yaw = Math.atan2(-dx, -dz);
+    rig.pitch = w.pitch;
+    if (snap) rig.snapTo(x, 2 + 1.45, z);
+    rig.update(snap ? 1 / 30 : dt, x, 2 + 1.45, z, this.renderer.aspect);
+    // The game's near-camera fade (Game.updateExplorer).
+    const camDist = rig.camera.position.distanceTo(this.tmpV.set(x, 3.2, z));
+    e.setFade(Math.min(1, Math.max(0.25, (camDist - 0.7) / 1.3)));
+    const lp = e.getLanternWorldPosition(this.tmpV);
+    const u = this.rig.uniforms;
+    u.uLanternPos.value.copy(lp);
+    if (this.lantern.update(lp.x, lp.y, lp.z, this.lanternRadius(), snap)) this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
+  }
+
+  /** The camera the current view renders with. */
+  get viewCamera(): THREE.PerspectiveCamera {
+    return this.walking ? this.walkRig.camera : this.camera;
   }
 
   get lightMode(): LabLight {
@@ -333,6 +400,7 @@ export class VisualLab {
     this.lighting = mode;
     this.applyLighting();
     if (this.view === 'transitions') this.applyTransitionOptions();
+    if (this.view === 'lantern') this.setView('lantern');
   }
 
   /** Lantern pool radius of the current view under the current lighting. */
@@ -365,12 +433,13 @@ export class VisualLab {
     this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });
   }
 
-  /** Transitions view options: camera stop, fog on/off, frozen lantern angle (for captures). */
+  /** View options: transitions camera stop and fog, and a frozen lantern angle (transitions orbit, lantern orbit or walk) for captures. */
   setTransitionOptions(o: { cam?: TransitionCam; fog?: boolean; lanternAngle?: number | null }): void {
     if (o.cam) this.trCam = o.cam;
     if (o.fog !== undefined) this.trFog = o.fog;
     if (o.lanternAngle !== undefined) this.trLanternAngle = o.lanternAngle;
     if (this.view === 'transitions') this.applyTransitionOptions();
+    if (this.walking) this.placeWalker(0, true);
   }
 
   get transitionOptions(): { cam: TransitionCam; fog: boolean } {
@@ -402,9 +471,10 @@ export class VisualLab {
     this.time += dt;
     const u = this.rig.uniforms;
     u.uTime.value = this.time;
-    if (this.view === 'lantern') {
+    if (this.walking) this.placeWalker(dt);
+    else if (this.view === 'lantern') {
       // Orbit the lantern around the pillars so occlusion can be judged from any angle.
-      const a = this.time * 0.6;
+      const a = this.trLanternAngle ?? this.time * 0.6;
       const lx = 40 + Math.cos(a) * 4;
       const lz = 42 + Math.sin(a) * 4;
       u.uLanternPos.value.set(lx, 3.8, lz);
@@ -440,15 +510,18 @@ export class VisualLab {
     });
     // Pickups fly to a point 2 m in front of the pad (stands in for the explorer).
     this.drops.update(dt, this.time, 10.5, 2, 56.5, () => true, (_i, n) => n, () => undefined);
-    this.props.update(dt, this.time, this.camera.position);
+    const cam = this.viewCamera;
+    this.props.update(dt, this.time, cam.position);
     this.debris.update(dt);
-    this.particles.update(dt, this.time, this.camera.position.x, this.camera.position.y, this.camera.position.z);
-    this.particles.setPixelScale(this.renderer.canvas.height, this.camera.fov);
-    this.chunks.update(this.camera.position);
+    this.particles.update(dt, this.time, cam.position.x, cam.position.y, cam.position.z);
+    this.particles.setPixelScale(this.renderer.canvas.height, cam.fov);
+    this.chunks.update(cam.position);
     this.rig.flush(this.renderer.gl);
-    this.camera.aspect = this.renderer.aspect;
-    this.camera.updateProjectionMatrix();
-    this.renderer.render(this.scene, this.camera, this.time);
+    if (cam === this.camera) {
+      this.camera.aspect = this.renderer.aspect;
+      this.camera.updateProjectionMatrix();
+    }
+    this.renderer.render(this.scene, cam, this.time);
     this.frames++;
   }
 

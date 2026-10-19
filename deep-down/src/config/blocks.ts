@@ -124,12 +124,16 @@ def({ id: B.PLANK, name: 'block.plank', solid: true, visible: true, hardness: 99
 def({ id: B.BEAM, name: 'block.beam', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
 def({ id: B.HEARTH, name: 'block.hearth', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'stone', tiles: same(TILE.hearth), glow: 1.1, debris: [0x332b25] });
 def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: same(TILE.bedrock), debris: [0x14161c] });
-def({ id: B.LIGHT_AMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.42] });
+// Warm lights are amber-gold, not red-orange: the light volume is squared-ish on its way to the
+// shader (lightSample: pow 1.55), and a light with too little green mixes with the cool open fill
+// on the bluish stone into rose and mauve at the rim of every pool. With green at ~0.6 of red
+// after that curve the rim passes through warm grey into blue-black instead.
+def({ id: B.LIGHT_AMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.74, 0.46] });
 def({ id: B.LIGHT_EMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.6, 0.32] });
 def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.13, 0.51, 0.66] });
 // Route lamps are a deeper amber than the explorer's pale-gold lantern, so their pools read as
 // separate islands of warmth.
-def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.58, 0.27] });
+def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.36] });
 def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
 // Built forms drawn as structure meshes: collision only (no chunk faces), never mined.
 const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;

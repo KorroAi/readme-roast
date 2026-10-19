@@ -1031,6 +1031,21 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     // the dais answers with its own faint glow.
     keyLight(51, floorBase + 2, 104, B.LIGHT_CYAN);
     keyLight(55, floorBase + 2, 104, B.LIGHT_CYAN);
+    // Warm against cold in every cyan-keyed space: the earlier expedition left a lamp burning in
+    // the shrine's first bay (a deep amber pool on the pilasters and the floor beside the dais),
+    // and camped at the Spindle's foot on the side that faces the hall, so the cold uplight on
+    // the landmark always has a warm practical in the same frame. Added last: no other prop id
+    // or generated feature moves.
+    lanternPost(55.5, shrine.y0, 99.6, Math.PI / 2);
+    if (sp) {
+      const fy = Math.floor(sp[1]) + 1;
+      const ang = -0.95;
+      const dx = Math.cos(ang);
+      const dz = Math.sin(ang);
+      let r = 3;
+      while (r < 12 && !isAir(Math.floor(sp[0] + dx * r), fy, Math.floor(sp[2] + dz * r))) r += 0.5;
+      lanternPost(sp[0] + dx * (r + 1.6), fy - 1, sp[2] + dz * (r + 1.6), ang + Math.PI / 2);
+    }
     // The chasm under the bridge: violet glow low along its length, so it reads as depth.
     for (const [x, y, z] of [[111, 35, 128], [117, 34, 129], [128, 35, 128], [134, 34, 129]] as V3[]) keyLight(x, y, z, B.LIGHT_ABYSS);
   }

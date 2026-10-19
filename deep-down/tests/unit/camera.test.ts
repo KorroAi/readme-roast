@@ -95,9 +95,14 @@ describe('CameraRig collision', () => {
     expect(head.x).toBeGreaterThan(-0.5);
     expect(head.y).toBeLessThan(-0.05);
     expect(toes.y).toBeGreaterThan(-0.95);
-    // Smaller on screen than the round-2 framing (3.8 m boom, 62 degrees): about 35 % of the height.
-    expect(head.y - toes.y).toBeLessThan(0.75);
-    expect(rig.camera.fov).toBeCloseTo(rig.fov, 5);
+    // About 100 px tall on a 412 px high screen (a quarter of the height), with the 90 degree lens.
+    const tall = ((head.y - toes.y) / 2) * 412;
+    expect(tall).toBeGreaterThan(85);
+    expect(tall).toBeLessThan(115);
+    // Clear of the left thumb (the joystick ends about 160 px from the left edge of 915).
+    const leftEdge = new THREE.Vector3(feet.x - Math.cos(rig.yaw) * 0.45, feet.y + 1, feet.z + Math.sin(rig.yaw) * 0.45).project(rig.camera);
+    expect(((leftEdge.x + 1) / 2) * 915).toBeGreaterThan(200);
+    expect(rig.horizontalFov).toBeCloseTo(90, 3);
   });
 
   it('keeps the explorer on screen on a portrait phone (smaller shoulder, wider lens)', () => {
@@ -109,7 +114,101 @@ describe('CameraRig collision', () => {
     const pivot = new THREE.Vector3(24.5, 21.45, 24.5).project(rig.camera);
     expect(pivot.x).toBeLessThan(-0.05);
     expect(pivot.x).toBeGreaterThan(-0.6);
-    expect(rig.camera.fov).toBeGreaterThan(rig.fov);
+    // Portrait keeps the vertical limit (the horizontal lens would need a 130 degree vertical one).
+    expect(rig.camera.fov).toBeCloseTo(rig.maxVfov, 3);
+  });
+
+  it('locks the horizontal field of view on landscape screens (no stretched edges on wide phones)', () => {
+    const w = new VoxelWorld(48, 48, 48);
+    for (const aspect of [16 / 9, 19.5 / 9, 915 / 412, 21 / 9]) {
+      const rig = new CameraRig(w);
+      rig.snapTo(24.5, 21.45, 24.5);
+      for (let i = 0; i < 30; i++) rig.update(1 / 60, 24.5, 21.45, 24.5, aspect);
+      expect(rig.horizontalFov).toBeCloseTo(90, 3);
+    }
+    // 2.22:1 (915 x 412): a 48.5 degree vertical lens, not the 111 degree horizontal of round 3.
+    const rig = new CameraRig(w);
+    rig.snapTo(24.5, 21.45, 24.5);
+    rig.update(1 / 60, 24.5, 21.45, 24.5, 915 / 412);
+    expect(rig.camera.fov).toBeCloseTo(48.48, 1);
+    // A 4:3 tablet would need 73.7 degrees vertically: it keeps the 72 degree limit.
+    rig.update(1 / 60, 24.5, 21.45, 24.5, 4 / 3);
+    expect(rig.camera.fov).toBeCloseTo(rig.maxVfov, 3);
+  });
+
+  it('steps to the other shoulder when rock behind the right one holds the boom short, and back', () => {
+    // A balcony against a rock mass: rock fills the space behind and right of the explorer, from
+    // just right of the pivot, so no framing on the right gets a medium boom; the left is open.
+    const w = new VoxelWorld(48, 48, 48);
+    const px = 24.5;
+    const py = 21.45;
+    const pz = 24.5;
+    w.fill(25, 18, 27, 34, 30, 34, B.SLATE);
+    const rig = new CameraRig(w);
+    rig.yaw = 0; // lens along -Z, right is +X, the boom runs back along +Z
+    rig.pitch = -0.25;
+    rig.snapTo(px, py, pz);
+    let maxStep = 0;
+    let lastX = rig.camera.position.x;
+    for (let i = 0; i < 180; i++) {
+      rig.update(1 / 60, px, py, pz, 915 / 412);
+      const c = rig.camera.position;
+      expect(w.isSolidAt(c.x, c.y, c.z)).toBe(false);
+      expect(segmentClear(w, px, py, pz, c.x, c.y, c.z)).toBe(true);
+      if (i > 2) maxStep = Math.max(maxStep, Math.abs(c.x - lastX));
+      lastX = c.x;
+    }
+    expect(rig.camera.position.x).toBeLessThan(px - 0.5);
+    expect(rig.distance).toBeGreaterThan(rig.maxDistance - 0.3);
+    // The explorer now stands right of the crosshair, small (not a huge foreground figure).
+    const pivot = new THREE.Vector3(px, py, pz).project(rig.camera);
+    expect(pivot.x).toBeGreaterThan(0.15);
+    expect(pivot.x).toBeLessThan(0.6);
+    // The step is a smooth pan across (under 0.12 m a frame sideways at 60 fps), not a cut.
+    expect(maxStep).toBeLessThan(0.12);
+    // The rock goes: back to the right shoulder.
+    w.fill(25, 18, 27, 34, 30, 34, B.AIR);
+    for (let i = 0; i < 240; i++) rig.update(1 / 60, px, py, pz, 915 / 412);
+    expect(rig.camera.position.x).toBeGreaterThan(px + 0.5);
+  });
+
+  it('keeps the explorer in place on screen when rock behind pulls the boom in (no thumb, no swell)', () => {
+    // A wall right across the back, 3.5 m behind: both shoulders are cut alike, so no step.
+    const w = new VoxelWorld(48, 48, 48);
+    w.fill(0, 18, 28, 47, 30, 28, B.SLATE);
+    const px = 24.5;
+    const py = 21.45;
+    const pz = 24.5;
+    const rig = new CameraRig(w);
+    rig.yaw = 0;
+    rig.pitch = -0.2;
+    rig.snapTo(px, py, pz);
+    for (let i = 0; i < 180; i++) rig.update(1 / 60, px, py, pz, 915 / 412);
+    expect(rig.distance).toBeLessThan(3.5);
+    expect(rig.camera.position.x).toBeGreaterThan(px + 0.5);
+    // The yaw framing gives back what the short boom adds: the explorer stays near a third of the
+    // width (open space: about -0.35), not pushed toward the left edge and the thumb.
+    const pivot = new THREE.Vector3(px, py, pz).project(rig.camera);
+    expect(pivot.x).toBeLessThan(-0.2);
+    expect(pivot.x).toBeGreaterThan(-0.5);
+    // The lens opens a little, so the explorer does not swell to fill the frame.
+    expect(rig.horizontalFov).toBeGreaterThan(97);
+    expect(rig.horizontalFov).toBeLessThan(107);
+  });
+
+  it('keeps the lens back when looking up, instead of diving into the floor behind', () => {
+    const w = new VoxelWorld(48, 48, 48);
+    w.fill(0, 0, 0, 47, 19, 47, B.SLATE); // floor top at y = 20
+    const rig = new CameraRig(w);
+    rig.yaw = 0;
+    rig.pitch = 0.45;
+    rig.snapTo(24.5, 21.45, 24.5);
+    for (let i = 0; i < 180; i++) rig.update(1 / 60, 24.5, 21.45, 24.5, 915 / 412);
+    const c = rig.camera.position;
+    expect(rig.distance).toBeGreaterThan(rig.maxDistance - 0.3);
+    // Well clear of the floor (sculpted rock reaches up to 0.36 m into open voxels).
+    expect(c.y).toBeGreaterThan(20.45);
+    expect(segmentClear(w, 24.5, 21.45, 24.5, c.x, c.y, c.z)).toBe(true);
   });
 
   it('slides the shoulder in to see past a post behind it, and back out once clear', () => {

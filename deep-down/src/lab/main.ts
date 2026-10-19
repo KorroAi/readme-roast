@@ -20,7 +20,8 @@ function boot(): void {
   const lightParam = params.get('light') as LabLight | null;
   if (lightParam && LAB_LIGHTS.includes(lightParam)) lab.setLighting(lightParam);
   const initial = (params.get('view') as LabView) ?? 'materials';
-  // Transitions view options from the URL (repeatable captures): cam, fog=1, lt=<lantern angle>.
+  // View options from the URL (repeatable captures): cam and fog=1 (transitions), and
+  // lt=<angle>, which freezes the lantern orbit (transitions, lantern) or the lantern walk.
   const camParam = params.get('cam') as TransitionCam | null;
   const lt = params.get('lt');
   lab.setTransitionOptions({

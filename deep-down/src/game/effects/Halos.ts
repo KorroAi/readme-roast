@@ -125,10 +125,11 @@ export class HaloSystem {
         sz = 0.9;
         lift = 0.4;
       } else if (s.id === B.LIGHT_LAMP) {
-        rgb = [1.3, 0.72, 0.32];
+        // Amber-gold like the lamps' light (blocks.ts), not red-orange.
+        rgb = [1.3, 0.8, 0.38];
         sz = 0.7;
       } else {
-        rgb = [1.6, 0.92, 0.45];
+        rgb = [1.6, 1.0, 0.52];
         sz = 0.85;
       }
       for (let k = 0; k < 4; k++) {

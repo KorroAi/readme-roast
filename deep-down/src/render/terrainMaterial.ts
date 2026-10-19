@@ -402,11 +402,13 @@ void main() {
 #else
   vec2 facing = vec2(1.0);
 #endif
-  vec3 ambient = ambientFrom(ls, ng, facing, ao) * shade * aoCurve;
+  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
+  // The lantern and the lamps own the faces they light (the cool fill is cut there): warm against
+  // cold per face, not lavender everywhere.
+  vec3 ambient = ambientFrom(ls, ng, facing, ao, lantern) * shade * aoCurve;
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
-  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
 
   float glow = tex.a * uMatGlow[shownLayer];

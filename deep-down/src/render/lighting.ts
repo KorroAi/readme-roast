@@ -97,9 +97,18 @@ vec3 ambientFrom(vec4 ls, vec3 n) {
 
 // Terrain form: the cool fill and the placed light each scaled by how the face meets them
 // (facing = placedFacing(): x placed light, y open fill) and the placed light falling off faster
-// in recesses (ao) than the all-round fill.
+// in recesses (ao) than the all-round fill. Warm against cold per face: where a lamp lights a face
+// it owns it (the cool fill there is halved), so faces turned to a lamp read amber and only the
+// faces turned away go blue, instead of amber plus sky blue mixing into lavender on every face.
+// lantern: the explorer's lantern light at the face (computed first), which owns the faces it
+// lights in the same way, so the pool reads amber on charcoal, not lilac.
+vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
+  vec3 placed = ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
+  float own = 1.0 - 0.5 * smoothstep(0.03, 0.3, dot(placed + lantern, vec3(0.2126, 0.7152, 0.0722)));
+  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y * own) + placed;
+}
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
-  return uAmbient + uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y) + ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
+  return ambientFrom(ls, n, facing, ao, vec3(0.0));
 }
 
 // Which way the placed light (lamps, crystals, the fall) arrives at a face, from the light
@@ -134,35 +143,36 @@ float lanternVisibility(vec3 samplePos) {
 // flat floodlight with a cliff edge. The falloff is relative to the radius (k = K / R^2), so a
 // bigger lantern throws a proportionally bigger pool and a dying one shrinks to an ember.
 // R = 11 m: 1 m 0.93, 3 m 0.59, 6 m 0.23, 9 m 0.04 (x LANTERN_GAIN). A hand lantern throws its
-// light out through the glass, not down: the fuel tank shades the steep cone below the flame
-// (more than ~25 degrees down), so there is no hot spot at the carrier's feet and the brightest
-// ground is the way ahead.
-// Colour: uLanternColor is the pale-gold core (near neutral, so stone under it stays grey, not
-// beige); it deepens to amber from ~2.5 m to the rim of the pool (a flame's light reads warmer as
-// it falls off). A diffuse term with very little wrap so the
-// sculpted facets catch it, and a soft bounce (light scattered back by the cool grey rock around
-// the explorer, so it is much closer to neutral than the flame), gated by the same visibility so
-// nothing leaks through walls. open: openness at the sample (light volume alpha): the bounce is
-// stronger in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the
-// explorer who carries it) clamp the distance, so the carrier is never the brightest thing on
-// screen.
+// light out through the glass, not down: the fuel tank shades the cone below the flame (from ~15
+// degrees down, 80 % at ~45 degrees), and ground near the carrier takes it at a grazing angle, so
+// the pool is a ring on the way ahead, not a disc at the boots (no snowfield under the explorer).
+// Colour: uLanternColor is the warm-pale core (pale gold, never white); it deepens to amber by
+// ~1.8 m (a flame's light reads warmer as it falls off), so the pool reads amber on charcoal. A
+// diffuse term with very little wrap so the sculpted facets catch it, and a soft bounce (light
+// scattered back by the cool grey rock around the explorer, so it is much closer to neutral than
+// the flame, and not shaded by the tank), gated by the same visibility so nothing leaks through
+// walls. open: openness at the sample (light volume alpha): the bounce is stronger in enclosed
+// spaces and weaker in open halls. minDist: entities next to the flame (the explorer who carries
+// it) clamp the distance, so the carrier is never the brightest thing on screen.
 const float LANTERN_K = 9.0;
-const float LANTERN_GAIN = 1.85;
+const float LANTERN_GAIN = 1.75;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
+  vec3 l = d / max(dist, 1e-3);
   float x = max(dist, minDist) / max(uLanternRadius, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
-  float below = -d.y / max(dist, 1e-3);
-  att *= 1.0 - 0.6 * smoothstep(0.42, 0.9, below);
-  float ndl = dot(n, d / max(dist, 1e-3));
-  float diff = clamp(ndl * 0.95 + 0.05, 0.0, 1.0);
-  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.6, 0.34), smoothstep(0.22, 0.7, x));
+  float tank = 1.0 - 0.8 * smoothstep(0.25, 0.7, -l.y);
+  float diff = clamp(dot(n, l) * 0.95 + 0.05, 0.0, 1.0);
+  // Ground within ~4 m of the flame: up-facing surfaces take less (they are seen at a grazing
+  // angle around the carrier, and would otherwise be the largest bright area of the frame).
+  diff *= 1.0 - 0.35 * smoothstep(0.5, 0.9, n.y) * (1.0 - smoothstep(2.5, 4.5, dist));
+  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.73, 0.43), smoothstep(0.05, 0.18, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
-  return uLanternColor * (tint * (LANTERN_GAIN * diff) + bounceTint * bounce) * (uLanternIntensity * vis * att);
+  return uLanternColor * (tint * (LANTERN_GAIN * diff * tank) + bounceTint * bounce) * (uLanternIntensity * vis * att);
 }
 
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open) {
@@ -223,7 +233,10 @@ float hash13(vec3 p) {
  *   rift    the deep: violet underglow pooling low, cool violet-grey fill
  * The open-space fill is a cool hemispheric light (the haze glowing above: strongest on floors,
  * 40 % on walls, none on overhangs). It is what the unlit side of a form gets, so shadows in the
- * Hollow, the shrine and the rift go blue-black instead of brown; the camp's fill stays warm-grey.
+ * Hollow, the shrine and the rift go blue-black instead of brown. The Hollow's fill is a
+ * desaturated blue-grey (a saturated sky blue mixed with amber lamp light into lavender). Even
+ * the camp's shadows are cool (the cave beyond the fire), so the warm pocket has a counterpoint
+ * instead of reading as one sepia tone.
  * Exposure is per zone: the tunnel's lantern-lit walls are close and need less, the open Hollow
  * more (the post chain multiplies it with the player's brightness).
  */
@@ -259,9 +272,9 @@ export interface AtmospherePreset {
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x141519, ambientGain: 0.45, open: 0x4a4440, openGain: 0.5, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
+  camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 0.5, open: 0x3e4a60, openGain: 0.6, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
   tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.36 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x95b3e7, openGain: 0.7, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.3 },
+  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.45, open: 0x8a9ab5, openGain: 0.85, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.2 },
   rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 2.1 },
 };
 
@@ -360,8 +373,8 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      // Pale-gold core (the shader deepens it to amber toward the rim of the pool).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xfff2e2)).multiplyScalar(1.1) },
+      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m).
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
