@@ -100,18 +100,17 @@ export function buildStairFlight(b: StructureBuilder, f: Flight): void {
     band(cIn, -0.4, capLo, inward, 0.55, 1);
     // Outer band, proud of the flank wall, from two metres below the walk to the coping.
     band(cBand, -2.1, capLo, out);
-    // A raking string course at the band's foot: a lit edge over a shadow line.
-    const cs = side * (hw + f.parapet + 0.14);
-    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: X, across: Z, u0: rng.int(0, 1023), top: 0 };
+    // A raking string course at the band's foot: a bevelled moulding, a lit top over a shadow
+    // line, standing 0.2 m proud.
+    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [0, 0, 1], across: [1, 0, 0], u0: rng.int(0, 1023), top: 0 };
     b.push();
-    b.translate(0, top, 0).rotate(2, -Math.PI / 4);
-    // In this frame x runs down the rake (slope length) and y is normal to the walking plane.
+    // Frame: z runs down the rake (slope length), y normal to the walking plane, x across.
+    b.translate(0, top, cBand).rotate(2, -Math.PI / 4).rotate(1, Math.PI / 2);
     const L = f.run * Math.SQRT2;
     const n0 = -2.1 / Math.SQRT2;
-    b.surface = { ...b.surface, top: n0 + 0.17 };
-    const ca = Math.min(cBand, cs);
-    const cb = Math.max(cBand, cs);
-    b.box(0, n0, ca, L, n0 + 0.17, cb, 0.03, side > 0 ? 32 : 16);
+    const o = -side; // across, outward is -x in this frame for side +1
+    const sec: Array<[number, number]> = [[0, n0 - 0.02], [o * 0.2, n0 + 0.02], [o * 0.2, n0 + 0.13], [o * 0.08, n0 + 0.24], [0, n0 + 0.26]];
+    b.prism(o > 0 ? sec : sec.map(([u, v]) => [u, v] as [number, number]).reverse(), -n0 * 0.5, L - n0 * 0.5);
     b.pop();
     // Coping: long sloped stones, overhanging both faces, chamfered, end to end (V joints).
     const cA = Math.min(cIn, cOut) - (side > 0 ? 0.07 : 0.13);

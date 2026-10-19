@@ -120,6 +120,8 @@ export function specCentre(s: StructureSpec): [number, number, number] {
       return [s.x, s.deck, (s.z0 + s.z1) / 2];
     case 'pylon':
       return [s.path[0][0], (s.foot + s.top) / 2, s.path[0][1]];
+    case 'kerbSlope':
+      return [(s.x0 + s.x1) / 2, s.y, s.z];
     case 'deck':
     case 'weathering':
       return [(s.x0 + s.x1) / 2, s.y, (s.z0 + s.z1) / 2];

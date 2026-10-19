@@ -146,6 +146,18 @@ export type StructureSpec =
       seed: number;
     }
   | {
+      /** A sloping (battered) kerb along a paved way from x0 to x1 (cells x0..x1-1): its top edge
+       *  at y on the line z, falling one metre toward `out` (the z direction, +1 or -1). */
+      kind: 'kerbSlope';
+      id: string;
+      x0: number;
+      x1: number;
+      z: number;
+      out: number;
+      y: number;
+      seed: number;
+    }
+  | {
       /** A plank deck on joists over the floor: x0..x1, z0..z1, its walking surface at y; the
        *  boards run along `along`. */
       kind: 'deck';

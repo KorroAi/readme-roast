@@ -1,4 +1,4 @@
-import { B, SOLID, isEmitter } from '../../config/blocks';
+import { B, RAMP, SOLID, isEmitter } from '../../config/blocks';
 import { WORLD } from '../../config/balance';
 import { Noise } from '../../core/noise';
 import { Rng } from '../../core/rng';
@@ -28,6 +28,8 @@ import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, co
 type V3 = [number, number, number];
 type Cells = Array<[number, number]>;
 
+/** Walking surface of the processional way (the level of the seal's forecourt and the bridge). */
+const WAY_Y = 42;
 /** Walking surface of the camp's plank decks (a hand over the voxel floor at 101). */
 const CAMP_DECK = 101.1;
 /** Half-width of the chasm where the bridge crosses it (m). */
@@ -515,9 +517,9 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (const [a, b] of [[[119, 69.5], [127, 69.5]], [[126.5, 69], [126.5, 79]], [[119.5, 70], [119.5, 71]], [[119.5, 76], [119.5, 79]]] as Array<[[number, number], [number, number]]>)
     structures.push({ kind: 'coping', id: `landing_coping_${a.join('_')}`, a, b, y: 66, width: 1.16, height: 0.26, stone: 1.5, seed: specRng.int(0, 1 << 30) });
   // Flight 2 runs south along x 121..124 from the landing (z 79, level with it) down to the
-  // processional way (z 103, y 41).
+  // processional way (z 102, y 42).
   const piers2 = [81, 87, 88, 94, 95];
-  for (let k = 0; k <= 23; k++) {
+  for (let k = 0; k <= 22; k++) {
     const z = 79 + k;
     const t = 64 - k;
     const pier = z <= 81 || (z >= 87 && z <= 88) || z >= 94;
@@ -533,7 +535,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   }
   const bays2: Array<[number, number]> = [[3, 8], [10, 15]];
   for (const [s0, s1] of bays2) stairBay(123, 79, 'z', 65, s0, s1);
-  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 79, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, bays: bays2, seed: specRng.int(0, 1 << 30) });
+  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 79, top: 65, dir: 'z', run: 23, width: 4, parapet: 1, bays: bays2, seed: specRng.int(0, 1 << 30) });
   // Lamps on the parapet coping halfway down each flight: warm pools with dark gaps between.
   lanternPost(106.5, stairCoping(106.5 - 96, 88), 76.5, Math.PI, false, true);
   lanternPost(125.5, stairCoping(91.5 - 79, 65), 91.5, -Math.PI / 2, false, true);
@@ -563,14 +565,23 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   lyingDrum('z', 87, 130, 2, 1.95, 1);
   slab(81, 98, 3, 2, B.ANCIENT_TILE, 0);
   slab(91, 98, 2, 3, B.ANCIENT_TILE, 0);
-  // The way itself: worn slabs between kerbs, buried under the hall floor in places.
+  // The way itself: worn slabs between kerbs, level from the shrine to the seal (WAY_Y, the level
+  // of the forecourt and the bridge), silted over with scree in places. It is laid on the hall
+  // floor's terraces: cut into them where they rise, built up where they fall; where the hall floor
+  // beside it lies a metre lower, its kerb slopes down to it (a battered edge over stair wedges,
+  // render/structures: 'kerbSlope').
   for (let x = 66; x <= 134; x++)
     for (let z = 99; z <= 107; z++) {
-      const fh = floorHeight(x, z);
-      if (!isAir(x, fh, z) || isAir(x, fh - 1, z)) continue;
-      if (detail.noise2(x * 0.11 + 40, z * 0.11) < -0.3) continue;
-      put(x, fh - 1, z, z === 99 || z === 107 ? B.ANCIENT_BRICK : B.ANCIENT_TILE);
+      if (!isWayCell(x, z)) continue;
+      const silt = detail.noise2(x * 0.11 + 40, z * 0.11) < -0.3;
+      put(x, WAY_Y - 1, z, silt ? B.GRAVEL : z === 99 || z === 107 ? B.ANCIENT_BRICK : B.ANCIENT_TILE);
+      for (let y = WAY_Y - 3; y < WAY_Y - 1; y++) if (isAir(x, y, z)) put(x, y, z, M);
+      for (let y = WAY_Y; y <= WAY_Y + 4; y++) if (isRock(get(x, y, z))) carve(x, y, z);
     }
+  wayKerbs(66, 134, 99, -1);
+  // (The bridge's approach meets the south kerb at x 119..125.)
+  wayKerbs(66, 118, 107, 1);
+  wayKerbs(126, 134, 107, 1);
   mark('pillars');
 
   // ------------------------------------------------------------------------------------
@@ -606,7 +617,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
           zB = Math.max(zB, z + 1);
         }
     const bridge = { zA: zA - 0.6, zB: zB + 0.6, spring: BRIDGE_SPRING, crown: BRIDGE_CROWN };
-    const z0 = Math.floor(zA) - 3;
+    // Its approach runs from the processional way's kerb, level with it.
+    const z0 = Math.min(Math.floor(zA) - 3, 108);
     const z1 = Math.ceil(zB) + 2;
     for (let z = z0; z <= z1; z++) {
       // Body cells wholly above the arch's intrados (both faces of the cell); beyond the span, the
@@ -895,13 +907,14 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // on the processional way - someone came this far before.
   lanternPost(133.5, floorBase + 1, 97.5, 0, true);
   lanternPost(133.5, floorBase + 1, 104.5, 0, true);
-  const oldCamp: V3 = [101, floorHeight(101, 104), 103.5];
+  // On the way (level at WAY_Y): stand on its real surface, not the terrain's terraces under it.
+  const oldCamp: V3 = [101, groundAt(101, 103, floorHeight(101, 104)), 103.5];
   lanternPost(oldCamp[0], oldCamp[1], oldCamp[2], 0.7);
   lanternPost(84.5, floorHeight(84, 105), 105.5, 0.3);
   lanternPost(110.5, floorHeight(110, 112), 112.5, -0.6);
-  addProp({ kind: 'brokenCart', x: oldCamp[0] + 2.2, y: floorHeight(103, 105), z: oldCamp[2] + 1.6, rotY: 2.1 });
-  addProp({ kind: 'crate', x: oldCamp[0] - 1.4, y: floorHeight(100, 103), z: oldCamp[2] - 0.8, rotY: 0.6, scale: 0.85 });
-  addProp({ kind: 'ropeCoil', x: oldCamp[0] + 0.6, y: floorHeight(101, 102), z: oldCamp[2] - 1.5 });
+  addProp({ kind: 'brokenCart', x: oldCamp[0] + 2.2, y: groundAt(103, 105, floorHeight(103, 105)), z: oldCamp[2] + 1.6, rotY: 2.1 });
+  addProp({ kind: 'crate', x: oldCamp[0] - 1.4, y: groundAt(99, 102, floorHeight(100, 103)), z: oldCamp[2] - 0.8, rotY: 0.6, scale: 0.85 });
+  addProp({ kind: 'ropeCoil', x: oldCamp[0] + 0.6, y: groundAt(101, 102, floorHeight(101, 102)), z: oldCamp[2] - 1.5 });
   landmarks.oldCamp = oldCamp;
 
   // ------------------------------------------------------------------------------------
@@ -1322,7 +1335,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
    * into the floor stays a patch of floor.
    */
   function slab(x0: number, z0: number, wx: number, dz: number, id: number, sink: number, lift = 0): void {
-    const fy = floorHeight(x0 + (wx >> 1), z0 + (dz >> 1));
+    const fy = groundAt(x0 + (wx >> 1), z0 + (dz >> 1), floorHeight(x0 + (wx >> 1), z0 + (dz >> 1)));
     const y = fy - sink + lift;
     const raised = y >= fy;
     for (let z = z0; z < z0 + dz; z++) for (let x = x0; x < x0 + wx; x++) put(x, y, z, raised ? B.STRUCTURE : id);
@@ -1369,6 +1382,42 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
           else if (y < hi) put(x, y, z, B.STRUCTURE);
         }
       }
+    }
+  }
+
+  /** Top of the ground at (x, z) near height y (the floor a prop or block stands on). */
+  function groundAt(x: number, z: number, y: number): number {
+    let fy = Math.floor(y) + 4;
+    while (fy > Math.floor(y) - 5 && !(isAir(x, fy, z) && !isAir(x, fy - 1, z))) fy--;
+    return fy > Math.floor(y) - 5 ? fy : y;
+  }
+
+  /** A cell of the processional way's footprint (not under flight 2, which comes down onto it). */
+  function isWayCell(x: number, z: number): boolean {
+    if (x >= 118 && x <= 127 && z <= 101) return false;
+    const id = get(x, WAY_Y - 1, z);
+    return id !== B.STRUCTURE && !RAMP[id];
+  }
+
+  /**
+   * Sloping kerbs along an edge of the way (the kerb row at `zk`, `out` = the outward z step) where
+   * the hall floor beside it lies a metre lower: a stair wedge in the open cell beyond the kerb
+   * (the explorer walks down the slope) under a battered kerb mesh, in runs.
+   */
+  function wayKerbs(xa: number, xb: number, zk: number, out: number): void {
+    const zo = zk + out;
+    let run: number | null = null;
+    const flush = (x1: number) => {
+      if (run === null) return;
+      structures.push({ kind: 'kerbSlope', id: `kerb_${run}_${zk}`, x0: run, x1, z: zk + (out > 0 ? 1 : 0), out, y: WAY_Y, seed: specRng.int(0, 1 << 30) });
+      run = null;
+    };
+    for (let x = xa; x <= xb + 1; x++) {
+      const low = x <= xb && isWayCell(x, zk) && get(x, WAY_Y - 1, zk) !== B.AIR && isAir(x, WAY_Y - 1, zo) && isAir(x, WAY_Y, zo) && !isAir(x, WAY_Y - 2, zo);
+      if (low) {
+        put(x, WAY_Y - 1, zo, out > 0 ? B.RAMP_PZ : B.RAMP_NZ);
+        if (run === null) run = x;
+      } else flush(x);
     }
   }
 

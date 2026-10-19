@@ -94,7 +94,6 @@ precision highp sampler2DArray;
 precision highp sampler3D;
 ${LIGHTING_GLSL}
 uniform sampler2DArray uMat;
-uniform sampler2DArray uTiles;
 uniform sampler3D uNoise;
 uniform float uMatGlow[${MATERIAL_NAMES.length}];
 uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: none)
@@ -422,12 +421,12 @@ void main() {
   if (family == ${FAMILY.CRYSTAL}) {
     vec3 toEye = normalize(cameraPosition - vWorldPos);
     vec3 toLamp = normalize(uLanternPos - vWorldPos);
-    float sheen = pow(max(dot(reflect(-toLamp, n), toEye), 0.0), 6.0);
+    float sheen = pow(max(dot(reflect(-toLamp, n), toEye), 0.0), 24.0);
     float glint = smoothstep(0.78, 0.9, tex.a);
     vec2 fc = floor(uv * 32.0);
     vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
     float flare = pow(max(dot(reflect(-toLamp, normalize(n + tilt)), toEye), 0.0), 12.0);
-    color += vec3(0.28, 0.75, 0.84) * luma(lantern) * (sheen * 0.35 + flare * glint * 2.5);
+    color += vec3(0.28, 0.75, 0.84) * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
   }
 
   // Inscriptions: the builders' script (materials/script.ts) laid in world space along the band,
@@ -436,13 +435,18 @@ void main() {
   // (course and plane) takes its own line of text and starting point. Carved: the groove is
   // dark, worn away in places (world-space noise, ~0.5 m patches); the ink is dim until the lantern
   // comes close ("the inscriptions answer the light"), and a slow pulse travels along the line.
-  if ((vFlags & 4) != 0 && vFace != 2 && vFace != 3) {
+  // A band two courses tall (mesher bit 7: rune bit + bit 7 = upper stone, bit 7 alone = lower
+  // stone) carries one line of script at twice the size, for inscriptions read from afar.
+  if ((vFlags & 12) != 0 && vFace != 2 && vFace != 3) {
+    bool tall = (vFlags & 8) != 0;
+    int y0 = cell.y - ((vFlags & 4) != 0 && tall ? 1 : 0);
+    float scale = tall ? 0.5 : 1.0;
     float plane = dot(vec3(cell), abs(n));
-    float hb = hash13(vec3(float(cell.y) + 0.5, plane * 1.7 + float(vFace), 3.1));
+    float hb = hash13(vec3(float(y0) + 0.5, plane * 1.7 + float(vFace), 3.1));
     float line = floor(hb * 8.0);
-    float row = clamp(float(cell.y + 1) - vGrid.y, 0.0, 0.999);
-    vec2 su = vec2(uv.x + fract(hb * 13.7), (line + row) * (1.0 / 8.0));
-    vec4 scr = matGrad(su, SCRIPT_LAYER, uvDx, uvDy, SOFT_CUT);
+    float row = clamp((float(y0) + (tall ? 2.0 : 1.0) - vGrid.y) * scale, 0.0, 0.999);
+    vec2 su = vec2(uv.x * scale + fract(hb * 13.7), (line + row) * (1.0 / 8.0));
+    vec4 scr = matGrad(su, SCRIPT_LAYER, uvDx * scale, uvDy * scale, SOFT_CUT);
     float erosion = smoothstep(0.3, 0.46, textureLod(uNoise, vGrid * (1.0 / 18.0) + hb * 7.0, 0.0).g);
     float carve = smoothstep(0.24, 0.42, scr.a) * (0.55 + 0.45 * erosion);
     float ink = smoothstep(0.72, 0.95, scr.a) * erosion;
@@ -450,7 +454,7 @@ void main() {
     vec3 dl = vGrid - uLanternPos;
     float wake = smoothstep(9.0, 2.5, length(vec3(dl.x, dl.y * 0.35, dl.z)));
     color *= 1.0 - carve * 0.62; // the carved groove
-    emissive += scr.rgb * ink * (0.2 + 0.85 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
+    emissive += scr.rgb * ink * (0.26 + 0.8 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
 
   // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around
@@ -501,6 +505,8 @@ export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.D
     uniforms: {
       ...lighting,
       ...terrain,
+      // The tile atlas is no longer sampled here (inscriptions come from the script layer of
+      // uMat, mining fractures are computed); kept bound for callers that read it back.
       uTiles: { value: tiles },
     },
     vertexShader: vertex,

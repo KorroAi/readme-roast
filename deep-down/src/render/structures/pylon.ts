@@ -7,6 +7,7 @@ import { STRIP_A } from './strips';
 type Pylon = Extract<StructureSpec, { kind: 'pylon' }>;
 type Coping = Extract<StructureSpec, { kind: 'coping' }>;
 type Weathering = Extract<StructureSpec, { kind: 'weathering' }>;
+type KerbSlope = Extract<StructureSpec, { kind: 'kerbSlope' }>;
 
 /** Height (m) of the pylon's cavetto cornice under the landing it carries. */
 export const CORNICE_H = 4.05;
@@ -159,5 +160,28 @@ export function buildWeathering(b: StructureBuilder, w: Weathering): void {
     const lip = w.x0 - 0.1;
     b.prism([[lip, w.y - 0.05], [w.x1 + 0.02, w.y - 0.05], [w.x1 + 0.02, w.y + w.rise], [lip, w.y + 0.22]], z + 0.008, z + l - 0.008);
     z += l;
+  }
+}
+
+/**
+ * A battered kerb: the edge of a paved way sloping down one metre to the floor beside it (the
+ * explorer walks it as a ramp), in dressed stones 1-2 m long with a chamfered top arris.
+ */
+export function buildKerbSlope(b: StructureBuilder, k: KerbSlope): void {
+  const rng = new Rng(k.seed);
+  b.aoAt = () => 1;
+  let x = k.x0;
+  while (x < k.x1 - 0.05) {
+    const l = Math.min(k.x1 - x, rng.range(1.1, 2.1));
+    b.surface = { mode: TexMode.Stone, layer: MAT.masonry, row: STRIP_A.half, axis: [1, 0, 0], across: [0, 0, 1], u0: rng.int(0, 1023), top: k.y, vRef: k.z };
+    b.push();
+    // Section in the y-z plane (z outward), swept along x: a prism along local z turned onto x.
+    b.translate(x, 0, k.z).rotate(1, Math.PI / 2);
+    // After the turn local x = -z(world): outward (k.out) is local x = -k.out.
+    const o = -k.out;
+    const sec: Array<[number, number]> = [[0, k.y - 1.06], [o * 1.02, k.y - 1.06], [o * 1.02, k.y - 0.98], [o * 0.06, k.y + 0.0], [0, k.y + 0.02]];
+    b.prism(o > 0 ? sec : sec.slice().reverse(), 0.005, l - 0.005);
+    b.pop();
+    x += l;
   }
 }
