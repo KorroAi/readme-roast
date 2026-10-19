@@ -43,6 +43,20 @@ class VeinMask {
   }
 }
 
+/**
+ * Guarantee that every 1 m window (16 x 16 texels, any position on a 4-texel step) shows at
+ * least `min` ore texels: the player mines ore by sight, and an ore block is 1 m wide.
+ */
+function ensureCoverage(mask: VeinMask, rng: Rng, min: number, add: (x: number, y: number) => void): void {
+  for (let pass = 0; pass < 3; pass++)
+    for (let wy = 0; wy < S; wy += 4)
+      for (let wx = 0; wx < S; wx += 4) {
+        let n = 0;
+        for (let y = 0; y < 16 && n < min; y++) for (let x = 0; x < 16; x++) n += mask.m[wrap(wx + x) + wrap(wy + y) * S];
+        if (n < min) add(wx + 4 + rng.int(0, 8), wy + 4 + rng.int(0, 8));
+      }
+}
+
 /** A dendritic vein: a long path with a few short branches. */
 function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: number, len: number, w: number): void {
   const pts = crackPath(rng, x, y, ang, len, 0.22, 0.06);
@@ -62,7 +76,7 @@ function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: numb
  * where the fresh ore shows (2-3 texel nuggets, lit, with a rare glint). The bright colour is
  * a small share of the vein, so the deposit reads as ore in rock rather than painted lines.
  */
-function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], glint: number, glintShare: number, height: number): void {
+function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], glint: number, glintShare: number, height: number, minor?: VeinMask): void {
   const n = fbm(rng, 16, 2);
   const bead = fbm(rng, 32, 1);
   for (let y = 0; y < S; y++)
@@ -70,9 +84,12 @@ function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[
       if (!mask.at(x, y)) continue;
       const topOpen = !mask.at(x, y - 1) || !mask.at(x - 1, y);
       const botOpen = !mask.at(x, y + 1) || !mask.at(x + 1, y);
-      const b = bead(x, y);
-      let v = 0.26 + (n(x, y) - 0.5) * 0.24;
-      if (topOpen && !botOpen) v += 0.16;
+      // The stockwork between the main veins is oxidised: dark ore, no fresh metal, so there
+      // is no glitter between veins.
+      const isMinor = minor?.at(x, y) === 1;
+      const b = isMinor ? 0 : bead(x, y);
+      let v = (isMinor ? 0.16 : 0.33) + (n(x, y) - 0.5) * 0.24;
+      if (topOpen && !botOpen) v += isMinor ? 0.08 : 0.16;
       else if (botOpen && !topOpen) v -= 0.08;
       if (b > 0.54) v += 0.28 + (b - 0.54) * 1.1 + (topOpen ? 0.1 : 0);
       let hex = ramp(pal, Math.max(0, Math.min(0.99, v)), x, y, 0);
@@ -104,17 +121,6 @@ function crust(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], a
   }
 }
 
-/** Small rounded blebs of ore (disseminated grains), so every square metre carries a little. */
-function blebs(mask: VeinMask, rng: Rng, count: number, r: [number, number]): void {
-  for (let k = 0; k < count; k++) {
-    const x = rng.int(0, S - 1);
-    const y = rng.int(0, S - 1);
-    const rr = r[0] + rng.next() * (r[1] - r[0]);
-    mask.stamp(x, y, rr);
-    if (rng.chance(0.5)) mask.stamp(x + rng.int(-2, 2), y + rng.int(-2, 2), rr * 0.6);
-  }
-}
-
 export function copperVein(c: MatCanvas, rng: Rng): void {
   const host = hostRock('stoneSide');
   resolve(c, host.f, P.STONE, STONE_SIDE.crack);
@@ -130,9 +136,24 @@ export function copperVein(c: MatCanvas, rng: Rng): void {
     const dy = host.bedY[i] - host.bedStart[host.bed[i]];
     if (host.f.code[i] === 1 && dy < 1.2 && seamBeds[host.bed[i]] && seamN(i % S, Math.floor(i / S)) > 0.5) mask.m[i] = 1;
   }
-  blebs(mask, rng, 120, [0.6, 1.4]);
-  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.14, 215);
-  crust(c, rng, mask, P.VERDIGRIS, 0.55, 0.14);
+  // Crust only around the main veins; the stockwork between them stays dark and thin.
+  const main = new VeinMask();
+  main.m.set(mask.m);
+  const minor = new VeinMask();
+  const veinlet = (m: VeinMask, x: number, y: number) => m.draw(crackPath(rng, x, y, rng.next() * TAU, rng.int(4, 9), 0.5, 0.15), () => 0);
+  for (let k = 0; k < 30; k++) veinlet(minor, rng.next() * S, rng.next() * S);
+  for (let i = 0; i < S * S; i++) if (minor.m[i]) mask.m[i] = 1;
+  ensureCoverage(mask, rng, 9, (x, y) => {
+    for (let k = 0; k < 2; k++) {
+      const px = x + rng.int(-2, 2);
+      const py = y + rng.int(-2, 2);
+      const pts = crackPath(rng, px, py, rng.next() * TAU, rng.int(4, 8), 0.5, 0.15);
+      mask.draw(pts, () => 0);
+      minor.draw(pts, () => 0);
+    }
+  });
+  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.1, 215, minor);
+  crust(c, rng, main, P.VERDIGRIS, 0.5, 0.14);
 }
 
 export function copperTop(c: MatCanvas, rng: Rng): void {
@@ -143,9 +164,24 @@ export function copperTop(c: MatCanvas, rng: Rng): void {
   const fill = fbm(rng, 8, 1);
   for (let i = 0; i < S * S; i++) if (host.f.code[i] === 1 && fill(i % S, Math.floor(i / S)) > 0.35) mask.m[i] = 1;
   for (let k = 0; k < 5; k++) branchingVein(mask, rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(30, 70), 1.1);
-  blebs(mask, rng, 110, [0.6, 1.4]);
-  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.14, 215);
-  crust(c, rng, mask, P.VERDIGRIS, 0.55, 0);
+  // Crust only around the main veins; the stockwork between them stays dark and thin.
+  const main = new VeinMask();
+  main.m.set(mask.m);
+  const minor = new VeinMask();
+  const veinlet = (m: VeinMask, x: number, y: number) => m.draw(crackPath(rng, x, y, rng.next() * TAU, rng.int(4, 9), 0.5, 0.15), () => 0);
+  for (let k = 0; k < 30; k++) veinlet(minor, rng.next() * S, rng.next() * S);
+  for (let i = 0; i < S * S; i++) if (minor.m[i]) mask.m[i] = 1;
+  ensureCoverage(mask, rng, 9, (x, y) => {
+    for (let k = 0; k < 2; k++) {
+      const px = x + rng.int(-2, 2);
+      const py = y + rng.int(-2, 2);
+      const pts = crackPath(rng, px, py, rng.next() * TAU, rng.int(4, 8), 0.5, 0.15);
+      mask.draw(pts, () => 0);
+      minor.draw(pts, () => 0);
+    }
+  });
+  paintVein(c, rng, mask, P.COPPER, P.COPPER_GLINT, 0.1, 215, minor);
+  crust(c, rng, main, P.VERDIGRIS, 0.5, 0);
 }
 
 /**
@@ -167,7 +203,7 @@ export function ironVein(c: MatCanvas, rng: Rng): void {
       y += rng.int(3, 5);
       if (k < n - 1) bands.push({ y: y - 1.6, t: 0.7, metal: false, phase: rng.next() * S });
     }
-    y += rng.int(8, 15);
+    y += rng.int(7, 12);
   }
   // Nearest band per strata row (bands are sparse; this avoids testing them all per texel).
   const nearest = new Int16Array(S).fill(-1);
@@ -223,30 +259,40 @@ export function ironVein(c: MatCanvas, rng: Rng): void {
   }
 }
 
-/** Iron seen on a floor: lenses of granular metallic ore rimmed with jasper, rust halos. */
+/** Iron seen on a floor: the same banded ore cut obliquely, in patches, with rust halos. */
 export function ironTop(c: MatCanvas, rng: Rng): void {
   const host = hostFloor('deepTop');
   resolve(c, host.f, P.DEEP, DEEP_TOP.crack);
+  const warpN = fbm(rng, 4, 2);
   const grain = fbm(rng, 32, 1);
-  const edgeN = fbm(rng, 16, 1);
-  const lenses = new PeriodicCells(rng, 10, 10, 0.95);
+  const lens = fbm(rng, 4, 2);
   const mask = new VeinMask();
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       if (host.f.code[x + y * S] === 1) continue;
-      const q = lenses.query(x, y, 1, 1.6);
-      const cell = lenses.cells[q.id];
-      if (cell.r > 0.6) continue;
-      const radius = (2.2 + cell.r2 * 3.2) * (0.8 + edgeN(x, y) * 0.4);
-      if (q.d1 < radius) {
+      // Oblique bands (integer frequencies keep them periodic), gently warped, in patches.
+      const s = (x * 2 + y) / S + (warpN(x, y) - 0.5) * 0.8;
+      const t = (((s * 4) % 1) + 1) % 1;
+      const l = lens(x, y);
+      if (l < 0.4) continue;
+      const w = 0.12 + (l - 0.4) * 0.6;
+      if (t < w) {
         mask.m[x + y * S] = 1;
-        const lit = wrapDelta(cell.x, x) + wrapDelta(cell.y, y) < -radius * 0.4;
-        const g = grain(x, y);
-        if (g > 0.62 && cell.r3 > 0.4) c.set(x, y, ramp(P.JASPER, 0.25 + (g - 0.62) * 1.5, x, y, 0), 200);
-        else c.set(x, y, lit && hash2(x * 5, y * 9) < 0.04 ? P.IRON_GLINT : ramp(P.IRON, 0.34 + (g - 0.5) * 0.4 + (lit ? 0.14 : 0), x, y, 0), 220);
+        const lit = t < 0.035;
+        c.set(x, y, lit && hash2(x * 5, y * 9) < 0.03 ? P.IRON_GLINT : ramp(P.IRON, 0.34 + (grain(x, y) - 0.5) * 0.34 + (lit ? 0.1 : 0), x, y, 0), 220);
+      } else if (t > 0.45 && t < 0.45 + w * 0.6) {
+        mask.m[x + y * S] = 1;
+        c.set(x, y, mixHex(ramp(P.JASPER, 0.3 + grain(x, y) * 0.4, x, y, 0), c.getHex(x, y), 0.3), 195);
       }
     }
-  crust(c, rng, mask, [P.RUST, P.RUST, mixHex(P.RUST, P.DEEP[3], 0.4)], 0.35, 0);
+  ensureCoverage(mask, rng, 9, (x, y) => {
+    const pts = crackPath(rng, x, y, 0.32, rng.int(5, 9), 0.1, 0);
+    for (const [px, py] of pts) {
+      mask.m[wrap(px) + wrap(py) * S] = 1;
+      c.set(px, py, ramp(P.IRON, 0.36 + (grain(px, py) - 0.5) * 0.3, px, py, 0), 220);
+    }
+  });
+  crust(c, rng, mask, [P.RUST, P.RUST, mixHex(P.RUST, P.DEEP[3], 0.4)], 0.3, 0);
 }
 
 /**
@@ -271,7 +317,7 @@ export function crystal(c: MatCanvas, rng: Rng): void {
       // Growth zoning: faint lines parallel to the facet border.
       if (e > 3 && Math.floor(e) % 5 === 2) v += 0.06;
       let alpha = 0;
-      if (e < 1) v = facesLight ? 0.82 : 0.08;
+      if (e < 1) v = facesLight ? 0.64 : 0.08;
       else {
         // Internal glow: strongest deep inside a facet, in slow broad patches.
         const depth = Math.min(1, (e - 1) / 7);
@@ -280,7 +326,7 @@ export function crystal(c: MatCanvas, rng: Rng): void {
       }
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
       if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.75, alpha / 200));
-      if (e < 1 && facesLight && glintN(x, y) > 0.72) {
+      if (e < 1 && facesLight && glintN(x, y) > 0.78) {
         hex = P.CRYSTAL_EDGE;
         alpha = 230;
       }

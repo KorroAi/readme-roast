@@ -14,6 +14,8 @@ function boot(): void {
   }
   const lab = new VisualLab(canvas);
   const params = new URLSearchParams(location.search);
+  const amb = Number(params.get('amb'));
+  if (params.has('amb') && Number.isFinite(amb)) lab.ambientOverride = Math.max(0, Math.min(1, amb));
   const initial = (params.get('view') as LabView) ?? 'materials';
   // Transitions view options from the URL (repeatable captures): cam, fog=1, lt=<lantern angle>.
   const camParam = params.get('cam') as TransitionCam | null;

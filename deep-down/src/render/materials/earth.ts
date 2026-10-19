@@ -12,7 +12,8 @@ const S = MAT_SIZE;
 
 /** A stone embedded in soil: shaded from one rock ramp, partly buried at its lower edge. */
 function embedStones(c: MatCanvas, cells: PeriodicCells, share: number, size: [number, number], zone?: (x: number, y: number) => number): void {
-  const pals = [P.STONE, P.WEATHERED, P.DEEP];
+  // Mostly weathered (neutral) stones: blue slate pebbles would read as dots on brown soil.
+  const pals = [P.PEBBLE, P.PEBBLE, P.WEATHERED, P.PEBBLE];
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const q = cells.query(x, y);
@@ -22,19 +23,22 @@ function embedStones(c: MatCanvas, cells: PeriodicCells, share: number, size: [n
       const radius = size[0] + cell.r2 * (size[1] - size[0]);
       const dx = wrapDelta(cell.x, x);
       const dy = wrapDelta(cell.y, y);
-      // Slightly angular: a blend of round and square distance, flattened a little.
-      const d = 0.6 * Math.sqrt(dx * dx + dy * dy * 1.3) + 0.4 * Math.max(Math.abs(dx), Math.abs(dy) * 1.15);
+      // Angular and flattened: a blend of round and square distance, squashed vertically and
+      // skewed per stone so no two read as the same dot.
+      const sk = (cell.r2 - 0.5) * 0.8;
+      const ex = dx + dy * sk;
+      const d = 0.5 * Math.sqrt(ex * ex + dy * dy * 2) + 0.5 * Math.max(Math.abs(ex), Math.abs(dy) * 1.5);
       if (d > radius + 1.2) continue;
       if (d > radius) {
         // contact shadow in the soil around the stone, heavier below it
         if (dy > -0.5) c.tint(x, y, 0x070505, 0.35);
         continue;
       }
-      const pal = pals[Math.floor(cell.r3 * 2.99)];
+      const pal = pals[Math.floor(cell.r3 * 3.99)];
       const lit = -(dx + dy) / Math.max(1, radius);
       // The buried lower edge fades back into the soil.
-      const buried = dy > radius * 0.55;
-      const v = 0.42 + lit * 0.18 + (cell.r3 - 0.5) * 0.14 + (d > radius - 1 ? -0.06 : 0);
+      const buried = dy > radius * 0.35;
+      const v = 0.36 + lit * 0.16 + (cell.r3 - 0.5) * 0.14 + (d > radius - 1 ? -0.06 : 0);
       const hex = ramp(pal, Math.min(0.78, v), x, y, 0);
       c.set(x, y, buried ? mixHex(hex, c.getHex(x, y), 0.5) : hex, 175 + (radius - d) * 12);
     }
@@ -63,7 +67,7 @@ export function soil(c: MatCanvas, rng: Rng): void {
       f.h[i] = h;
     }
   resolve(c, f, P.SOIL, 0x0a0807, 0);
-  embedStones(c, new PeriodicCells(rng, 15, 15, 0.95), 0.2, [1.2, 3.6]);
+  embedStones(c, new PeriodicCells(rng, 15, 15, 0.95), 0.16, [0.8, 3.8]);
   // A little pale grit, in pairs of texels so it never sparkles as single-pixel noise.
   for (let k = 0; k < 60; k++) {
     const x = rng.int(0, S - 1);

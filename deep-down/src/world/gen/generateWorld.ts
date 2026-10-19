@@ -316,12 +316,14 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // rubble from old collapses lies against the walls.
   fissure(route[2], route[3], 0.35, 0.7, 6);
   fissure(route[5], route[6], 0.2, 0.75, 8);
-  rubble(route[1], route[2], 0.55, 1);
   rubble(route[4], route[5], 0.4, -1);
   // A side pocket with the first glimmer crystals: an early, safe taste of the mystery.
   carveRoom([76, 96, 55], 3.2, 3.0, 3.2);
-  crystalSeam([78.5, 96.5, 52.5], [79.5, 98.5, 55.5], 1.15, 12);
-  crystalSeam([75.5, 95.5, 52.2], [77.5, 95.5, 52.2], 0.9, 4);
+  // The seam the cluster grows from, low in the wall, and a thinner one across the pocket.
+  crystalSeam([78.6, 96.2, 53.2], [79.4, 97.2, 55.2], 0.9, 7);
+  crystalSeam([75.5, 95.5, 52.2], [77, 95.5, 52.2], 0.8, 3);
+  // A glint at the pocket's mouth, beside the route lamp, pulls the eye into the side pocket.
+  crystalSeam([76.5, 97.5, 58.5], [78.5, 98.5, 58.5], 0.8, 3);
   addProp({ kind: 'crystalCluster', x: 77.6, y: 96, z: 54.4, rotY: 0.7, scale: 1.25, emitters: [[77, 96, 54]], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 1, max: 2 } });
   shardOnFloor(79.2, 96, 56.3, 0.75);
   shardOnFloor(75.6, 96, 53.4, 0.6);
@@ -345,20 +347,18 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       for (let y = 87 - depth; y <= 87; y++) put(x, y, z, y === 87 && d < 0.85 ? B.SLATE : B.DEEP_SLATE);
       for (let y = 88; y <= 93; y++) carve(x, y, z);
     }
-  // Crags on the rim frame the view: rounded rocks to the east and south, a low gap toward
-  // the south-east where the Hollow opens, and the stairs head left clear.
-  for (const [deg, r, hmax] of [[14, 1.5, 2.6], [32, 1.0, 1.4], [68, 1.1, 1.6], [92, 1.6, 3.2], [118, 1.3, 2.2], [146, 1.5, 2.8], [170, 1.0, 1.5]]) {
-    const a = (deg * Math.PI) / 180;
-    const cx = 91 + Math.cos(a) * 8.5 * 0.9;
-    const cz = 76 + Math.sin(a) * 7.5 * 0.9;
-    for (let z = Math.floor(cz) - 3; z <= cz + 3; z++)
-      for (let x = Math.floor(cx) - 3; x <= cx + 3; x++) {
-        if (isAir(x, 87, z)) continue;
-        const d = Math.hypot(x + 0.5 - cx, z + 0.5 - cz);
-        const h = Math.round(hmax * (1 - (d / (r + 0.8)) ** 2) + detail.noise2(x * 0.8 + 5, z * 0.8) * 0.6);
-        for (let y = 88; y < 88 + h; y++) put(x, y, z, B.SLATE);
-      }
-  }
+  // A broken lip of rock along the drop, so the edge reads; open toward the south-east where
+  // the Hollow is revealed, and at the stairs head.
+  for (let z = 66; z <= 86; z++)
+    for (let x = 82; x <= 100; x++) {
+      const d = Math.hypot((x - 91) / 8.5, (z - 76) / 7.5);
+      const lim = 1 + detail.noise2(x * 0.3, z * 0.3) * 0.12;
+      if (d > lim || d < lim - 0.13 || isAir(x, 87, z)) continue;
+      const a = (Math.atan2(z - 76, x - 91) * 180) / Math.PI;
+      if (!((a > 66 && a < 176) || (a > -70 && a < 14))) continue;
+      if (x >= 93 && z >= 70 && z <= 77) continue;
+      if (detail.noise2(x * 0.6 + 3.3, z * 0.6 - 1.1) > -0.18) put(x, 88, z, B.SLATE);
+    }
   lanternPost(94.5, 88, 73.5, 0.2, true);
   discoveries.push({ id: 'hollow', min: [84, 86, 68], max: [100, 96, 84] });
   landmarks.ledge = [92, 88, 76];
@@ -370,16 +370,23 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // passages through the base, and a landing tower with a cornice.
   const FOOT = floorBase - 4;
   const M = B.ANCIENT_BRICK;
+  // Each flight is a sloping slab of masonry carried on piers: under the bays the soffit
+  // steps down with the treads and drops in corbelled haunches toward each pier, so the
+  // Hollow shows through beneath the stairs instead of a solid wall.
+  const haunch = (v: number, piers: number[]) => Math.max(0, 3 - Math.min(...piers.map((p) => Math.abs(v - p))));
+  const piers1 = [97, 102, 103, 109, 110, 116];
   for (let k = 0; k <= 22; k++) {
     const x = 96 + k;
     const t = 87 - k;
+    const pier = x <= 97 || (x >= 102 && x <= 103) || (x >= 109 && x <= 110) || x >= 116;
+    const soffit = pier ? FOOT : t - 6 - haunch(x, piers1);
     for (let z = 69; z <= 78; z++) {
       const batter = z === 70 || z === 77 ? floorBase + 2 : z === 69 || z === 78 ? floorBase : -1;
       if (batter >= 0) {
-        for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
+        if (pier) for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
         continue;
       }
-      for (let y = FOOT; y < t; y++) put(x, y, z, M);
+      for (let y = soffit; y < t; y++) put(x, y, z, M);
       if (z === 71 || z === 76) {
         put(x, t, z, M);
         put(x, t + 1, z, M);
@@ -388,16 +395,6 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
       }
     }
-  }
-  for (const [a, b] of [[97, 102], [104, 109], [111, 116]]) {
-    for (let x = a + 1; x <= b - 1; x++) {
-      const yt = 87 - (x - 96) - 3;
-      for (let y = floorBase + 8; y <= yt; y++) {
-        carve(x, y, 71);
-        carve(x, y, 76);
-      }
-    }
-    corbelPassage('z', a + 1, a + 4, 69, 78);
   }
   // Landing tower.
   for (let z = 67; z <= 80; z++)
@@ -418,22 +415,26 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       for (let y = 65; y <= 70; y++) carve(x, y, z);
       if (rim && !opening) put(x, 65, z, M);
     }
-  for (let z = 71; z <= 77; z++) for (let y = floorBase + 5; y <= 59; y++) carve(126, y, z);
-  for (let x = 121; x <= 124; x++) for (let y = floorBase + 5; y <= 59; y++) carve(x, y, 69);
+  for (let z = 71; z <= 77; z++) for (let y = floorBase + 8; y <= 59; y++) carve(126, y, z);
+  // A corbelled passage runs under the landing, on the line of the first flight.
+  corbelPassage('x', 72, 75, 117, 128);
+  for (let x = 121; x <= 124; x++) for (let y = floorBase + 8; y <= 59; y++) carve(x, y, 69);
   lanternPost(125, 65, 70.5, 0, true);
   lanternPost(120.5, 65, 77.5, Math.PI * 0.75);
   // Flight 2 runs south along x 121..124 from the landing (z 80, tread 63) to the floor.
+  const piers2 = [81, 87, 88, 94, 95];
   for (let k = 0; k <= 22; k++) {
     const z = 80 + k;
     const t = 63 - k;
+    const pier = z <= 81 || (z >= 87 && z <= 88) || z >= 94;
+    const soffit = pier ? FOOT : t - 6 - haunch(z, piers2);
     for (let x = 118; x <= 127; x++) {
-      const batter = z <= 96 ? (x === 119 || x === 126 ? floorBase + 2 : x === 118 || x === 127 ? floorBase : -1) : x < 120 || x > 125 ? -2 : -1;
-      if (batter === -2) continue;
+      const batter = x === 119 || x === 126 ? floorBase + 2 : x === 118 || x === 127 ? floorBase : -1;
       if (batter >= 0) {
-        for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
+        if (pier && z <= 96) for (let y = FOOT; y <= batter; y++) put(x, y, z, M);
         continue;
       }
-      for (let y = FOOT; y < t; y++) put(x, y, z, M);
+      for (let y = soffit; y < t; y++) put(x, y, z, M);
       if (x === 120 || x === 125) {
         put(x, t, z, M);
         put(x, t + 1, z, M);
@@ -442,16 +443,6 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         for (let y = t + 1; y <= t + 5; y++) carve(x, y, z);
       }
     }
-  }
-  for (const [a, b] of [[81, 86], [88, 93], [95, 100]]) {
-    for (let z = a + 1; z <= b - 1; z++) {
-      const yt = 63 - (z - 80) - 3;
-      for (let y = floorBase + 8; y <= yt; y++) {
-        carve(120, y, z);
-        carve(125, y, z);
-      }
-    }
-    if (b <= 93) corbelPassage('x', a + 1, a + 4, 118, 127);
   }
   // Lamps on the cheek walls halfway down each flight: warm pools with dark gaps between.
   lanternPost(106.5, 79, 76.5, Math.PI);
@@ -525,7 +516,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     for (let dz = 0; dz <= 1; dz++)
       for (let dx = 0; dx <= 1; dx++) for (let y = floorBase - 3; y <= floorBase + 3; y++) put(nx + dx, y, nz + dz, M);
   lanternPost(119.5, floorBase + 4, 121.5, Math.PI / 2, true);
-  lanternPost(125.5, floorBase + 4, 136.5, -Math.PI / 2);
+  // The far end runs into the chasm's south wall: a lamp on the deck marks the alcove.
+  lanternPost(123.4, floorBase + 1, 134.6, -Math.PI / 2);
   // Violet glow rising from the depths.
   for (const [x, z] of [[114, 128], [123, 127], [131, 129]]) setEmitter(x, 33, z, B.LIGHT_ABYSS);
   for (let i = 0; i < 9; i++) {
@@ -590,10 +582,13 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     (y >= floorBase + 1 && y <= floorBase + 6 && z >= 98 && z <= 103) ||
     (y === floorBase + 7 && z >= 99 && z <= 102) ||
     (y === floorBase + 8 && z >= 100 && z <= 101);
-  for (let z = 98; z <= 103; z++)
+  // The outer order of the doorway is two blocks wider than the inner one: stepped jambs.
+  const outerOrder = (y: number, z: number) => doorway(y, z) || doorway(y, z + 2) || doorway(y, z - 2) || doorway(y - 1, z);
+  for (let z = 96; z <= 105; z++)
     for (let y = floorBase + 1; y <= floorBase + 8; y++) {
+      if (outerOrder(y, z)) for (let x = 133; x <= 135; x++) carve(x, y, z);
       if (!doorway(y, z)) continue;
-      for (let x = 133; x <= 136; x++) carve(x, y, z);
+      carve(136, y, z);
       put(137, y, z, B.HARDENED_SLATE);
       put(138, y, z, B.HARDENED_SLATE);
     }
@@ -603,9 +598,9 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // Forecourt and threshold.
   for (let z = 96; z <= 105; z++)
     for (let x = 126; x <= 136; x++) {
-      if (x >= 135 && !doorway(floorBase + 1, z)) continue;
+      if (x >= 135 && !(x === 135 ? outerOrder(floorBase + 1, z) : doorway(floorBase + 1, z))) continue;
       put(x, floorBase, z, z === 96 || z === 105 ? M : B.ANCIENT_TILE);
-      for (let y = floorBase + 1; y <= floorBase + 4; y++) if (x < 135 || doorway(y, z)) carve(x, y, z);
+      for (let y = floorBase + 1; y <= floorBase + 4; y++) if (x < 135 || (x === 135 ? outerOrder(y, z) : doorway(y, z))) carve(x, y, z);
     }
   landmarks.seal = [136.5, floorBase + 1, 100.5];
   // Corridor east, stairs down south, then west onto the balcony.
@@ -707,7 +702,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     }
   }
   addProp({ kind: 'tablet', x: 55.5, y: shrine.y0, z: 104, rotY: Math.PI / 2, interact: 'relic', emitters: [] });
-  setEmitter(56, shrine.y0 + 1, 104, B.LIGHT_CYAN);
+  // No lamp in the shrine: the tablet's own glow and the waking inscription are the only
+  // cold light, so the room stays dark until the explorer's lantern enters it.
   addProp({ kind: 'crystalCluster', x: 52.6, y: shrine.y0, z: 109.4, rotY: 2.2, scale: 0.9, emitters: [], minable: { hardness: 2.5, tier: 1, drop: 'glimmerShard', min: 2, max: 3 } });
   lanternPost(65.5, floorBase + 1, 100.5, Math.PI / 2);
   discoveries.push({ id: 'shrine', min: [shrine.x0, shrine.y0 - 1, shrine.z0], max: [shrine.x1 + 1, shrine.y1, shrine.z1 + 1] });
@@ -1035,7 +1031,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         if (across < 1.2) continue;
         const along = ((x + 0.5 - cx) * dx + (z + 0.5 - cz) * dz) / l;
         const d = Math.hypot(along / 1.6, across - 2.4);
-        const h = Math.round(2.6 * (1 - d / 2.6) + detail.noise2(x * 0.7, z * 0.7) * 0.7);
+        const h = Math.round(1.9 * (1 - d / 2.6) + detail.noise2(x * 0.7, z * 0.7) * 0.6);
         for (let y = floor; y < floor + h; y++) if (isAir(x, y, z)) put(x, y, z, detail.noise3(x * 0.8, y * 0.8, z * 0.8) > 0.25 ? B.SLATE : B.GRAVEL);
       }
   }

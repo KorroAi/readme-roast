@@ -44,7 +44,7 @@ interface Preset {
 /** Fixed camera + light presets so changes can be compared screenshot to screenshot. */
 const PRESETS: Record<LabView, Preset> = {
   materials: { cam: [20, 11, 0.5], target: [20, 2.5, 12], lantern: [20, 7, 8], lanternRadius: 16, ambient: 0.22 },
-  transitions: { cam: [96, 11, 4], target: [96, 3.5, 25], lantern: [96, 4.2, 22], lanternRadius: 12, ambient: 0.1 },
+  transitions: { cam: [96, 11, 4], target: [96, 3.5, 25], lantern: [96, 4.2, 22], lanternRadius: 12, ambient: 0.16 },
   crystal: { cam: [10, 6.5, 32], target: [16, 4, 44], lantern: [9, 5, 33], lanternRadius: 6, ambient: 0 },
   lantern: { cam: [33, 7.5, 36], target: [40.5, 3, 43], lantern: [40, 3.8, 41], lanternRadius: 11, ambient: 0 },
   cracks: { cam: [24, 4.6, 54.6], target: [24, 2.4, 59.5], lantern: [24, 5, 56], lanternRadius: 12, ambient: 0.1 },
@@ -63,7 +63,7 @@ export type TransitionCam = 'overview' | 'geology' | 'minerals' | 'masonry' | 's
 export const TRANSITION_CAMS: TransitionCam[] = ['overview', 'geology', 'minerals', 'masonry', 'seam'];
 /** Camera stops, each with the lantern orbit it is judged under (centre, radii, height). */
 const TR_CAMS: Record<TransitionCam, { cam: [number, number, number]; target: [number, number, number]; orbit: { x: number; z: number; rx: number; rz: number; y: number } }> = {
-  overview: { cam: [96, 9.5, 8], target: [96, 4, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
+  overview: { cam: [96, 12, 11], target: [96, 4.5, 30], orbit: { x: 96, z: 25, rx: 16, rz: 3, y: 4.4 } },
   geology: { cam: [83, 5.2, 21.5], target: [83, 4.8, 30], orbit: { x: 83, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   minerals: { cam: [96, 5.6, 21.5], target: [96, 5.4, 30], orbit: { x: 96, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
   masonry: { cam: [112, 5.2, 21.5], target: [112, 4.8, 30], orbit: { x: 112, z: 27, rx: 5, rz: 1.5, y: 4.6 } },
@@ -119,6 +119,8 @@ export class VisualLab {
   private trFog = false;
   /** Fixed lantern orbit angle for repeatable captures (null = animate). */
   private trLanternAngle: number | null = null;
+  /** Optional fill-light override (?amb=0..1) to inspect albedo without the lantern. */
+  ambientOverride: number | null = null;
   private time = 0;
   private burstTimer = 0;
   frames = 0;
@@ -285,7 +287,7 @@ export class VisualLab {
     const u = this.rig.uniforms;
     u.uLanternPos.value.set(...p.lantern);
     u.uLanternRadius.value = p.lanternRadius;
-    u.uDebug.value.set(p.ambient, 9999, 0);
+    u.uDebug.value.set(this.ambientOverride ?? p.ambient, 9999, 0);
     u.uFogDensity.value = TR_FOG.off;
     this.lantern.compute(p.lantern[0], p.lantern[1], p.lantern[2], p.lanternRadius);
     this.rig.markLanternDirty({ x: this.lantern.originX, y: this.lantern.originY, z: this.lantern.originZ });

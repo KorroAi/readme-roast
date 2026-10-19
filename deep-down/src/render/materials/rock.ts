@@ -56,16 +56,16 @@ export interface RockMap {
 }
 
 export const STONE_SIDE: RockStyle = {
-  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.2, fold: 5, folds: 1, joints: [18, 60], jointChance: 0.32,
-  facets: 7, facetStrength: 0.12, fractures: 2, grain: 0.07, laminae: 0.25, chips: 30, base: 0.55, macro: 0.2, height: 150, heightSpread: 80,
+  pal: P.STONE, crack: 0x07080b, beds: [9, 28], bedTone: 0.13, fold: 5, folds: 1, joints: [18, 60], jointChance: 0.32,
+  facets: 7, facetStrength: 0.1, fractures: 2, grain: 0.06, laminae: 0.25, chips: 30, base: 0.53, macro: 0.08, height: 150, heightSpread: 80,
 };
 export const DEEP_SIDE: RockStyle = {
-  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.15, fold: 3, folds: 1, joints: [22, 64], jointChance: 0.4,
-  facets: 6, facetStrength: 0.14, fractures: 2, grain: 0.06, laminae: 0.1, chips: 22, base: 0.55, macro: 0.2, height: 165, heightSpread: 70,
+  pal: P.DEEP, crack: 0x050608, beds: [14, 38], bedTone: 0.11, fold: 3, folds: 1, joints: [22, 64], jointChance: 0.4,
+  facets: 6, facetStrength: 0.12, fractures: 2, grain: 0.05, laminae: 0.1, chips: 22, base: 0.54, macro: 0.08, height: 165, heightSpread: 70,
 };
 export const WEATHERED_SIDE: RockStyle = {
-  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.17, fold: 3, folds: 2, joints: [12, 40], jointChance: 0.6,
-  facets: 9, facetStrength: 0.12, fractures: 4, grain: 0.08, laminae: 0.55, chips: 40, base: 0.57, macro: 0.2, height: 115, heightSpread: 80,
+  pal: P.WEATHERED, crack: 0x0b0a0a, beds: [5, 15], bedTone: 0.13, fold: 3, folds: 2, joints: [12, 40], jointChance: 0.6,
+  facets: 9, facetStrength: 0.1, fractures: 4, grain: 0.07, laminae: 0.55, chips: 40, base: 0.52, macro: 0.08, height: 115, heightSpread: 80,
 };
 export const BEDROCK_SIDE: RockStyle = {
   pal: P.BEDROCK, crack: 0x030304, beds: [20, 44], bedTone: 0.08, fold: 2, folds: 1, joints: [24, 64], jointChance: 0.35,
@@ -226,9 +226,9 @@ export interface FloorStyle {
   heightSpread: number;
 }
 
-export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.1, crackShare: 0.3, grit: 0.2, fractures: 3, chips: 18, base: 0.52, macro: 0.22, grain: 0.06, height: 140, heightSpread: 70 };
-export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.09, crackShare: 0.28, grit: 0.16, fractures: 2, chips: 14, base: 0.52, macro: 0.22, grain: 0.05, height: 150, heightSpread: 60 };
-export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.12, crackShare: 0.36, grit: 0.28, fractures: 3, chips: 22, base: 0.55, macro: 0.22, grain: 0.07, height: 110, heightSpread: 70 };
+export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.2, fractures: 1, chips: 10, base: 0.5, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
+export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.16, fractures: 1, chips: 8, base: 0.5, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
+export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.28, fractures: 2, chips: 12, base: 0.5, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
 
 export interface FloorMap {
   f: Field2;
@@ -264,7 +264,7 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
       const cn = crackN(x, y);
       if (e < 1.1 && cn < st.crackShare) {
         code = 1;
-        v -= 0.22;
+        v -= 0.16;
         h = 25;
       } else if (e < 2.2 && cn < st.crackShare + 0.08) {
         v -= 0.03; // the plate rounds off toward an open crack
@@ -290,7 +290,7 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
     }
   for (let k = 0; k < st.fractures; k++) {
     const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(20, 50), 0.2, 0.06);
-    engrave(f, pts, { depth: 0.24, lip: 0.06, shadow: 0.06, height: 25 });
+    engrave(f, pts, { depth: 0.16, lip: 0.05, shadow: 0.05, height: 25 });
   }
   const cracks: number[] = [];
   for (let i = 0; i < S * S; i++) if (f.code[i] === 1) cracks.push(i);
@@ -477,8 +477,8 @@ function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
   const edge = fbm(rng, 32, 1);
   const clumps = new PeriodicCells(rng, 7, 7, 0.95);
   for (const cl of clumps.cells) {
-    if (cl.r > (side ? 0.5 : 0.65)) continue;
-    const r = 2 + cl.r2 * (side ? 5 : 7);
+    if (cl.r > (side ? 0.45 : 0.45)) continue;
+    const r = 1.5 + cl.r2 * (side ? 4.5 : 5);
     // A few satellites around each clump.
     const n = 1 + Math.floor(cl.r3 * 4);
     for (let k = 0; k < n; k++) {
@@ -498,7 +498,7 @@ function lichen(c: MatCanvas, rng: Rng, code: Uint8Array, side: boolean): void {
           const t = d / lim;
           const hv = hash2(px, py);
           const tone = t > 0.8 ? 3 : t < 0.4 && hv < 0.18 ? 4 : hv < 0.45 ? 2 : 1;
-          c.set(px, py, mixHex(c.getHex(px, py), P.LICHEN[tone], 0.85), Math.max(c.height(px, py), 165 + (1 - t) * 50));
+          c.set(px, py, mixHex(c.getHex(px, py), P.LICHEN[tone], 0.7), Math.max(c.height(px, py), 165 + (1 - t) * 50));
         }
     }
   }

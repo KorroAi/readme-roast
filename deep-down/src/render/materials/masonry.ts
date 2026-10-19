@@ -1,4 +1,4 @@
-import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, chip, crackPath, engrave, fbm, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
+import { Field2, MAT_SIZE, MatCanvas, PeriodicCells, Rng, blob, chip, crackPath, engrave, fbm, hash2, mixHex, ramp, resolve, rngFor, wrap, wrapDelta } from './paint';
 import * as P from './palette';
 
 /**
@@ -226,44 +226,64 @@ export function crumbling(c: MatCanvas, rng: Rng): void {
   const base = rngFor('masonry');
   const { f, stones } = masonryBase(base);
   const rubble = fbm(rng, 16, 2);
+  const holeEdge = fbm(rng, 32, 1);
   for (const st of stones) {
-    // Every stone is worn rougher; some have sunk (darker, open joint above), some have lost
-    // their face (a deep rough scar with a lit lower rim).
+    // The wall is loosening: every joint has opened, stones are darker and rougher, some have
+    // sunk (open joint above), and many have lost a chunk of their face: a deep ragged hole
+    // with a lit lower rim.
     const sunk = rng.chance(0.35);
-    const lost = !sunk && rng.chance(0.3);
-    for (let j = 0; j < st.h - 1; j++)
-      for (let i = 0; i < st.w - 1; i++) {
+    for (let j = 0; j < st.h; j++)
+      for (let i = 0; i < st.w; i++) {
         const x = st.x0 + i;
         const y = st.y0 + j;
-        const r = rubble(x, y);
-        let dv = (r - 0.5) * 0.12;
-        if (sunk) dv -= 0.08;
-        if (lost && r > 0.45) dv -= 0.16 + (r - 0.45) * 0.3;
-        else if (lost && r > 0.4) dv += 0.08;
-        f.add(x, y, dv);
+        const k = f.i(x, y);
+        if (i >= st.w - 2 || j >= st.h - 2) {
+          if (i === st.w - 1 || j === st.h - 1 || rubble(x, y) > 0.45) {
+            f.v[k] = 0.02;
+            f.code[k] = 1;
+            f.h[k] = 5;
+          }
+          continue;
+        }
+        f.v[k] += (rubble(x, y) - 0.5) * 0.18 - (sunk ? 0.13 : 0.06);
       }
-    if (sunk)
-      for (let i = 0; i < st.w; i++) {
-        const k = f.i(st.x0 + i, st.y0);
-        f.v[k] = 0.03;
-        f.code[k] = 1;
-        f.add(st.x0 + i, st.y0 + 1, -0.06);
-      }
+    if (rng.chance(0.6)) {
+      const r = Math.min(st.h, st.w) * (0.35 + rng.next() * 0.3);
+      const cx = st.x0 + rng.int(1, Math.max(1, st.w - 3));
+      const cy = st.y0 + (rng.chance(0.5) ? 1 : st.h - 3);
+      blob(cx, cy, r, holeEdge, (px, py, t, _dx, dy) => {
+        const k = f.i(px, py);
+        if (f.code[k] === 1) return;
+        if (t > 0.8 && dy > 0) f.v[k] += 0.12; // lit lower rim of the break
+        else {
+          f.v[k] = 0.04 + (rubble(px, py) - 0.5) * 0.1;
+          f.h[k] = 30;
+        }
+      });
+    }
   }
-  for (let k = 0; k < 14; k++) {
+  for (let k = 0; k < 18; k++) {
     const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(12, 34), 0.3, 0.12);
-    engrave(f, pts, { depth: 0.32, lip: 0.08, shadow: 0.08, height: 10, widen: 0.35, rng });
+    engrave(f, pts, { depth: 0.32, lip: 0.08, shadow: 0.08, height: 10, widen: 0.4, rng });
   }
   for (let k = 0; k < 28; k++) chip(f, rng, rng.int(0, S - 1), rng.int(0, S - 1), rng.int(3, 7));
   resolve(c, f, P.ASHLAR, P.JOINT, 0);
   stains(c, base, stones, 0.3);
   c.a.fill(0); // alpha is the emissive mask here
+  // Cold light leaks through a few stretches of the opened joints (well under 1 % of texels).
   const leak = fbm(rng, 8, 1);
-  for (let k = 0; k < 4; k++) {
-    const pts = crackPath(rng, rng.next() * S, rng.next() * S, rng.next() * Math.PI * 2, rng.int(12, 28), 0.3, 0.1);
-    for (const [x, y] of pts) {
-      c.set(x, y, 0x081418);
-      if (leak(x, y) > 0.5 && hash2(x, y) < 0.6) c.set(x, y, 0x2a98ab, 120 + leak(x, y) * 120);
+  for (const st of stones) {
+    if (!rng.chance(0.18)) continue;
+    const horizontal = rng.chance(0.6);
+    const len = horizontal ? Math.min(st.w, rng.int(6, 16)) : Math.min(st.h, rng.int(4, 10));
+    const x0 = horizontal ? st.x0 + rng.int(0, Math.max(0, st.w - len)) : st.x0 + st.w - 1;
+    const y0 = horizontal ? st.y0 + st.h - 1 : st.y0 + rng.int(0, Math.max(0, st.h - len));
+    for (let k = 0; k < len; k++) {
+      const x = horizontal ? x0 + k : x0;
+      const y = horizontal ? y0 : y0 + k;
+      const l = leak(x, y);
+      if (l > 0.42 && hash2(x, y) < 0.75) c.set(x, y, 0x2fa9bd, 120 + (l - 0.42) * 260);
+      else c.set(x, y, 0x081418);
     }
   }
 }
@@ -282,7 +302,7 @@ export function hearth(c: MatCanvas, rng: Rng): void {
       if (e < 1.6) {
         // Ash in the joints; very rarely a live ember (emissive).
         const em = emberN(x, y);
-        if (em > 0.8 && hash2(x, y) < 0.5) c.set(x, y, ramp(P.EMBER, (em - 0.8) * 4.5, x, y, 0), 140 + (em - 0.8) * 400);
+        if (em > 0.85 && hash2(x, y) < 0.45) c.set(x, y, ramp(P.EMBER, (em - 0.85) * 6, x, y, 0), 120 + (em - 0.85) * 600);
         else c.set(x, y, ramp(P.ASH, n(x, y), x, y, 0), 0);
         continue;
       }

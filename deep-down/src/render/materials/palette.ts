@@ -19,7 +19,7 @@ export const DEEP = [0x090b0f, 0x0d1014, 0x11141a, 0x161a21, 0x1b2028, 0x222730,
  * Weathered rock: lighter and neutral grey (never beige: the warm lantern already warms it);
  * its only warmth is the ochre deposits in its cracks.
  */
-export const WEATHERED = [0x141517, 0x1b1c1f, 0x232427, 0x2b2d30, 0x34363a, 0x3e4044, 0x494b4f, 0x55575b] as const;
+export const WEATHERED = [0x131416, 0x191a1d, 0x202124, 0x27282b, 0x2f3033, 0x37383b, 0x404144, 0x4a4b4d] as const;
 /** Damp stone: the slate family, cooler and darker where water sits on it. */
 export const DAMP = [0x090d11, 0x0d1217, 0x11171d, 0x161d24, 0x1b232b, 0x212a33, 0x28323c, 0x313b46] as const;
 /** Wet sheen and water traces (used sparingly, on streak edges). */
@@ -27,6 +27,8 @@ export const WET_SHEEN = 0x46566a;
 /** Lichen crust: muted grey-olive, a step above the rock it grows on. */
 export const LICHEN = [0x1a221e, 0x212b25, 0x29352d, 0x324034, 0x3c4b3d] as const;
 
+/** Stones that weathered out into the soil: warm-neutral, between rock and soil. */
+export const PEBBLE = [0x171615, 0x1f1d1b, 0x282522, 0x312d29, 0x3b3631, 0x463f39] as const;
 /** Compacted cave soil. */
 export const SOIL = [0x110d0b, 0x16110e, 0x1b1512, 0x211a15, 0x281f19, 0x30251d, 0x382b21] as const;
 
