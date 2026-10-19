@@ -170,7 +170,7 @@ export class StructureBuilder {
    * seen from outside. All quads take the face of the strip's middle normal (one texture
    * projection along a curved surface).
    */
-  strip(a: V3[], b: V3[], na: V3[], nb: V3[], aoA?: number[], aoB?: number[]): void {
+  strip(a: V3[], b: V3[], na: V3[], nb: V3[], aoA?: number[], aoB?: number[], uvA?: Array<[number, number]>, uvB?: Array<[number, number]>): void {
     const n = a.length;
     const pa = a.map((p) => this.toWorld(p));
     const pb = b.map((p) => this.toWorld(p));
@@ -184,19 +184,79 @@ export class StructureBuilder {
       const face = dominantFace(fn);
       const ns = [wa[k], wa[k + 1], wb[k + 1], wb[k]];
       const aos = [aoA?.[k], aoA?.[k + 1], aoB?.[k + 1], aoB?.[k]];
+      const uvs = uvA && uvB ? [uvA[k], uvA[k + 1], uvB[k + 1], uvB[k]] : null;
       const base = this.vertexCount;
-      for (let c = 0; c < 4; c++) this.vertex(quadPts[c], localPts[c], ns[c], ln, face, aos[c] ?? this.aoAt(quadPts[c], ns[c]));
+      for (let c = 0; c < 4; c++) this.vertex(quadPts[c], localPts[c], ns[c], ln, face, aos[c] ?? this.aoAt(quadPts[c], ns[c]), uvs ? uvs[c] : undefined);
       this.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
     }
   }
 
-  private vertex(p: V3, lp: V3, n: V3, ln: V3, face: number, ao: number): void {
+  /**
+   * A smooth surface of revolution about the local y axis with explicit texture coordinates:
+   * `profile` [radius, y] from bottom to top (radius may vary per angle through `radiusAt`),
+   * `segments` around from angle a0 over `sweep`. Profile points whose segments turn by less than
+   * ~40 degrees share a normal (rounded mouldings), sharper turns crease. uv(angle, y) gives the
+   * texels; ao(y) the occlusion.
+   */
+  revolve(
+    profile: Array<[number, number]>,
+    segments: number,
+    uv: (angle: number, r: number, y: number) => [number, number],
+    ao: (y: number) => number = () => 1,
+    a0 = 0,
+    sweep = Math.PI * 2,
+  ): void {
+    const m = profile.length;
+    // Segment normals in the (r, y) plane, then per-point normals (smoothed unless creased).
+    const segN: Array<[number, number]> = [];
+    for (let k = 0; k + 1 < m; k++) {
+      const dr = profile[k + 1][0] - profile[k][0];
+      const dy = profile[k + 1][1] - profile[k][1];
+      const l = Math.hypot(dr, dy) || 1;
+      segN.push([dy / l, -dr / l]);
+    }
+    const ang = Array.from({ length: segments + 1 }, (_, j) => a0 + (sweep * j) / segments);
+    for (let k = 0; k + 1 < m; k++) {
+      const [r0, y0] = profile[k];
+      const [r1, y1] = profile[k + 1];
+      if (Math.abs(r0 - r1) < 1e-6 && Math.abs(y0 - y1) < 1e-6) continue;
+      const nAt = (other: number): [number, number] => {
+        const o = segN[other];
+        const n = segN[k];
+        if (!o || n[0] * o[0] + n[1] * o[1] < 0.77) return n;
+        const x = n[0] + o[0];
+        const y = n[1] + o[1];
+        const l = Math.hypot(x, y) || 1;
+        return [x / l, y / l];
+      };
+      const nA = nAt(k - 1);
+      const nB = nAt(k + 1);
+      // Two rings of shared vertices per profile segment (smooth around).
+      const base = this.vertexCount;
+      for (const [r, y, n] of [[r0, y0, nA], [r1, y1, nB]] as const) {
+        const a0y = ao(y);
+        for (const a of ang) {
+          const c = Math.cos(a);
+          const sn = -Math.sin(a);
+          const lp: V3 = [c * r, y, sn * r];
+          const wn = norm(this.dirToWorld([c * n[0], n[1], sn * n[0]]));
+          this.vertex(this.toWorld(lp), lp, wn, wn, dominantFace(wn), a0y, uv(a, r, y));
+        }
+      }
+      const row = segments + 1;
+      for (let j = 0; j < segments; j++) this.idx.push(base + j, base + j + 1, base + row + j + 1, base + j, base + row + j + 1, base + row + j);
+    }
+  }
+
+  private vertex(p: V3, lp: V3, n: V3, ln: V3, face: number, ao: number, uv?: [number, number]): void {
     const s = this.surface;
     this.pos.push(p[0], p[1], p[2]);
     this.nrm.push(Math.round(n[0] * 127), Math.round(n[1] * 127), Math.round(n[2] * 127), 0);
     let u: number;
     let v: number;
-    if (s.mode === TexMode.World) {
+    if (uv) {
+      [u, v] = uv;
+    } else if (s.mode === TexMode.World) {
       [u, v] = worldUv(p, face);
       u *= D;
       v *= D;
@@ -211,7 +271,8 @@ export class StructureBuilder {
         v = (alongAxis ? dot(lp, ax) : lp[1]) * D;
       } else {
         u = (alongAxis ? dot(lp, ax) : dot(lp, w)) * D + s.u0;
-        v = flat ? Math.abs(dot(lp, w) - (s.vRef ?? 0)) * D : (s.top - lp[1]) * D;
+        const dv = dot(lp, w) - (s.vRef ?? 0);
+        v = flat ? (s.mode === TexMode.Stone ? Math.abs(dv) : dv) * D : (s.top - lp[1]) * D;
         if (s.mode === TexMode.Stone) v = Math.max(0, Math.min(v, 255));
       }
     }
@@ -390,7 +451,7 @@ export class StructureBuilder {
     for (let k = 0; k < n; k++) {
       const [u0, v0] = shape[k];
       const [u1, v1] = shape[(k + 1) % n];
-      this.quad([u0, v0, z1], [u1, v1, z1], [u1, v1, z0], [u0, v0, z0]);
+      this.quad([u0, v0, z0], [u1, v1, z0], [u1, v1, z1], [u0, v0, z1]);
     }
     if (capEnd) this.poly(shape.map(([u, v]): V3 => [u, v, z1]));
     if (capStart) this.poly(shape.map(([u, v]): V3 => [u, v, z0]).reverse());

@@ -183,6 +183,9 @@ export class ChunkRenderer {
   private warmLeft = -1;
   private readonly warmIds = new Set<number>();
   viewDistance = 96;
+  /** Static meshes drawn and culled with the terrain (structure meshes): their groups are
+   *  children of `group`, and they take this renderer's view distance. */
+  private readonly attached: Array<{ group: THREE.Object3D; viewDistance: number; cull(focus: THREE.Vector3): void }> = [];
 
   constructor(world: VoxelWorld, material: THREE.Material, options: ChunkRendererOptions = {}) {
     this.world = world;
@@ -406,6 +409,16 @@ export class ChunkRenderer {
       const c = m.userData.center as THREE.Vector3;
       m.visible = c.distanceToSquared(focus) < maxD2;
     }
+    for (const a of this.attached) {
+      a.viewDistance = this.viewDistance;
+      a.cull(focus);
+    }
+  }
+
+  /** Draw and cull a static set of meshes with the terrain (see `attached`). */
+  attach(a: { group: THREE.Object3D; viewDistance: number; cull(focus: THREE.Vector3): void }): void {
+    this.attached.push(a);
+    this.group.add(a.group);
   }
 
   /** Mesh one chunk on the main thread now (supersedes any worker job in flight for it). */

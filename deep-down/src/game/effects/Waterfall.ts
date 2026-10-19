@@ -70,31 +70,35 @@ void main() {
     // of the ribbon: 0.3 m wide at the lip, up to about 2.8 m at the foot; halfW + wander stays
     // under 0.5, so the water never touches the quad's edge.
     float spread = pow(smoothstep(0.0, 1.0, fall), 0.75);
-    float halfW = mix(0.05, 0.4, spread);
+    float halfW = mix(0.06, 0.42, spread);
     float wander = (sin(h0 * 0.07 + t * 0.5) * 0.04 + sin(h0 * 0.23 - t * 0.9) * 0.015) * smoothstep(0.05, 0.6, fall);
+    // The width breathes along the fall (gusts squeeze and spread the water).
+    halfW *= 0.75 + 0.5 * vnoise(vec2(h0 * 0.06 + t * 0.4, 2.0));
     float x = (vUv.x - 0.5 - wander) / halfW; // -1..1 across the water
     float y = h0 + t * 7.5; // scrolls down with the water (metres)
     // Soft, ragged edges that wander along the fall (each side its own).
-    float ragN = vnoise(vec2(y * 0.3, x < 0.0 ? 3.0 : 17.0));
-    float edge = 1.0 - smoothstep(0.35 + 0.4 * ragN, 1.05, abs(x));
-    // Streaks: smooth noise across the sheet, long along the fall, a few dozen threads at most.
-    float s1 = vnoise(vec2(x * 4.5 + 11.0, y * 0.18));
-    float s2 = vnoise(vec2(x * 11.0 + 3.0, y * 0.45));
-    float streak = smoothstep(0.3, 0.85, s1 * 0.6 + s2 * 0.4);
-    // Lower down the sheet breaks into packets and spray: holes open in the water.
-    float brk = vnoise(vec2(x * 2.2 + 5.0, y * 0.09)) * 0.65 + vnoise(vec2(x * 6.0, y * 0.3)) * 0.35;
-    float sheet = mix(1.0, smoothstep(0.28, 0.62, brk), smoothstep(0.25, 0.85, fall));
-    float core = 1.0 - min(x * x, 1.0);
+    float ragN = vnoise(vec2(y * 0.45, x < 0.0 ? 3.0 : 17.0));
+    float edge = 1.0 - smoothstep(0.3 + 0.45 * ragN, 1.05, abs(x));
+    // Threads: smooth noise across the sheet, long along the fall, with dark gaps between them.
+    float s1 = vnoise(vec2(x * 4.0 + 11.0, y * 0.16));
+    float s2 = vnoise(vec2(x * 10.0 + 3.0, y * 0.4));
+    float streak = smoothstep(0.42, 0.9, s1 * 0.55 + s2 * 0.45);
+    // From a few metres below the lip the water falls in packets: gaps run down with it, and it
+    // frays into spray (more holes) further down.
+    float pk = vnoise(vec2(x * 1.6 + 5.0, y * 0.22)) * 0.6 + vnoise(vec2(x * 5.0, y * 0.55)) * 0.4;
+    float holes = mix(0.3, 0.56, smoothstep(0.3, 1.0, fall));
+    float sheet = mix(1.0, smoothstep(holes - 0.08, holes + 0.12, pk), smoothstep(0.06, 0.3, fall));
     // Sparse glints that travel with the water (small, soft, never a pixel column).
     vec2 gq = vec2(x * 9.0, y * 1.3);
     float gh = hash12(floor(gq));
     vec2 gf = fract(gq) - 0.5;
-    float glint = step(0.965, gh) * (1.0 - smoothstep(0.05, 0.35, length(gf * vec2(1.0, 0.4))));
-    // It emerges from the dark under the dome and thins into the mist at the foot.
+    float glint = step(0.97, gh) * (1.0 - smoothstep(0.05, 0.35, length(gf * vec2(1.0, 0.4))));
+    // It emerges from the dark under the dome and thins into the mist at the foot. The two
+    // ribbons add up where they cross, so the middle is not made brighter than the edges.
     float lip = smoothstep(0.0, 0.15, fall);
     float foot = 1.0 - smoothstep(0.9, 1.0, fall) * 0.7;
-    float body = (0.22 + 0.78 * streak) * (0.3 + 0.7 * core) * sheet * edge;
-    col = (uColor * body + uGlint * glint * core * sheet * 0.5) * lip * foot;
+    float body = (0.12 + 0.88 * streak) * (0.55 + 0.45 * smoothstep(1.0, 0.4, abs(x))) * sheet * edge;
+    col = (uColor * body * 0.8 + uGlint * glint * sheet * edge * 0.45) * lip * foot;
   } else if (vKind == 1) {
     // Mist: a soft cloud rising off the foot, churning slowly.
     vec2 q = vUv * 2.0 - 1.0;

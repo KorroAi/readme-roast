@@ -291,49 +291,46 @@ export function ironTop(c: MatCanvas, rng: Rng): void {
 }
 
 /**
- * Crystal: a druse of small prisms (about 0.3 x 0.8 m) grown in the host rock, not a pane of
- * glass. Each prism has its own facet tone (some face the light, most fall dark) with a lighter
- * ridge along its axis; prisms are parted by dark hairline seams (never a lit outline), a share
- * of the cells is dark rock matrix between the prisms, and the light is inside: a low glow deep
- * in some prisms (emissive alpha) and a few small glints at prism tips. The terrain shader makes
- * the glints sparkle with the view.
+ * Crystal: a druse, the inside of a crystal-lined vein seen face on: crowded crystal points about
+ * 0.3-0.6 m across, each a pyramid of 3-5 facets meeting at its apex, every facet shaded by
+ * which way it turns (lit toward the upper left, dark away from it), dark valleys where the
+ * points meet and a few cells of rock matrix between them. That is how a crystal surface reads
+ * at a glance (faceted, never a flat pane or a speckled ore block). The light is inside: a low
+ * glow through the facets in slow broad patches (emissive alpha), brightest on the facets turned
+ * away from the light, and a glint at the apex of a few points; the shader sparkles them.
  */
 export function crystal(c: MatCanvas, rng: Rng): void {
-  const prisms = new PeriodicCells(rng, 24, 10, 0.9);
+  const points = new PeriodicCells(rng, 15, 15, 0.9);
   const glowN = fbm(rng, 4, 2);
-  const n = fbm(rng, 8, 2);
-  const w = S / 24;
-  const hgt = S / 10;
+  const n = fbm(rng, 16, 1);
+  const light = -2.3; // upper left (texture y runs down)
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
-      const q = prisms.query(x, y, 1, 0.3);
-      const cell = prisms.cells[q.id];
+      const q = points.query(x, y);
+      const cell = points.cells[q.id];
       const e = q.d2 - q.d1;
-      const dx = wrapDelta(cell.x, x) / w;
-      const dy = wrapDelta(cell.y, y) / hgt;
-      if (cell.r3 < 0.2) {
-        // Host-rock matrix between the prisms.
-        c.set(x, y, ramp(P.DEEP, 0.2 + (n(x, y) - 0.5) * 0.25 + (e < 1 ? -0.1 : 0), x, y, 0), 0);
+      if (cell.r3 < 0.1) {
+        c.set(x, y, ramp(P.DEEP, 0.18 + (n(x, y) - 0.5) * 0.2 + (e < 1.2 ? -0.08 : 0), x, y, 0), 0);
         continue;
       }
-      if (e < 0.9) {
-        c.set(x, y, P.CRYSTAL[0], 0);
-        continue;
-      }
-      // Facet tone of the prism, a ridge along its axis, darker toward its root (below).
-      const tone = cell.r < 0.22 ? 0.72 : cell.r < 0.6 ? 0.42 : 0.2;
-      const v = tone - Math.abs(dx) * 0.25 + Math.min(0, -dy) * 0.15 + (n(x, y) - 0.5) * 0.08;
+      const dx = wrapDelta(cell.x, x);
+      const dy = wrapDelta(cell.y, y);
+      const r = Math.hypot(dx, dy);
+      // Facet of the pyramid this texel lies on, and the way that facet turns.
+      const sides = 3 + Math.floor(cell.r * 2.99);
+      const rot = cell.r2 * Math.PI * 2;
+      const sector = Math.floor((((Math.atan2(dy, dx) - rot) / (Math.PI * 2)) % 1 + 1) % 1 * sides);
+      const facing = Math.cos(rot + ((sector + 0.5) / sides) * Math.PI * 2 - light);
+      let v = 0.32 + facing * 0.3 + (cell.r2 - 0.5) * 0.08 - (e < 1.6 ? 0.16 : 0) + (n(x, y) - 0.5) * 0.04;
+      if (e < 0.8) v = 0.04;
       let hex = ramp(P.CRYSTAL, Math.max(0, Math.min(0.99, v)), x, y, 0);
-      // Inner glow deep inside some prisms, in slow broad patches.
       let alpha = 0;
-      if (cell.r2 < 0.55) {
-        const depth = Math.min(1, (e - 0.9) / 4);
-        const g = Math.max(0, glowN(x, y) - 0.42) * 2.2 * depth * (1 - Math.abs(dx));
-        alpha = Math.min(160, g * 200);
-        if (alpha > 0) hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.55, alpha / 240));
+      const g = Math.max(0, glowN(x, y) - 0.4) * 2.2 * Math.min(1, e / 2.5) * (0.55 - facing * 0.45);
+      if (g > 0) {
+        alpha = Math.min(150, g * 210);
+        hex = mixHex(hex, P.CRYSTAL_GLOW, Math.min(0.5, alpha / 260));
       }
-      // Glints: a few small sparks at the tip of lit prisms.
-      if (tone > 0.6 && dy < -0.55 && Math.abs(dx) < 0.3 && hash2(x >> 1, y >> 1) < 0.35) {
+      if (cell.r2 > 0.86 && r < 0.9) {
         hex = P.CRYSTAL_EDGE;
         alpha = 230;
       }

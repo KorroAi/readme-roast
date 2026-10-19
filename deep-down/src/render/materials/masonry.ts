@@ -591,10 +591,10 @@ export function crumblingB(c: MatCanvas, rng: Rng): void {
  * of glowing cracks (that reads as a magma block). The fire itself is a prop with its own flame.
  */
 export function hearth(c: MatCanvas, rng: Rng): void {
-  const stones = new PeriodicCells(rng, 18, 18, 0.85);
+  const stones = new PeriodicCells(rng, 13, 13, 0.85);
   const n = fbm(rng, 16, 2);
   const ashN = fbm(rng, 32, 1);
-  const size = S / 18;
+  const size = S / 13;
   for (let y = 0; y < S; y++)
     for (let x = 0; x < S; x++) {
       const q = stones.query(x, y);
@@ -603,9 +603,11 @@ export function hearth(c: MatCanvas, rng: Rng): void {
       const dx = wrapDelta(cell.x, x) / size;
       const dy = wrapDelta(cell.y, y) / size;
       // Rounded: the stone's edge falls into the ash, the joint width varies per stone.
-      const joint = 1.3 + cell.r2 * 1.4;
+      const joint = 1.0 + cell.r2 * 1.1;
       if (e < joint) {
-        c.set(x, y, ramp(P.ASH, 0.15 + ashN(x, y) * 0.55 - (e / joint) * 0.2, x, y, 0), 0);
+        // Ash darkened by soot, lighter only in a few drifts.
+        const ash = ashN(x, y);
+        c.set(x, y, ash > 0.62 ? ramp(P.ASH, (ash - 0.62) * 1.6, x, y, 0) : ramp(P.SOOT, 0.35 + ash * 0.3, x, y, 0), 0);
         continue;
       }
       // Lit from the upper left, soot darkest low on the stone, a greyer worn crown.

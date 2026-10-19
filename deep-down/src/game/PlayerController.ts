@@ -1,6 +1,9 @@
 import { PLAYER } from '../config/balance';
 import { RAMP, SOLID, rampPlane } from '../config/blocks';
 import { damp, dampAngle } from '../core/math';
+
+/** On a stair flight, how far (m) the box may overlap the top edge of a cube beside the feet. */
+const STAIR_EDGE = 0.34;
 import type { VoxelWorld } from '../world/VoxelWorld';
 
 export interface PlayerFrameEvents {
@@ -231,6 +234,19 @@ export class PlayerController {
     const y1 = Math.floor(y + PLAYER.height);
     const z0 = Math.floor(z - hw);
     const z1 = Math.floor(z + hw);
+    // Feet over a stair flight: the box may overlap the edge of a landing (or of any cube) by up to
+    // a third of a metre at its bottom, as the centre of the feet goes on down the flight's plane;
+    // a flat-bottomed box would otherwise hang on the landing's edge and drop at once.
+    const cx = Math.floor(x);
+    const cz = Math.floor(z);
+    let flight = -Infinity;
+    for (let cy = Math.floor(y - 1e-4); cy >= Math.floor(y - 1e-4) - 1; cy--) {
+      const rc = RAMP[this.world.get(cx, cy, cz)];
+      if (!rc) continue;
+      const pc = rampPlane(rc, cx, cy, cz, x, z);
+      if (Math.abs(pc - y) < 0.5) flight = pc;
+      break;
+    }
     let hit = 0;
     let top = -Infinity;
     for (let yy = y0; yy <= y1; yy++)
@@ -240,6 +256,7 @@ export class PlayerController {
           if (!SOLID[id]) continue;
           const r = RAMP[id];
           if (!r) {
+            if (yy + 1 <= flight + STAIR_EDGE && (xx !== cx || zz !== cz)) continue;
             this.rampTop = -Infinity;
             return 1;
           }
@@ -264,7 +281,9 @@ export class PlayerController {
       const id = this.world.get(cx, cy, cz);
       if (!SOLID[id]) continue;
       const r = RAMP[id];
-      if (!r) return -Infinity; // a floor comes first: ordinary falling and settling handle it
+      // A floor comes first: ordinary falling and settling handle it, except the last few cm off
+      // the foot of a flight onto its landing.
+      if (!r) return y - (cy + 1) >= 0 && y - (cy + 1) <= 0.2 && this.test(x, cy + 1, z) === 0 ? cy + 1 : -Infinity;
       const p = rampPlane(r, cx, cy, cz, x, z);
       if (p > y + 1e-6 || p < y - maxDrop) return -Infinity;
       return this.test(x, p, z) === 0 ? p : -Infinity;

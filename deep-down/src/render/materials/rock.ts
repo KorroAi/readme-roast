@@ -151,7 +151,7 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
     const list: Array<{ x: number; y: number; hw: number; th: number; dv: number }> = [];
     if (t < 8) return list;
     const count = rng.int(0, 2);
-    for (let k = 0; k < count; k++) list.push({ x: rng.next() * S, y: 2 + rng.next() * (t - 4), hw: 10 + rng.next() * 22, th: 1.2 + rng.next() * Math.min(3, t / 6), dv: rng.chance(0.55) ? 1 : -1 });
+    for (let k = 0; k < count; k++) list.push({ x: rng.next() * S, y: 2 + rng.next() * (t - 4), hw: 14 + rng.next() * 26, th: 1 + rng.next() * Math.min(2.2, t / 7), dv: rng.chance(0.7) ? 1 : -1 });
     return list;
   });
   const facets = new PeriodicCells(rng, st.facets, Math.round(st.facets * 1.25), 0.9);
@@ -240,10 +240,14 @@ export function rockField(rng: Rng, st: RockStyle): RockMap {
   // Long fractures: most run with the bedding (low angle), the odd one crosses several beds
   // steeply. Carved grooves that taper and close up, not drawn lines.
   const fractures: Pt[][] = [];
+  // Steep fractures start in the other half of the period from the low-angle ones, so the two
+  // sets never cross into a repeated "+" mark.
+  const fy0 = rng.next() * S;
   for (let k = 0; k < st.fractures; k++) {
     const steep = k % 2 === 1;
     const ang = (steep ? (rng.chance(0.5) ? 1 : -1) * (0.95 + rng.next() * 0.45) : (rng.next() - 0.5) * 0.5) + (rng.chance(0.5) ? 0 : Math.PI);
-    const pts = crackCurve(rng, rng.next() * S, rng.next() * S, ang, rng.int(30, 80), 0.14, 0.05);
+    const fy = steep ? fy0 + S / 2 + (rng.next() - 0.5) * 12 : fy0 + (rng.next() - 0.5) * 20;
+    const pts = crackCurve(rng, rng.next() * S, fy, ang, steep ? rng.int(22, 40) : rng.int(30, 70), 0.14, 0.05);
     groove(f, pts, { width: steep ? 1.6 : 2, depth: 0.2, lip: 0.1, shadow: 0.08, height: 22, gaps: 0.2, rng });
     fractures.push(pts.map(([x, y]) => [Math.round(x), Math.round(y)] as Pt));
   }
@@ -276,11 +280,11 @@ export interface FloorStyle {
   heightSpread: number;
 }
 
-// Floors sit 1-2 ramp steps under their walls: a floor catches the lantern and the open-space
+// Floors sit a ramp step under their walls: a floor catches the lantern and the open-space
 // fill square on, so with the walls' albedo it read as pale dust or snow under the light.
-export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.07, fractures: 1, chips: 6, base: 0.33, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
-export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.06, fractures: 1, chips: 5, base: 0.36, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
-export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.1, fractures: 2, chips: 8, base: 0.36, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
+export const STONE_TOP: FloorStyle = { pal: P.STONE, crack: 0x07080b, plates: 6, plateTone: 0.14, crackShare: 0.14, grit: 0.07, fractures: 1, chips: 6, base: 0.39, macro: 0.06, grain: 0.07, height: 140, heightSpread: 70 };
+export const DEEP_TOP: FloorStyle = { pal: P.DEEP, crack: 0x050608, plates: 5, plateTone: 0.12, crackShare: 0.13, grit: 0.06, fractures: 1, chips: 5, base: 0.41, macro: 0.06, grain: 0.07, height: 150, heightSpread: 60 };
+export const WEATHERED_TOP: FloorStyle = { pal: P.WEATHERED, crack: 0x0b0a0a, plates: 7, plateTone: 0.15, crackShare: 0.18, grit: 0.1, fractures: 2, chips: 8, base: 0.4, macro: 0.06, grain: 0.08, height: 110, heightSpread: 70 };
 
 export interface FloorMap {
   f: Field2;
@@ -331,13 +335,11 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
         const near = Math.max(0, 1 - e / 7);
         const g = grit.query(x, y);
         const gc = grit.cells[g.id];
-        if (gc.r < st.grit * (0.35 + near) && g.d1 < 1.25 + gc.r2) {
+        if (gc.r < st.grit * (0.35 + near) && g.d1 < 0.85 + gc.r2 * 0.6) {
           const lit = wrapDelta(gc.x, x) + wrapDelta(gc.y, y) < -0.6;
           v += lit ? 0.02 : -step;
           h = 175 + gc.r2 * 50;
           code = lit ? 2 : 3;
-        } else if (gc.r < st.grit * (0.35 + near) && g.d1 < 2.0 + gc.r2) {
-          v -= step * 0.35; // contact shadow around the stone (shows only where the floor is low)
         }
       }
       f.v[i] = v;
@@ -346,11 +348,15 @@ export function floorField(rng: Rng, st: FloorStyle): FloorMap {
     }
   // A bedding-plane floor cracks along joint sets roughly at right angles (as a limestone
   // pavement does): long, nearly straight grooves that taper and close up in places.
+  // The second set only on floors with more than one fracture, offset by half the period so
+  // the sets do not cross into a repeated "+" mark.
   const theta = rng.next() * Math.PI;
-  for (let set = 0; set < 2; set++) {
+  const fx0 = rng.next() * S;
+  const fy0 = rng.next() * S;
+  for (let set = 0; set < (st.fractures > 1 ? 2 : 1); set++) {
     const a = theta + set * (Math.PI / 2 + (rng.next() - 0.5) * 0.4);
     for (let k = 0; k < st.fractures; k++) {
-      const pts = crackCurve(rng, rng.next() * S, rng.next() * S, a + (rng.next() - 0.5) * 0.2, rng.int(26, 64), 0.06, 0.02);
+      const pts = crackCurve(rng, fx0 + set * (S / 2) + (rng.next() - 0.5) * 30, fy0 + set * (S / 2) + (rng.next() - 0.5) * 30, a + (rng.next() - 0.5) * 0.2, rng.int(26, 56), 0.06, 0.02);
       groove(f, pts, { width: 1.5, depth: 0.12, lip: 0.09, shadow: 0.06, height: 25, gaps: 0.3, rng });
     }
   }

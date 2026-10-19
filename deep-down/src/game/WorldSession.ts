@@ -11,6 +11,7 @@ import { TerrainRig } from '../render/terrainRig';
 import type { MaterialAtlas } from '../render/materials';
 import { ChunkRenderer } from '../render/ChunkRenderer';
 import { PropRenderer } from '../render/props/PropRenderer';
+import { StructureRenderer } from '../render/structures/StructureRenderer';
 import { applyWorldEdits, encodeWorldEdits } from '../save/worldDelta';
 
 const yieldFrame = () => new Promise<void>((r) => setTimeout(r, 0));
@@ -31,6 +32,8 @@ export class WorldSession {
   readonly tileTexture: THREE.DataArrayTexture;
   readonly terrainMaterial: THREE.ShaderMaterial;
   readonly chunks: ChunkRenderer;
+  /** Built forms over their collision cells (drawn and culled with the chunks). */
+  readonly structures: StructureRenderer;
   readonly props: PropRenderer;
   /** Live prop specs by id (positions can change when a prop settles after its anchor is mined). */
   readonly liveProps = new Map<string, PropSpec>();
@@ -49,6 +52,8 @@ export class WorldSession {
     this.terrain = new TerrainRig(materials);
     this.terrainMaterial = createTerrainMaterial(this.rig.uniforms, this.tileTexture, this.terrain.uniforms);
     this.chunks = new ChunkRenderer(w, this.terrainMaterial);
+    this.structures = new StructureRenderer(layout.structures ?? [], w, this.rig.uniforms, this.terrain.uniforms);
+    this.chunks.attach(this.structures);
     this.props = new PropRenderer(this.rig.uniforms);
   }
 
@@ -229,6 +234,7 @@ export class WorldSession {
 
   dispose(): void {
     this.chunks.dispose();
+    this.structures.dispose();
     this.props.dispose();
     this.rig.dispose();
     this.tileTexture.dispose();

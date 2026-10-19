@@ -133,10 +133,14 @@ vec2 worldUv(vec3 p, int face) {
 // soft texels). Pixel art keeps crisp texel edges at reading distance, without the shimmer of raw
 // nearest sampling and without 10-15 px hard-edged blocks right in front of the lens. The
 // gradients are the continuous ones, so mip selection is unchanged.
+// soft < 0: adaptive, -soft x screen pixels per texel (clamped to 0.15-0.55 texels), so rock
+// stays crisp at reading distance and softens only when a texel grows past ~8 px near the lens.
 vec2 sharpUv(vec2 uv, vec2 gx, vec2 gy, float soft) {
   vec2 t = uv * ${MAT_SIZE}.0;
   vec2 c = floor(t + 0.5);
-  vec2 w = max((abs(gx) + abs(gy)) * ${MAT_SIZE}.0, vec2(soft));
+  vec2 fw = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
+  vec2 s = soft >= 0.0 ? vec2(soft) : clamp(-soft / max(fw, vec2(1e-4)), 0.15, 0.55);
+  vec2 w = max(fw, s);
   return (c + clamp((t - c) / w, -0.5, 0.5)) * (1.0 / ${MAT_SIZE}.0);
 }
 vec4 matGrad(vec2 uv, float layer, vec2 gx, vec2 gy, float soft) {
@@ -196,9 +200,9 @@ const int GEO_SIDE[${MATERIAL_NAMES.length}] = int[](${Array.from(GEO_SIDE_OF).j
 const float SCRIPT_LAYER = ${MAT.script}.0;
 const float CRACK0 = ${CRACK_FIRST_LAYER}.0;
 const float CRACKS = ${CRACK_STAGES}.0;
-// Texel softness of the sharp-bilinear edge per family (texels): rock and earth soften a little
-// up close, dressed stone stays crisp.
-const float SOFT_ROCK = 0.32;
+// Texel softness of the sharp-bilinear edge per family (texels): rock and earth soften up close
+// (adaptive), dressed stone stays crisp.
+const float SOFT_ROCK = -0.025;
 const float SOFT_CUT = 0.12;
 ${courseGlsl({ masonry: MAT.masonry, masonryB: MAT.masonryB, crumbling: MAT.crumbling, crumblingB: MAT.crumblingB })}
 
@@ -302,22 +306,24 @@ void main() {
     // shows its beds. The threshold wanders with the world noise, and inside the band the
     // taller of the two layers at this texel claims it, so the boundary follows the stone.
     float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.11);
-    Planes pt = planesFor(rp, rpDx, rpDy, ng, 1.7);
-    Planes ps = planesFor(rp, rpDx, rpDy, ng, 0.55);
     if (topL == sideL) t = ng.y > 0.0 ? 2.0 : -2.0;
     if (t >= 1.0) {
-      tex = planeSample(pt, float(topL), SOFT_ROCK);
+      pl = planesFor(rp, rpDx, rpDy, ng, 1.7);
+      tex = planeSample(pl, float(topL), SOFT_ROCK);
       topShown = true;
     } else if (t <= -1.0) {
-      tex = planeSample(ps, float(sideL), SOFT_ROCK);
+      pl = planesFor(rp, rpDx, rpDy, ng, 0.55);
+      tex = planeSample(pl, float(sideL), SOFT_ROCK);
     } else {
+      Planes pt = planesFor(rp, rpDx, rpDy, ng, 1.7);
+      Planes ps = planesFor(rp, rpDx, rpDy, ng, 0.55);
       vec4 a = planeSample(pt, float(topL), SOFT_ROCK);
       vec4 b = planeSample(ps, float(sideL), SOFT_ROCK);
       topShown = (a.a - b.a) * 0.7 + t * 0.55 > 0.0;
       tex = topShown ? a : b;
+      if (topShown) pl = pt;
+      else pl = ps;
     }
-    if (topShown) pl = pt;
-    else pl = ps;
     shownLayer = topShown ? topL : sideL;
   } else tex = matGrad(uv, vLayer, uvDx, uvDy, SOFT_CUT);
 
@@ -366,6 +372,21 @@ void main() {
   if (!natural) macro = textureLod(uNoise, vGrid * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
+  // Near the lens a rock texel spans many pixels: a fine grain (64 per metre, ALU value noise on
+  // the main projection, no fetch) fades in there, so close rock reads as stone, not as a
+  // magnified pixel. Skipped wherever a texel is under 5 px.
+  if (natural) {
+    vec2 fwr = (abs(pl.gx0) + abs(pl.gy0)) * ${MAT_SIZE}.0;
+    float ppt = 1.0 / max(max(fwr.x, fwr.y), 1e-4);
+    if (ppt > 5.0) {
+      vec2 dq = pl.uv0 * ${MAT_SIZE * 4}.0;
+      vec2 i = floor(dq);
+      vec2 f = fract(dq);
+      f = f * f * (3.0 - 2.0 * f);
+      float g = mix(mix(hash13(vec3(i, 7.0)), hash13(vec3(i + vec2(1.0, 0.0), 7.0)), f.x), mix(hash13(vec3(i + vec2(0.0, 1.0), 7.0)), hash13(vec3(i + 1.0, 7.0)), f.x), f.y);
+      albedo *= 1.0 + (g - 0.5) * 0.2 * smoothstep(5.0, 12.0, ppt);
+    }
+  }
 
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
@@ -390,25 +411,25 @@ void main() {
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
 
-  // Crystal reads as a druse of facets, not a pane: every 2x2-texel facet has its own tilt, and
-  // the lantern's reflection flares on the facets that mirror it toward the eye (strongest on
-  // the painted tip glints), so the seam sparkles as the explorer moves.
+  // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
+  // the explorer moves, and the painted glints at the prism tips flare when their own (tilted)
+  // facet mirrors the flame toward the eye, so the seam sparkles in a few places, not everywhere.
   if (family == ${FAMILY.CRYSTAL}) {
-    vec2 fc = floor(uv * 64.0);
-    vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
-    vec3 fn = normalize(n + tilt * 1.1);
     vec3 toEye = normalize(cameraPosition - vWorldPos);
     vec3 toLamp = normalize(uLanternPos - vWorldPos);
-    float sp = pow(max(dot(reflect(-toLamp, fn), toEye), 0.0), 20.0);
-    float glint = smoothstep(0.75, 0.9, tex.a);
-    color += vec3(0.28, 0.75, 0.84) * sp * luma(lantern) * (0.25 + 2.2 * glint);
+    float sheen = pow(max(dot(reflect(-toLamp, n), toEye), 0.0), 6.0);
+    float glint = smoothstep(0.78, 0.9, tex.a);
+    vec2 fc = floor(uv * 32.0);
+    vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
+    float flare = pow(max(dot(reflect(-toLamp, normalize(n + tilt)), toEye), 0.0), 12.0);
+    color += vec3(0.28, 0.75, 0.84) * luma(lantern) * (sheen * 0.35 + flare * glint * 2.5);
   }
 
   // Inscriptions: the builders' script (materials/script.ts) laid in world space along the band,
   // so a row of glyph stones reads as one carved line of text (a headline the glyphs hang from,
   // glyphs of varying width, word gaps, a baseline groove), not one icon per stone. Each band
   // (course and plane) takes its own line of text and starting point. Carved: the groove is
-  // dark, eroded in places by world-space noise; the ink is dim until the explorer's lantern
+  // dark, worn away in places (world-space noise, ~0.5 m patches); the ink is dim until the lantern
   // comes close ("the inscriptions answer the light"), and a slow pulse travels along the line.
   if ((vFlags & 4) != 0 && vFace != 2 && vFace != 3) {
     float plane = dot(vec3(cell), abs(n));
@@ -417,12 +438,12 @@ void main() {
     float row = clamp(float(cell.y + 1) - vGrid.y, 0.0, 0.999);
     vec2 su = vec2(uv.x + fract(hb * 13.7), (line + row) * (1.0 / 8.0));
     vec4 scr = matGrad(su, SCRIPT_LAYER, uvDx, uvDy, SOFT_CUT);
-    float erosion = smoothstep(0.3, 0.58, textureLod(uNoise, vGrid * (1.0 / 2.3) + hb * 7.0, 0.0).g);
+    float erosion = smoothstep(0.3, 0.46, textureLod(uNoise, vGrid * (1.0 / 18.0) + hb * 7.0, 0.0).g);
     float carve = smoothstep(0.24, 0.42, scr.a) * (0.55 + 0.45 * erosion);
     float ink = smoothstep(0.72, 0.95, scr.a) * erosion;
     float wake = smoothstep(9.0, 2.5, distance(uLanternPos, vGrid));
     color *= 1.0 - carve * 0.62; // the carved groove
-    emissive += scr.rgb * ink * (0.14 + 0.9 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
+    emissive += scr.rgb * ink * (0.2 + 0.85 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
 
   // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around

@@ -197,12 +197,15 @@ RAMP[B.RAMP_BASE_NX] = 6;
 RAMP[B.RAMP_BASE_PZ] = 7;
 RAMP[B.RAMP_BASE_NZ] = 8;
 
-/** Height of the stair plane of ramp cell (cx, cy, cz) with RAMP code `r` at the point (x, z). */
+/**
+ * Height of the stair plane of ramp cell (cx, cy, cz) with RAMP code `r` at the point (x, z). Uphill
+ * of the cell the plane stops at its top edge (a flight meets its landing level).
+ */
 export function rampPlane(r: number, cx: number, cy: number, cz: number, x: number, z: number): number {
   const dir = ((r - 1) & 3) + 1;
   const lift = (r - 1) >> 2;
   const f = dir === 1 ? x - cx : dir === 2 ? cx + 1 - x : dir === 3 ? z - cz : cz + 1 - z;
-  return cy + lift + 1 - f;
+  return cy + lift + 1 - Math.max(0, f);
 }
 
 export function blockDef(id: number): BlockDef {

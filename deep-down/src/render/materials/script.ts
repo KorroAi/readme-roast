@@ -6,11 +6,11 @@ import { MAT_SIZE, MatCanvas, Rng } from './paint';
  * space, so the band reads as text running along the course, not as one icon per stone.
  *
  * One chisel grammar for every glyph: a 2-texel stroke hanging from a carved headline (the line
- * the whole word hangs from), built from stems, diagonals, side bowls, hooks, bars, chevrons and
- * the odd dot or tail below the body. Glyph widths vary (4-9 texels, 0.25-0.55 m), glyphs of a
- * word share the headline, words are separated by gaps where it breaks, and a thin baseline
- * groove rules the whole line. Nothing reads as a Latin letter: every glyph is attached at the
- * top and most strokes are angular.
+ * the whole word hangs from): pendants ending in loops or hooks, hanging rings, vees, zigzags
+ * and slanted tails, with the odd dot below the body. Glyph widths vary (5-9 texels, 0.3-0.55 m),
+ * glyphs of a word share the headline, words are separated by gaps where it breaks, and a thin
+ * baseline groove rules the whole line. Every glyph hangs from the top and none has the side
+ * stems and bars of a Latin capital.
  *
  * Alpha: 255 inked stroke core, 140 carved stroke edge, 95 baseline groove, 0 stone (the shader
  * thresholds it into groove and ink). RGB: the ink colour.
@@ -25,62 +25,57 @@ const INK = 0x7ff3ff;
 const RIM = 0x2aa9c0;
 
 type Seg = [number, number, number, number];
+interface Glyph {
+  segs: Seg[];
+  /** Rings: centre x, y and radius (stroke on the circle). */
+  rings: Array<[number, number, number]>;
+}
 
-/** Strokes of one glyph in its own box: x 0..w-1, y 0..8 (body rows), y < 0 reaches the headline. */
-function glyph(rng: Rng, w: number): Seg[] {
-  const segs: Seg[] = [];
-  const left = 0.5;
+/**
+ * One glyph in its own box: x 0..w-1, y 0..8 (body rows), y < 0 reaches the headline. A main
+ * radical hangs from the headline (a pendant ending in a loop or a hook, a hanging ring, a vee, a
+ * zigzag, a slanted tail with a foot), and a secondary mark may join it (a dot below, a tick, a
+ * small cross-stroke). No full-height side stems with bars: those read as Latin capitals.
+ */
+function glyph(rng: Rng, w: number): Glyph {
+  const g: Glyph = { segs: [], rings: [] };
+  const mid = (w - 1) / 2;
   const right = w - 1.5;
-  const stemX = rng.chance(0.55) ? left : right;
-  const otherX = stemX === left ? right : left;
-  const parts = rng.chance(0.35) ? 3 : 2;
-  let attached = false;
-  const used = new Set<string>();
-  for (let p = 0; p < parts; p++) {
-    const r = rng.next();
-    const kind = r < 0.3 ? 'stem' : r < 0.45 ? 'diag' : r < 0.58 ? 'bowl' : r < 0.68 ? 'hook' : r < 0.78 ? 'bar' : r < 0.9 ? 'chevron' : 'tick';
-    if (used.has(kind)) continue;
-    used.add(kind);
-    switch (kind) {
-      case 'stem':
-        segs.push([stemX, -1.5, stemX, rng.chance(0.75) ? 8 : 4.5]);
-        attached = true;
-        break;
-      case 'diag':
-        if (rng.chance(0.5)) segs.push([left, 1, right, 8]);
-        else segs.push([right, 1, left, 8]);
-        break;
-      case 'bowl': {
-        const x0 = stemX;
-        const x1 = otherX;
-        const y0 = rng.chance(0.5) ? 1.5 : 4;
-        segs.push([x0, y0, x1, y0 + 1.2], [x1, y0 + 1.2, x1, y0 + 2.6], [x1, y0 + 2.6, x0, y0 + 3.6]);
-        break;
-      }
-      case 'hook':
-        segs.push([stemX, 8, (stemX + otherX) / 2, 8], [(stemX + otherX) / 2, 8, otherX, 6]);
-        break;
-      case 'bar': {
-        const y = rng.chance(0.5) ? 3.5 : 5.5;
-        segs.push([left, y, right, y]);
-        break;
-      }
-      case 'chevron':
-        segs.push([left, -1.5, (left + right) / 2, 4], [(left + right) / 2, 4, right, -1.5]);
-        attached = true;
-        break;
-      case 'tick':
-        segs.push([right, -1.5, right + 0.5, 2]);
-        attached = true;
-        break;
-    }
+  const left = 0.5;
+  const r = rng.next();
+  if (r < 0.24) {
+    // Pendant: a stem from the headline ending in a loop or a hook.
+    const x = rng.chance(0.5) ? mid : rng.chance(0.5) ? left + 1 : right - 1;
+    const end = 3 + rng.next() * 2;
+    g.segs.push([x, -1.5, x, end]);
+    if (rng.chance(0.6)) g.rings.push([x + (rng.chance(0.5) ? 1.2 : -1.2), end + 2, 2]);
+    else g.segs.push([x, end, x + 2, end + 2.5], [x + 2, end + 2.5, x + 3, end + 1]);
+  } else if (r < 0.44) {
+    // Hanging ring on a short stem, a tail sweeping down from it.
+    const cx = Math.max(2, Math.min(w - 3, mid));
+    g.segs.push([cx, -1.5, cx, 1]);
+    g.rings.push([cx, 3.4, 2.4]);
+    if (rng.chance(0.6)) g.segs.push([cx + 1.6, 5.2, right + 0.5, 8.5]);
+  } else if (r < 0.6) {
+    // Vee hanging from the headline, sometimes with a dot inside.
+    g.segs.push([left, -1.5, mid, 5.5], [mid, 5.5, right, -1.5]);
+    if (rng.chance(0.4)) g.segs.push([mid, 1.5, mid, 1.5]);
+  } else if (r < 0.76) {
+    // Zigzag stroke down the body.
+    g.segs.push([left + 0.5, -1.5, right, 2], [right, 2, left, 5], [left, 5, right, 8]);
+  } else if (r < 0.9) {
+    // Slanted tail with a foot.
+    g.segs.push([right, -1.5, left + 0.5, 7.5], [left + 0.5, 7.5, left + 3, 7.5]);
+    if (rng.chance(0.5)) g.segs.push([mid + 0.5, 1, right + 0.5, 3]);
+  } else {
+    // Two short drops joined by a sagging stroke.
+    g.segs.push([left, -1.5, left, 2.5], [right, -1.5, right, 2.5], [left, 2.5, mid, 5], [mid, 5, right, 2.5]);
   }
-  if (!attached) segs.push([stemX, -1.5, stemX, rng.chance(0.5) ? 8 : 3]);
-  // The odd dot or a tail below the body.
   const extra = rng.next();
-  if (extra < 0.18) segs.push([w / 2 - 0.5, 10.2, w / 2 - 0.5, 10.2]);
-  else if (extra < 0.3) segs.push([stemX, 8, stemX + (stemX === left ? -0.5 : 0.5), 10.5]);
-  return segs;
+  if (extra < 0.22) g.segs.push([mid, 10.3, mid, 10.3]);
+  else if (extra < 0.32) g.segs.push([mid - 1, 10.3, mid - 1, 10.3], [mid + 1.5, 10.3, mid + 1.5, 10.3]);
+  else if (extra < 0.42) g.segs.push([right - 0.5, -1.5, right + 0.5, 1]);
+  return g;
 }
 
 function distToSeg(px: number, py: number, s: Seg): number {
@@ -107,15 +102,18 @@ export function script(c: MatCanvas, rng: Rng): void {
     // Words of 2-5 glyphs; the last word gap takes the remainder, so the line wraps on a gap.
     let x = rng.int(2, 5);
     for (;;) {
-      const count = rng.int(2, 5);
+      // A word that fits what is left of the line (shorter words toward its end).
+      const room = S - x - 5;
+      if (room < 6) break;
       const widths: number[] = [];
       let len = 0;
-      for (let k = 0; k < count; k++) {
-        const w = rng.int(4, 9);
+      for (let k = 0, count = rng.int(2, 5); k < count; k++) {
+        const w = rng.int(5, 9);
+        if (len + w + (k > 0 ? 2 : 0) > room) break;
         widths.push(w);
         len += w + (k > 0 ? 2 : 0);
       }
-      if (x + len + 5 > S) break;
+      if (!widths.length) break;
       // Headline over the whole word, one texel past it on both sides.
       for (let hx = x - 1; hx <= x + len; hx++) {
         mark(hx, y0 + HEAD, 255, INK);
@@ -123,11 +121,12 @@ export function script(c: MatCanvas, rng: Rng): void {
       }
       let gx = x;
       for (const w of widths) {
-        const segs = glyph(rng, w);
+        const gl = glyph(rng, w);
         for (let yy = -1; yy <= 11; yy++)
           for (let xx = -1; xx <= w; xx++) {
             let d = Infinity;
-            for (const s of segs) d = Math.min(d, distToSeg(xx, yy, s));
+            for (const s of gl.segs) d = Math.min(d, distToSeg(xx, yy, s));
+            for (const [cx, cy, rr] of gl.rings) d = Math.min(d, Math.abs(Math.hypot(xx - cx, yy - cy) - rr));
             const ay = y0 + BODY + yy;
             if (ay <= y0 + HEAD + 1 || ay >= y0 + RULE) continue;
             if (d <= 0.72) mark(gx + xx, ay, 255, INK);

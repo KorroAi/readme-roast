@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { B, BLOCKS } from '../../src/config/blocks';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 import { meshChunk } from '../../src/render/mesher';
-import { BLOCK_SURFACES, COURSE_LAYERS, FAMILY, FAMILY_OF, MAT_SIDE, MATERIAL_NAMES, generateMaterials } from '../../src/render/materials';
+import { BLOCK_SURFACES, COURSE_LAYERS, FAMILY, FAMILY_OF, GEO_SIDE_OF, GEO_TOP_OF, MAT, MAT_SIDE, MAT_TOP, MATERIAL_NAMES, generateMaterials } from '../../src/render/materials';
 import { COURSE_PIECE, courseGlsl, strips } from '../../src/render/materials/courses';
 import { masonryBond } from '../../src/render/materials/masonry';
 import { MAT_SIZE } from '../../src/render/materials/paint';
@@ -50,6 +50,84 @@ describe('terrain material layers', () => {
       // a seam is a boundary rougher than every interior one.
       expect(rowDiff(l, S - 1, 0), `${name} vertical wrap`).toBeLessThanOrEqual(maxRow * 1.1 + 1);
       expect(colDiff(l, S - 1, 0), `${name} horizontal wrap`).toBeLessThanOrEqual(maxCol * 1.1 + 1);
+    }
+  });
+
+  // Mean linear luminance of a layer's albedo.
+  const lum = (l: number) => {
+    let sum = 0;
+    for (let i = 0; i < S * S; i++) {
+      const lin = (c: number) => ((c / 255) <= 0.04045 ? c / 255 / 12.92 : ((c / 255 + 0.055) / 1.055) ** 2.4);
+      const o = l * S * S * 4 + i * 4;
+      sum += 0.2126 * lin(atlas.data[o]) + 0.7152 * lin(atlas.data[o + 1]) + 0.0722 * lin(atlas.data[o + 2]);
+    }
+    return sum / (S * S);
+  };
+
+  it('keeps worn rock floors darker than their walls (albedos are reflectances; floors get more light)', () => {
+    for (const [top, side] of [['stoneTop', 'stoneSide'], ['deepTop', 'deepSide'], ['weatheredTop', 'weatheredSide'], ['dampTop', 'dampSide']] as const) {
+      expect(lum(MAT[top]), `${top} vs ${side}`).toBeLessThan(lum(MAT[side]) * 0.9);
+    }
+  });
+
+  it('paints no pale speckle on rock floors: texels a step or more above the floor are rare', () => {
+    for (const name of ['stoneTop', 'deepTop'] as const) {
+      const l = MAT[name];
+      const lums: number[] = [];
+      for (let i = 0; i < S * S; i++) lums.push(px(l, i % S, Math.floor(i / S), 0) + px(l, i % S, Math.floor(i / S), 1) + px(l, i % S, Math.floor(i / S), 2));
+      const sorted = [...lums].sort((a, b) => a - b);
+      const median = sorted[sorted.length >> 1];
+      const pale = lums.filter((v) => v > median * 1.18).length / lums.length;
+      expect(pale, name).toBeLessThan(0.02);
+    }
+  });
+
+  it('keeps the hearth a soot fire bed with a few embers, not a glowing crack network', () => {
+    const l = MAT.hearth;
+    let glowing = 0;
+    for (let i = 0; i < S * S; i++) if (atlas.data[l * S * S * 4 + i * 4 + 3] > 40) glowing++;
+    expect(glowing / (S * S)).toBeGreaterThan(0);
+    expect(glowing / (S * S)).toBeLessThan(0.006);
+  });
+
+  it('lays the builders\' script as eight lines with a headline, glyphs and a baseline groove', () => {
+    const l = MAT.script;
+    for (let line = 0; line < 8; line++) {
+      const rowInk = (r: number) => {
+        let n = 0;
+        for (let x = 0; x < S; x++) if (px(l, x, line * 16 + r, 3) >= 250) n++;
+        return n / S;
+      };
+      const rowCarved = (r: number) => {
+        let n = 0;
+        for (let x = 0; x < S; x++) if (px(l, x, line * 16 + r, 3) >= 60) n++;
+        return n / S;
+      };
+      // Headline under most of the line (broken at word gaps), glyph strokes below it, the
+      // baseline groove almost continuous, and blank margins between lines.
+      expect(rowInk(1), `line ${line} headline`).toBeGreaterThan(0.6);
+      expect(rowInk(1), `line ${line} word gaps`).toBeLessThan(0.97);
+      let body = 0;
+      for (let r = 3; r <= 11; r++) body += rowInk(r);
+      expect(body / 9, `line ${line} glyphs`).toBeGreaterThan(0.12);
+      expect(rowCarved(14), `line ${line} baseline`).toBeGreaterThan(0.9);
+      expect(rowCarved(0) + rowCarved(15), `line ${line} margins`).toBe(0);
+    }
+  });
+
+  it('gives natural rock both of its layers (the shader picks top or side from the sculpted normal)', () => {
+    for (const [idStr, sfc] of Object.entries(BLOCK_SURFACES)) {
+      const id = Number(idStr);
+      if (sfc.family !== FAMILY.GEOLOGY) continue;
+      expect(GEO_TOP_OF[MAT_SIDE[id]], `block ${id} side -> top`).toBe(MAT_TOP[id]);
+      expect(GEO_TOP_OF[MAT_TOP[id]], `block ${id} top -> top`).toBe(MAT_TOP[id]);
+      expect(GEO_SIDE_OF[MAT_TOP[id]], `block ${id} top -> side`).toBe(MAT_SIDE[id]);
+      expect(GEO_SIDE_OF[MAT_SIDE[id]], `block ${id} side -> side`).toBe(MAT_SIDE[id]);
+    }
+    // Masonry, timber and crystal layers map to themselves.
+    for (const n of ['masonry', 'floorSlab', 'plank', 'crystal', 'hearth'] as const) {
+      expect(GEO_TOP_OF[MAT[n]]).toBe(MAT[n]);
+      expect(GEO_SIDE_OF[MAT[n]]).toBe(MAT[n]);
     }
   });
 

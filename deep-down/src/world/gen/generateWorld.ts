@@ -4,6 +4,7 @@ import { Noise } from '../../core/noise';
 import { Rng } from '../../core/rng';
 import { VoxelWorld } from '../VoxelWorld';
 import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
+import { BRIDGE_NEWEL, STAIR_COPING, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -27,8 +28,12 @@ import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
 type V3 = [number, number, number];
 type Cells = Array<[number, number]>;
 
-/** Height of a stair flight's parapet coping above its walking plane (render/structures/stairs.ts). */
-export const STAIR_COPING = 1.15;
+/** Half-width of the chasm where the bridge crosses it (m). */
+const CHASM_HALF = 6.2;
+/** The bridge arch: springing height at the chasm walls and the crown of its intrados. */
+const BRIDGE_SPRING = 34.5;
+const BRIDGE_CROWN = 39.1;
+
 
 export interface GenTimings {
   totalMs: number;
@@ -52,6 +57,8 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   // Independent streams: architecture and geology details never shift the layout stream.
   const archRng = rng.fork(0xa4c1);
   const geoRng = rng.fork(0x9e01);
+  // Seeds of the structure meshes (their own stream, so the layout streams stay as they were).
+  const specRng = rng.fork(0x57c7);
   const props: PropSpec[] = [];
   const discoveries: Region[] = [];
   const landmarks: Record<string, V3> = {};
@@ -437,7 +444,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       stairColumn(x, z, t, soffit, z === 71 || z === 76, B.RAMP_PX, B.RAMP_BASE_PX, k === 0);
     }
   }
-  structures.push({ kind: 'stairFlight', id: 'flight1', x0: 96, z0: 74, top: 88, dir: 'x', run: 23, width: 4, parapet: 1, seed: archRng.int(0, 1 << 30) });
+  structures.push({ kind: 'stairFlight', id: 'flight1', x0: 96, z0: 74, top: 88, dir: 'x', run: 23, width: 4, parapet: 1, seed: specRng.int(0, 1 << 30) });
   // Landing tower.
   for (let z = 67; z <= 80; z++)
     for (let x = 117; x <= 128; x++) {
@@ -463,11 +470,11 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   for (let x = 121; x <= 124; x++) for (let y = floorBase + 8; y <= 59; y++) carve(x, y, 69);
   lanternPost(125, 65, 70.5, 0, true);
   lanternPost(120.5, 65, 77.5, Math.PI * 0.75);
-  // Flight 2 runs south along x 121..124 from the landing (z 80, level with it) down to the
-  // processional way (z 104, y 41).
+  // Flight 2 runs south along x 121..124 from the landing (z 79, level with it) down to the
+  // processional way (z 103, y 41).
   const piers2 = [81, 87, 88, 94, 95];
   for (let k = 0; k <= 23; k++) {
-    const z = 80 + k;
+    const z = 79 + k;
     const t = 64 - k;
     const pier = z <= 81 || (z >= 87 && z <= 88) || z >= 94;
     const soffit = pier ? FOOT : t - 6 - haunch(z, piers2);
@@ -480,10 +487,10 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       stairColumn(x, z, t, soffit, x === 120 || x === 125, B.RAMP_PZ, B.RAMP_BASE_PZ, false);
     }
   }
-  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 80, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, seed: archRng.int(0, 1 << 30) });
+  structures.push({ kind: 'stairFlight', id: 'flight2', x0: 123, z0: 79, top: 65, dir: 'z', run: 24, width: 4, parapet: 1, seed: specRng.int(0, 1 << 30) });
   // Lamps on the parapet coping halfway down each flight: warm pools with dark gaps between.
   lanternPost(106.5, stairCoping(106.5 - 96, 88), 76.5, Math.PI, false, true);
-  lanternPost(125.5, stairCoping(91.5 - 80, 65), 91.5, -Math.PI / 2, false, true);
+  lanternPost(125.5, stairCoping(91.5 - 79, 65), 91.5, -Math.PI / 2, false, true);
   lanternPost(119.5, floorBase + 1, 103.5, 0.4);
   landmarks.stairsTop = [96.5, 88, 73.5];
   landmarks.landing = [122.5, 65, 74.5];
@@ -505,7 +512,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   lyingDrum('x', 90, 115, 4, 2.9, 2);
   lyingDrum('x', 85, 117, 3, 2.9, 1);
   slab(81, 112, 4, 5, B.ANCIENT_BRICK, 1);
-  slab(82, 113, 2, 3, B.ANCIENT_BRICK, 0, 1);
+  slab(82, 113, 2, 3, B.ANCIENT_BRICK, 1, 1);
   column(82, 128, 'broken', false);
   lyingDrum('z', 87, 130, 2, 1.95, 1);
   slab(81, 98, 3, 2, B.ANCIENT_TILE, 0);
@@ -531,31 +538,49 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
         const n = noise.fbm3(x * 0.08, y * 0.08, z * 0.08, 2) * 0.16;
         if (e + n < 1 && y >= 6) carve(x, y, z);
       }
-  for (let z = 124; z <= 133; z++)
+  // The chasm: a rent in the hall floor some 12 m across where the bridge crosses it (narrower
+  // toward its ends), so the bridge reads as a span over the deep, not a corridor.
+  for (let z = 114; z <= 143; z++)
     for (let x = 109; x <= 136; x++) {
-      const halfWidth = 2.4 + noise.noise2(x * 0.15, 3.3) * 1.2 - Math.abs(x - 122) * 0.035;
-      if (Math.abs(z - 128.5 + noise.noise2(x * 0.08, 9.1) * 2) > halfWidth) continue;
+      const halfWidth = CHASM_HALF + noise.noise2(x * 0.15, 3.3) * 1.0 - Math.abs(x - 122) * 0.12;
+      if (Math.abs(z - 128.5 + noise.noise2(x * 0.08, 9.1) * 1.5) > halfWidth) continue;
       for (let y = 30; y <= floorBase + 6; y++) carve(x, y, z);
     }
-  // The bridge: one segmental arch, deep at the abutments and thin at the crown, a paved
-  // walk between low parapets, and newel posts carrying lamps at both ends.
-  for (let z = 121; z <= 136; z++) {
-    const s = (z - 128.5) / 6.5;
-    const depth = 1 + Math.round(Math.min(1, s * s) * 6);
-    for (let x = 120; x <= 124; x++) {
-      put(x, floorBase, z, x >= 121 && x <= 123 ? B.ANCIENT_TILE : M);
-      for (let y = floorBase - depth; y < floorBase; y++) put(x, y, z, M);
-      for (let y = floorBase + 1; y <= floorBase + 5; y++) if (x > 120 && x < 124) carve(x, y, z);
+  // The bridge: one segmental arch springing from the chasm's walls (its barrel soffit shows from
+  // below), voussoirs, a string course, a paved walk between slender parapets with saddleback
+  // coping, newels at both ends: a structure mesh (render/structures/bridge.ts) over hidden
+  // collision cells. The walk itself is voxel floor slabs, like the processional way it continues.
+  {
+    let zA = Infinity;
+    let zB = -Infinity;
+    for (let x = 120; x <= 124; x++)
+      for (let z = 110; z <= 146; z++)
+        if (isAir(x, floorBase - 1, z)) {
+          zA = Math.min(zA, z);
+          zB = Math.max(zB, z + 1);
+        }
+    const bridge = { zA: zA - 0.6, zB: zB + 0.6, spring: BRIDGE_SPRING, crown: BRIDGE_CROWN };
+    const z0 = Math.floor(zA) - 3;
+    const z1 = Math.ceil(zB) + 2;
+    for (let z = z0; z <= z1; z++) {
+      // Body cells wholly above the arch's intrados (both faces of the cell).
+      const lo = Math.ceil(Math.max(bridgeIntrados(bridge, z), bridgeIntrados(bridge, z + 1)));
+      for (let x = 120; x <= 124; x++) {
+        const walk = x >= 121 && x <= 123;
+        put(x, floorBase, z, walk ? B.ANCIENT_TILE : B.STRUCTURE);
+        for (let y = lo; y < floorBase; y++) put(x, y, z, B.STRUCTURE);
+        for (let y = floorBase + 1; y <= floorBase + 5; y++) if (walk) carve(x, y, z);
+      }
+      put(120, floorBase + 1, z, B.STRUCTURE);
+      put(124, floorBase + 1, z, B.STRUCTURE);
     }
-    put(120, floorBase + 1, z, M);
-    put(124, floorBase + 1, z, M);
+    // Newels at both ends carry the lamps.
+    for (const nz of [z0, z1]) for (const nx of [120, 124]) put(nx, floorBase + 2, nz, B.STRUCTURE);
+    structures.push({ kind: 'bridge', id: 'bridge', x: 122.5, z0, z1: z1 + 1, deck: floorBase + 1, width: 3, parapet: 1, spring: BRIDGE_SPRING, seed: specRng.int(0, 1 << 30), zA: bridge.zA, zB: bridge.zB, crown: BRIDGE_CROWN });
+    lanternPost(120.5, floorBase + 1 + BRIDGE_NEWEL, z0 + 0.5, Math.PI / 2, true, true);
+    // The far end runs into the chasm's south wall: a lamp on the deck marks the alcove.
+    lanternPost(123.4, floorBase + 1, z1 + 0.4, -Math.PI / 2);
   }
-  for (const [nx, nz] of [[119, 121], [124, 121], [119, 135], [124, 135]])
-    for (let dz = 0; dz <= 1; dz++)
-      for (let dx = 0; dx <= 1; dx++) for (let y = floorBase - 3; y <= floorBase + 3; y++) put(nx + dx, y, nz + dz, M);
-  lanternPost(119.5, floorBase + 4, 121.5, Math.PI / 2, true);
-  // The far end runs into the chasm's south wall: a lamp on the deck marks the alcove.
-  lanternPost(123.4, floorBase + 1, 134.6, -Math.PI / 2);
   // Violet glow rising from the depths.
   for (const [x, z] of [[114, 128], [123, 127], [131, 129]]) setEmitter(x, 33, z, B.LIGHT_ABYSS);
   for (let i = 0; i < 9; i++) {
@@ -1157,41 +1182,53 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   }
 
   /**
-   * An octagonal column centred on the grid corner (px, pz): buried footing, square plinth,
-   * a wider base ring, the shaft, then (for whole columns) an echinus and a square abacus
-   * meeting the rock. Broken shafts end in a slanting fracture.
+   * A round column centred on the grid corner (px, pz), drawn as a structure mesh
+   * (render/structures/columns.ts): a buried footing, a square plinth, an attic base, a shaft of
+   * drums with entasis, then (whole columns) a flaring capital and a square abacus meeting the
+   * rock; broken shafts end in a conchoidal fracture. Collision: one disc of hidden cells per
+   * metre, the outline of the mesh at that height (world/gen/architecture.ts).
    */
   function column(px: number, pz: number, kind: 'full' | 'broken' | 'stump', grand: boolean): void {
     const fy = floorHeight(px, pz);
-    const shaft = disc(grand ? 2.9 : 1.95);
-    const ring = disc(grand ? 3.6 : 2.9);
-    const sq = plate(grand ? 3.5 : 2.5);
-    const layer = (cells: Cells, y: number) => {
-      for (const [dx, dz] of cells) put(px + dx, y, pz + dz, M);
+    const R = grand ? 2.9 : 1.95;
+    const ph = plinthHalf(R);
+    const sq = plate(ph - 0.5);
+    const layer = (cells: Cells, y: number, id: number) => {
+      for (const [dx, dz] of cells) put(px + dx, y, pz + dz, id);
     };
-    for (let y = fy - 4; y <= fy; y++) layer(sq, y);
-    layer(ring, fy + 1);
+    for (let y = fy - 4; y < fy; y++) layer(sq, y, M);
+    let top: number;
+    let seed: number;
     if (kind === 'full') {
-      let top = fy + 2;
+      top = fy + 2;
       while (top < sy - 3 && isAir(px, top + 1, pz) && isAir(px - 1, top + 1, pz - 1)) top++;
-      for (let y = fy + 2; y <= top - 3; y++) layer(shaft, y);
-      layer(ring, top - 2);
-      for (let y = top - 1; y <= top + 3; y++) layer(sq, y);
-      return;
+      seed = specRng.int(0, 1 << 30);
+    } else {
+      top = kind === 'broken' ? fy + archRng.int(9, 17) : fy + archRng.int(2, 3);
+      seed = Math.floor(archRng.range(0, Math.PI * 2) * 1e6);
     }
-    const top = kind === 'broken' ? fy + archRng.int(9, 17) : fy + archRng.int(2, 3);
-    const a = archRng.range(0, Math.PI * 2);
-    const rs = grand ? 2.9 : 1.95;
-    for (let y = fy + 2; y <= top; y++)
-      for (const [dx, dz] of shaft) {
-        // A slanting break across the shaft, chipped at the edge.
-        const slope = ((dx + 0.5) * Math.cos(a) + (dz + 0.5) * Math.sin(a)) / rs;
-        const keep = top - y + slope * 2.2 + detail.noise3((px + dx) * 0.9, y * 0.9, (pz + dz) * 0.9) * 0.9;
-        if (keep >= 0) put(px + dx, y, pz + dz, M);
+    const shape: ColumnShape = { y: fy, radius: R, top, state: kind, seed };
+    // Plinth and abacus: exact square cells; base, shaft and capital: a disc per metre.
+    layer(sq, fy, B.STRUCTURE);
+    const last = kind === 'full' ? top : top + 2;
+    for (let y = fy + 1; y <= last; y++) {
+      if (kind === 'full' && y + 1 > columnNeck(shape) + 1.7) {
+        layer(sq, y, B.STRUCTURE);
+        continue;
       }
+      const r = Math.max(columnOutline(shape, y + 0.15), columnOutline(shape, y + 0.85));
+      for (const [dx, dz] of disc(Math.round((r - 0.12) * 20) / 20)) {
+        if (kind !== 'full' && y + 0.5 > fractureHeight(shape, dx + 0.5, dz + 0.5)) continue;
+        put(px + dx, y, pz + dz, B.STRUCTURE);
+      }
+    }
+    structures.push({ kind: 'column', id: `column_${px}_${pz}`, x: px, y: fy, z: pz, radius: R, top, state: kind, seed });
   }
 
-  /** A column drum lying on its side along `axis`, starting at (x0, z0), partly sunk. */
+  /**
+   * A column drum lying on its side along `axis`, starting at (x0, z0), partly sunk: hidden
+   * cells under a structure mesh (two drums rolled a little apart when it is long).
+   */
   function lyingDrum(axis: 'x' | 'z', x0: number, z0: number, len: number, r: number, sink: number): void {
     const cells = disc(r);
     const mx = axis === 'x' ? x0 + Math.floor(len / 2) : x0;
@@ -1203,8 +1240,13 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       for (const [da, db] of cells) {
         const x = axis === 'x' ? x0 + i : x0 + da;
         const z = axis === 'z' ? z0 + i : z0 + da;
-        put(x, yBase + db, z, M);
+        // Below the floor the drum is buried: those cells stay masonry (no faces show).
+        put(x, yBase + db, z, yBase + db < fy - 1 ? M : B.STRUCTURE);
       }
+    structures.push({
+      kind: 'drum', id: `drum_${x0}_${z0}`, axis, length: len, radius: r, roll: specRng.range(0, Math.PI * 2), seed: specRng.int(0, 1 << 30),
+      x: axis === 'x' ? x0 + len / 2 : x0, y: yBase, z: axis === 'z' ? z0 + len / 2 : z0,
+    });
     // Fill under the drum so it beds into the floor rather than resting on a point.
     for (let i = 0; i < len; i++)
       for (let da = -2; da <= 1; da++) {
@@ -1214,10 +1256,17 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
       }
   }
 
-  /** A flat fallen slab on the floor (w x d cells), optionally lifted to rest on another. */
+  /**
+   * A flat fallen slab on the floor (w x d cells), optionally lifted to rest on another. One that
+   * stands above the floor is a dressed block (structure mesh over hidden cells); one sunk flush
+   * into the floor stays a patch of floor.
+   */
   function slab(x0: number, z0: number, wx: number, dz: number, id: number, sink: number, lift = 0): void {
     const fy = floorHeight(x0 + (wx >> 1), z0 + (dz >> 1));
-    for (let z = z0; z < z0 + dz; z++) for (let x = x0; x < x0 + wx; x++) put(x, fy - sink + lift, z, id);
+    const y = fy - sink + lift;
+    const raised = y >= fy;
+    for (let z = z0; z < z0 + dz; z++) for (let x = x0; x < x0 + wx; x++) put(x, y, z, raised ? B.STRUCTURE : id);
+    if (raised) structures.push({ kind: 'block', id: `block_${x0}_${z0}`, min: [x0, y, z0], max: [x0 + wx, y + 1, z0 + dz], axis: wx >= dz ? 'x' : 'z', chamfer: 0.07, seed: specRng.int(0, 1 << 30) });
   }
 
   /**

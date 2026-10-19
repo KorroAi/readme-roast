@@ -10,6 +10,7 @@ import { MESH_OPTIONS } from '../render/mesher';
 import { Renderer } from '../render/Renderer';
 import { Waterfall } from '../game/effects/Waterfall';
 import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
+import { StructureRenderer } from '../render/structures/StructureRenderer';
 
 /**
  * Developer world viewer (not shipped in the game UI): renders the generated zone from a
@@ -19,6 +20,8 @@ import { HaloSystem, collectWorldLights } from '../game/effects/Halos';
  * normals), no_macro, blend=0, lantern=0; mesher: sculpt=0 (plain cubes), wide=0..1 (share of
  * the 4x4x4 occupancy gradient in the smooth rock normal), relax=0..1 (Laplacian relaxation of the
  * bevel points on natural rock), ao=voxel (per-face voxel AO on natural rock too).
+ * Structures: structures=0 hides the structure meshes (stairs, columns, bridge, coping, timber), so
+ * only their collision shows (as nothing: the collision cells are invisible).
  */
 async function boot(): Promise<void> {
   const params = new URLSearchParams(location.search);
@@ -37,6 +40,9 @@ async function boot(): Promise<void> {
   if (params.get('ao') === 'voxel') MESH_OPTIONS.smoothAo = false;
   const chunks = new ChunkRenderer(layout.world, createTerrainMaterial(rig.uniforms, tiles, terrain.uniforms, params.has('clip'), params.get('blend') !== '0', Object.fromEntries(['NO_DISP', 'NO_MACRO', 'NO_DERIV'].filter((d) => params.has(d.toLowerCase())).map((d) => [d, '']))));
   await chunks.buildAll();
+  // Structure meshes over their collision cells (structures=0 hides them: the bare collision).
+  const structures = new StructureRenderer(params.get('structures') === '0' ? [] : layout.structures, layout.world, rig.uniforms, terrain.uniforms);
+  chunks.attach(structures);
   const scene = new THREE.Scene();
   scene.add(chunks.group);
   const ft = layout.landmarks.fallTop;
@@ -90,7 +96,7 @@ async function boot(): Promise<void> {
     get ready() {
       return frames > 3;
     },
-    report: () => ({ info: { ...renderer.gl.info.render }, chunks: chunks.stats, frames }),
+    report: () => ({ info: { ...renderer.gl.info.render }, chunks: chunks.stats, structures: structures.stats, frames }),
   };
   window.addEventListener('resize', () => renderer.resize());
   loop();

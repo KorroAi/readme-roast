@@ -135,8 +135,11 @@ export type StructureSpec =
       deck: number;
       width: number;
       parapet: number;
-      /** Springing height of the arch at the abutments. */
+      /** The arch: springing height, the span of its springing points, its intrados crown. */
       spring: number;
+      zA: number;
+      zB: number;
+      crown: number;
       seed: number;
     }
   | {
