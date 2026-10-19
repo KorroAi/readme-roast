@@ -114,7 +114,8 @@ export class Game {
   fps = 0;
   frameMs = 0;
   private atCamp = false;
-  private keepAwake = false;
+  /** Last screen-on state sent to the Android shell (null: none yet, so the first frame sends it). */
+  private keepAwake: boolean | null = null;
   /** A New Game / Continue load is in progress (Back and repeated taps are ignored). */
   private loading = false;
   private autosaveTimer: number = SAVE.autosaveSeconds;
@@ -769,9 +770,11 @@ export class Game {
       const banked = this.bank();
       if (!totalOf(banked) && this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
       this.tutorial('workbench', 'hint.workbench', 5000);
+      // The trip ends before the camp save (so the save already holds the finished trip and its
+      // records), and is announced after it (so the report never opens over an unsaved camp).
+      const report = this.progression.onCampEntered(banked);
       this.saveNow('camp');
-      // The trip ends after the camp save: the report never opens over an unsaved camp.
-      this.progression.onCampEntered(banked);
+      if (report) this.progression.announceEnded(report);
     } else if (inCamp && !this.backpack.isEmpty) {
       // Drops that fly in after arrival, or a backpack restored from an in-camp save.
       if (totalOf(this.bank())) this.saveNow('camp');

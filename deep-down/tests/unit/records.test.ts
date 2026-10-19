@@ -93,6 +93,29 @@ describe('Records and the trip tracker', () => {
     expect(back.trip!.t0).toBe(5);
   });
 
+  it('a reload mid-trip keeps the NEW BEST the trip has already earned', () => {
+    const r = new Records();
+    r.start(0, 49);
+    r.depth(60);
+    r.end({ outcome: 'returned', now: 100, fuelLeft: 200 });
+    r.start(120, 49);
+    r.depth(90); // raises the live record to 90 during the trip
+    expect(r.newBest).toBe(true);
+    const json = JSON.parse(JSON.stringify(r.toJSON()));
+    expect(json.records.deepest).toBe(90);
+    const back = new Records(json.records, json.trip);
+    expect(back.newBest).toBe(true);
+    const rep = back.end({ outcome: 'returned', now: 300, fuelLeft: 100 })!;
+    expect(rep).toMatchObject({ newBest: true, previousBest: 60 });
+    expect(rep.records).toContain('deepest');
+  });
+
+  it('a saved trip from before best0 existed is not a false NEW BEST', () => {
+    const back = new Records({ deepest: 90, biggestHaul: 0, expeditions: 1, blackouts: 0, streak: 1, bestStreak: 1 } as never, { n: 2, t0: 0, deepest: 70, found: {}, mined: 0, damage: 0, discoveries: [], runes: [] });
+    expect(back.newBest).toBe(false);
+    expect(normalizeTrip({ n: 2, deepest: 70 })!.best0).toBeUndefined();
+  });
+
   it('normalizes damaged data', () => {
     expect(normalizeRecords({ deepest: -3, biggestHaul: 'x', expeditions: 2.7 })).toMatchObject({ deepest: 0, biggestHaul: 0, expeditions: 2 });
     expect(normalizeTrip({ n: 0 })).toBeNull();

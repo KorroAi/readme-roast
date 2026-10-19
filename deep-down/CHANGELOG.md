@@ -40,6 +40,17 @@ Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before
   threshold, and the joystick checks start a fresh touch after the base has followed an
   overshoot. A new check asserts that the base follows. Sandbox 48/48.
 - `package-lock.json` root version 1.0.0 (`npm ci --dry-run` passes).
+- An independent review of wave 1 confirmed three defects, now fixed:
+  - **Camp save order.** The camp save was written with the trip still open, so a crash and
+    Continue merged two trips and lost a record. The trip now ends before the camp save and is
+    announced after it. A save from an older build that still holds an open trip is closed
+    quietly on load at camp.
+  - **NEW BEST across a reload.** A reload mid-trip lost the trip's NEW BEST. The depth record
+    at trip start (`best0`) is now saved with the trip, and older trips without it are never a
+    false NEW BEST. Two regression tests cover this.
+  - **Screen-on after a renderer crash.** After a renderer crash the Android shell kept the
+    screen on over the menu. `recreateWebView` clears the flag, and the game always sends its
+    first screen-on state.
 
 ## Unreleased — visual identity pass
 

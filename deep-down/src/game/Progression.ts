@@ -158,6 +158,9 @@ export class Progression {
     this.cachePropShown = false;
     this.syncCacheProp();
     if (!atCamp && !this.records.trip) this.startTrip();
+    // A save written at camp with the trip still open (by builds before the camp-save fix) would
+    // merge it into the next trip: close it quietly, as returned.
+    else if (atCamp && this.records.trip) this.endTrip('returned', { banked: {} }, false);
   }
 
   // ------------------------------------------------------------------------------------
@@ -168,10 +171,18 @@ export class Progression {
     this.scheduleFields();
   }
 
-  /** Camp entry, after banking: the trip ends as 'returned'. */
+  /**
+   * Camp entry, after banking: the trip ends as 'returned'. Not announced here: Game saves first,
+   * then calls announceEnded(), so the camp save already holds the closed trip.
+   */
   onCampEntered(banked: ItemCounts): ExpeditionReport | null {
     this.cold.reset();
-    return this.endTrip('returned', { banked });
+    return this.endTrip('returned', { banked }, false);
+  }
+
+  /** Emit 'expedition:ended' for a trip ended without announcing it (see onCampEntered). */
+  announceEnded(report: ExpeditionReport): void {
+    this.game.bus.emit('expedition:ended', { report });
   }
 
   /** A black-out: the pack (minus the pouch) and loose drops become the cache. */
@@ -415,11 +426,11 @@ export class Progression {
     g.bus.emit('expedition:started', { n });
   }
 
-  private endTrip(outcome: TripOutcome, extra: { banked?: ItemCounts; cached?: ItemCounts | null; cacheDepth?: number | null; lostCount?: number }): ExpeditionReport | null {
+  private endTrip(outcome: TripOutcome, extra: { banked?: ItemCounts; cached?: ItemCounts | null; cacheDepth?: number | null; lostCount?: number }, announce = true): ExpeditionReport | null {
     const g = this.game;
     const report = this.records.end({ outcome, now: g.playTime, fuelLeft: g.lanternFuel.fuel, ...extra });
     this.turnBackShown = false;
-    if (report) g.bus.emit('expedition:ended', { report });
+    if (report && announce) g.bus.emit('expedition:ended', { report });
     return report;
   }
 

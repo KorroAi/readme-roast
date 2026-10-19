@@ -243,6 +243,8 @@ public class MainActivity extends Activity {
             Log.w(TAG, "destroying the dead WebView failed", e);
         }
         hideSystemUi();
+        // The dead page may have asked to keep the screen on; the reloaded menu must let it sleep.
+        getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         web.loadUrl(START_URL);
         if (!resumed) web.onPause();
     }

@@ -31,6 +31,8 @@ export interface TripState {
   discoveries: string[];
   /** Key items (runes) found on the way. */
   runes: string[];
+  /** The depth record when the trip began (so a reload mid-trip keeps its NEW BEST). */
+  best0?: number;
 }
 
 export interface RecordsState {
@@ -104,7 +106,8 @@ export class Records {
   constructor(records?: Partial<RecordsState> | null, trip?: Partial<TripState> | null) {
     this.rec = normalizeRecords(records);
     this.current = trip ? normalizeTrip(trip) : null;
-    this.bestAtStart = this.rec.deepest;
+    const best0 = this.current?.best0;
+    this.bestAtStart = typeof best0 === 'number' ? Math.min(best0, this.rec.deepest) : this.rec.deepest;
     this.markAnnounced = markOf(this.rec.deepest);
   }
 
@@ -132,7 +135,7 @@ export class Records {
   /** Start an expedition (leaving camp). A trip already running (a reload mid-trip) continues. @returns its number. */
   start(now: number, depth: number): number {
     if (this.current) return this.current.n;
-    this.current = { n: this.rec.expeditions + 1, t0: now, deepest: Math.max(0, Math.round(depth)), found: {}, mined: 0, damage: 0, discoveries: [], runes: [] };
+    this.current = { n: this.rec.expeditions + 1, t0: now, deepest: Math.max(0, Math.round(depth)), found: {}, mined: 0, damage: 0, discoveries: [], runes: [], best0: this.rec.deepest };
     this.bestAtStart = this.rec.deepest;
     this.markAnnounced = markOf(this.rec.deepest);
     return this.current.n;
@@ -271,5 +274,8 @@ export function normalizeTrip(x: unknown): TripState | null {
   if (n < 1) return null;
   const t0 = typeof t.t0 === 'number' && Number.isFinite(t.t0) && t.t0 >= 0 ? t.t0 : 0;
   const damage = typeof t.damage === 'number' && Number.isFinite(t.damage) && t.damage > 0 ? t.damage : 0;
-  return { ...t, n, t0, deepest: count(t.deepest), found: counts(t.found), mined: count(t.mined), damage, discoveries: strings(t.discoveries), runes: strings(t.runes) };
+  // best0 is absent in saves from before it existed: leave it undefined (not 0, which would make
+  // every resumed trip a NEW BEST).
+  const best0 = typeof t.best0 === 'number' && Number.isFinite(t.best0) && t.best0 >= 0 ? t.best0 : undefined;
+  return { ...t, n, t0, deepest: count(t.deepest), found: counts(t.found), mined: count(t.mined), damage, discoveries: strings(t.discoveries), runes: strings(t.runes), best0 };
 }
