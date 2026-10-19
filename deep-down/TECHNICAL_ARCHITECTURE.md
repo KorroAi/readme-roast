@@ -346,6 +346,9 @@ and no dither pattern is printed over the world.
   reach and keeps solid, visible, unprotected blocks within 62° of the view direction that have
   an open face toward the hand. They are scored `2·cos − 0.35·distance` (−1.5 when the pick is
   too weak), and the winner must be the first cell a ray from the hand to that face hits.
+- `game/touchCamera.ts`: `followYaw()` damps the camera yaw toward behind the body at
+  `0.4 × sideways share × stick` per second. `Game.step` applies it on touch when the look
+  input has been still for 0.8 s, nothing is being mined, and the setting is on.
 - `ui/haptics.ts` maps bus events to short `navigator.vibrate` patterns, rate-limited per kind.
   It is gated on the Vibration setting, the last input device being touch, and play mode.
 - `ui/screenFormat.ts`: `enterGameScreen()` runs synchronously in the Start / Continue tap

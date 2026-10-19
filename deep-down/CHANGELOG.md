@@ -17,6 +17,11 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   finger aimed at a block always wins. The aim returns to the centre ray 0.9 s after a world tap.
 - **Joystick.** The radius scales with the screen (54–72 px, 15 % of the short side). The base
   follows the thumb when it overshoots, so turning back responds at once.
+- **Camera follow (touch).** Walking sideways with the stick swings the camera behind the explorer,
+  so a corner can be taken with the left thumb alone: up to about 36°/s with the stick fully to
+  one side, less on a diagonal. It is off while mining or walking back toward the camera, and
+  waits 0.8 s after the look thumb last moved (`game/touchCamera.ts`, a setting, on by default).
+  `CameraRig.autoFollow` had existed but was never called.
 - **Haptics.** `navigator.vibrate` gives short patterns for a strike, a too-hard block, a break,
   a pickup, damage, a discovery and a craft. Strikes and pickups are rate-limited. There is a
   Vibration setting (on by default), and vibration only fires on touch while playing. The

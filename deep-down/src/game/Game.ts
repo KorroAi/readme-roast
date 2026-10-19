@@ -40,6 +40,7 @@ import { Guidance } from './Guidance';
 import { installDebugApi } from '../debug/DebugApi';
 import { enterGameScreen } from '../ui/screenFormat';
 import { Haptics } from '../ui/haptics';
+import { FOLLOW_LOOK_IDLE_S, followYaw } from './touchCamera';
 
 export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead';
 
@@ -64,6 +65,8 @@ export class Game {
   ui!: GameUi;
   audio!: AudioSystem;
   private haptics: Haptics | null = null;
+  /** Seconds since the look input last moved (touch camera follow waits for it). */
+  private lookStill = 0;
   desktop!: DesktopInput;
   cameraRig!: CameraRig;
   player!: PlayerController;
@@ -584,6 +587,10 @@ export class Game {
     const mx = blocked ? 0 : input.moveX;
     const my = blocked ? 0 : input.moveY;
     const ev = p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, !swinging);
+    this.lookStill = input.lookDX !== 0 || input.lookDY !== 0 ? 0 : this.lookStill + dt;
+    if (!blocked && !swinging && this.settings.cameraFollow && input.lastDevice === 'touch' && this.lookStill >= FOLLOW_LOOK_IDLE_S) {
+      this.cameraRig.yaw = followYaw(this.cameraRig.yaw, p.yaw, mx, my, dt);
+    }
     if (ev.jumped) this.bus.emit('player:jump', {});
     if (ev.footstep) this.bus.emit('player:footstep', { block: ev.footBlock, speed: p.speed });
     if (ev.landedSpeed > 0) this.onLanded(ev.landedSpeed);

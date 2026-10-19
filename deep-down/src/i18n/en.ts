@@ -58,6 +58,7 @@ export const en = {
   'settings.invertY': 'Invert vertical look',
   'settings.leftHanded': 'Swap sides (left-handed)',
   'settings.vibration': 'Vibration',
+  'settings.cameraFollow': 'Camera follows when walking (touch)',
   'settings.audio': 'Audio',
   'settings.master': 'Master volume',
   'settings.music': 'Music',

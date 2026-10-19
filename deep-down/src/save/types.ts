@@ -15,6 +15,8 @@ export interface Settings {
   leftHanded: boolean;
   /** Short vibrations on hits, breaks, pickups and damage (phones that support it). */
   vibration: boolean;
+  /** Touch: walking sideways swings the camera behind the explorer. */
+  cameraFollow: boolean;
   masterVolume: number; // 0 .. 1
   musicVolume: number;
   sfxVolume: number;
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   invertY: false,
   leftHanded: false,
   vibration: true,
+  cameraFollow: true,
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.9,
