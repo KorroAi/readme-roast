@@ -87,6 +87,28 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
 - Verified: `tsc`, unit tests, five capture rounds (`artifacts/matlib-0..5`). Painting 0.37–0.54 s
   (was 0.23–0.39 s, same session), +0.25 MiB of texture.
 
+### Round 2 — lighting, atmosphere and post (`lighting.ts`, `PostFX.ts`, effects)
+- Four authored zone atmospheres (camp warm umber, tunnel neutral grey, Hollow blue-black with
+  haze pooling low, rift violet pooling low), blended by where the explorer is; lamps scatter
+  into the haze; distant emission is absorbed instead of floating as specks; desaturated
+  open-space fill.
+- Post: hue-preserving tone map with a lifted toe (crystals stay cyan instead of clipping to
+  white, darks stay rich), luminance bloom (threshold 0.75 → 1.2, strength 0.55 → 0.4), lighter
+  split tone, elliptical top-weighted vignette that keeps the touch-control corners clean. The
+  8-bit fallback now encodes the scene so values above 1 survive (`?ldr=1` forces it).
+- Practical light: a flat, pale-gold-to-amber lantern pool, a visibility-gated bounce, softer
+  emitter shoulders. The explorer gets a warm lantern rim and stays ochre under cyan or violet
+  light; props and boots get contact darkening. The Glimmerfall is a thin rope that breaks into
+  ragged sheets, below the bloom threshold.
+- Battery preset turns the terrain boundary blend off (cheaper; verified the define is removed).
+- Lead integration: the boundary claim lost a constant bias that let both faces claim a strip at
+  the edge (swapping the materials there); runes follow the position along their course (no
+  repeat within 8 stones) with a slow pulse travelling along the line; the debug viewer uses the
+  real zone atmosphere; tour shots settle the simulation (`__DD__.step(60)`) before capture.
+- Verified: `tsc`, unit tests; 12-shot tour runs `artifacts/light-0..11`: pixels below luma 12
+  33.3 % → 9.4 % (shrine 67 % → 23 %), 0 % clipped, saturated cyan 0.4 %. GPU cost on a phone is
+  unmeasured (shader inspection: no new texture fetch on terrain, ~25 ALU ops for the haze).
+
 ### Explorer redesign (`src/entities/character/*`)
 - A silhouette readable from behind at phone size: pack-frame poles above a tipped-back brim, red
   scarf, ochre coat with mid-calf tails, olive duffel, cream bedroll, tall boots; no cyan on the

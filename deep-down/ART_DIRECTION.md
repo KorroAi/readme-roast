@@ -51,24 +51,34 @@ carved, clustered inscriptions and an authored lighting/atmosphere model.
 | Masonry | ashlar walls, cap stones, floor slabs, crumbling masonry, glyph stones | blend within masonry (crumbling ↔ sound stone) | chipped (≈0.05 m) |
 | Timber & hearth | planks, beams, hearth stones | never blend | none / slight |
 
-Cyan budget: emission only where it means something — crystal facet edges, rune strokes in a few
-authored inscription panels, rare lichen. Inscriptions are carved (dark groove, faint ink) and
-wake up when the explorer's lantern comes near.
+Cyan budget: emission only where it means something — crystal (a seam in the host rock and a
+few faceted clusters, lit from inside with broken edge glints) and rune strokes in four authored
+inscriptions: the gate frieze, the shrine's back-wall band, the shrine-door lintel and the
+balcony parapet. Lichen and damp stone do not glow. Inscriptions are carved (dark groove, faint
+ink), read as a line of script along their course, and wake when the explorer's lantern comes
+near. The budget is a test (≤ 120 cyan emitter voxels; measured 86) and a capture metric
+(saturated-cyan pixels per tour shot, ≤ 3 % after round 2).
 
 ## Palette (sRGB)
 
 | Role | Colors |
 |---|---|
-| Slate (base rock) | `#1f242c` `#282e38` `#313844` `#3b4351` `#464f5e` `#535d6d` |
-| Deep slate (lower) | `#15181e` … `#313844` with strata |
-| Umber strata / soil | `#271f1a` … `#544538` |
-| Ancient brick | `#2a2f3a` … `#58606f`, mortar `#1b1e25` |
-| Glyph / crystal cyan | `#1f8fa6` `#48d6ea` `#b4fbff` / `#0a3a4c` … `#e2ffff` |
-| Copper | `#6b3519` `#a9582a` `#db8547` `#ffc58e`, verdigris `#48b29c` |
-| Iron | `#4a3d35` `#7d6857` `#b9a38c` `#ece0cf` |
-| Lantern / camp amber | lantern light `#ffd2a6` (×1.6), lantern glass `#ffc58a`, emitters (1.0, 0.70, 0.42) |
-| Abyss violet | emitter (0.50, 0.32, 1.0) |
-| Fog | `#12263a`; ambient `#0b1220`; openness fill `#2a4a6e` |
+| Stone (base rock) | `#0d1015` … `#41454d` (charcoal, blue-black shadows, neutral-grey lights) |
+| Deep stone | `#090b0f` … `#33373f` |
+| Weathered rock | `#131416` … `#4a4b4d` (neutral grey, never beige; ochre only in its cracks) |
+| Damp stone / lichen | `#090d11` … `#313b46`, sheen `#46566a` / lichen grey-olive `#1a221e` … `#3c4b3d` (no glow) |
+| Soil / pebbles | `#110d0b` … `#382b21` / `#171615` … `#463f39` |
+| Ancient ashlar | `#13161b` … `#464b55` (cooler than the rock it was cut from), joints `#090a0d` |
+| Glyph ink / crystal | crystal body `#030c11` … `#2f6a77`, inner glow `#2fb6cc`, edge glints `#8fe3ee` |
+| Copper | `#2a150c` … `#c8733a`, glints `#e8a46a`, verdigris grey-green `#1d302a` … `#3a5c49` (not cyan) |
+| Iron | steel `#16171a` … `#5e6269`, red jasper `#26130f` … `#572b20`, rust `#5b3a22` |
+| Timber / hearth | timber `#130e0b` … `#4f3d2e`; soot `#0b0a0a` … `#37312d`, embers `#4a1606` … `#d8722a` |
+| Lantern / camp amber | lantern pale gold at the core → amber at the rim; lamp emitters (0.86, 0.56, 0.31) |
+| Abyss violet | bedrock `#060609` … `#1e1c28`, vein `#2c2246`, emitter (0.50, 0.32, 1.0) |
+| Atmosphere (per zone) | Hollow fog `#18202b` over a low pool `#0c0b17`, open-space fill `#343c48`; camp `#22190f`; tunnel `#17191c`; rift `#171428` over `#22153c` |
+
+The canonical ramps live in `src/render/materials/palette.ts` and the atmosphere presets in
+`src/render/lighting.ts` (`ATMOSPHERES`); this table is a summary.
 
 ## Composition rules for environments
 
@@ -76,7 +86,8 @@ wake up when the explorer's lantern comes near.
 - Narrow → wide: tunnels open into chambers through a framed threshold (the Hollow ledge).
 - Vertical scale: full-height pillars, stalactites, stairs, a chasm with light from below.
 - Guidance through light: route lanterns every ~10–15 m (warm pools with dark gaps).
-- Secrets are hinted, not hidden: crumbling brick leaks thin cyan light through cracks.
+- Secrets are hinted, not hidden: a rune lintel over the shrine door wakes as the lantern passes,
+  and the crumbling masonry is the same wall loosening (open joints, sunk stones) with a faint leak.
 
 ## Light and shadow
 

@@ -15,7 +15,7 @@ import { hexToLinear } from '../core/math';
  * exact position, so it moves smoothly while the visibility volume prevents leaks.
  *
  * Atmosphere (fog colour, haze pooling low, ambient fill, in-scattering, lantern bounce) is a
- * per-zone preset blended by where the explorer is (see atmosphere.ts and updateAtmosphere).
+ * per-zone preset blended by where the explorer is (see ATMOSPHERES and LightingRig.updateAtmosphere).
  */
 
 /**
@@ -203,8 +203,8 @@ export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x22190f, fogLow: 0x130d09, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x17110c, ambientGain: 0.6, open: 0x3a2f26, openGain: 0.6, scatter: 0.1, bounce: 0.12, absorb: 0.9, exposure: 1.0 },
-  tunnel: { fog: 0x17191c, fogLow: 0x0e0f11, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x121418, ambientGain: 0.6, open: 0x3a3e45, openGain: 0.8, scatter: 0.1, bounce: 0.13, absorb: 0.9, exposure: 1.05 },
-  hollow: { fog: 0x151c26, fogLow: 0x0c0b17, density: 0.026, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0d1117, ambientGain: 0.6, open: 0x343c48, openGain: 0.95, scatter: 0.1, bounce: 0.14, absorb: 0.92, exposure: 1.0 },
+  tunnel: { fog: 0x17191c, fogLow: 0x0e0f11, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x121418, ambientGain: 0.6, open: 0x3a3e45, openGain: 0.8, scatter: 0.1, bounce: 0.17, absorb: 0.9, exposure: 1.05 },
+  hollow: { fog: 0x18202b, fogLow: 0x0c0b17, density: 0.026, poolLevel: 38, poolThickness: 6, poolDensity: 0.035, ambient: 0x0d1117, ambientGain: 0.6, open: 0x343c48, openGain: 0.95, scatter: 0.1, bounce: 0.16, absorb: 0.92, exposure: 1.0 },
   rift: { fog: 0x171428, fogLow: 0x22153c, density: 0.024, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.6, open: 0x353048, openGain: 0.85, scatter: 0.12, bounce: 0.12, absorb: 0.92, exposure: 1.0 },
 };
 
@@ -267,6 +267,9 @@ export class LightingRig {
   private readonly fogPool = new THREE.Vector4();
   private readonly atmos = new THREE.Vector4();
   private atmosphereInit = false;
+  private lastAtmosphereX = Number.NaN;
+  private lastAtmosphereY = Number.NaN;
+  private lastAtmosphereZ = Number.NaN;
 
   constructor(field: LightField, lantern: LanternField, sx: number, sy: number, sz: number) {
     this.field = field;
@@ -315,8 +318,10 @@ export class LightingRig {
       uDebug: { value: new THREE.Vector3(0, 9999, 0) },
       uSceneEncode: SCENE_ENCODE,
     };
-    // Default atmosphere (Visual Lab, viewer): the Hollow's.
+    // Default until updateAtmosphere() runs (Visual Lab, viewer): the Hollow's colours and
+    // distance fog without its height pool, whose level is a height in the game world.
     this.applyAtmosphere();
+    this.fogPool.z = 0;
   }
 
   /**
@@ -326,7 +331,7 @@ export class LightingRig {
    *   rift    depth below the Hollow floor (y 37.5 -> 30: the balcony and the rift itself)
    *   hollow  openness (fraction of open space) around the explorer, from the light volume
    *   tunnel  whatever is left: enclosed passages
-   * @param dt frame time (s); 0 snaps (teleports, loads)
+   * @param dt frame time (s); 0 snaps (loads)
    */
   updateAtmosphere(dt: number, x: number, y: number, z: number, camp: AtmosphereBox | null): void {
     // Openness averaged over a 9 x 5 x 9 m box (stride 2) around head height: 75 reads.
@@ -354,8 +359,13 @@ export class LightingRig {
     const riftW = smooth(37.5, 30, y) * (1 - campW);
     const rest = 1 - campW - riftW;
     const hollowW = smooth(0.12, 0.42, open) * rest;
-    // Ease toward the target (time constant ~0.7 s) so crossing a threshold never pops.
-    const a = !this.atmosphereInit || dt <= 0 ? 1 : 1 - Math.exp(-dt / 0.7);
+    // Ease toward the target (time constant ~0.7 s) so crossing a threshold never pops; snap on a
+    // jump of more than 6 m in one frame (respawn, return to camp, debug teleport).
+    const jump = Math.abs(x - this.lastAtmosphereX) + Math.abs(y - this.lastAtmosphereY) + Math.abs(z - this.lastAtmosphereZ);
+    this.lastAtmosphereX = x;
+    this.lastAtmosphereY = y;
+    this.lastAtmosphereZ = z;
+    const a = !this.atmosphereInit || dt <= 0 || !(jump < 6) ? 1 : 1 - Math.exp(-dt / 0.7);
     this.atmosphereInit = true;
     const zw = this.zoneWeights;
     zw.camp += (campW - zw.camp) * a;

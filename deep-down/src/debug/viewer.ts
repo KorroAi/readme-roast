@@ -59,6 +59,8 @@ async function boot(): Promise<void> {
   lantern.compute(lp.x, lp.y, lp.z, 11);
   rig.markLanternDirty({ x: lantern.originX, y: lantern.originY, z: lantern.originZ });
   rig.uniforms.uLanternPos.value.copy(lp);
+  // The zone atmosphere the explorer would see standing below this camera.
+  if (params.get('fog') === null) rig.updateAtmosphere(0, cam[0], cam[1] - 1.5, cam[2], layout.camp);
   if (params.get('lantern') === '0') rig.uniforms.uLanternIntensity.value = 0;
   const start = performance.now();
   let frames = 0;

@@ -166,7 +166,10 @@ void main() {
       if (nlf > 254.5 || d > 0.6) continue;
       int nl = int(nlf + 0.5);
       vec4 ntex = texture(uMat, vec3(uv, nlf));
-      float claim = (heightOf(ntex, nl) - hs) * 0.75 - wobble * 0.6 * float(side) + 0.08;
+      // Antisymmetric by construction (the neighbour's face computes exactly -claim at the same
+      // point), so the two faces draw one boundary curve. No constant bias: it would let both
+      // sides claim a strip at the edge and swap the materials there.
+      float claim = (heightOf(ntex, nl) - hs) * 0.75 - wobble * 0.6 * float(side);
       if (d < claim) {
         tex = ntex;
         shownLayer = nl;
@@ -209,17 +212,22 @@ void main() {
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
 
-  // Carved runes: per-block decal in the builders' script, eroded by world-space noise, dim
-  // until the explorer's lantern comes close ("the inscriptions answer the light").
+  // Carved runes: decals in the builders' script, eroded by world-space noise, dim until the
+  // explorer's lantern comes close ("the inscriptions answer the light"). Inscriptions are
+  // horizontal bands, so the rune follows the position along the band (x + z; stride 3 is
+  // coprime with 8, so no rune repeats within 8 stones) from a per-course start: it reads as
+  // a line of text, not a scatter of stickers. A slow pulse travels along the line.
   if ((vFlags & 4) != 0 && vFace != 2 && vFace != 3) {
     float h = hash13(vec3(cell));
-    float rl = RUNE0 + floor(h * float(RUNES));
+    int along = cell.x + cell.z;
+    int start = int(hash13(vec3(0.5, float(cell.y), 0.5)) * float(RUNES));
+    float rl = RUNE0 + float((along * 3 + start) % RUNES);
     vec4 rune = texture(uTiles, vec3(vUv, rl));
     float erosion = smoothstep(0.32, 0.62, texture(uNoise, vGrid * (1.0 / 2.3) + h * 7.0).g);
     float ink = rune.a * erosion;
     float wake = smoothstep(9.0, 2.5, distance(uLanternPos, vGrid));
     color = mix(color, color * 0.45, ink * 0.8); // carved: the groove is darker
-    emissive += rune.rgb * ink * (0.12 + 0.9 * wake) * (0.85 + 0.15 * sin(uTime * 1.3 + h * 6.28));
+    emissive += rune.rgb * ink * (0.12 + 0.9 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - float(along) * 0.8));
   }
 
   // Mining feedback on the exact sculpted surface.

@@ -122,12 +122,25 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
    applies a smooth falloff from the flame's exact position, so light moves continuously.
 3. Surfaces sample both volumes at `position + normal * 0.5` (the open voxel in front of the
    face), so trilinear filtering yields soft light and natural corner darkening.
-4. Fog: dark blue exponential-squared haze; emissive surfaces punch through partially.
+4. Atmosphere: four zone presets (`ATMOSPHERES` in `lighting.ts`: camp warm umber, tunnel
+   neutral grey, Hollow blue-black with haze pooling low from y = 38, rift violet pooling low),
+   blended per frame by `LightingRig.updateAtmosphere` from the distance to the camp box, the
+   depth and the openness averaged over a 9×5×9 m box (75 reads, no allocation), eased with a
+   0.7 s time constant and snapped on jumps over 6 m (respawn, teleport). The GLSL
+   `atmosphere()` integrates a distance haze plus the low pool analytically along the view ray;
+   fog colour lifts from the pool colour with height; the light volume at the fragment
+   scatters into the haze with a soft cap (lamps warm the air); emission is absorbed by the
+   haze (≈90 %) so distant glows do not float as specks. Each zone also carries ambient and
+   open-space fill colours, a lantern bounce amount and an exposure handed to post.
 5. Post (`render/PostFX.ts`): HalfFloat HDR target (MSAA on High, multisampled depth is not
-   resolved), 4-level dual-filter bloom, ACES fitted tone map, cool-shadow/warm-highlight
-   split tone, vignette, dithering, player brightness (exposure ×0.7–1.5). If the device
-   cannot render to float targets (no `EXT_color_buffer_(half_)float`), 8-bit targets are
-   used instead of a black screen.
+   resolved), 4-level dual-filter bloom extracted on luminance (threshold 1.2, strength 0.4),
+   a hue-preserving tone map (the filmic curve drives the brightest channel, mixed 50 % with
+   the per-channel curve in the darks, toe lifted), a light split tone, an elliptical vignette
+   weighted to the top so the touch-control corners stay clean, dithering, player brightness
+   (exposure ×0.7–1.5). If the device cannot render to float targets (no
+   `EXT_color_buffer_(half_)float`), 8-bit targets are used and the scene is encoded as
+   √(x/(1+x)) (`SCENE_ENCODE`, decoded by the post passes) so values above 1 and fine darks
+   survive; `?ldr=1` forces this path.
 6. Halos: additive camera-facing quads on placed lights (one draw call). Quads rather than
    point sprites, because GPUs drop a whole point once its centre leaves the screen.
 
@@ -141,6 +154,7 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
 | MSAA | 4x | off | off |
 | View distance | 110 | 88 | 64 |
 | Particle budget | 400 | 220 | 120 |
+| Terrain boundary blend (`USE_BLEND`) | on | on | off |
 
 Dynamic lights: exactly one (lantern). Static light is a texture lookup. Measured frames:
 59–187 draw calls, 21–95k triangles (camp to ledge vista; TEST_REPORT.md).
