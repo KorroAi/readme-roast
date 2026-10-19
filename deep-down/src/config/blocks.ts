@@ -73,14 +73,14 @@ const noDrop = null;
 const stoneDrop = { item: 'stone' as const, min: 1, max: 1, chance: 1 };
 
 def({ id: B.AIR, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
-def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.slate), debris: [0x4d5666, 0x3a414d, 0x5f6a7a] });
+def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.slate), debris: [0x363b44, 0x252a33, 0x41454d] });
 def({ id: B.DEEP_SLATE, name: 'block.deepSlate', solid: true, visible: true, hardness: 4, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x2e3440, 0x252a33, 0x3b4250] });
-def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.umber), debris: [0x5a4a3e, 0x46392f, 0x6b5a4b] });
+def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.umber), debris: [0x4a4b4d, 0x37383b, 0x404144] });
 def({ id: B.SOIL, name: 'block.soil', solid: true, visible: true, hardness: 1.4, tier: 1, drop: noDrop, sound: 'soil', tiles: same(TILE.soil), debris: [0x4a3a2e, 0x3a2d23] });
-def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, hardness: 1.6, tier: 1, drop: { item: 'stone', min: 1, max: 1, chance: 0.5 }, sound: 'soil', tiles: same(TILE.gravel), debris: [0x5b5f66, 0x45484e] });
+def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, hardness: 1.6, tier: 1, drop: { item: 'stone', min: 1, max: 1, chance: 0.5 }, sound: 'soil', tiles: same(TILE.gravel), debris: [0x2d323b, 0x3a3d42] });
 def({ id: B.MOSS, name: 'block.moss', solid: true, visible: true, hardness: 2.6, tier: 1, drop: stoneDrop, sound: 'soil', tiles: { top: TILE.mossTop, side: TILE.mossSide, bottom: TILE.slate }, glow: 0, debris: [0x2f5d55, 0x4d5666] });
-def({ id: B.COPPER_ORE, name: 'block.copperOre', solid: true, visible: true, hardness: 4, tier: 1, drop: { item: 'copperOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.copperOre), debris: [0xd77f45, 0x4d5666, 0x3fa58f] });
-def({ id: B.IRON_ORE, name: 'block.ironOre', solid: true, visible: true, hardness: 6, tier: 2, drop: { item: 'ironOre', min: 1, max: 1, chance: 1 }, sound: 'metal', tiles: same(TILE.ironOre), debris: [0xc9b7a6, 0x3a414d, 0x8a6a55] });
+def({ id: B.COPPER_ORE, name: 'block.copperOre', solid: true, visible: true, hardness: 4, tier: 1, drop: { item: 'copperOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.copperOre), debris: [0xa95628, 0x2d323b, 0x2f4c3e] });
+def({ id: B.IRON_ORE, name: 'block.ironOre', solid: true, visible: true, hardness: 6, tier: 2, drop: { item: 'ironOre', min: 1, max: 1, chance: 1 }, sound: 'metal', tiles: same(TILE.ironOre), debris: [0x5e6269, 0x222730, 0x572b20] });
 def({
   id: B.CRYSTAL, name: 'block.crystal', solid: true, visible: true, hardness: 3.5, tier: 1,
   drop: { item: 'glimmerShard', min: 1, max: 2, chance: 1 }, sound: 'crystal', tiles: same(TILE.crystal),
