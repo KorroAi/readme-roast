@@ -75,8 +75,11 @@ time-sliced (~125 ms total).
 ### Meshing (`render/mesher.ts`)
 
 Culled faces with per-vertex ambient occlusion and anisotropy-safe quad splitting.
-Vertex = 7 bytes: `Uint8 x3` local position + `Uint8 x4` (face, AO, texture layer, uv bits),
-in two non-interleaved attributes.
+Vertex = 11 bytes in three non-interleaved attributes: `position` Uint8×3 (local corner),
+`aData` Uint8×4 (face, AO, material layer, bits: uv | rigidity << 2 | family << 4 | rune << 6)
+and `aNb` Uint8×4 (material layer of the in-plane neighbour across each face edge, 255 = no
+boundary). Rigidity is the lowest rigidity of the 8 voxels around the vertex, so every face that
+shares a vertex (also across chunks, thanks to the 1-voxel padding) sculpts it identically.
 A 16³ chunk meshes in < 2 ms. `ChunkRenderer` rebuilds dirty chunks nearest-first within a
 4 ms/frame budget (always at least one, so an edit is never left invisible) and hides chunks
 beyond the view distance.
@@ -136,9 +139,26 @@ panels average the cap). Behind the pause and death overlays the game renders at
 
 ## Materials
 
-- `terrainMaterial` — texture array (16×16 pixel-art tiles, nearest magnification,
-  mipmapped minification), per-face directional shade, AO, per-block tint jitter, emissive
-  mask in texture alpha × per-tile glow, fog.
+- `terrainMaterial` — the terrain material system (`render/materials/*`, `render/terrainRig.ts`):
+  - 23 seamless 128×128 material layers (sRGB + height or emissive alpha) painted procedurally
+    in the zone worker (~0.35 s) and sampled in **world space** (16 texels/m, 8 m period,
+    RepeatWrapping, nearest magnification, mipmapped minification). Projection per face axis is
+    upright and unmirrored; textures never restart at a voxel edge.
+  - Boundaries: a face with a same-family neighbour of another material (from `aNb`) compares
+    the two materials' heights at the texel; the taller one claims the texel up to ~0.6 m from
+    the edge, with a world-space wobble whose sign depends on which side the neighbour is, so
+    both faces draw the same curve. Faces without partners do no extra work.
+  - Sculpting (vertex shader): offset = tiling 3D noise (32³ RGBA, two octaves, 38 m / 9 m) ×
+    amplitude by rigidity (0, 0.05, 0.12, 0.19 m), vertical × 0.32 so floors stay under the feet.
+  - Shading: faceted normal from screen-space derivatives of the sculpted position (mixed 85 %
+    with the face normal), smooth hemisphere shade, AO floor 0.42, macro albedo variation from
+    world noise (≈1.2 m and 6 m), crystal faces not lit by their own emission.
+  - Runes: glyph blocks get a per-block carved rune decal from the tile atlas (8 runes), eroded by
+    world-space noise and brightened as the lantern approaches.
+  - Mining cracks and the target rim are drawn here (uniform `uTarget`), on the sculpted face.
+  - Debug defines `NO_DISP`, `NO_MACRO`, `NO_DERIV`, `USE_BLEND` (viewer URL flags) isolate the
+    cost of each feature.
+- `textures.ts` keeps the 16×16 tile atlas for icons, drops, crack stages and rune decals.
 - `entityMaterial` — vertex-colored boxes/facets built with `VoxBuilder`
   (`render/voxModel.ts`): position, normal, sRGB color (Uint8), `aEmissive` (Uint8).
   Instancing supported. Uniforms: `uTint`, `uEmissiveScale`, `uEmissiveColor`, `uFlash`,
