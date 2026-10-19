@@ -87,8 +87,23 @@ re-run after each round, so scores are comparable. Screenshots live in `artifact
 | Round | Geometry | Materials | Transitions | Lighting | Cyan/glyphs | Originality | Readability | Character/props | Post |
 |---|---|---|---|---|---|---|---|---|---|
 | Baseline (pre-refactor) | 3 / 3 / 3 | 3 / 3 / 3 | 2 / 1 / 2 | 5 / 6 / 4 | 3 / 3 / 2 | 2 / 2 / 2 | 5 / 6 / 5 | 5 / 5 / 5 | 5 / 5 / 4 |
+| Round 2 (materials, architecture, lighting, explorer) | 4 / 4 / 4 | 5 / 5 / 5 | 5 / 4 / 5 | 5 / 5 / 4 | 6 / 6 / 6 | 4 / 4 / 4 | 5 / 5 / 5 | 6 / 6 / 6 | 6 / 5 / 5 |
 
 (three critics' scores per cell; later rounds are added below as they are run)
+
+Round 2 (`artifacts/round2`, 13 shots: the fixed 12 plus `a13-colonnade`; each shot now settles the
+simulation for 2 s first). Agreed wins: cyan restraint (shrine 28 % saturated cyan → ~0 %), no
+printed tile grid, continuous floors, crystals hold their hue, the explorer reads. Agreed
+regressions and weaknesses, which set round 3:
+- natural rock still shows the 1 m step in silhouette (terraces, a cube boulder, kerb boxes);
+- global contrast collapsed: tour p95 luma 64–247 → 50–83, luma std 24–58 → 14–26; the albedo
+  ramps are painted as display colours (too dark) and the Hollow lost its cold half (cool-pixel
+  share a06 53 → 13 %, a11 70 → 0.9 %); the ledge reveal (a04) is an empty navy plane;
+- the explorer holds 62–73 % of the brightest 1 % of pixels and hides the route at a 0.7 m
+  shoulder;
+- the explorer's screen-door fade shows as a stipple over the a03 crystal cluster;
+- masonry reads as an upscaled running bond; cracks are 1-texel black lines;
+- Lab views are too dark to judge (lantern room 92 % below luma 12).
 
 ### Terrain renderer cost (A/B on the same machine, SwiftShader, Balanced, 915×412)
 
@@ -99,6 +114,12 @@ re-run after each round, so scores are comparable. Screenshots live in `artifact
 | Ledge vista | 9 | 6 |
 | Hollow floor | 9 | 8 |
 | Bridge | 12 | 9 |
+
+Round 2 against round 1 (commit e49ffd2 vs dc24090, production builds, alternating runs, two
+each, wall FPS): camp 12 / 12 → 11 / 9, tunnel 6 / 6 → 5 / 5, ledge vista 5 / 6 → 6 / 5, Hollow
+floor 7 / 5 → 7 / 7, bridge 9 / 10 → 9 / 8. Triangles +12–18 % (the new architecture), CPU frame
+time unchanged (≈2 ms), boot to menu 1.64 s → 1.77 s, GPU geometry 4.6 → 5.1 MB, light emitters
+399 → 108. Run-to-run noise on this container is about ±1–2 FPS.
 
 Feature isolation in the world viewer (frames in the same 6 s window, vista camera): all
 features 56, without sculpting 57, without macro noise 58, without faceted normals 59, without
