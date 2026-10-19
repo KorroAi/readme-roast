@@ -48,7 +48,7 @@ carved, clustered inscriptions and an authored lighting/atmosphere model.
 |---|---|---|---|
 | Geology | ancient dark stone, deep stone, weathered rock, damp stone, soil, gravel, copper vein, iron vein, bedrock | blend with each other along height-driven, wobbling boundaries | natural (≈0.19 m) |
 | Crystal | crystal | hard boundary with rock (credible), dark glass with lit facet edges | slight |
-| Masonry | ashlar walls, cap stones, floor slabs, crumbling masonry, glyph stones | blend within masonry (crumbling ↔ sound stone) | chipped (≈0.05 m) |
+| Masonry | two stone vocabularies laid in world-space courses — coursed ashlar (long stretchers, 4 m blocks, headers, broken bond, cut-stone joints) and megalithic (slanted and joggled joints, rolled edges, fitted small stones) — plus cap stones, floor slabs, crumbling masonry, glyph stones | blend within masonry (crumbling ↔ sound stone) | chiselled bevel (≈0.1 m) |
 | Timber & hearth | planks, beams, hearth stones | never blend | none / slight |
 
 Cyan budget: emission only where it means something — crystal (a seam in the host rock and a

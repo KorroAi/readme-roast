@@ -96,20 +96,32 @@ export function installDebugApi(game: Game): void {
       const o = new THREE.Vector3();
       const d = new THREE.Vector3();
       const wrap = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
-      // The camera orbits a shoulder pivot, so its position depends on the aim: iterate.
-      const aim = (tx: number, ty: number, tz: number) => {
-        // Simulated time lets the boom, pivot and shoulder side settle as they would in play.
-        for (let i = 0; i < 16; i++) {
-          rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
-          rig.rayThrough(ndcX, ndcY, o, d);
-          const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
-          const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
-          const pitchErr = Math.asin((ty - o.y) / len) - Math.asin(d.y);
-          // Wrap and clamp like the rig's own look input, or off-centre aims can run away.
-          rig.yaw = wrap(rig.yaw + yawErr);
-          rig.pitch = Math.max(-1.2, Math.min(0.85, wrap(rig.pitch + pitchErr)));
+      // Hold the aim still until the rig comes to rest (shoulder swap spring, shoulder slide, boom
+      // recovery), as it does while a player holds still before mining.
+      const prev = new THREE.Vector3();
+      const settle = () => {
+        for (let i = 0; i < 300; i++) {
+          prev.copy(rig.camera.position);
+          rig.update(1 / 30, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+          if (i > 10 && prev.distanceToSquared(rig.camera.position) < 1e-10) break;
         }
-        rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+      };
+      // The camera orbits a shoulder pivot, so its position depends on the aim: iterate, letting
+      // the rig settle between corrections, so the final aim is one the rig keeps.
+      const aim = (tx: number, ty: number, tz: number) => {
+        for (let round = 0; round < 4; round++) {
+          for (let i = 0; i < 16; i++) {
+            rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+            rig.rayThrough(ndcX, ndcY, o, d);
+            const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
+            const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
+            const pitchErr = Math.asin((ty - o.y) / len) - Math.asin(d.y);
+            // Wrap and clamp like the rig's own look input, or off-centre aims can run away.
+            rig.yaw = wrap(rig.yaw + yawErr);
+            rig.pitch = Math.max(-1.2, Math.min(0.85, wrap(rig.pitch + pitchErr)));
+          }
+          settle();
+        }
         rig.rayThrough(ndcX, ndcY, o, d);
       };
       const faces: Array<[number, number, number]> = [[0, 0, 0], [-1, 0, 0], [1, 0, 0], [0, -1, 0], [0, 1, 0], [0, 0, -1], [0, 0, 1]];

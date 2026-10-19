@@ -61,7 +61,42 @@ Checkpoint before this pass: git tag `checkpoint/pre-visual-refactor` (commit ce
   walkable bounds, intrusion and sag caps, masonry crisp, step → slope, smooth AO, seam
   re-mesh); SwiftShader FPS within ±10 % of the previous build (6 alternating runs each); terrain
   GPU geometry 3.6 → 4.9 MB. Cost: dense chunks mesh 2.7× slower, so mining re-mesh rose to ≈2 ms
-  on the main thread (spikes to 10 ms); meshing is moving to a worker (in progress).
+  on the main thread (spikes to 10 ms) — fixed by the mesh worker below.
+
+### Round 3 — chunk meshing off the main thread (`meshWorker.ts`, `meshPool.ts`, `ChunkRenderer.ts`)
+- Edits re-mesh in a pool of 1–2 module workers (sized from `hardwareConcurrency`; `?meshworkers=N`
+  overrides): the main thread copies the 20³ padded block (8000 bytes, transferred), posts, and
+  uploads the result. Byte-identical to the synchronous mesher (unit-tested over all 800 zone
+  chunks; `__DD__.meshCheck()` found 800/800 identical in every browser run). Stale results are
+  dropped, the old mesh stays until its replacement lands, an edit's chunks switch together, seam
+  neighbours re-mesh from worker results.
+- Fallback to the synchronous path when workers are unavailable, fail to load, error, or stop
+  answering (watchdog); verified in the browser with `?meshworkers=0`, a throwing constructor and
+  a missing worker script. The initial zone build stays on the main thread (a worker-assisted
+  build was slower on this loaded container; opt-in `?meshbuild=pool` for a phone A/B).
+- Measured (production builds, 4 alternating runs each): main-thread ms per mined block 1.71 →
+  0.82, worst block 8.85 → 2.7, worst frame 6.65 → 2.25; a mined chunk is drawn 1 frame after
+  the edit (was the same frame; 2 frames once in 80 edits). Boot unchanged within noise.
+- Debug API: `meshIdle()` waits for pending meshes, `meshCheck()` verifies GPU buffers against a
+  fresh mesh. `aimAt()` now lets the camera rig come to rest between corrections: with the new
+  shoulder-swap spring an unsettled aim drifted ~0.3 m sideways a second later and the touch e2e
+  mined the stone next to its copper target (reproduced in the browser, fixed, re-verified).
+
+### Round 3 — masonry vocabulary, grooved cracks, no texture repeat (`materials/*`, sampling)
+- Masonry is laid in world space from course libraries: 2 m of height becomes one 2 m course,
+  two 1 m courses or 1.5 + 0.5 m (thin courses never stack — what made the old wall read as
+  brick), each course offset and cut into hash-chosen 4 m pieces. Two vocabularies chosen by
+  region without new blocks: coursed ashlar and megalithic (new layers `masonryB`,
+  `crumblingB`). Crumbling is the same wall coming apart (open joints, slipped and missing
+  stones, rubble core, a small cyan leak).
+- Cracks are tapered grooves with a lit lip and a shaded side, following the strata (no more
+  black ink lines or "dried mud" facet networks); grains are stamped in clusters (isolated
+  single texels 2.5 → 0.9 % on rock); weathered rock keeps its ochre inside cracks only.
+- The rock projection is bent by a slow world-space warp reusing an existing noise fetch: the
+  8 m repeat is gone (autocorrelation 0.113 → 0.011 on the lab wall). A per-pixel region-hash
+  flip on planes at multiples of 24 m (the dotted patch in a06) was found and fixed.
+- Verified: `tsc`, 383 unit tests (3 new course-library tests); painting 0.52–0.59 s cold
+  (baseline 0.50–0.52 s, same session); no added texture fetch; +170 KiB texture with mipmaps.
 
 ### Round 3 — camera framing, fade and a judgeable Visual Lab
 - Camera: 1.15 m shoulder, 4.8 m boom, 67° lens (72° in portrait), the explorer small in the

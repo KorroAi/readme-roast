@@ -27,7 +27,8 @@ try {
     }
     if (step.wait) await page.waitForTimeout(step.wait);
     if (step.shot) {
-      await page.screenshot({ path: `${outDir}/${step.shot}.png` });
+      // SwiftShader under load can take minutes per frame: allow it rather than fail the tour.
+      await page.screenshot({ path: `${outDir}/${step.shot}.png`, timeout: 240_000 });
       console.log('shot', step.shot);
     }
   }

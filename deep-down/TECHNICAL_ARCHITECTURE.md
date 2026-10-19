@@ -216,8 +216,8 @@ panels average the cap). Behind the pause and death overlays the game renders at
 ## Materials
 
 - `terrainMaterial` — the terrain material system (`render/materials/*`, `render/terrainRig.ts`):
-  - 26 seamless 128×128 material layers (sRGB + height or emissive alpha) painted procedurally
-    in the zone worker (~0.4–0.5 s) and sampled in **world space** (16 texels/m, 8 m period,
+  - 28 material layers, 128×128 (sRGB + height or emissive alpha), painted procedurally in the
+    zone worker (~0.5–0.6 s cold) and sampled in **world space** (16 texels/m, 8 m period,
     RepeatWrapping, nearest magnification, mipmapped minification). Projection per face axis is
     upright and unmirrored; textures never restart at a voxel edge. Every ramp lives in
     `materials/palette.ts`; painters build a value field (`rock.ts`: `rockField`, `floorField`;
@@ -225,6 +225,20 @@ panels average the cap). Behind the pause and death overlays the game renders at
     keyed by its name, and the shared host rock and masonry wall are painted once per pass, so
     ore and damp stone sit on the same rock as their neighbours and crumbling masonry is the
     same wall loosening.
+  - Masonry is laid in world space from **course libraries** (`materials/courses.ts`): each
+    masonry layer (wall, cap stones, floor slabs, crumbling, and the megalithic `masonryB` /
+    `crumblingB`) is a set of one-course strips. The shader splits every 2 m of wall height into
+    one 2 m course, two 1 m courses, or 1.5 + 0.5 m (thin courses never stack), gives each course
+    its own offset and cuts it into 4 m pieces that pick strip, half and mirroring by hash, so no
+    stretch of wall repeats. A ~24 × 16 m region hash picks the vocabulary (coursed ashlar or
+    megalithic, chance chosen per 4 m piece so region edges follow joints); the region plane is
+    taken from the solid cell, not the interpolated position. The masonry fetch uses
+    `textureGrad` with the continuous projection's gradients (no mip jump at joints).
+  - Natural rock's projection is bent by a slow world-space warp that reuses the 190 m macro
+    noise fetch (8 m autocorrelation on a lab wall 0.113 → 0.011, no extra fetch).
+  - Cracks are painted as tapered grooves (`paint.ts` `groove`: 1–2.5 texels, lit lip and shaded
+    side, core at 65 % of the stone tone) that follow the strata; the seam test skips the course
+    libraries, which are never tiled (their piece rule is tested instead).
   - Boundaries: a face with a same-family neighbour of another material (from `aNb`) compares
     the two materials' heights at the texel; the taller one claims the texel up to ~0.6 m from
     the edge, with a world-space wobble whose sign depends on which side the neighbour is, so
