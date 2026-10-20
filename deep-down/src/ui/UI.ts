@@ -1,4 +1,5 @@
 import './ui.css';
+import './screens/compat.css';
 import type { EventBus, GameEvents } from '../core/events';
 import type { GameUi } from '../game/GameUi';
 import { t, type TextKey } from '../i18n';

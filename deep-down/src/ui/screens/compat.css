@@ -1,0 +1,34 @@
+/* Chromium 88-103 (the WebView floor is 88) does not know the individual transform properties
+   (rotate, translate, scale arrived in 104), which ui.css uses for the brand's diamonds, the
+   close X, the slider thumb, the switch knob and button presses. There every one of those
+   would silently do nothing: the X of every Close button would draw as one vertical bar.
+   Engines without them get the same turns as transforms; engines with them never see this. */
+@supports not (rotate: 45deg) {
+  .dd-x::before {
+    transform: rotate(45deg);
+  }
+  .dd-x::after {
+    transform: rotate(-45deg);
+  }
+  .dd-panel-title::before,
+  .dd-objective::before,
+  .dd-toast-dot,
+  .dd-discovery-mark,
+  .dd-compass.at-camp .dd-compass-ring::after,
+  .dd-jump-glyph,
+  .dd-range::-webkit-slider-thumb {
+    transform: rotate(45deg);
+  }
+  .dd-btn:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+  .dd-switch-knob {
+    transition: transform var(--dur-short) var(--ease-enter);
+  }
+  .dd-switch[aria-checked='true'] .dd-switch-knob {
+    transform: translateX(20px);
+  }
+  .dd-tbtn.pressed {
+    transform: scale(0.95);
+  }
+}
