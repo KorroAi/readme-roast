@@ -100,7 +100,7 @@ abstract class WebAssetsTask : DefaultTask() {
         val refs = Regex("(?:src|href)=\"\\./(assets/[^\"]+)\"").findAll(index.readText()).map { it.groupValues[1] }.toList()
         check(refs.isNotEmpty()) { "dist/index.html references no bundled assets (placeholder build?)" }
         for (ref in refs) check(File(root, ref).isFile) { "dist is stale: missing $ref" }
-        val worker = File(root, "assets").listFiles()?.any { it.name.startsWith("zoneWorker-") && it.name.endsWith(".js") } ?: false
+        val worker = File(root, "assets").listFiles()?.any { it.name.startsWith("slabWorker-") && it.name.endsWith(".js") } ?: false
         check(worker) { "dist is missing the world-generation worker" }
         val stamp = File(root, "version.json")
         check(stamp.isFile) { "dist/version.json is missing: dist predates the release pipeline, rebuild it" }

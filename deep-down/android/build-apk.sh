@@ -46,7 +46,7 @@ fi
 REFS="$({ grep -oE '(src|href)="\./assets/[^"]+"' "$WEB/index.html" || true; } | sed -E 's/^(src|href)="\.\///; s/"$//')"
 [ -n "$REFS" ] || { echo "$WEB/index.html references no bundled assets (placeholder build?)"; exit 1; }
 for f in $REFS; do [ -f "$WEB/$f" ] || { echo "web build is stale: missing $f"; exit 1; }; done
-ls "$WEB"/assets/zoneWorker-*.js >/dev/null 2>&1 || { echo "web build is missing the world-generation worker"; exit 1; }
+ls "$WEB"/assets/slabWorker-*.js >/dev/null 2>&1 || { echo "web build is missing the slab-generation worker"; exit 1; }
 BUILT_CODE="$(node -p "require('$WEB/version.json').versionCode" 2>/dev/null || echo none)"
 [ "$BUILT_CODE" = "$VERSION_CODE" ] || { echo "web build is stale: it was built for versionCode $BUILT_CODE, packaging $VERSION_CODE"; exit 1; }
 if [ "${DD_RELEASE:-0}" = "1" ] && { [ -e "$WEB/visuallab.html" ] || [ -e "$WEB/src/ui/dev/sandbox.html" ]; }; then

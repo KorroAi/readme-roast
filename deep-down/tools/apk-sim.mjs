@@ -67,8 +67,6 @@ try {
   const version = await page.evaluate(() => window.__DD_RELEASE__?.version ?? null);
   const packaged = JSON.parse(readFileSync(join(www, 'version.json'), 'utf8'));
   check(version?.versionCode === packaged.versionCode && version?.version === packaged.version, `the game reports version ${version?.version} (versionCode ${version?.versionCode}), as packaged`);
-  const slabs = await page.evaluate(() => window.__DD__.internals.game.scene.debug.slabs());
-  check(slabs.worker === true && slabs.applied > 0, `slabs generated in the module worker (${JSON.stringify(slabs)})`);
   // A real tap on the floor digs.
   await page.evaluate(() => window.__DD__.idle.clearEvents());
   const floor = await page.evaluate(() => {
@@ -79,6 +77,16 @@ try {
   for (let i = 0; i < 3; i++) await page.touchscreen.tap(floor.x, floor.y);
   await page.waitForFunction(() => window.__DD__.idle.events('tap:hit').length > 0, null, { timeout: WAIT });
   check(true, `a real tap digs the floor (${since()})`);
+  // Streaming: the window built at boot is generated in place, so descend for real (a strong crew, no jump)
+  // until a slab arrives from the module worker.
+  await page.evaluate(() => {
+    const g = window.__DD__.internals.game;
+    window.__DD__.idle.give({ gold: '1e30' });
+    for (let i = 0; i < 60; i++) for (const c of [...g.cards('crew', 'x1'), ...g.cards('dig', 'x1')]) g.buy(c.id, false, 0);
+  });
+  const streamed = await page.waitForFunction(() => window.__DD__.internals.game.scene.debug.slabs().applied > 0, null, { timeout: WAIT }).then(() => true, () => false);
+  const slabs = await page.evaluate(() => ({ ...window.__DD__.internals.game.scene.debug.slabs(), depth: window.__DD__.idle.state().run.depth }));
+  check(streamed && slabs.worker === true, `slabs streamed from the module worker while descending (${JSON.stringify(slabs)})`);
   // The icons are one inline SVG sprite sheet (no image files): every HUD icon resolves to a symbol.
   const icons = await page.evaluate(() => {
     const uses = [...document.querySelectorAll('#ui use')];
