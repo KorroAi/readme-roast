@@ -39,7 +39,7 @@ anticipation, then the payoff.
 ### 10 seconds — "tap, burst, see the next thing"
 1. Tap (any point on the world). The strike lands on the nearest unbroken block of the current layer.
 2. The block cracks or breaks: debris, a number pop, loot pellets arc to the Gold counter (0.5 s).
-3. The last block of the layer breaks: the shaft drops 1 m, the camera eases down (critically damped, 0.25 s).
+3. The last block of the layer breaks: the shaft drops 1 m, the camera eases down (critically damped, settled in 0.35 s).
 4. One metre more of the cut face slides into view at the bottom. Something new is in that strip
    on average every 2.5 m (a vein, a gem, a chest, a fossil edge, a cavern mouth, a critter).
 5. Repeat. The crew digs alongside you, so the layer keeps breaking even between taps.
@@ -86,8 +86,8 @@ anticipation, then the payoff.
   of lanterns); it springs back over 0.4 s on release. That is the only gesture.
 
 ### What one tap does
-`hit = PickDamage × crit × frenzy × momentum`, applied to the struck block and to `Swing − 1` more
-blocks of the same layer, chosen in a fixed pattern around it:
+`hit = PickDamage × crit × frenzy × momentum`, applied to the struck block and to the other blocks of
+the Swing pattern around it, all in the current layer:
 
 | Swing level | Blocks hit per tap | Pattern (5×3 layer) | Visual |
 |---|---|---|---|
@@ -111,6 +111,13 @@ blocks of the same layer, chosen in a fixed pattern around it:
   1 semitone every 5 combo (up to +12).
 - **Momentum**: each layer cleared within 4 s of the previous one gives +5 % damage, up to +100 %
   (20 layers in a row). It decays at −10 % per second once broken. It rewards keeping the rhythm.
+- **Abilities** (two round buttons, section 8):
+  - *Dynamite* (from 1:30 in the tutorial): one tap on the button, a blast of radius 1.5 m (+0.25 m per
+    Dynamite level, cap 6 m) centred on the layer: every block inside breaks at once, whatever its HP
+    (Seals take 20 % of their HP). Recharge 60 s (−2 s per level, min 20 s).
+  - *Lantern Pulse* (unlocked in the first Vault, 40 m): a ring of light sweeps the slab; for 6 s every
+    hidden geode, chest and fossil within 20 m behind the cut shows as a glowing outline, and tapping an
+    outline bores a 1 m tunnel to it (its contents fly out). Recharge 90 s (−3 s per Lantern level, min 30 s).
 - **Block HP**: `HP(d) = 10 × 1.025^d × material` (material: soft 0.5, host 1, hard 3, ore1 1.5,
   ore2 2, gem 3; seals in section 5.3). At 0 m a host block has 10 HP and the starting pick deals 10:
   **the very first tap breaks a block**.
@@ -160,7 +167,12 @@ instanced draw per visible tier).
 | 13+ | Echo tiers (4 per cycle) | the tier 1–12 rigs, with an Echo glaze (hue of the cycle) and ×1.5 scale | | 1 | Echo Cycle n |
 
 Beyond the visible count a tier shows a brass plate "+37" on its last model. A tier's model gains a
-part at each milestone (10: a lamp, 25: a second tool, 50: a gilded trim, 100: double size).
+part at each milestone (10: a lamp, 25: a second tool, 50: a gilded trim, 100: double size). The 5×3
+floor holds at most 6 figures (crew at 0.55 scale, plus the avatar); tiers 4–12 work from the shaft
+walls (rails, ledges, side tunnels) and from chains hung above, so the layer is never hidden.
+
+The avatar stands on the layer and walks (0.15 s) to the column you tap. When the block under its
+feet breaks it hops down onto the layer below, so it always rides the descent.
 
 ### Offline
 - On return, `T = min(now − lastSeen, cap)`. Base cap 2 h; +1 h per Night Shift level, up to 24 h.
@@ -225,7 +237,7 @@ Buy ×1 / ×10 / Max toggle on the dock. "Max" never spends more than 95 % of th
 ### Milestones and multipliers (summary)
 - Crew milestones ×3; Pick ×2 every 25, ×4 every 100.
 - Biome ore richness ×1.25 per biome index (gold only).
-- Relic set powers (section 6.2), fossil luster (+2 % gold per distinct fossil, ×1 per luster tier).
+- Relic set powers (section 6.2), fossils (+2 % gold per distinct fossil, +2 % more per luster tier).
 - Echo power ×1.007^Echoes on all damage (tap and crew). It does not multiply gold directly: gold
   comes from blocks, so it is set by depth. This stops the runaway loop (damage → gold → damage) the
   simulation found when Echoes multiplied both.
@@ -275,7 +287,7 @@ under 0.08 m/s for a minute) gave:
   stall at ≈ 2,840 m (biome 10) for days 2 and 3. It front-loads and then plateaus.
 The knobs are the Echo exponent, the HP growth per band, the offline efficiency and the first-time
 Seal multipliers `H_b` (section 5.3). `tools/idle-sim.ts` must reach the day targets before wave 1
-ships, and the Echo Tree nodes (below) are where the late plateau is broken.
+ships, and the Echo Tree nodes (above) are where the late plateau is broken.
 
 ## 5. The descent and the world in the voxel engine
 
@@ -299,8 +311,9 @@ ships, and the Echo Tree nodes (below) are where the late plateau is broken.
   32). The mesher's relief noise, jitter and seam keys take `originY` (a new argument of
   `meshPadded`), so a chunk meshed before and after a shift is byte-identical. The shaders get
   `uOrigin`; world-space texture coordinates use `vGrid + vec3(0, mod(originY, 7600), 0)`. 7,600 m is a
-  multiple of the 8 m material period and of the 190 m macro noise, so the wrap is invisible and
-  GLSL floats never go above 8,000 (precision 0.0005 m).
+  multiple of the 8 m material period and of the 190 m macro noise, so the wrap is invisible, and
+  GLSL floats never go above 8,000 (precision ≈ 0.001 m). Every other world-space period in the terrain
+  and structure shaders must divide 7,600 too (a unit test lists them).
 - **Speed envelope**: 0–12 m/s rendered as voxels. Above 12 m/s (the Plunge, the Night Shift montage,
   late Quake bursts), **Plunge mode**: the voxel window is hidden behind a procedural tunnel shader
   (rock streaks in the biome palette, passing Lantern Posts as halos), and the window is rebuilt at the
@@ -529,6 +542,22 @@ campfire, tents, crates, lantern posts, the hoist winch as a headframe over the 
 behind, the soil crust below. The first block of the shaft glows warm with "TAP" over it. The
 wordmark fades in at the top. No menu before the first tap.
 
+### 5.11 HD polish: the look of the cut (the visual upgrade, item by item)
+| # | Item | What it does on screen | Where | Cost (Balanced) |
+|---|---|---|---|---|
+| 1 | Section shading | front faces at z = 0 read as a drawn geological section: albedo ×1.2, a contour hairline every 4 m of depth (25 % darker, 1 texel), a 2-texel warm rim where the cut meets open air ("lamplight on the lintel") | terrain shader, `SECTION` branch on face normal −z at z = 0 | +4 ALU, no fetch |
+| 2 | Anticipation glints | a gem, chest or fossil up to 2 m behind the cut shimmers through the section face in its colour (0.6 Hz, 15 % intensity) | a per-vertex flag baked by the mesher from the slice's find map | +3 ALU |
+| 3 | Gem and crystal sparkle | Blinn-Phong highlight from the dig lamp only (exponent 64) + a fresnel rim on gem and crystal faces, so they glitter as the lamp moves | terrain shader, gem families only | +8 ALU on gem faces |
+| 4 | Per-biome grade | 12 atmosphere presets, split-tone pairs and exposures (section 5.4); bloom threshold falls and strength rises with depth (section 5.8) | `lighting.ts`, `PostFX` params | 0 |
+| 5 | Sharper image | DPR cap 2.0 × 0.9 on Balanced (was 1.75 × 0.9) + 5-tap contrast-adaptive sharpen in the composite | `Renderer`, `PostFX` composite | +0.4 ms |
+| 6 | Vista backdrops | the 36 Vault set pieces behind opened back walls, baked vertex light, haze cards | section 5.9 | 2–6 draws, ≤ 30k tris, only in Vaults |
+| 7 | God rays | 1–3 scrolling additive cones per Vault | `godRays.ts` | 1 draw |
+| 8 | Water and lava | animated ripple planes with fresnel, caustic pattern projected on the floor below water (biomes 2, 3, 7), emissive lava with crust noise (8) | one material, 1 draw per pool | ≤ 3 draws |
+| 9 | Life | ambient particles per biome (section 5.4), critters (≤ 12), lumen moths, crew animation, the camera's slow sway | existing systems + `CritterSystem` | budgets in section 10 |
+| 10 | The glow below | the next biome's colour leaking up through fissures in the last 40 m before a Seal | section 5.3 | 4–8 emitters |
+| 11 | The Other Lantern | one pulsing halo at the bottom of the view, always | `HaloSystem` | 1 quad |
+| 12 | Title plates | biome and Vault names in the Lintel display face, letter by letter, with the brass octagon plate | `ui/idle/TitlePlate.ts` | DOM |
+
 ## 6. Discovery, collections, events and the mystery
 
 ### 6.1 What counts as a discovery
@@ -602,8 +631,8 @@ Codex. No cutscene longer than 3.5 s (the Vault framing).
 | 6 Undergrove | lanterns grown over by mushrooms, still lit | "Fourteen lamps planted at the Mother Cap. One of them moves." | someone keeps lamps alive down here | who tends them? |
 | 7 Buried Sea | the Drowned Procession: figures carrying lanterns into the water, the last ones made of light | "They were not fleeing. They were walking home." | the builders went down on purpose | where is home? |
 | 8 Ember | the Forge: lanterns forged, thousands, in racks | "They made a lamp for every one of them." | each builder had a lantern | why a lantern each? |
-| 9 Bone | the Leviathan, with a lantern hung in its eye socket | "Even the great bones carry a light." | everything down here carries light | — |
-| 10 Geode | the Prism Nave: one light split into many | "One light becomes many. Many become one?" | the lights are joined | — |
+| 9 Bone | the Leviathan, with a lantern hung in its eye socket | "Even the great bones carry a light." | everything down here carries light | who hung a lamp in a skull? |
+| 10 Geode | the Prism Nave: one light split into many | "One light becomes many. Many become one?" | the lights are joined | are all the lights one? |
 | 11 Loom | the Archive: shelves of identical crystals; every glimmer shard was one of them | "We crushed them. We crushed them for lamp oil." | the crystals are the builders, kept as light | what did they become next? |
 | 12 Starless Gate | the rock ends; below is a sky of stars; the Other Lantern is a star, held by a figure of light | the last page: "It is not a lamp. It is a door, held open." | they became stars, and one waits for you | (cycle 2) what is below the stars? |
 
@@ -638,7 +667,8 @@ finger, and nothing is locked except the dock tabs that are not explained yet.
 
 The tutorial slices (0–45 m) are generated with fixed placements (wood chest at 2 m, iron chest with
 the Digger at 8 m, crystal pocket at 14 m, Vault at 40 m) under the normal grammar, so the first run
-always has the same rhythm. The "Hire a Digger" objective comes at 1:20, when 600 gold is in hand.
+always has the same rhythm. The two tutorial chests pay fixed amounts (60 and 200 gold) instead of the
+chest table. The "Hire a Digger" objective comes at 1:20, when 600 gold is in hand.
 
 ### 7.2 The always-visible objective
 - The objective strip (section 8) always shows exactly one objective: icon, ≤ 32 characters, a progress
@@ -664,6 +694,7 @@ next milestone is highlighted with a bar filling toward it. It answers "what's n
 | An event running and not touched for 3 s | arrow from the screen edge |
 | Descent median < 0.1 m/s for 60 s and a Rite gives ≥ ×2 | the Rite tab glows: "Plant your lantern?" |
 | A Seal failed | "Seal 64 % — try again stronger" + the best card glows |
+
 Hints never stack and never cover the layer.
 
 ## 8. Portrait UI layout (390×844 CSS px; others scale)
@@ -817,7 +848,7 @@ summary, ending, and their tests. Keep `runeDoor.ts`'s row-sink timing (move it 
 | 9 | A tap is never wasted | 1,000 random taps over the world region all damage something | e2e (CDP touch) |
 | 10 | Find cadence | a new tappable or find enters view at least every 10 s of active play, 30 min run | e2e with `__DD__.idle.findsLog` |
 | 11 | Events | one every 45–75 s, never overlapping | unit (Director, 10 h simulated) |
-| 12 | Fill rules 1–7 | 0 violations over 2 full cycles (8,600 m + 7,200 m) | `tools/fill-scan.ts` |
+| 12 | Fill rules 1–7 | 0 violations over the first two cycles (0–4,300 m and 4,300–11,500 m) | `tools/fill-scan.ts` |
 | 13 | Shaft guarantee | 0 unbreakable cells in the footprint; every layer breakable | unit over 10,000 slices |
 | 14 | Determinism | the same slice bytes for the same seed and index, in Node and the worker | unit |
 | 15 | Window shift | blocks, light and meshes equal a fresh build of the same depth (byte-identical) | unit |
