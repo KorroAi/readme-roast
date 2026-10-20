@@ -47,6 +47,16 @@ W2 brand:
 - **Boot mark:** FCP 176 ms with no script.
 - **Evidence:** screenshots in artifacts/final-pass/brand/ (gitignored).
 
+Wave 2 close (orchestrator, quiet machine, 20 Oct 2026):
+- `tsc` clean.
+- `vitest` 546/546 (44 files).
+- e2e 11/11 (12.4 min), including the new world tour test.
+- `ui-check --game` 64/64, 0 console problems, 0 layout problems.
+- `DD_RELEASE=1 build-apk.sh` built 692,046 B (versionCode 1000000), and apk-sim passed every check (0 refused requests, 0 page errors).
+- icon-masks passed all 4 masks plus themed and legacy.
+- `tools/tours/first-five.json` had no FAIL (copper in 4 hits, banked, workbench open).
+- Screenshots read: the menu, HUD, workbench, bag and discovery in the brand, and the grotto, reliquary, ledge headframe and rift floor.
+
 ## Final pass, wave 1 (loop core + release infrastructure)
 
 W1 loop core, agent A, port 4173, final code: tsc clean; vitest 37 files / 488 tests passed (was 27 / 416). New tests: cold (8), homeField (7, warm recompute 2.03 ms, balcony 191 m walk = 191 m BFS vs 152 m straight), cache (5, fuzz of 200 lethal falls: chasm 30, hollow 150, rift 20, every cache on the reachable set), records (6), genVersion (3, fingerprint 9cbb0a10 for genVersion 1), menuCamera (4), save-v2 (7), gameplay-progression (10), frame guard (2 in session.test). e2e full suite 10/10 passed in 8.8 m (desktop 2, release 6, slice, world rewritten for the cache). ui-check 43/47; the same 4 touch failures appear on HEAD.
