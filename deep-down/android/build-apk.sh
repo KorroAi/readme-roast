@@ -11,6 +11,8 @@
 #   DD_WEB_OUT=dir    where the web build goes (default dist/); use another directory while an
 #                     e2e run is serving dist/
 #   SKIP_WEB_BUILD=1  package the existing web build as is (it is still checked)
+#   DD_KEYSTORE=file  the debug keystore to sign with (default android/debug.keystore); set it when building
+#                     from a worktree so the signature matches APKs already installed on a phone
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
@@ -80,8 +82,11 @@ javac -nowarn -Xlint:-options --release 8 -classpath "$PLATFORM:$OUT/stub-classe
 
 echo "== align + sign (debug key)"
 "$BT/zipalign" -f -p 4 "$OUT/unsigned.apk" "$OUT/aligned.apk"
-KEY="$HERE/debug.keystore"
+# DD_KEYSTORE points every build (worktrees included) at one key: a phone refuses to update an installed
+# app signed with a different key ("App not installed").
+KEY="${DD_KEYSTORE:-$HERE/debug.keystore}"
 if [ ! -f "$KEY" ]; then
+  echo "warning: no debug keystore at $KEY; generating a new one. Phones with an earlier build installed will refuse this APK as an update." >&2
   # The standard, public Android debug-key credentials: this key only signs local smoke tests.
   keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias androiddebugkey \
     -dname "CN=DEEP DOWN Debug, O=DEEP DOWN, C=US" -keyalg RSA -keysize 2048 -validity 10000 >/dev/null 2>&1
