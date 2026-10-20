@@ -145,7 +145,7 @@ export const idleCore = {
   // ----- the return (SPEC §4.4) ---------------------------------------------------------------------
   'idle.offline.gain': '+{gain} ({from} → {to})',
   'idle.offline.capped': 'Your crew rested after {hours} h',
-  'idle.legacy.notice': "Saves from the old cave expedition can't be continued. A new descent begins.",
+  'idle.legacy.notice': "Saves from the old cave game can't be continued. A new descent begins.",
   // ----- depth cards (CRITIQUE MUST 11): the real world, passed --------------------------------------
   'idle.depthCard.burj': 'Deeper than the Burj Khalifa is tall',
   'idle.depthCard.mponeng': 'Past the deepest mine on Earth',

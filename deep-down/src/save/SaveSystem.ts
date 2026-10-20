@@ -107,7 +107,7 @@ export const SAVE_KEYS = {
   slotB: 'deepdown.save.b',
   active: 'deepdown.save.active',
   settings: 'deepdown.settings',
-  /** Set once the "old cave expedition" notice was shown (SPEC §12.3). */
+  /** Set once the "old cave game" notice was shown (SPEC §12.3). */
   legacyNotice: 'deepdown.legacyNoticeShown',
 } as const;
 
@@ -120,8 +120,8 @@ export type Migration = (old: Record<string, unknown>) => Record<string, unknown
 
 /**
  * Save format history. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
- * - v3 (the vertical descent): no migration. Saves of versions 1 and 2 belong to the old cave
- *   expedition, a different game: they are reported as `legacy`, not loaded, and the two-slot rotation
+ * - v3 (the vertical descent): no migration. Saves of versions 1 and 2 belong to the old
+ *   cave game, a different game: they are reported as `legacy`, not loaded, and the two-slot rotation
  *   overwrites them with the first v3 saves (SPEC §12.3).
  */
 export const MIGRATIONS: Readonly<Record<number, Migration>> = {};

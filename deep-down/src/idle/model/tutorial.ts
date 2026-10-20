@@ -100,9 +100,10 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
   {
     id: 'crystals', text: 'idle.tut.crystals', target: 'crystal',
     start: (s) => s.run.dmax >= 24,
-    skip: (s) => s.run.dmax >= 34,
+    // The clusters sit at row 28: past 32 m they are out of the 4 m reach band, so the step ends there.
+    skip: (s) => s.run.dmax >= 32,
     done: (s) => s.tutorial.breaks >= 3,
-    fallbackAfter: 6, fallbacks: 1,
+    fallbackAfter: 6, fallbacks: 1, giveUpAfter: 15,
     act: (s) => {
       s.tutorial.breaks = 3;
     },
@@ -225,7 +226,9 @@ export function tickTutorial(s: IdleState, bus?: IdleBus): void {
       begin(s, step, bus);
     }
     const elapsed = s.time - tu.since;
-    const finished = (step.hold !== undefined ? elapsed >= step.hold : step.done(s)) || (step.giveUpAfter !== undefined && elapsed >= step.giveUpAfter);
+    // A running step also ends when its moment has passed (skip), so a step tied to a world object never stalls.
+    const finished = (step.hold !== undefined ? elapsed >= step.hold : step.done(s))
+      || (step.giveUpAfter !== undefined && elapsed >= step.giveUpAfter) || !!step.skip?.(s);
     if (finished) {
       tu.index++;
       tu.since = -1;
