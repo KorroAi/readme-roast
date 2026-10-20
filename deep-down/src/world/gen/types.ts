@@ -1,4 +1,5 @@
 import type { VoxelWorld } from '../VoxelWorld';
+import type { FeatureLayout } from './features/types';
 
 export type PropKind =
   | 'campfire'
@@ -14,7 +15,11 @@ export type PropKind =
   | 'pickaxeRack'
   | 'ropeCoil'
   | 'brokenCart'
-  | 'abyssMonolith';
+  | 'abyssMonolith'
+  // World variety (final pass W2): Halden logs, hoist gear, the pack left behind on a black-out.
+  | 'haldenNote'
+  | 'hoistWinch'
+  | 'satchel';
 
 export interface PropSpec {
   /** Stable id, used by saves to remember removed props. */
@@ -31,7 +36,9 @@ export interface PropSpec {
   /** Invisible emitter voxels owned by this prop (removed with it). */
   emitters: Array<[number, number, number]>;
   /** Interaction role, if any. */
-  interact?: 'craft' | 'storage' | 'rest' | 'relic';
+  interact?: 'craft' | 'storage' | 'rest' | 'relic' | 'feature';
+  /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
+  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith'; id: string; end?: 'top' | 'bottom' };
   /** Minable props (crystal clusters) drop items when broken. */
   minable?: { hardness: number; tier: number; drop: 'glimmerShard'; min: number; max: number };
   /** Variation seed for procedural mesh details. */
@@ -221,4 +228,6 @@ export interface WorldLayout {
   landmarks: Record<string, [number, number, number]>;
   /** Built forms drawn as structure meshes over their collision cells. */
   structures: StructureSpec[];
+  /** The feature pass (world/gen/features): places, rides, rune doors, moths, the living rock. */
+  features?: FeatureLayout;
 }

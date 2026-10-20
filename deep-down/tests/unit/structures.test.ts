@@ -7,6 +7,7 @@ import { StructureBuilder } from '../../src/render/structures/builder';
 import { buildStructure } from '../../src/render/structures/kinds';
 import { RISER, treadHeight } from '../../src/render/structures/stairs';
 import { meshChunk } from '../../src/render/mesher';
+import { buildPropModel } from '../../src/render/props/models';
 
 /**
  * Built forms drawn as structure meshes over hidden collision cells (render/structures,
@@ -93,6 +94,12 @@ describe('structures over hidden collision', () => {
   it('puts a mesh over every hidden collision cell', () => {
     const w = layout.world;
     const boxes = layout.structures.map((s) => bounds(built.get(s.id)!));
+    // The black stone (a prop) carries collision of its own since the rift floor became reachable
+    // (world/gen/features): its cells lie inside the prop's model.
+    for (const p of layout.props.filter((q) => q.kind === 'abyssMonolith')) {
+      const m = buildPropModel(p.kind, { variant: 0 }).bounds;
+      boxes.push({ min: [p.x + m.min.x * p.scale, p.y + m.min.y * p.scale, p.z + m.min.z * p.scale], max: [p.x + m.max.x * p.scale, p.y + m.max.y * p.scale, p.z + m.max.z * p.scale] });
+    }
     const hidden = new Set<number>([B.STRUCTURE, B.STRUCTURE_TIMBER, ...[...Array(256).keys()].filter((id) => RAMP[id])]);
     let cells = 0;
     const orphans: string[] = [];

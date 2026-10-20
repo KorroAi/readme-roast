@@ -11,9 +11,20 @@ export function standable(w: VoxelWorld, x: number, y: number, z: number): boole
   return !SOLID[w.get(x, y, z)] && !SOLID[w.get(x, y + 1, z)] && SOLID[w.get(x, y - 1, z)] === 1;
 }
 
-export function reachableCells(w: VoxelWorld, sx: number, sy: number, sz: number, maxDrop = 3): Uint8Array {
+/**
+ * @param links optional rides (world/gen/features: the hoist, the rift rope): standing on one end's
+ * cell reaches the other end's cell. Ends are feet positions (cell = floor of each coordinate).
+ */
+export function reachableCells(w: VoxelWorld, sx: number, sy: number, sz: number, maxDrop = 3, links?: ReadonlyArray<{ top: readonly number[]; bottom: readonly number[] }>): Uint8Array {
   const seen = new Uint8Array(w.sx * w.sy * w.sz);
   const queue: number[] = [];
+  const jump = new Map<number, number[]>();
+  for (const l of links ?? []) {
+    const a = w.index(Math.floor(l.top[0]), Math.floor(l.top[1]), Math.floor(l.top[2]));
+    const b = w.index(Math.floor(l.bottom[0]), Math.floor(l.bottom[1]), Math.floor(l.bottom[2]));
+    jump.set(a, [...(jump.get(a) ?? []), b]);
+    jump.set(b, [...(jump.get(b) ?? []), a]);
+  }
   let y0 = sy;
   while (y0 > 1 && !standable(w, sx, y0, sz)) y0--;
   if (!standable(w, sx, y0, sz)) return seen;
@@ -30,6 +41,11 @@ export function reachableCells(w: VoxelWorld, sx: number, sy: number, sz: number
     const z = Math.floor(i / (w.sx * w.sy));
     const y = Math.floor(i / w.sx) % w.sy;
     const x = i % w.sx;
+    const ride = jump.get(i);
+    if (ride) for (const j of ride) if (!seen[j]) {
+      seen[j] = 1;
+      queue.push(j);
+    }
     for (const [dx, dz] of dirs) {
       const nx = x + dx;
       const nz = z + dz;

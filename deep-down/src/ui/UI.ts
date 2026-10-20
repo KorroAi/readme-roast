@@ -7,7 +7,8 @@ import type { ItemCounts, Settings } from '../save/types';
 import { focusables, h } from './dom';
 import { Hud } from './hud/Hud';
 import { DiscoveryBanner, PickupFeed, Toasts, type ToastTone } from './notices';
-import { renderPixelTitle } from './pixelFont';
+import { installLintelFont } from './brand/lintelFont';
+import { DURATION, playDuration } from './brand/motion';
 import type { ConfirmSpec, ScreenHost, ScreenState } from './screens/host';
 import { buildCrafting, buildInventory } from './screens/inventory';
 import { buildDeath, buildLoading, buildMenu, buildPause, updateLoading } from './screens/menu';
@@ -42,6 +43,11 @@ export class UI implements GameUi {
   private readonly pickups = new PickupFeed();
   private readonly discovery = new DiscoveryBanner();
   private readonly screensEl: HTMLElement;
+  /** Screens on their way out: inert, aria-hidden, fading under the one entering. */
+  private readonly exitEl: HTMLElement;
+  private readonly exitTimers = new Set<number>();
+  private veilEl: HTMLElement | null = null;
+  private veilTimer = 0;
   private readonly modalEl: HTMLElement;
   private current: ScreenId = 'none';
   private screenEl: HTMLElement | null = null;
@@ -50,17 +56,15 @@ export class UI implements GameUi {
   private settingsReturn: ScreenId = 'menu';
   private gameplay = false;
   private showFps = false;
-  private titleCanvas: HTMLCanvasElement | null = null;
-  private titleScale = 1;
   private pendingPatch: Partial<Settings> | null = null;
   private patchRaf = 0;
-  private resizeRaf = 0;
   private readonly host: ScreenHost;
   private readonly disposers: Array<() => void> = [];
   readonly state: ScreenState = { invTab: 'backpack', invSlot: 0, loadingProgress: 0, loadingLabel: '', deathLost: {} };
 
   constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
     this.screensEl = h('div', { class: 'dd-screens' });
+    this.exitEl = h('div', { class: 'dd-screens-exit', 'aria-hidden': 'true', inert: true });
     this.modalEl = h('div', { class: 'dd-modal-layer' });
     this.el = h('div', { class: 'dd-ui' });
     // The host page may give its direct children pointer events; this layer must stay
@@ -69,7 +73,9 @@ export class UI implements GameUi {
     this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el));
     root.appendChild(this.el);
     this.touch = new TouchControls(this.el, input);
-    this.el.append(this.screensEl, this.modalEl, this.toasts.el);
+    // The exit layer comes after the live screens in the DOM (queries find the live screen
+    // first) and sits under them (z-index), so the new screen fades in over the old one.
+    this.el.append(this.screensEl, this.exitEl, this.modalEl, this.toasts.el);
 
     this.host = {
       actions,
@@ -80,12 +86,9 @@ export class UI implements GameUi {
       toast: (text, tone) => this.toast(text, tone),
       rerender: () => this.rerender(),
       patchSettings: (p, coalesce) => this.patchSettings(p, coalesce ?? false),
-      setTitleCanvas: (c, scale) => {
-        this.titleCanvas = c;
-        this.titleScale = scale;
-        this.drawTitle();
-      },
     };
+    // The display face (titles, depth numerals) is built in code and registered here.
+    void installLintelFont();
 
     this.disposers.push(
       bus.on('item:picked', (p) => {
@@ -99,18 +102,10 @@ export class UI implements GameUi {
       bus.on('craft:failed', ({ reason }) => this.toast(t(CRAFT_FAIL[reason] ?? 'craft.missing'), 'warn')),
     );
     const onKey = (e: KeyboardEvent) => this.onKey(e);
-    const onResize = () => {
-      cancelAnimationFrame(this.resizeRaf);
-      this.resizeRaf = requestAnimationFrame(() => this.drawTitle());
-    };
     // Capture phase on window runs before DesktopInput, so keys a screen consumes
     // (Escape to go back, arrows to move focus) never reach gameplay.
     window.addEventListener('keydown', onKey, true);
-    window.addEventListener('resize', onResize);
-    this.disposers.push(
-      () => window.removeEventListener('keydown', onKey, true),
-      () => window.removeEventListener('resize', onResize),
-    );
+    this.disposers.push(() => window.removeEventListener('keydown', onKey, true));
   }
 
   get screen(): ScreenId {
@@ -118,6 +113,7 @@ export class UI implements GameUi {
   }
 
   showScreen(id: ScreenId, opts?: { confirm?: ConfirmSpec }): void {
+    const first = this.retireBootMark();
     if (id === 'confirm') {
       if (opts?.confirm) this.openConfirm(opts.confirm);
       return;
@@ -126,6 +122,8 @@ export class UI implements GameUi {
     if (id === 'settings' && this.current !== 'settings') this.settingsReturn = this.current;
     this.current = id;
     this.render(false);
+    // The first screen replaces the boot mark in one cut (it is drawn over it), not a crossfade.
+    if (first) this.screenEl?.classList.add('dd-rebuilt');
     this.updateTouch();
   }
 
@@ -181,11 +179,40 @@ export class UI implements GameUi {
     this.rerender();
   }
 
+  /**
+   * A full-screen veil over everything (openings, fades to black): `on` fades it in over `ms`,
+   * off fades it out and removes it. Resolves when the fade has played.
+   */
+  veil(on: boolean, ms: number = DURATION.medium): Promise<void> {
+    const dur = playDuration(ms);
+    window.clearTimeout(this.veilTimer);
+    if (on && !this.veilEl) {
+      this.veilEl = h('div', { class: 'dd-veil', 'aria-hidden': 'true' });
+      this.el.appendChild(this.veilEl);
+      void this.veilEl.offsetWidth; // start from transparent
+    }
+    const el = this.veilEl;
+    if (!el) return Promise.resolve();
+    el.style.transitionDuration = `${dur}ms`;
+    el.classList.toggle('on', on);
+    return new Promise((resolve) => {
+      this.veilTimer = window.setTimeout(() => {
+        if (!on && this.veilEl === el) {
+          el.remove();
+          this.veilEl = null;
+        }
+        resolve();
+      }, dur);
+    });
+  }
+
   dispose(): void {
     for (const d of this.disposers) d();
     this.disposers.length = 0;
+    for (const id of this.exitTimers) window.clearTimeout(id);
+    this.exitTimers.clear();
+    window.clearTimeout(this.veilTimer);
     cancelAnimationFrame(this.patchRaf);
-    cancelAnimationFrame(this.resizeRaf);
     this.touch.dispose();
     this.hud.dispose();
     this.toasts.dispose();
@@ -203,10 +230,13 @@ export class UI implements GameUi {
     const old = this.screenEl;
     const scroll = keepPlace ? old?.querySelector('.dd-scroll')?.scrollTop ?? 0 : 0;
     const focusKey = keepPlace ? (document.activeElement as HTMLElement | null)?.closest?.('[data-key]')?.getAttribute('data-key') : null;
-    this.titleCanvas = null;
     const build = BUILDERS[id];
     const next = build ? build(this.host) : null;
-    if (old) old.remove();
+    if (old) {
+      // A rebuild swaps in place; a real change lets the old screen fade out underneath.
+      if (keepPlace) old.remove();
+      else this.leave(old);
+    }
     this.screenEl = next;
     if (!next) {
       (document.activeElement as HTMLElement | null)?.blur?.();
@@ -226,6 +256,29 @@ export class UI implements GameUi {
 
   private rerender(): void {
     this.render(true);
+  }
+
+  /** Move a screen to the exit layer, where it fades out (140 ms) and is removed. */
+  private leave(old: HTMLElement): void {
+    old.inert = true;
+    this.exitEl.appendChild(old);
+    const id = window.setTimeout(() => {
+      this.exitTimers.delete(id);
+      old.remove();
+    }, playDuration(DURATION.exit) + 40);
+    this.exitTimers.add(id);
+  }
+
+  /**
+   * index.html's boot mark (the emblem shown before the bundle ran) gives way to the first screen,
+   * which the UI layer draws over it; it is removed once that screen has painted. True the first time.
+   */
+  private retireBootMark(): boolean {
+    const boot = document.getElementById('dd-boot');
+    if (!boot || boot.classList.contains('out')) return false;
+    boot.classList.add('out');
+    requestAnimationFrame(() => requestAnimationFrame(() => boot.remove()));
+    return true;
   }
 
   private openConfirm(spec: ConfirmSpec): void {
@@ -301,13 +354,6 @@ export class UI implements GameUi {
     const p = this.pendingPatch;
     this.pendingPatch = null;
     if (p) this.actions.updateSettings(p);
-  }
-
-  private drawTitle(): void {
-    const c = this.titleCanvas;
-    if (!c) return;
-    const w = Math.min(window.innerWidth - 32, 640, window.innerHeight * 1.3) * this.titleScale;
-    renderPixelTitle(c, t('game.title'), Math.max(120, w), Math.min(3, window.devicePixelRatio || 1), { crystalO: true });
   }
 
   private onKey(e: KeyboardEvent): void {

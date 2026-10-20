@@ -154,7 +154,7 @@ export const WORLD = {
    * (tests/unit/genVersion.test.ts pins the fingerprint): a save from another version keeps
    * everything but its world edits, and wakes the explorer at camp.
    */
-  genVersion: 1,
+  genVersion: 2,
 } as const;
 
 export const LIGHT = {
@@ -168,4 +168,56 @@ export const LIGHT = {
 export const SAVE = {
   version: 2,
   autosaveSeconds: 45,
+} as const;
+
+/** Lumen moths (game/moths.ts, game/effects/LumenMoths.ts). */
+export const MOTHS = {
+  /** Moths simulated at once per quality preset. */
+  cap: { high: 40, balanced: 32, battery: 16 },
+  /** Only anchors this close to the explorer have moths (m). */
+  simRadius: 45,
+  /** Roost loop radius range (m) and vertical swing (m). */
+  roostRadius: [0.3, 1.1] as readonly [number, number],
+  roostVertical: 0.42,
+  /** Cruise speed range (m/s) on the roost loop, and when drawn to the lantern or rising. */
+  speed: [0.6, 1.3] as readonly [number, number],
+  drawnSpeed: 2.8,
+  /** Steering: velocity per metre off the target (1/s), and how fast velocity follows (1/s). */
+  gain: 2.4,
+  steer: 5,
+  /** Wing-beat flutter added to the velocity (m/s). */
+  flutter: 0.16,
+  /** A lit lantern with at least this much fuel within drawRadius pulls up to drawnMax moths. */
+  drawRadius: 7,
+  drawnMax: 8,
+  drawnMinFuel: 0.2,
+  drawnOrbit: 0.9,
+  /** Drawn moths go home once the lantern is this far from their roost (m). */
+  dropOff: 12,
+  /** A mining hit within this radius throws moths outward; they come back after a few seconds. */
+  scatterRadius: 4,
+  scatterImpulse: 3,
+  scatterSeconds: [2, 4] as readonly [number, number],
+  /** Touching the black stone: moths within this radius rise for spiralSeconds at spiralRise m/s. */
+  spiralRadius: 40,
+  spiralSeconds: 6,
+  spiralRise: 0.8,
+  /** Wing beats per second (drawn as a flutter, not counted). */
+  wingHz: [7, 11] as readonly [number, number],
+  /** Wingspan (m) and colour (linear, times intensity). */
+  wingspan: 0.15,
+  color: [0.78, 0.95, 1.0] as readonly [number, number, number],
+  intensity: 1.15,
+} as const;
+
+/** Rides (game/ropeRide.ts) and the interaction ranges of the world features. */
+export const RIDES = {
+  /** Use a hoist or a rope from within this far of its stand (m). */
+  standRange: 1.8,
+  /** Touch the black stone from within this far of its portal (m). */
+  stoneRange: 3.5,
+  /** Rune door opening: seconds between rows. */
+  doorRowSeconds: 0.3,
+  /** Walk-home field: a ride counts as this many steps per second of riding. */
+  stepsPerSecond: 4.6 / 1.35,
 } as const;

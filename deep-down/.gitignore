@@ -9,3 +9,4 @@ android/build/
 !android/debug.keystore.README
 .e2e-dist-*/
 test-results-*/
+.apk-dist/

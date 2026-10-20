@@ -20,7 +20,7 @@ import type { HaloSource } from './effects/Halos';
 import type { Game } from './Game';
 import { Guidance } from './Guidance';
 
-/** Prop id of the pack left behind (interim model: a small crate with an ember halo). */
+/** Prop id of the pack left behind (a satchel with an ember glow and halo). */
 export const CACHE_PROP_ID = 'cache:pack';
 
 /** What a black-out or an abandoned trip left behind. */
@@ -63,6 +63,8 @@ export class Progression {
   private fieldsScheduled = false;
   private minedSinceField = 0;
   private cacheFieldFor: CacheState | null = null;
+  /** Rides (world/gen/features, via game/WorldFeatures): extra edges of every walking field. */
+  private rides: Array<{ from: readonly [number, number, number]; to: readonly [number, number, number]; cost: number }> = [];
 
   /** Last cell the explorer stood on safely (grounded >= CACHE.groundedSeconds, on the reach set). */
   private readonly spot = new CacheSpot();
@@ -152,6 +154,7 @@ export class Progression {
       this.reach = new ReachSet(w);
       this.cacheField = null;
     }
+    this.applyRides();
     this.fieldsDirty = true;
     this.recomputeFields();
     this.campAimSet = this.cacheAimSet = false;
@@ -177,7 +180,33 @@ export class Progression {
    */
   onCampEntered(banked: ItemCounts): ExpeditionReport | null {
     this.cold.reset();
+    // The deep breathes after a trip into the Hollow (game/WorldFeatures), before the camp save.
+    this.game.features?.onCampEntered(this.records.trip?.deepest ?? 0);
     return this.endTrip('returned', { banked }, false);
+  }
+
+  /** The expedition counter the living rock and the bloom follow (SaveData.progression.day). */
+  get day(): number {
+    return this.extra.day;
+  }
+
+  set day(n: number) {
+    this.extra.day = Number.isFinite(n) ? Math.max(0, Math.min(1e6, Math.floor(n))) : 0;
+  }
+
+  /**
+   * The rides as extra edges of the walk-home, cache and reach fields (`cost` in field steps). The
+   * fields are recomputed between frames.
+   */
+  setRides(edges: ReadonlyArray<{ from: readonly [number, number, number]; to: readonly [number, number, number]; cost: number }>): void {
+    this.rides = edges.map((e) => ({ from: [...e.from] as [number, number, number], to: [...e.to] as [number, number, number], cost: e.cost }));
+    this.applyRides();
+    this.scheduleFields();
+  }
+
+  /** The walkable world changed (a door opened, rock grew back): recompute the fields between frames. */
+  fieldsChanged(): void {
+    this.scheduleFields();
   }
 
   /** Emit 'expedition:ended' for a trip ended without announcing it (see onCampEntered). */
@@ -387,6 +416,8 @@ export class Progression {
         return t('hint.interactCampfire');
       case 'relic':
         return t('hint.interactTablet');
+      case 'feature':
+        return this.game.features.label(spec);
       default:
         return t('hud.interact');
     }
@@ -410,6 +441,9 @@ export class Progression {
         break;
       case 'relic':
         g.collectRelic(spec);
+        break;
+      case 'feature':
+        g.features.interact(spec);
         break;
     }
   }
@@ -564,17 +598,32 @@ export class Progression {
     this.cachePropShown = false;
     const c = this.cache;
     if (c) {
-      props.add({ id: CACHE_PROP_ID, kind: 'crate', x: c.x, y: c.y, z: c.z, rotY: 0.6, scale: 0.55, anchor: null, emitters: [], seed: 7 });
+      props.add({ id: CACHE_PROP_ID, kind: 'satchel', x: c.x, y: c.y, z: c.z, rotY: 0.6, scale: 1, anchor: null, emitters: [], seed: 7 });
       this.cachePropShown = true;
     }
     g.markHalosDirty();
+  }
+
+  private applyRides(): void {
+    for (const f of [this.home, this.cacheField]) {
+      if (!f) continue;
+      f.clearEdges();
+      for (const e of this.rides) f.addEdge(e.from, e.to, e.cost);
+    }
+    if (this.reach) {
+      this.reach.clearEdges();
+      for (const e of this.rides) this.reach.addEdge(e.from, e.to);
+    }
   }
 
   private computeCacheField(): void {
     const c = this.cache;
     if (!c) return;
     const w = this.game.session.world;
-    this.cacheField ??= new HomeField(w);
+    if (!this.cacheField) {
+      this.cacheField = new HomeField(w);
+      for (const e of this.rides) this.cacheField.addEdge(e.from, e.to, e.cost);
+    }
     this.cacheField.computeToCell(Math.floor(c.x), Math.floor(c.y), Math.floor(c.z));
     this.cacheFieldFor = c;
   }

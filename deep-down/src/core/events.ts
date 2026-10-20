@@ -45,6 +45,24 @@ export interface GameEvents {
   /** One full interval of cold has bitten (the heartbeat / haptic moment). */
   'player:cold': { damage: number };
   'record:depth': { depth: number };
+  // World variety (final pass W2, game/WorldFeatures).
+  /** A ride on the hoist or the rope starts or ends. */
+  'world:ride': { id: string; kind: 'hoist' | 'rope'; dir: 'up' | 'down'; phase: 'start' | 'end' };
+  /** A rune door is waking under the lantern (at most 4 a second). */
+  'world:runeWake': { id: string; progress: number };
+  /** A rune door has woken and starts to sink (`cells`: how many sink). */
+  'world:runeOpen': { id: string; cells: number };
+  'world:hoistReleased': Record<string, never>;
+  /** A Halden log was read (`first`: the first time). */
+  'world:note': { id: string; first: boolean };
+  /** The black stone was touched (`first`: the first time). The finale (W3) gates on this. */
+  'world:monolith': { first: boolean };
+  /** The deep breathed on camp entry: the living rock re-rolled for a new expedition. */
+  'world:regrow': { epoch: number; cells: number; regrown: number };
+  /** A new glimmer bloom has grown (`site` is a FeatureLayout.blooms id). */
+  'world:bloom': { epoch: number; site: string; area: string; x: number; y: number; z: number };
+  /** Moths were scattered by a mining hit. */
+  'moths:startled': { x: number; y: number; z: number; count: number };
 }
 
 type Handler<T> = (payload: T) => void;

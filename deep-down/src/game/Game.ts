@@ -44,6 +44,7 @@ import { FOLLOW_LOOK_IDLE_S, followYaw } from './touchCamera';
 import { Progression, summarizeSave } from './Progression';
 import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
 import { FrameGuard } from './FrameGuard';
+import { WorldFeatures } from './WorldFeatures';
 import { VERSION } from '../version';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
@@ -86,6 +87,8 @@ export class Game {
   waterfall: Waterfall | null = null;
   private menuCamera: MenuCamera | null = null;
   halos!: HaloSystem;
+  /** World variety: rides, rune doors, Halden logs, the black stone, moths, the living rock. */
+  features!: WorldFeatures;
   private halosDirty = false;
   private staticHalos: HaloSource[] | null = null;
 
@@ -181,6 +184,8 @@ export class Game {
     }
     this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
     this.scene.add(this.halos.mesh);
+    this.features = new WorldFeatures(this);
+    this.scene.add(this.features.moths.mesh, this.features.cage);
     this.menuCamera = new MenuCamera(layout.landmarks.ledge);
 
     this.mining = new MiningController(s.world, this.bus, this.miningRules, {
@@ -278,6 +283,7 @@ export class Game {
   private enterMenu(): void {
     this.mode = 'menu';
     this.mining?.cancel();
+    this.features?.cancelRide();
     this.desktop.releasePointer();
     this.ui.setGameplayActive(false);
     this.ui.showScreen('menu');
@@ -339,7 +345,7 @@ export class Game {
       await this.session.restore(data.worldEdits, data.removedProps);
       this.restoreProgress(data);
       this.halosDirty = true;
-      this.startPlaying();
+      this.startPlaying(data.removedProps);
     } catch (e) {
       this.loadFailed(e);
       return;
@@ -352,7 +358,8 @@ export class Game {
     if (shifted) this.saveNow('worldShifted');
   }
 
-  private startPlaying(): void {
+  /** @param removed props the save had removed (the epoch's bloom stays gone once mined). */
+  private startPlaying(removed: readonly string[] = []): void {
     this.mode = 'playing';
     this.ui.showScreen('none');
     this.ui.setGameplayActive(true);
@@ -362,6 +369,8 @@ export class Game {
     this.cameraRig.snapTo(this.player.x, this.player.y + 1.45, this.player.z);
     this.atCamp = this.inRegion(this.session.layout.camp);
     this.refreshEquipmentVisuals();
+    // Rides become edges of the walking fields before attachWorld computes them.
+    this.features.attach(removed);
     this.progression.attachWorld(this.atCamp);
     this.autosaveTimer = SAVE.autosaveSeconds;
   }
@@ -454,9 +463,10 @@ export class Game {
       player: dead
         ? { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, health: PLAYER.maxHealth, lanternFuel: lanternForTier(this.equipment.tiers.lantern).fuelSeconds }
         : {
-            x: this.player.x,
-            y: this.player.y,
-            z: this.player.z,
+            // Mid-ride, the save wakes the explorer on the ride's end stand.
+            x: this.features.rideSavePosition?.[0] ?? this.player.x,
+            y: this.features.rideSavePosition?.[1] ?? this.player.y,
+            z: this.features.rideSavePosition?.[2] ?? this.player.z,
             yaw: this.player.yaw,
             health: this.health.current,
             lanternFuel: this.lanternFuel.fuel,
@@ -613,11 +623,13 @@ export class Game {
 
     const p = this.player;
     const hand = this.handPosition();
-    const swinging = this.mining.update(dt, input, !blocked, hand.x, hand.y, hand.z);
+    // On a ride (game/WorldFeatures) the explorer follows the hoist or the rope: no walking, no mining.
+    const riding = this.features.riding;
+    const swinging = this.mining.update(dt, input, !blocked && !riding, hand.x, hand.y, hand.z);
     p.speedFactor = swinging ? 0.55 : 1;
-    const mx = blocked ? 0 : input.moveX;
-    const my = blocked ? 0 : input.moveY;
-    const ev = p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, !swinging);
+    const mx = blocked || riding ? 0 : input.moveX;
+    const my = blocked || riding ? 0 : input.moveY;
+    const ev = riding ? this.features.updateRide(dt) : p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, !swinging);
     this.lookStill = input.lookDX !== 0 || input.lookDY !== 0 ? 0 : this.lookStill + dt;
     if (!blocked && !swinging && this.settings.cameraFollow && input.lastDevice === 'touch' && this.lookStill >= FOLLOW_LOOK_IDLE_S) {
       this.cameraRig.yaw = followYaw(this.cameraRig.yaw, p.yaw, mx, my, dt);
@@ -652,6 +664,7 @@ export class Game {
       return;
     }
     this.updateDiscoveries();
+    this.features.update(dt);
     this.updateFocus();
     this.updateHealthWarnings();
     const objectiveMoved = this.objectives.setTotals({
@@ -840,10 +853,12 @@ export class Game {
   private updateFocus(): void {
     const p = this.player;
     let best: PropSpec | null = null;
-    let bestD = INTERACT_RANGE;
+    // Nearest relative to each prop's own range (world features: ride stands, the stone's faces).
+    let bestD = 1;
     for (const spec of this.session.liveProps.values()) {
       if (!spec.interact) continue;
-      const d = Math.hypot(spec.x - p.x, (spec.y - p.y) * 0.7, spec.z - p.z);
+      const feature = spec.interact === 'feature';
+      const d = feature ? this.features.focusDistance(spec, p.x, p.y, p.z) / this.features.focusRange(spec) : Math.hypot(spec.x - p.x, (spec.y - p.y) * 0.7, spec.z - p.z) / INTERACT_RANGE;
       if (d < bestD) {
         bestD = d;
         best = spec;
@@ -862,6 +877,18 @@ export class Game {
 
   interact(spec: PropSpec): void {
     this.progression.interact(spec);
+  }
+
+  /** Drop the interaction focus (a prop was taken, a ride began). */
+  clearFocus(): void {
+    this.focusedProp = null;
+    this.session.props.setHighlight(null);
+    this.ui.touch.setInteractVisible(null);
+  }
+
+  /** Give the explorer an item as if picked up (key items go to the journal). */
+  grant(item: ItemId, count = 1): number {
+    return this.collect(item, count);
   }
 
   /** Read the Ancient Tablet: it goes to the journal and the prop leaves the shrine. */
@@ -930,6 +957,7 @@ export class Game {
   private die(): void {
     this.mode = 'dead';
     this.mining.cancel();
+    this.features.cancelRide();
     this.input.mining = false;
     this.desktop.releasePointer();
     const left = this.progression.onBlackout();
@@ -943,6 +971,7 @@ export class Game {
 
   respawn(): void {
     const spawn = this.session.layout.spawn;
+    this.features.cancelRide();
     this.health = new Health(PLAYER.maxHealth);
     this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
@@ -1244,6 +1273,7 @@ export class Game {
     this.audio.dispose();
     this.haptics?.dispose();
     this.ui.dispose();
+    this.features.dispose();
     this.session.dispose();
     this.renderer.dispose();
   }

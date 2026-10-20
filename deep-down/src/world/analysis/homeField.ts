@@ -306,6 +306,8 @@ export class ReachSet {
   lastMs = 0;
   size = 0;
   private touched: number[] = [];
+  /** Rides (world/gen/features): standing on `from` reaches `to`. */
+  private readonly jumps = new Map<number, number[]>();
   private readonly sx: number;
   private readonly sxy: number;
 
@@ -316,6 +318,20 @@ export class ReachSet {
     this.reach = new Uint8Array(world.sx * world.sy * world.sz);
     this.sx = world.sx;
     this.sxy = world.sx * world.sy;
+  }
+
+  /** Add a one-way ride from one stand cell to another. */
+  addEdge(from: readonly [number, number, number], to: readonly [number, number, number]): void {
+    const w = this.world;
+    const a = w.index(from[0], from[1], from[2]);
+    const list = this.jumps.get(a);
+    const b = w.index(to[0], to[1], to[2]);
+    if (list) list.push(b);
+    else this.jumps.set(a, [b]);
+  }
+
+  clearEdges(): void {
+    this.jumps.clear();
   }
 
   /** Recompute from the standable cell at or below (x, y, z), as reachableCells does. @returns ms. */
@@ -346,6 +362,8 @@ export class ReachSet {
       while (queue.length) {
         const c = queue.pop()!;
         const cy = Math.floor(c / sx) % sy;
+        const ride = this.jumps.size ? this.jumps.get(c) : undefined;
+        if (ride) for (const j of ride) add(j);
         for (const dir of dirs) {
           const n = c + dir;
           if (standable(n)) add(n);

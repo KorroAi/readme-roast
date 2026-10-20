@@ -21,6 +21,8 @@ export function installDebugApi(game: Game): void {
     'lantern:low', 'lantern:empty', 'lantern:refueled', 'game:saved', 'game:saveFailed', 'tool:swing',
     // Loop core (W1). Later waves append theirs.
     'expedition:started', 'expedition:ended', 'cache:created', 'cache:recovered', 'lantern:turnBack', 'player:cold', 'record:depth',
+    // World variety (W2).
+    'world:ride', 'world:runeWake', 'world:runeOpen', 'world:hoistReleased', 'world:note', 'world:monolith', 'world:regrow', 'world:bloom', 'moths:startled',
   ];
   for (const type of types) {
     game.bus.on(type, (payload) => {
@@ -78,6 +80,8 @@ export function installDebugApi(game: Game): void {
       pixelRatio: game.renderer.pixelRatio,
       // Walk-home field, reach set and cache field: last recompute times (ms) and size.
       loop: game.progression.fieldTimings(),
+      // World variety: the moths' step (ms, smoothed), how many fly, and the last regrowth's cost.
+      features: game.features.report(),
     }),
     /** Merge into the live InputState (e.g. { moveY: 1 }). */
     input: (patch: Partial<InputState>) => Object.assign(game.input, patch),
@@ -207,6 +211,20 @@ export function installDebugApi(game: Game): void {
         const h = { fuelState: game.progression.fuelState, homeSeconds: game.progression.homeSeconds, walkToCamp: game.progression.walkToCamp, walkToCache: game.progression.walkToCache };
         return h;
       },
+    },
+    /** World variety (game/WorldFeatures): rides, rune doors, the epoch, the live renewal sites. */
+    features: {
+      state: () => game.features.debugState(),
+      /** Start a ride ('hoist' | 'riftRope', 'up' | 'down'); with t (0..1) it holds there for a capture. */
+      ride: (id: string, dir: 'up' | 'down', t?: number) => game.features.debugRide(id, dir, t),
+      /** Let a held ride run on to its end. */
+      release: () => game.features.debugRelease(),
+      openDoor: (id: string) => game.features.openDoor(id),
+      wake: (id: string) => game.features.debugWake(id),
+      /** Jump to an epoch (re-rolls the living rock and moves the bloom); @returns the regrowth's ms. */
+      setEpoch: (n: number) => game.features.debugSetEpoch(n),
+      sites: () => game.features.sites(),
+      layout: () => game.session.layout.features ?? null,
     },
     /** Fullbright amount and an optional section clip height (compiles the clip into the terrain shader). */
     debugLight: (fullbright: number, clipY = 9999) => {

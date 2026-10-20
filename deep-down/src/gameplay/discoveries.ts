@@ -9,6 +9,8 @@ export interface DiscoveryDef {
   id: string;
   /** Major discoveries get the big banner: the hollow, shrine, gate, rift and answer. */
   major: boolean;
+  /** A found text (a Halden log): banners may label it "HALDEN LOG", the journal may group them. */
+  log?: true;
 }
 
 export const DISCOVERIES: readonly DiscoveryDef[] = [
@@ -18,6 +20,18 @@ export const DISCOVERIES: readonly DiscoveryDef[] = [
   { id: 'tablet', major: false },
   { id: 'gate', major: true },
   { id: 'ironVein', major: false },
+  // World variety (final pass W2): places, secrets, the shortcut and the black stone.
+  { id: 'mothGrotto', major: false },
+  { id: 'hoist', major: false },
+  { id: 'reliquary', major: false },
+  { id: 'lampGallery', major: false },
+  { id: 'undercroft', major: true },
+  { id: 'monolith', major: false },
+  // The four Halden logs (found texts; `log` marks them for the journal and the banner label).
+  { id: 'note.office', major: false, log: true },
+  { id: 'note.landing', major: false, log: true },
+  { id: 'note.yard', major: false, log: true },
+  { id: 'note.rift', major: false, log: true },
 ];
 
 /** Number of discoveries in the game. */

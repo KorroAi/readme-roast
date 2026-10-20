@@ -1,29 +1,11 @@
-import { ITEMS, type ItemId } from '../config/items';
+import type { ItemId } from '../config/items';
 import type { EquipmentSlot } from '../config/recipes';
-import { generateTiles, type TileAtlas } from '../render/textures';
-import {
-  cubeIcon,
-  heartSprite,
-  LANTERN_ROWS,
-  outline,
-  PICKAXE_ROWS,
-  scaleNearest,
-  SHARD_PALETTE,
-  SHARD_ROWS,
-  sprite,
-  STURDY_PACK_ROWS,
-  TABLET_PALETTE,
-  TABLET_ROWS,
-  TINY_PACK_ROWS,
-  type Palette,
-  type Raster,
-} from './sprites';
+import { heartSprite, itemRaster, LANTERN_ROWS, outline, PICKAXE_ROWS, scaleNearest, sprite, STURDY_PACK_ROWS, TINY_PACK_ROWS, type Palette, type Raster } from './sprites';
 
-// Item, equipment and heart icons as cached PNG data URLs, generated from the same
-// procedural tiles as the terrain. Ask for the size in device pixels for crisp results.
+// Item, equipment and heart icons as cached PNG data URLs, drawn from the pixel sprites in
+// sprites.ts (specimens, not blocks). Ask for the size in device pixels for crisp results.
 
 const cache = new Map<string, string>();
-let atlas: TileAtlas | null = null;
 
 function toDataUrl(r: Raster): string {
   const canvas = document.createElement('canvas');
@@ -51,14 +33,9 @@ const spriteIcon = (rows: readonly string[], palette: Palette, size: number) => 
 /** Device pixel size for an icon shown at `cssPx`, so it maps texel-to-pixel crisply. */
 export const iconPx = (cssPx: number): number => Math.round(cssPx * Math.min(3, Math.max(1, globalThis.devicePixelRatio || 1)));
 
+/** An item's icon by id (an unknown id gets the fallback pebble, never an error). */
 export function itemIconDataUrl(item: ItemId, size = 64): string {
-  return cached(`item:${item}:${size}`, () => {
-    const def = ITEMS[item].icon;
-    if (def.kind === 'shard') return spriteIcon(SHARD_ROWS, SHARD_PALETTE, size);
-    if (def.kind === 'tablet') return spriteIcon(TABLET_ROWS, TABLET_PALETTE, size);
-    atlas ??= generateTiles();
-    return cubeIcon(atlas, def.tile, def.tile, size);
-  });
+  return cached(`item:${item}:${size}`, () => itemRaster(item, size));
 }
 
 // Equipment palettes per tier: tier 1 is the worn starter kit, tier 2 the copper upgrade.

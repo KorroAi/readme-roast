@@ -3,14 +3,24 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#05080c" />
+    <meta name="theme-color" content="#070a0f" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>DEEP DOWN</title>
     <link rel="stylesheet" href="/src/ui/styles.css" />
+    <style>
+      /* The boot mark: the emblem, painted before any script runs; its flame breathes (2.4 s).
+         The UI's first screen is drawn over it (#ui is z-index 2), then it is removed. */
+      #dd-boot { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; pointer-events: none; background: radial-gradient(circle at 50% 50%, rgba(216, 114, 42, 0.14), transparent 30vmin), #070a0f; }
+      #dd-boot svg { width: 112px; height: auto; overflow: visible; }
+      .dd-boot-core { transform-box: fill-box; transform-origin: 50% 100%; animation: dd-breathe 2.4s ease-in-out infinite; }
+      @keyframes dd-breathe { 50% { opacity: 0.5; transform: scale(0.9); } }
+      @media (prefers-reduced-motion: reduce) { .dd-boot-core { animation: none; } }
+    </style>
   </head>
   <body>
+    <div id="dd-boot" aria-hidden="true">%DD_BOOT_MARK%</div>
     <canvas id="game"></canvas>
     <div id="ui"></div>
     <script>

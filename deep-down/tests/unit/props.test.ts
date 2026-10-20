@@ -47,6 +47,9 @@ const SIZE: Record<PropKind, [[number, number], [number, number], [number, numbe
   ropeCoil: [[0.35, 1.1], [0.1, 0.3], [0.35, 0.8]],
   brokenCart: [[0.9, 1.8], [0.5, 1.4], [0.7, 1.5]],
   abyssMonolith: [[12, 16], [24, 28], [12, 16]],
+  haldenNote: [[0.3, 0.65], [0.04, 0.5], [0.2, 0.45]],
+  hoistWinch: [[0.12, 1.6], [0.7, 1.15], [0.5, 1.05]],
+  satchel: [[0.35, 0.9], [0.18, 0.4], [0.25, 0.75]],
 };
 
 function geometries(m: PropModel): THREE.BufferGeometry[] {

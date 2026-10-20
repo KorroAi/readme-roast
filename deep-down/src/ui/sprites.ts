@@ -1,9 +1,7 @@
-import { TILE_SIZE } from '../config/tiles';
-import type { TileAtlas } from '../render/textures';
+import { ITEMS } from '../config/items';
 
-// Pure pixel rasterizers for UI icons (no DOM): isometric voxel cubes sampled from the
-// procedural block tiles, and small hand-authored pixel sprites. icons.ts turns the
-// buffers into cached data URLs.
+// Pure pixel rasterizers for UI icons (no DOM): small hand-authored 16 x 16 pixel sprites,
+// "specimens" lit from the top left. icons.ts turns the buffers into cached data URLs.
 
 export interface Raster {
   size: number;
@@ -68,72 +66,6 @@ export function scaleNearest(src: Raster, size: number): Raster {
 }
 
 // ---------------------------------------------------------------------------------------
-// Isometric voxel cube
-
-const SHADE_TOP = 1.14;
-const SHADE_LEFT = 0.84;
-const SHADE_RIGHT = 0.62;
-
-/**
- * An isometric cube (2:1 projection) whose three visible faces sample block tiles texel by
- * texel, so the icon keeps the crisp pixel-art of the terrain at any size. Top face is
- * lightest, the right side darkest (light from the top-left), front edges get a highlight.
- */
-export function cubeIcon(atlas: TileAtlas, topLayer: number, sideLayer: number, size: number): Raster {
-  const r = newRaster(size);
-  const S = TILE_SIZE;
-  const margin = Math.max(1, Math.round(size * 0.06));
-  const hw = (size - margin * 2) / 2;
-  const h = hw;
-  const cx = size / 2;
-  const top = margin;
-  const sample = (layer: number, u: number, v: number, shade: number, x: number, y: number) => {
-    const tx = Math.min(S - 1, Math.max(0, Math.floor(u * S)));
-    const ty = Math.min(S - 1, Math.max(0, Math.floor(v * S)));
-    const i = (layer * S * S + tx + ty * S) * 4;
-    // Emissive texels (alpha mask) stay bright so ores and crystals sparkle in the icon.
-    const glow = atlas.data[i + 3] > 0 ? 1.25 : 1;
-    const f = shade * glow;
-    const o = (x + y * size) * 4;
-    r.data[o] = atlas.data[i] * f;
-    r.data[o + 1] = atlas.data[i + 1] * f;
-    r.data[o + 2] = atlas.data[i + 2] * f;
-    r.data[o + 3] = 255;
-  };
-  for (let y = 0; y < size; y++)
-    for (let x = 0; x < size; x++) {
-      const px = x + 0.5;
-      const py = y + 0.5;
-      // Top rhombus: T + u*(R - T) + v*(L - T), with R - T = (hw, hw/2), L - T = (-hw, hw/2).
-      const dx = (px - cx) / hw;
-      const dy = (py - top) / (hw / 2);
-      const tu = (dx + dy) / 2;
-      const tv = (dy - dx) / 2;
-      if (tu >= 0 && tu < 1 && tv >= 0 && tv < 1) {
-        const edge = tu > 0.93 || tv > 0.93 ? 1.18 : 1;
-        sample(topLayer, tu, tv, SHADE_TOP * edge, x, y);
-        continue;
-      }
-      // Left face: from L = (cx - hw, top + hw/2) toward the front vertex C.
-      const lu = (px - (cx - hw)) / hw;
-      if (lu >= 0 && lu < 1) {
-        const lv = (py - (top + hw / 2) - lu * (hw / 2)) / h;
-        if (lv >= 0 && lv < 1) {
-          sample(sideLayer, lu, lv, SHADE_LEFT * (lu > 0.95 ? 1.12 : 1), x, y);
-          continue;
-        }
-      }
-      // Right face: from the front vertex C = (cx, top + hw) toward R.
-      const ru = (px - cx) / hw;
-      if (ru >= 0 && ru < 1) {
-        const rv = (py - (top + hw) + ru * (hw / 2)) / h;
-        if (rv >= 0 && rv < 1) sample(sideLayer, ru, rv, SHADE_RIGHT * (ru < 0.05 ? 1.2 : 1), x, y);
-      }
-    }
-  return outline(r, 0x05080d, size >= 72 ? 2 : 1);
-}
-
-// ---------------------------------------------------------------------------------------
 // Pixel sprites: 16x16 ASCII art with a per-sprite palette ('.' = transparent).
 
 export type Palette = Record<string, number>;
@@ -148,6 +80,35 @@ export function sprite(rows: readonly string[], palette: Palette): Raster {
     }
   });
   return r;
+}
+
+/** The builders' marks (7 x 7, '#' ink, 'o' the Lantern's flame), after the in-game rune glyphs. */
+export const RUNE_MARKS: Record<string, readonly string[]> = {
+  runeDescent: ['...#...', '..#.#..', '.#.#.#.', '...#...', '...#...', '..###..', '#######'],
+  runeEye: ['...#...', '..###..', '.#...#.', '#..#..#', '.#...#.', '..###..', '...#...'],
+  runeStar: ['...#...', '.#.#.#.', '..###..', '###.###', '..###..', '.#.#.#.', '...#...'],
+  runeSpire: ['...#...', '..#.#..', '..#.#..', '.#####.', '.#...#.', '#.....#', '#######'],
+  runeGate: ['#######', '#..#..#', '#.....#', '#..#..#', '#..#..#', '#..#..#', '#..#..#'],
+  runeWaves: ['.......', '.#...#.', '#.#.#.#', '.......', '.#...#.', '#.#.#.#', '.......'],
+  runeChasm: ['#.....#', '#.#...#', '#..#..#', '#...#.#', '#..#..#', '#.#...#', '#.....#'],
+  ancientTablet: ['...#...', '...#...', '..#.#..', '.#.o.#.', '..#.#..', '...#...', '..###..'],
+};
+
+/** Cut a 7 x 7 mark into a 16 x 16 base at (x0, y0): ink 'G', a dark lip below-right 'g'. */
+export function carveMark(base: readonly string[], mark: readonly string[], x0: number, y0: number, on = 'S'): string[] {
+  const rows = base.map((r) => r.split(''));
+  mark.forEach((line, y) => {
+    for (let x = 0; x < line.length; x++) {
+      const c = line[x];
+      if (c === '.') continue;
+      const ty = y0 + y;
+      const tx = x0 + x;
+      const lip = rows[ty + 1]?.[tx + 1];
+      if (lip === on && mark[y + 1]?.[x + 1] !== '#') rows[ty + 1][tx + 1] = 'g';
+      rows[ty][tx] = c === 'o' ? 'o' : 'G';
+    }
+  });
+  return rows.map((r) => r.join(''));
 }
 
 export const SHARD_ROWS = [
@@ -170,25 +131,32 @@ export const SHARD_ROWS = [
 ];
 export const SHARD_PALETTE: Palette = { W: 0xe2ffff, L: 0x7eeefc, C: 0x30bfd8, D: 0x10617a };
 
-export const TABLET_ROWS = [
-  '................',
-  '.....SSSSSS.....',
-  '....SLLLLLLS....',
-  '...SLsssssssS...',
-  '...SLsGGsGssS...',
-  '...SLsssssssS...',
-  '...SLsGsGGGsS...',
-  '...SLsssssssS...',
-  '...SLsGGGsGsS...',
-  '...SLsssssssS...',
-  '...SLsGsGGssS...',
-  '...SLsssssssS...',
-  '...SDDDDDDDDS...',
-  '....DDDDDDDD....',
-  '................',
-  '................',
-];
-export const TABLET_PALETTE: Palette = { S: 0x2a2f3a, L: 0x6a7384, s: 0x4b5260, G: 0x48d6ea, D: 0x1b1e25 };
+/** The Ancient Tablet (the Lantern rune): a dressed slab, the diamond on its stem cut in cyan. */
+export const TABLET_ROWS = carveMark(
+  [
+    '................',
+    '....SSSSSSSS....',
+    '...SLLLLLLLLS...',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SLssssssssS..',
+    '...SDDDDDDDDDS..',
+    '....DDDDDDDDD...',
+    '................',
+    '................',
+  ],
+  RUNE_MARKS.ancientTablet,
+  5,
+  3,
+  's',
+);
+export const TABLET_PALETTE: Palette = { S: 0x2a2f3a, L: 0x6a7384, s: 0x4b5260, G: 0x8fe3ee, g: 0x24303a, o: 0xffc785, D: 0x1b1e25 };
 
 export const PICKAXE_ROWS = [
   '................',
@@ -266,6 +234,190 @@ export const STURDY_PACK_ROWS = [
   '................',
 ];
 
+// ---------------------------------------------------------------------------------------
+// Specimens: every material as the thing itself, not a block (no isometric cubes).
+
+/** Stone: a flake of slate, its laminations showing on the broken face. */
+export const SLATE_FLAKE_ROWS = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '........HHHH....',
+  '.....HHHLLLLH...',
+  '..HHHLLLLLLLLM..',
+  '.HLLLLLLLLLMMM..',
+  '.DMMLLLLLMMMMd..',
+  '.dDDMMMMMMMMdd..',
+  '..ddDDDDMMddd...',
+  '....dddddddd....',
+  '................',
+  '................',
+  '................',
+  '................',
+]
+export const SLATE_FLAKE_PALETTE: Palette = { H: 0xc4ccd6, L: 0x9aa6b6, M: 0x76839a, D: 0x4a5566, d: 0x323a47 };
+
+/** Root fibre: a coiled hank, tied, with two loose ends. */
+export const ROOT_COIL_ROWS = [
+  '................',
+  '.....DMMMMD.....',
+  '...DMLLLLLLMD...',
+  '..DMLD....DLMD..',
+  '..MLD......DLM..',
+  '.DML........LMD.',
+  '.MLD........DLM.',
+  '.MLD...TT...DLM.',
+  '.DML..TttT..LMD.',
+  '..MLD.TttT.DLM..',
+  '..DMLLLTTLLLMD..',
+  '...DDMMMMMMDD...',
+  '.....DDDDDD.....',
+  '....M......M....',
+  '...D........D...',
+  '................',
+];
+export const ROOT_COIL_PALETTE: Palette = { L: 0xd8c08f, M: 0xb0925f, D: 0x6e5434, T: 0x9a6a3a, t: 0x5e3e22 };
+
+/** Copper ore: a lump of rock with copper glints and a fleck of verdigris. */
+export const COPPER_LUMP_ROWS = [
+  '................',
+  '................',
+  '.....hhhRR......',
+  '...hhRRRRRRr....',
+  '..hRRCCRRRRRr...',
+  '..hRCGCcRRVRr...',
+  '.hRRcCcRRRVVr...',
+  '.hRRRRRRRCCRr...',
+  '.RRRVRRRCGCcr...',
+  '.RRRRRRRcCcRr...',
+  '.rRRRCCRRRRrr...',
+  '..rRCGcRRRrr....',
+  '..rrRcRRrrr.....',
+  '....rrrrr.......',
+  '................',
+  '................',
+];
+export const COPPER_LUMP_PALETTE: Palette = { h: 0x8a7a70, R: 0x5c4c45, r: 0x3a2e2a, C: 0xe0874a, c: 0xa3552a, G: 0xffd2a0, V: 0x7fc9a2 };
+
+/** Iron ore: a dark, heavy lump with a jasper streak and a cold glint. */
+export const IRON_LUMP_ROWS = [
+  '................',
+  '................',
+  '......hhhM......',
+  '....hhMMMMMd....',
+  '...hMMMMMMMMd...',
+  '..hMMJjMMMMMd...',
+  '..MMMMJJjMMMdd..',
+  '.hMMMMMMJJjMMd..',
+  '.MMgMMMMMMJJjd..',
+  '.MMMMMMMMMMMJd..',
+  '.dMMMMMgMMMMdd..',
+  '..dMMMMMMMMdd...',
+  '...ddMMMMddd....',
+  '.....dddd.......',
+  '................',
+  '................',
+];
+export const IRON_LUMP_PALETTE: Palette = { h: 0x737884, M: 0x454952, d: 0x2b2e35, J: 0xc0583e, j: 0x7e3324, g: 0xd9dde6 };
+
+/** Echo shard: pale, almost white crystal, a tall prism and a small one beside it. */
+export const ECHO_SHARD_ROWS = [
+  '................',
+  '.......W........',
+  '......WLC.......',
+  '......WLC.......',
+  '.....WLLCD......',
+  '.....WLLCD......',
+  '....WLLLCD......',
+  '....WLLCCD..W...',
+  '....WLLCCD.WLC..',
+  '....LLLCCD.WLCD.',
+  '....LLLCDD.LLCD.',
+  '.....LLCD..LCD..',
+  '.....LCDD..LD...',
+  '......DD...D....',
+  '................',
+  '................',
+];
+export const ECHO_SHARD_PALETTE: Palette = { W: 0xffffff, L: 0xe4f8fa, C: 0xb6e6ec, D: 0x6fa9b5 };
+
+/** A rune stone: a river-smooth stone; each rune's mark is cut into it in cyan (runeStone()). */
+export const RUNE_STONE_ROWS = [
+  '................',
+  '.....LLLLLS.....',
+  '...LLSSSSSSSs...',
+  '..LSSSSSSSSSSs..',
+  '..LSSSSSSSSSSs..',
+  '.LSSSSSSSSSSSss.',
+  '.LSSSSSSSSSSSss.',
+  '.LSSSSSSSSSSSss.',
+  '.LSSSSSSSSSSSss.',
+  '.SSSSSSSSSSSSss.',
+  '.SSSSSSSSSSSsss.',
+  '..SSSSSSSSSSss..',
+  '..sSSSSSSSSsss..',
+  '...sssSSSssss...',
+  '.....sssssss....',
+  '................',
+];
+export const RUNE_STONE_PALETTE: Palette = { L: 0x6a7484, S: 0x414a58, s: 0x2a303a, G: 0x8fe3ee, g: 0x1f6f7e, o: 0xffc785 };
+
+
+
+/** Fallback for an item without its own sprite: a plain pebble in the item's colour. */
+export const PEBBLE_ROWS = [
+  '................',
+  '................',
+  '................',
+  '................',
+  '......HHMM......',
+  '....HHMMMMMD....',
+  '...HMMMMMMMMD...',
+  '...MMMMMMMMMD...',
+  '..HMMMMMMMMMDD..',
+  '..MMMMMMMMMMDD..',
+  '...MMMMMMMMDD...',
+  '....DDMMMMDD....',
+  '......DDDD......',
+  '................',
+  '................',
+  '................',
+];
+
+const shade = (rgb: number, k: number) => {
+  const c = (v: number) => Math.max(0, Math.min(255, Math.round(v * k)));
+  return (c((rgb >> 16) & 255) << 16) | (c((rgb >> 8) & 255) << 8) | c(rgb & 255);
+};
+export const pebblePalette = (rgb: number): Palette => ({ H: shade(rgb, 1.3), M: rgb, D: shade(rgb, 0.55) });
+
+/** Sprite and palette per item id (the key items without their own art use the tablet). */
+export const SPECIMENS: Record<string, { rows: readonly string[]; palette: Palette }> = {
+  stone: { rows: SLATE_FLAKE_ROWS, palette: SLATE_FLAKE_PALETTE },
+  rootFibre: { rows: ROOT_COIL_ROWS, palette: ROOT_COIL_PALETTE },
+  copperOre: { rows: COPPER_LUMP_ROWS, palette: COPPER_LUMP_PALETTE },
+  ironOre: { rows: IRON_LUMP_ROWS, palette: IRON_LUMP_PALETTE },
+  echoShard: { rows: ECHO_SHARD_ROWS, palette: ECHO_SHARD_PALETTE },
+};
+
+/**
+ * The icon for an item id at `size` px: its specimen sprite, the shard or tablet art, a rune stone
+ * for the seven runes, or (for an id without art) a pebble in the item's colour.
+ */
+export function itemRaster(id: string, size: number): Raster {
+  const own = SPECIMENS[id];
+  const def = (ITEMS as Record<string, { icon: { kind: string }; color: number; keyItem: boolean } | undefined>)[id];
+  let rows: readonly string[];
+  let palette: Palette;
+  if (own) ({ rows, palette } = own);
+  else if (RUNE_MARKS[id] && id !== 'ancientTablet') [rows, palette] = [carveMark(RUNE_STONE_ROWS, RUNE_MARKS[id], 4, 4), RUNE_STONE_PALETTE];
+  else if (id.startsWith('rune')) [rows, palette] = [RUNE_STONE_ROWS, RUNE_STONE_PALETTE];
+  else if (def?.icon.kind === 'shard') [rows, palette] = [SHARD_ROWS, SHARD_PALETTE];
+  else if (def?.icon.kind === 'tablet') [rows, palette] = [TABLET_ROWS, TABLET_PALETTE];
+  else [rows, palette] = [PEBBLE_ROWS, pebblePalette(def?.color ?? 0x8a95a8)];
+  return scaleNearest(outline(sprite(rows, palette)), size);
+}
+
 export const HEART_ROWS = ['.###.###.', '#########', '#########', '#########', '.#######.', '..#####..', '...###...', '....#....'];
 
 /**
@@ -280,8 +432,8 @@ export function heartSprite(fill: 0 | 1 | 2): Raster {
       if (row[x] !== '#') continue;
       const lit = fill === 2 || (fill === 1 && x <= 4);
       const edge = y === 7 || row[x + 1] !== '#' || HEART_ROWS[y + 1]?.[x] !== '#';
-      let c = lit ? (edge ? 0xa51f33 : 0xe8414f) : edge ? 0x22161c : 0x3a2530;
-      if (lit && ((y === 1 && (x === 1 || x === 2)) || (y === 2 && x === 1))) c = 0xffa0a4;
+      let c = lit ? (edge ? 0xb2322a : 0xff6b5e) : edge ? 0x1d1418 : 0x33232a;
+      if (lit && ((y === 1 && (x === 1 || x === 2)) || (y === 2 && x === 1))) c = 0xffc2b8;
       put(r, x + 1, y + 2, c);
     }
   });

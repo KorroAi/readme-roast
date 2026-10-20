@@ -31,6 +31,17 @@ export type DD = {
     report(): any;
     next(): { id: string; text: string };
   };
+  /** World variety (game/WorldFeatures). */
+  features: {
+    state(): any;
+    ride(id: string, dir: 'up' | 'down', t?: number): boolean;
+    release(): void;
+    openDoor(id: string): boolean;
+    wake(id: string): boolean;
+    setEpoch(n: number): number;
+    sites(): Array<{ kind: string; id: string; area: string; x: number; y: number; z: number; epoch: number; present: boolean }>;
+    layout(): any;
+  };
   game: any;
 };
 

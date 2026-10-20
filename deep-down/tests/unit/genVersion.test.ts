@@ -12,6 +12,8 @@ import type { WorldLayout } from '../../src/world/gen/types';
  */
 const RECORDED: Record<number, string> = {
   1: '9cbb0a10',
+  // Final pass W2 (world variety): the feature pass, the black stone's collision, the living rock.
+  2: '865cc3b6',
 };
 
 let layout: WorldLayout;

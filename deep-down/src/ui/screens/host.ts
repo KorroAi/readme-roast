@@ -37,6 +37,4 @@ export interface ScreenHost {
   rerender(): void;
   /** Apply a settings change; with `coalesce` (slider drags) at most one patch per frame. */
   patchSettings(p: Partial<Settings>, coalesce?: boolean): void;
-  /** Register the title canvas so it is redrawn crisply on resize. */
-  setTitleCanvas(canvas: HTMLCanvasElement | null, scale: number): void;
 }

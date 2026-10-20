@@ -1,12 +1,74 @@
-/* DEEP DOWN UI. Dark translucent panels with a thin cool edge, amber for primary actions,
-   cyan for discoveries, red only for danger. Sizes scale with --s (Large text). */
+/* DEEP DOWN UI: "Lamplight on the Lintel".
+   Two registers that never mix. Expedition kit (everything the player owns or does): slate
+   plates, an oiled brass rim, amber light, ledger typography. Builders' script (discoveries,
+   lore, runes): cyan ink carved in stone. Violet means the unknown, red means danger only.
+   Shapes are octagons (45 degree chamfers through clip-path; the 1 px rim is drawn by layered
+   backgrounds, since clip-path cuts borders and shadows). Headers are lintels: a carved groove
+   with a pendant tick at each end. Tokens mirror src/ui/brand/tokens.ts (unit tested).
+   Sizes scale with --s (Large text). Text never goes below 12 px. */
 
 .dd-ui {
+  /* Palette (src/ui/brand/tokens.ts) */
+  --slate-950: #070a0f;
+  --slate-900: #0c1118;
+  --slate-800: #131a24;
+  --slate-700: #1d2632;
+  --slate-600: #2a3544;
+  --bone-100: #efe7d8;
+  --bone-300: #c9bfae;
+  --bone-500: #948b7d;
+  --brass-300: #e2b673;
+  --brass-500: #b0823f;
+  --brass-700: #5e4220;
+  --amber-300: #ffd29a;
+  --amber-400: #ffb35c;
+  --amber-500: #f39c45;
+  --amber-700: #8a4f1c;
+  --ember: #d8722a;
+  --rune-200: #8fe3ee;
+  --rune-400: #2fb6cc;
+  --rune-900: #072a33;
+  --deep-300: #b9a2ff;
+  --danger-400: #ff6b5e;
+  --danger-700: #6a1712;
+  --verdigris-300: #8fc4a4;
+  --carve: #04070b;
+  --on-amber: #1c1006;
+  --on-danger: #ffd6d0;
+  --rarity-common: var(--bone-300);
+  --rarity-uncommon: #e58444;
+  --rarity-rare: var(--rune-200);
+  --rarity-relic: var(--deep-300);
+
+  /* Surfaces */
+  --panel: rgba(12, 17, 24, 0.94);
+  --chip: rgba(7, 10, 15, 0.8);
+  --ink: var(--bone-100);
+  --ink-dim: var(--bone-300);
+  --head: var(--brass-300);
+  --good: var(--verdigris-300);
+  --groove: linear-gradient(var(--carve) 0 1px, rgba(176, 130, 63, 0.55) 1px 2px, rgba(4, 7, 11, 0.35) 2px 3px);
+
+  /* Octagon chamfers: panels, buttons, chips, bar caps */
+  --cut-panel: 9px;
+  --cut-btn: 8px;
+  --cut-chip: 6px;
+  --cut-cap: 4px;
+
+  /* Type: the Lintel display face is built in code (src/ui/brand/lintelFont.ts). */
+  --font-lintel: 'Lintel', var(--font);
+
+  /* Motion (src/ui/brand/motion.ts) */
+  --dur-micro: 90ms;
+  --dur-short: 160ms;
+  --dur-medium: 240ms;
+  --dur-exit: 140ms;
+  --dur-long: 480ms;
+  --ease-enter: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+
   --s: 1;
-  --good: #7fe0a8;
-  --head: #8fb6d6;
-  --hud-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 10px rgba(0, 0, 0, 0.55);
-  --chip: rgba(6, 10, 16, 0.62);
+  --hud-shadow: 0 1px 2px rgba(0, 0, 0, 0.9), 0 0 8px rgba(0, 0, 0, 0.6);
   position: absolute;
   inset: 0;
   font-family: var(--font);
@@ -19,11 +81,10 @@
   --s: 1.14;
 }
 .dd-ui.dd-contrast {
-  --panel: rgba(3, 5, 9, 0.96);
-  --panel-edge: rgba(225, 238, 255, 0.72);
-  --ink-dim: #d3dcea;
-  --head: #d8ecff;
-  --chip: rgba(0, 0, 0, 0.86);
+  --panel: rgba(4, 6, 9, 0.98);
+  --chip: rgba(0, 0, 0, 0.9);
+  --ink-dim: var(--bone-100);
+  --head: var(--amber-300);
   --hud-shadow: 0 0 2px #000, 0 0 3px #000, 0 1px 1px #000;
 }
 .dd-ui button,
@@ -41,7 +102,7 @@
   outline: none;
 }
 .dd-ui :focus-visible {
-  outline: 2px solid var(--cyan);
+  outline: 2px solid var(--amber-300);
   outline-offset: 2px;
 }
 .dd-sr {
@@ -60,6 +121,135 @@
 }
 
 /* ------------------------------------------------------------------------------------ */
+/* The octagon plate. Every plate sets --cut, --fill and --rim (and optionally --face, a
+   gradient over the fill); the corner layers draw the rim along the chamfers. :where() keeps
+   this rule at zero specificity, so any element rule below overrides its variables. */
+
+:where(
+    .dd-panel, .dd-btn, .dd-slot, .dd-detail, .dd-card, .dd-equip-card, .dd-recipe, .dd-entry,
+    .dd-toast, .dd-pickup, .dd-pill, .dd-compass, .dd-objective, .dd-target, .dd-hint,
+    .dd-use-prompt, .dd-req, .dd-seg-btn, .dd-chip-btn, .dd-tbtn, .dd-bar, .dd-progress,
+    .dd-switch-track, .dd-perf, .dd-use-prompt kbd, .dd-ledger
+  ) {
+  --cut: var(--cut-btn);
+  --fill: var(--slate-800);
+  --rim: var(--brass-700);
+  --face: linear-gradient(transparent, transparent);
+  box-sizing: border-box;
+  border: 1px solid var(--rim);
+  border-radius: 0;
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background:
+    linear-gradient(135deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 0 0 / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(225deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 100% 0 / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(315deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 100% 100% / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(45deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 0 100% / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    var(--face) padding-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box;
+  box-shadow: none;
+}
+
+/* Focus ring: an amber-300 octagon drawn inside the plate (clip-path would cut an outline). */
+:is(.dd-btn, .dd-slot, .dd-seg-btn, .dd-chip-btn, .dd-tbtn):focus-visible {
+  outline: none;
+}
+:is(.dd-btn, .dd-slot, .dd-seg-btn, .dd-chip-btn, .dd-tbtn):focus-visible::after {
+  --c: calc(var(--cut) - 1.2px);
+  --i: calc(var(--cut) - 2.4px);
+  content: '';
+  position: absolute;
+  inset: 1px;
+  pointer-events: none;
+  background: var(--amber-300);
+  clip-path: polygon(
+    evenodd,
+    var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)), calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c), var(--c) 0,
+    calc(var(--i) + 2px) 2px, 2px calc(var(--i) + 2px), 2px calc(100% - var(--i) - 2px), calc(var(--i) + 2px) calc(100% - 2px), calc(100% - var(--i) - 2px) calc(100% - 2px), calc(100% - 2px) calc(100% - var(--i) - 2px), calc(100% - 2px) calc(var(--i) + 2px), calc(100% - var(--i) - 2px) 2px, calc(var(--i) + 2px) 2px
+  );
+}
+
+/* The lintel: a carved groove that things hang from, with a 2 x 7 px pendant tick at each end. */
+.dd-lintel,
+.dd-panel-head {
+  position: relative;
+}
+.dd-panel-head::after,
+.dd-lintel::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 0;
+  height: 3px;
+  background: var(--groove);
+  pointer-events: none;
+}
+.dd-panel-head::before,
+.dd-lintel::before {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(100% - 1px);
+  height: 7px;
+  background:
+    linear-gradient(var(--brass-500), var(--brass-500)) 0 0 / 2px 7px no-repeat,
+    linear-gradient(var(--brass-500), var(--brass-500)) 100% 0 / 2px 7px no-repeat;
+  pointer-events: none;
+}
+
+/* Ledger rows: label, a brass dotted leader, a tabular value. */
+.dd-ledger {
+  --cut: var(--cut-chip);
+  --fill: rgba(7, 10, 15, 0.55);
+  --rim: var(--slate-700);
+  list-style: none;
+  margin: 0;
+  padding: 4px 12px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.dd-ledger-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  font-size: calc(14px * var(--s));
+}
+.dd-ledger-row + .dd-ledger-row {
+  border-top: 1px solid rgba(42, 53, 68, 0.6);
+}
+.dd-ledger-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.dd-ledger-leader {
+  flex: 1 1 12px;
+  min-width: 12px;
+  align-self: flex-end;
+  margin-bottom: 11px;
+  border-bottom: 2px dotted var(--brass-700);
+}
+.dd-ledger-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  color: var(--amber-300);
+  white-space: nowrap;
+}
+.dd-ledger-row.uncommon .dd-ledger-label {
+  color: var(--rarity-uncommon);
+}
+.dd-ledger-row.rare .dd-ledger-label {
+  color: var(--rarity-rare);
+}
+.dd-ledger-row.relic .dd-ledger-label {
+  color: var(--rarity-relic);
+}
+
+/* ------------------------------------------------------------------------------------ */
 /* HUD */
 
 .dd-hud {
@@ -67,7 +257,7 @@
   inset: 0;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.25s, visibility 0.25s;
+  transition: opacity var(--dur-medium), visibility var(--dur-medium);
   text-shadow: var(--hud-shadow);
 }
 .dd-hud.on {
@@ -98,12 +288,14 @@
 .dd-heart.f0 {
   background-image: var(--heart-0);
 }
-.dd-hearts.low {
-  animation: dd-heart-low 1.2s ease-in-out infinite;
+/* Low health and low fuel share one beat (one loop on screen). */
+.dd-hearts.low .dd-heart:not(.f0) {
+  animation: dd-beat 1.2s ease-in-out infinite;
 }
-@keyframes dd-heart-low {
+@keyframes dd-beat {
   50% {
-    filter: drop-shadow(0 0 5px rgba(255, 60, 70, 0.85));
+    transform: scale(1.12);
+    opacity: 0.78;
   }
 }
 .dd-lantern {
@@ -116,34 +308,39 @@
   height: 18px;
   image-rendering: pixelated;
 }
+/* Gauges: an octagon-capped slot with a brass rim. */
 .dd-bar {
+  --cut: 3px;
+  --fill: rgba(4, 7, 11, 0.78);
+  --rim: var(--brass-700);
   width: calc(100px * var(--s));
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(0, 0, 0, 0.6);
-  border: 1px solid rgba(255, 200, 140, 0.3);
+  height: 10px;
   overflow: hidden;
-  box-sizing: border-box;
 }
 .dd-bar-fill {
   height: 100%;
   width: 100%;
   transform-origin: left center;
-  background: linear-gradient(90deg, #d9822f, #ffc58a);
+  background: linear-gradient(180deg, var(--amber-300), var(--amber-500) 60%, var(--ember));
   transition: transform 0.2s linear;
 }
+.dd-lantern.is-tight .dd-bar {
+  --rim: var(--amber-400);
+}
 .dd-lantern.low .dd-bar {
-  border-color: rgba(255, 107, 94, 0.75);
-  animation: dd-low-pulse 0.9s ease-in-out infinite;
+  --rim: var(--danger-400);
 }
 .dd-lantern.low .dd-bar-fill {
-  background: linear-gradient(90deg, #b8342a, #ff7a5c);
+  background: linear-gradient(180deg, #ff8f80, var(--danger-400) 60%, #b8342a);
+  animation: dd-ebb 1.2s ease-in-out infinite;
 }
-@keyframes dd-low-pulse {
+@keyframes dd-ebb {
   50% {
-    box-shadow: 0 0 10px rgba(255, 80, 60, 0.85);
-    border-color: #ff8a7a;
+    opacity: 0.45;
   }
+}
+.dd-lantern.is-cold .dd-lantern-icon {
+  filter: drop-shadow(0 0 3px rgba(143, 227, 238, 0.8));
 }
 
 .dd-hud-tr {
@@ -164,21 +361,24 @@
   align-items: flex-end;
   justify-content: center;
   line-height: 1;
-  gap: 3px;
+  gap: 4px;
 }
 .dd-depth-label {
-  font-size: calc(11px * var(--s));
-  font-weight: 700;
+  font-size: calc(12px * var(--s));
+  font-weight: 800;
   letter-spacing: 0.24em;
   text-transform: uppercase;
-  color: var(--ink-dim);
+  color: var(--brass-300);
 }
+/* Depth numerals in the Lintel face: carved, tabular, readable at a glance. */
 .dd-depth-value {
-  font-size: calc(26px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-family: var(--font-lintel);
+  font-size: calc(28px * var(--s));
+  font-weight: 400;
+  letter-spacing: 0;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  color: var(--bone-100);
 }
 .dd-hud-row {
   display: flex;
@@ -187,30 +387,45 @@
 }
 .dd-compass,
 .dd-pill {
+  --cut: var(--cut-chip);
+  --fill: var(--chip);
   display: flex;
   align-items: center;
   gap: 7px;
   height: 32px;
-  box-sizing: border-box;
-  padding: 0 11px 0 3px;
-  border-radius: 999px;
-  background: var(--chip);
-  border: 1px solid var(--panel-edge);
+  padding: 0 11px 0 4px;
   font-size: calc(13px * var(--s));
   font-weight: 700;
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* The cache chip (Hud.ts) carries its own inline pill style until W4-B moves it to CSS. */
+.dd-cache-chip {
+  --cut: var(--cut-chip);
+  --rim: var(--amber-700);
+  --fill: var(--chip);
+  border-radius: 0 !important;
+  border-color: var(--rim) !important;
+  padding: 0 11px 0 4px !important;
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background:
+    linear-gradient(135deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 0 0 / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(225deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 100% 0 / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(315deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 100% 100% / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(45deg, var(--rim) 0 calc(var(--cut) * 0.7071 + 1px), transparent 0) 0 100% / calc(var(--cut) + 2px) calc(var(--cut) + 2px) no-repeat border-box,
+    linear-gradient(var(--fill), var(--fill)) padding-box !important;
+  color: var(--amber-300) !important;
+}
+/* Compass bezel: a small brass octagon with the needle inside. */
 .dd-compass-ring {
   width: 24px;
   height: 24px;
-  border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle, rgba(255, 179, 92, 0.18), rgba(255, 179, 92, 0.04));
-  border: 1px solid rgba(255, 197, 138, 0.4);
-  color: var(--amber);
   position: relative;
+  color: var(--amber-400);
+  clip-path: polygon(7px 0, 17px 0, 100% 7px, 100% 17px, 17px 100%, 7px 100%, 0 17px, 0 7px);
+  background: radial-gradient(circle, rgba(255, 179, 92, 0.22), rgba(94, 66, 32, 0.35) 70%);
 }
 .dd-compass-dial {
   display: grid;
@@ -224,16 +439,17 @@
 .dd-compass.at-camp .dd-compass-dial {
   display: none;
 }
+/* At camp the bezel holds a small lit diamond (the lantern's flame). */
 .dd-compass.at-camp .dd-compass-ring::after {
   content: '';
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: #ffc58a;
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  background: var(--amber-300);
   box-shadow: 0 0 8px 2px rgba(255, 179, 92, 0.75);
 }
 .dd-compass.at-camp {
-  color: #ffd9a8;
+  color: var(--amber-300);
 }
 .dd-pill {
   padding-left: 6px;
@@ -245,36 +461,49 @@
   image-rendering: pixelated;
 }
 .dd-pill.full {
-  color: var(--amber);
-  border-color: rgba(255, 179, 92, 0.85);
-  background: rgba(60, 34, 8, 0.75);
+  --rim: var(--amber-400);
+  --fill: rgba(60, 34, 8, 0.85);
+  color: var(--amber-300);
 }
+/* The Next line: a ledger plate led by the lantern's diamond. */
 .dd-objective {
+  --cut: var(--cut-chip);
+  --fill: var(--chip);
   max-width: min(42vw, 340px);
   font-size: calc(14px * var(--s));
   font-weight: 600;
   text-align: right;
-  color: #f6e8d4;
-  background: var(--chip);
-  border-radius: 8px;
-  padding: 5px 10px;
-  border-right: 2px solid var(--amber);
+  color: var(--bone-100);
+  padding: 5px 10px 5px 22px;
+  position: relative;
   opacity: 0;
   transition: opacity 0.3s;
+}
+.dd-objective::before {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  rotate: 45deg;
+  background: var(--amber-400);
 }
 .dd-objective.on {
   opacity: 1;
 }
 
 .dd-perf {
+  --cut: var(--cut-cap);
+  --fill: rgba(0, 0, 0, 0.6);
+  --rim: var(--slate-700);
   position: absolute;
   bottom: calc(4px + var(--safe-bottom));
   left: calc(12px + var(--safe-left));
-  font: 600 11px/1.3 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
-  color: #b8f5c8;
-  background: rgba(0, 0, 0, 0.55);
+  font: 600 12px/1.3 ui-monospace, 'SFMono-Regular', Menlo, Consolas, monospace;
+  color: var(--verdigris-300);
   padding: 2px 8px;
-  border-radius: 6px;
   white-space: nowrap;
   display: none;
 }
@@ -298,7 +527,7 @@
 .dd-crosshair::after {
   content: '';
   position: absolute;
-  background: rgba(255, 255, 255, 0.85);
+  background: rgba(239, 231, 216, 0.85);
   box-shadow: 0 0 2px rgba(0, 0, 0, 0.9);
 }
 .dd-crosshair::before {
@@ -326,14 +555,11 @@
   gap: 8px;
 }
 .dd-hint {
+  --fill: rgba(7, 10, 15, 0.84);
   max-width: 100%;
-  box-sizing: border-box;
   font-size: calc(14px * var(--s));
   font-weight: 600;
-  padding: 7px 14px;
-  border-radius: 12px;
-  background: rgba(6, 10, 16, 0.78);
-  border: 1px solid var(--panel-edge);
+  padding: 7px 16px;
   text-align: center;
   opacity: 0;
   transform: translateY(6px);
@@ -344,13 +570,13 @@
   transform: none;
 }
 .dd-use-prompt {
+  --cut: var(--cut-chip);
+  --fill: var(--chip);
+  --rim: var(--amber-700);
   display: none;
   align-items: center;
   gap: 8px;
   padding: 5px 12px 5px 6px;
-  border-radius: 999px;
-  background: var(--chip);
-  border: 1px solid rgba(255, 179, 92, 0.45);
   font-size: calc(14px * var(--s));
   font-weight: 700;
 }
@@ -361,27 +587,27 @@
   display: none;
 }
 .dd-use-prompt kbd {
+  --cut: var(--cut-cap);
+  --fill: rgba(255, 179, 92, 0.18);
+  --rim: var(--amber-400);
   min-width: 22px;
   height: 22px;
   display: grid;
   place-items: center;
-  border-radius: 6px;
-  border: 1px solid rgba(255, 200, 140, 0.8);
-  background: rgba(255, 179, 92, 0.18);
-  color: #ffd9a8;
+  color: var(--amber-300);
   font: 800 12px/1 var(--font);
   text-shadow: none;
 }
 .dd-target {
+  --cut: var(--cut-chip);
+  --fill: var(--chip);
+  --rim: var(--slate-700);
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 5px;
   min-width: 170px;
   padding: 6px 14px 8px;
-  border-radius: 10px;
-  background: var(--chip);
-  border: 1px solid transparent;
   opacity: 0;
   transition: opacity 0.15s;
 }
@@ -394,24 +620,26 @@
   letter-spacing: 0.03em;
 }
 .dd-bar.thin {
+  --rim: transparent;
+  --fill: rgba(239, 231, 216, 0.14);
+  --cut: 2px;
   width: 150px;
   height: 4px;
   border: none;
-  background: rgba(255, 255, 255, 0.16);
 }
 .dd-target .dd-bar-fill {
-  background: linear-gradient(90deg, #ffe2b8, #ffb35c);
+  background: linear-gradient(90deg, var(--amber-300), var(--amber-400));
   transition: none;
 }
 .dd-target.blocked {
-  border-color: rgba(255, 107, 94, 0.6);
-  background: rgba(40, 8, 8, 0.7);
+  --rim: rgba(255, 107, 94, 0.7);
+  --fill: rgba(40, 8, 8, 0.78);
 }
 .dd-target.blocked .dd-target-name {
   color: #ff9d92;
 }
 .dd-target.blocked .dd-bar {
-  background: repeating-linear-gradient(135deg, rgba(255, 107, 94, 0.55) 0 4px, rgba(255, 107, 94, 0.12) 4px 8px);
+  --face: repeating-linear-gradient(135deg, rgba(255, 107, 94, 0.55) 0 4px, rgba(255, 107, 94, 0.12) 4px 8px);
 }
 .dd-target.blocked .dd-bar-fill {
   visibility: hidden;
@@ -434,20 +662,19 @@
   gap: 6px;
 }
 .dd-pickup {
+  --cut: var(--cut-chip);
+  --fill: rgba(7, 10, 15, 0.82);
+  --rim: var(--slate-600);
   display: flex;
   align-items: center;
   gap: 8px;
   height: 36px;
-  box-sizing: border-box;
   padding: 0 14px 0 4px;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(6, 10, 16, 0.86), rgba(6, 10, 16, 0.55));
-  border: 1px solid var(--panel-edge);
   font-size: calc(14px * var(--s));
   font-weight: 700;
   text-shadow: 0 1px 1px #000;
   white-space: nowrap;
-  animation: dd-slide-in 0.22s ease-out;
+  animation: dd-slide-in 0.22s var(--ease-enter);
   transition: opacity 0.35s, transform 0.35s;
 }
 .dd-pickup .dd-icon {
@@ -455,13 +682,13 @@
   height: 28px;
 }
 .dd-pickup.uncommon {
-  border-color: rgba(240, 160, 96, 0.5);
+  --rim: rgba(229, 132, 68, 0.7);
 }
 .dd-pickup.rare {
-  border-color: rgba(95, 240, 255, 0.55);
+  --rim: rgba(143, 227, 238, 0.6);
 }
 .dd-pickup.relic {
-  border-color: rgba(201, 162, 255, 0.6);
+  --rim: rgba(185, 162, 255, 0.65);
 }
 .dd-pickup.leaving {
   opacity: 0;
@@ -488,41 +715,37 @@
   pointer-events: none;
 }
 .dd-toast {
+  --fill: var(--panel);
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
   max-width: 100%;
-  box-sizing: border-box;
-  padding: 9px 14px;
-  border-radius: 10px;
-  background: var(--panel);
-  border: 1px solid var(--panel-edge);
+  padding: 9px 16px 9px 14px;
   font-size: calc(14px * var(--s));
   font-weight: 600;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  animation: dd-drop-in 0.22s ease-out;
+  animation: dd-drop-in 0.22s var(--ease-enter);
   transition: opacity 0.35s, transform 0.35s;
 }
+/* The tone mark: a small diamond, the identity's lantern. */
 .dd-toast-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ink-dim);
+  width: 7px;
+  height: 7px;
+  rotate: 45deg;
+  background: var(--bone-300);
   flex: none;
 }
 .dd-toast.good {
-  border-color: rgba(127, 224, 168, 0.45);
+  --rim: rgba(143, 196, 164, 0.6);
 }
 .dd-toast.good .dd-toast-dot {
-  background: var(--good);
-  box-shadow: 0 0 8px var(--good);
+  background: var(--verdigris-300);
 }
 .dd-toast.warn {
-  border-color: rgba(255, 179, 92, 0.6);
+  --rim: var(--amber-700);
+  --face: linear-gradient(90deg, rgba(255, 179, 92, 0.1), transparent 60%);
 }
 .dd-toast.warn .dd-toast-dot {
-  background: var(--amber);
-  box-shadow: 0 0 8px var(--amber);
+  background: var(--amber-400);
 }
 .dd-toast.leaving {
   opacity: 0;
@@ -535,34 +758,43 @@
   }
 }
 
+/* Discovery band: the builders' register. Cyan ink carved under a lintel, on dark stone. */
 .dd-discovery {
   position: absolute;
   left: 50%;
   top: calc(30% + var(--safe-top));
   width: min(600px, calc(100vw - 32px));
   box-sizing: border-box;
-  padding: 16px 48px 18px;
+  padding: 18px 48px 18px;
   text-align: center;
-  background: linear-gradient(90deg, transparent, rgba(3, 16, 24, 0.88) 16%, rgba(3, 16, 24, 0.88) 84%, transparent);
+  background: linear-gradient(90deg, transparent, rgba(4, 18, 24, 0.9) 18%, rgba(4, 18, 24, 0.9) 82%, transparent);
   opacity: 0;
   visibility: hidden;
   transform: translate(-50%, 10px);
-  transition: opacity 0.6s ease-out, transform 0.6s ease-out, visibility 0.6s;
+  transition: opacity 0.6s var(--ease-enter), transform 0.6s var(--ease-enter), visibility 0.6s;
 }
-.dd-discovery::before,
+/* Top: the lintel the title hangs from (groove in ink, a pendant tick at each end). */
+.dd-discovery::before {
+  content: '';
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 0;
+  height: 9px;
+  background:
+    linear-gradient(var(--rune-400), var(--rune-400)) 0 0 / 2px 9px no-repeat,
+    linear-gradient(var(--rune-400), var(--rune-400)) 100% 0 / 2px 9px no-repeat,
+    linear-gradient(90deg, rgba(47, 182, 204, 0.85), rgba(143, 227, 238, 0.9) 50%, rgba(47, 182, 204, 0.85)) 0 1px / 100% 1px no-repeat,
+    linear-gradient(var(--carve), var(--carve)) 0 0 / 100% 1px no-repeat;
+}
 .dd-discovery::after {
   content: '';
   position: absolute;
-  left: 8%;
-  right: 8%;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(95, 240, 255, 0.7), transparent);
-}
-.dd-discovery::before {
-  top: 0;
-}
-.dd-discovery::after {
+  left: 22%;
+  right: 22%;
   bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(47, 182, 204, 0.7), transparent);
 }
 .dd-discovery.on {
   opacity: 1;
@@ -571,49 +803,96 @@
 }
 .dd-discovery.on.out {
   opacity: 0;
-  transform: translate(-50%, -8px);
+  transform: translate(-50%, 0);
+  transition-duration: 0.5s;
 }
 .dd-discovery-label {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  color: var(--cyan);
+  gap: 10px;
+  color: var(--rune-200);
   font-size: calc(12px * var(--s));
   font-weight: 800;
-  letter-spacing: 0.4em;
+  letter-spacing: 0.3em;
   text-transform: uppercase;
-  text-shadow: 0 0 10px rgba(95, 240, 255, 0.6);
+  text-shadow: 0 1px 2px #000;
 }
 .dd-rule {
-  width: 40px;
+  width: 34px;
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--cyan));
+  background: linear-gradient(90deg, transparent, var(--rune-400));
 }
 .dd-rule:last-child {
-  background: linear-gradient(90deg, var(--cyan), transparent);
+  background: linear-gradient(90deg, var(--rune-400), transparent);
+}
+.dd-discovery-count {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.12em;
+  color: var(--bone-300);
+}
+.dd-discovery-count::before {
+  content: '\00b7';
+  margin-right: 10px;
+  color: var(--rune-400);
+}
+.dd-discovery-count[hidden] {
+  display: none;
 }
 .dd-discovery-title {
-  margin: 8px 0 6px;
-  font-size: calc(25px * var(--s));
-  font-weight: 800;
+  margin: 10px 0 6px;
+  font-family: var(--font-lintel);
+  font-size: calc(26px * var(--s));
+  font-weight: 400;
   line-height: 1.15;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: #ecfdff;
-  text-shadow: 0 0 18px rgba(95, 240, 255, 0.55), 0 2px 2px rgba(0, 0, 0, 0.85);
+  color: var(--rune-200);
+  text-shadow: 0 0 14px rgba(47, 182, 204, 0.45), 0 2px 2px rgba(0, 0, 0, 0.85);
+  text-wrap: balance;
 }
 .dd-discovery-body {
   margin: 0 auto;
   max-width: 460px;
   font-size: calc(15px * var(--s));
   line-height: 1.45;
-  color: #d3e9f0;
+  color: var(--bone-100);
   text-shadow: 0 1px 2px #000;
+}
+/* Major discoveries (the hollow, shrine, gate, rift, the answer): a deeper band, a larger carving,
+   the lantern rune glowing between the rules. */
+.dd-discovery.major {
+  width: min(680px, calc(100vw - 24px));
+  padding-top: 22px;
+  padding-bottom: 22px;
+  background: linear-gradient(90deg, transparent, rgba(3, 22, 30, 0.94) 14%, rgba(3, 22, 30, 0.94) 86%, transparent);
+}
+.dd-discovery.major::before {
+  left: 8%;
+  right: 8%;
+}
+.dd-discovery.major .dd-discovery-title {
+  font-size: calc(32px * var(--s));
+  letter-spacing: 0.08em;
+}
+.dd-discovery.major .dd-rule {
+  width: 54px;
+}
+.dd-discovery-mark {
+  display: none;
+  width: 9px;
+  height: 9px;
+  rotate: 45deg;
+  border: 2px solid var(--rune-200);
+  box-sizing: border-box;
+  background: radial-gradient(circle, var(--amber-300) 0 2px, transparent 2.5px);
+}
+.dd-discovery.major .dd-discovery-mark {
+  display: block;
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* Touch controls */
+/* Touch controls (sizes, positions and behaviour are fixed by the mobile work) */
 
 .dd-touch {
   position: absolute;
@@ -626,6 +905,7 @@
   opacity: 1;
   visibility: visible;
 }
+/* The joystick base stays a ring (a brass bezel): listed exception to the octagon rule. */
 .dd-stick {
   position: absolute;
   left: 0;
@@ -635,8 +915,8 @@
   height: calc(var(--stick-r, 60px) * 2);
   border-radius: 50%;
   box-sizing: border-box;
-  border: 2px solid rgba(220, 235, 255, 0.28);
-  background: radial-gradient(circle, rgba(10, 16, 24, 0.32) 40%, rgba(10, 16, 24, 0.14));
+  border: 2px solid rgba(176, 130, 63, 0.5);
+  background: radial-gradient(circle, rgba(7, 10, 15, 0.35) 40%, rgba(7, 10, 15, 0.16));
   display: none;
   opacity: 0.9;
   will-change: transform;
@@ -648,24 +928,27 @@
   top: auto;
   left: calc(34px + var(--safe-left));
   bottom: calc(28px + var(--safe-bottom));
-  opacity: 0.4;
+  opacity: 0.45;
 }
 .dd-lefty .dd-stick.idle {
   left: auto;
   right: calc(34px + var(--safe-right));
 }
+/* The knob: an octagon of oiled brass. */
 .dd-stick-knob {
+  --k: calc(var(--stick-r, 60px) * 0.88);
+  --kc: calc(var(--k) * 0.293);
   position: absolute;
   left: 50%;
   top: 50%;
-  width: calc(var(--stick-r, 60px) * 0.88);
-  height: calc(var(--stick-r, 60px) * 0.88);
+  width: var(--k);
+  height: var(--k);
   margin: calc(var(--stick-r, 60px) * -0.44) 0 0 calc(var(--stick-r, 60px) * -0.44);
-  border-radius: 50%;
   box-sizing: border-box;
-  background: radial-gradient(circle at 40% 35%, rgba(255, 255, 255, 0.6), rgba(190, 210, 235, 0.22));
-  border: 1px solid rgba(255, 255, 255, 0.45);
+  clip-path: polygon(var(--kc) 0, calc(100% - var(--kc)) 0, 100% var(--kc), 100% calc(100% - var(--kc)), calc(100% - var(--kc)) 100%, var(--kc) 100%, 0 calc(100% - var(--kc)), 0 var(--kc));
+  background: radial-gradient(circle at 40% 32%, rgba(239, 231, 216, 0.62), rgba(176, 130, 63, 0.38) 60%, rgba(94, 66, 32, 0.5));
 }
+/* Where a held finger mines: an octagon ring (charging, mining, tap). */
 .dd-mine-ring {
   position: absolute;
   left: 0;
@@ -673,9 +956,13 @@
   width: 58px;
   height: 58px;
   margin: -29px 0 0 -29px;
-  border-radius: 50%;
   box-sizing: border-box;
-  border: 2px solid rgba(255, 255, 255, 0.55);
+  background: rgba(239, 231, 216, 0.6);
+  clip-path: polygon(
+    evenodd,
+    17px 0, 41px 0, 58px 17px, 58px 41px, 41px 58px, 17px 58px, 0 41px, 0 17px, 17px 0,
+    17.8px 2px, 2px 17.8px, 2px 40.2px, 17.8px 56px, 40.2px 56px, 56px 40.2px, 56px 17.8px, 40.2px 2px, 17.8px 2px
+  );
   opacity: 0;
   pointer-events: none;
 }
@@ -685,12 +972,11 @@
 }
 .dd-mine-ring.on.mine {
   opacity: 1;
-  border-color: var(--amber);
-  box-shadow: 0 0 14px rgba(255, 179, 92, 0.6), inset 0 0 10px rgba(255, 179, 92, 0.35);
+  background: var(--amber-400);
   animation: dd-ring-pulse 0.45s ease-in-out infinite alternate;
 }
 .dd-mine-ring.on.tap {
-  border-color: var(--amber);
+  background: var(--amber-400);
   animation: dd-ring-tap 0.3s ease-out forwards;
 }
 @keyframes dd-ring-charge {
@@ -715,23 +1001,22 @@
   }
 }
 .dd-tbtn {
+  --fill: rgba(7, 10, 15, 0.5);
+  --rim: rgba(176, 130, 63, 0.7);
   position: relative;
-  box-sizing: border-box;
-  border: 1px solid rgba(220, 235, 255, 0.3);
-  background: rgba(10, 16, 24, 0.45);
-  color: rgba(240, 246, 255, 0.88);
-  font: 800 calc(11px * var(--s)) / 1 var(--font);
+  color: var(--bone-100);
+  font: 800 calc(12px * var(--s)) / 1 var(--font);
   letter-spacing: 0.14em;
   text-transform: uppercase;
   text-shadow: 0 1px 2px #000;
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
-  transition: background 0.12s, border-color 0.12s, scale 0.08s;
+  transition: scale 0.08s;
 }
 .dd-tbtn.pressed {
-  background: rgba(255, 179, 92, 0.38);
-  border-color: rgba(255, 214, 160, 0.9);
+  --fill: rgba(255, 179, 92, 0.38);
+  --rim: var(--amber-300);
   color: #fff;
   scale: 0.95;
 }
@@ -757,26 +1042,28 @@
   right: auto;
   left: calc(20px + var(--safe-left));
 }
+/* Mine: a regular octagon of brass around an amber core. */
 .dd-mine {
+  --cut: calc(var(--mine) * 0.293);
+  --rim: rgba(226, 182, 115, 0.75);
+  --fill: rgba(40, 24, 10, 0.5);
+  --face: radial-gradient(circle at 50% 38%, rgba(255, 179, 92, 0.36), rgba(40, 24, 10, 0) 70%);
   position: absolute;
   right: 0;
   bottom: 0;
   width: var(--mine);
   height: var(--mine);
-  border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 4px;
-  background: radial-gradient(circle at 50% 38%, rgba(255, 179, 92, 0.34), rgba(40, 24, 10, 0.5) 72%);
-  border: 2px solid rgba(255, 200, 140, 0.62);
-  box-shadow: 0 0 18px rgba(255, 160, 70, 0.18);
+  border-width: 2px;
 }
 .dd-mine.pressed {
-  background: radial-gradient(circle at 50% 38%, rgba(255, 196, 120, 0.7), rgba(120, 60, 18, 0.62) 72%);
-  border-color: #ffd9a8;
-  box-shadow: 0 0 26px rgba(255, 170, 80, 0.5);
+  --rim: var(--amber-300);
+  --fill: rgba(120, 60, 18, 0.62);
+  --face: radial-gradient(circle at 50% 38%, rgba(255, 210, 154, 0.75), rgba(120, 60, 18, 0) 72%);
 }
 .dd-mine-glyph {
   width: 34px;
@@ -786,12 +1073,12 @@
   filter: drop-shadow(0 1px 1px #000);
 }
 .dd-jump {
+  --cut: calc(var(--jump) * 0.293);
   position: absolute;
   right: calc(var(--mine) + 14px);
   bottom: 4px;
   width: var(--jump);
   height: var(--jump);
-  border-radius: 50%;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -816,6 +1103,9 @@
   rotate: 45deg;
 }
 .dd-use {
+  --rim: var(--amber-400);
+  --fill: rgba(60, 34, 8, 0.6);
+  --face: linear-gradient(180deg, rgba(255, 179, 92, 0.22), transparent);
   position: absolute;
   right: 0;
   bottom: calc(var(--mine) + 14px);
@@ -823,23 +1113,20 @@
   max-width: 180px;
   min-height: 54px;
   padding: 6px 14px;
-  border-radius: 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 3px;
-  background: rgba(255, 179, 92, 0.24);
-  border-color: rgba(255, 200, 140, 0.7);
   color: #fff2e0;
-  animation: dd-pop 0.18s ease-out;
+  animation: dd-pop 0.18s var(--ease-enter);
 }
 .dd-use[hidden] {
   display: none;
 }
 .dd-use-key {
-  font-size: calc(10px * var(--s));
-  opacity: 0.8;
+  font-size: calc(12px * var(--s));
+  color: var(--amber-300);
 }
 .dd-use-label {
   font-size: calc(14px * var(--s));
@@ -864,12 +1151,11 @@
   gap: 8px;
 }
 .dd-sysbtn {
+  --fill: rgba(12, 17, 24, 0.72);
   width: 48px;
   height: 48px;
-  border-radius: 12px;
   display: grid;
   place-items: center;
-  background: rgba(9, 14, 22, 0.66);
 }
 .dd-pause-glyph {
   width: 14px;
@@ -885,8 +1171,8 @@
   image-rendering: pixelated;
 }
 .dd-contrast .dd-tbtn {
-  background: rgba(0, 0, 0, 0.7);
-  border-color: rgba(255, 255, 255, 0.8);
+  --fill: rgba(0, 0, 0, 0.78);
+  --rim: var(--amber-300);
   color: #fff;
 }
 .dd-contrast .dd-stick {
@@ -907,6 +1193,25 @@
 .dd-modal-layer {
   z-index: 30;
 }
+/* A leaving screen (UI.ts): inert, aria-hidden, fading out under the one entering. */
+.dd-screens-exit {
+  position: absolute;
+  inset: 0;
+  z-index: 19;
+  pointer-events: none;
+}
+.dd-screens-exit > .dd-screen {
+  animation: dd-exit var(--dur-exit) var(--ease-exit) forwards;
+}
+.dd-screens-exit,
+.dd-screens-exit * {
+  pointer-events: none !important;
+}
+@keyframes dd-exit {
+  to {
+    opacity: 0;
+  }
+}
 .dd-screen {
   position: absolute;
   inset: 0;
@@ -915,10 +1220,10 @@
   justify-content: center;
   box-sizing: border-box;
   padding: calc(12px + var(--safe-top)) calc(12px + var(--safe-right)) calc(12px + var(--safe-bottom)) calc(12px + var(--safe-left));
-  animation: dd-fade-in 0.18s ease-out;
+  animation: dd-fade-in var(--dur-medium) var(--ease-enter);
 }
 .dd-overlay {
-  background: radial-gradient(ellipse at center, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0.82));
+  background: radial-gradient(ellipse at center, rgba(4, 6, 10, 0.52), rgba(4, 6, 10, 0.84));
 }
 @keyframes dd-fade-in {
   from {
@@ -926,16 +1231,15 @@
   }
 }
 .dd-panel {
+  --cut: var(--cut-panel);
+  --fill: var(--panel);
+  --face: linear-gradient(180deg, rgba(226, 182, 115, 0.05), transparent 140px);
+  position: relative;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
   width: 100%;
   max-height: 100%;
-  background: var(--panel);
-  border: 1px solid var(--panel-edge);
-  border-radius: 16px;
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  animation: dd-rise 0.2s ease-out;
+  animation: dd-rise var(--dur-medium) var(--ease-enter);
 }
 @keyframes dd-rise {
   from {
@@ -947,7 +1251,7 @@
   animation: none;
 }
 .dd-contrast .dd-panel {
-  border-width: 2px;
+  --rim: var(--brass-300);
 }
 .dd-panel-head {
   display: flex;
@@ -957,15 +1261,29 @@
   padding: 8px 10px 8px 20px;
   min-height: 64px;
   box-sizing: border-box;
-  border-bottom: 1px solid rgba(120, 170, 210, 0.14);
   flex: none;
 }
+/* Title plates in the Lintel face, led by the lantern's diamond (the maker's mark). */
 .dd-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   margin: 0;
-  font-size: calc(15px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.26em;
+  font-family: var(--font-lintel);
+  font-size: calc(22px * var(--s));
+  font-weight: 400;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
+  color: var(--bone-100);
+}
+.dd-panel-title::before {
+  content: '';
+  flex: none;
+  width: 8px;
+  height: 8px;
+  rotate: 45deg;
+  border: 2px solid var(--brass-500);
+  background: radial-gradient(circle, var(--amber-400) 0 1.5px, transparent 2px);
 }
 .dd-panel-actions {
   display: flex;
@@ -979,7 +1297,7 @@
   min-height: 0;
   flex: 1 1 auto;
   scrollbar-width: thin;
-  scrollbar-color: rgba(143, 182, 214, 0.35) transparent;
+  scrollbar-color: rgba(176, 130, 63, 0.45) transparent;
 }
 .dd-muted {
   margin: 0;
@@ -999,40 +1317,43 @@
   padding: 4px 20px 10px;
 }
 .dd-section + .dd-section {
-  border-top: 1px solid rgba(120, 170, 210, 0.1);
+  border-top: 1px solid rgba(94, 66, 32, 0.45);
 }
 .dd-section-title {
-  margin: 12px 0 4px;
-  font-size: calc(11px * var(--s));
+  margin: 14px 0 4px;
+  font-size: calc(12px * var(--s));
   font-weight: 800;
-  letter-spacing: 0.26em;
+  letter-spacing: 0.24em;
   text-transform: uppercase;
   color: var(--head);
 }
 
-/* Buttons */
+/* Buttons: mixed case, octagon plates. */
 .dd-btn {
+  --cut: var(--cut-btn);
+  --fill: var(--slate-800);
+  --rim: var(--brass-700);
+  --face: linear-gradient(180deg, rgba(239, 231, 216, 0.05), transparent 60%);
+  position: relative;
   min-height: 48px;
   padding: 0 20px;
-  border-radius: 11px;
-  border: 1px solid var(--panel-edge);
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--ink);
+  color: var(--bone-100);
   font-size: calc(15px * var(--s));
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.02em;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 2px;
-  box-sizing: border-box;
-  transition: background 0.12s, border-color 0.12s, translate 0.08s, filter 0.12s;
+  transition: translate var(--dur-micro), filter var(--dur-micro);
 }
 .dd-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
+  --fill: var(--slate-700);
+  --rim: var(--brass-500);
 }
 .dd-btn:active:not(:disabled) {
+  --fill: var(--slate-700);
   translate: 0 1px;
 }
 .dd-btn.has-sub {
@@ -1042,36 +1363,44 @@
   font-size: calc(12px * var(--s));
   font-weight: 500;
   letter-spacing: 0.02em;
-  opacity: 0.78;
+  opacity: 0.86;
 }
 .dd-btn.primary {
-  background: linear-gradient(180deg, #ffc785, #f39c45);
-  border-color: #ffd9a8;
-  color: #1c1006;
-  box-shadow: 0 2px 0 #8a4f1c, 0 6px 18px rgba(255, 150, 60, 0.25);
+  --fill: var(--amber-500);
+  --rim: var(--amber-300);
+  --face: linear-gradient(180deg, var(--amber-400), var(--amber-500));
+  color: var(--on-amber);
 }
 .dd-btn.primary:hover:not(:disabled) {
-  background: linear-gradient(180deg, #ffd29a, #f6a752);
+  --face: linear-gradient(180deg, var(--amber-300), var(--amber-400));
+}
+.dd-btn.primary:active:not(:disabled) {
+  --face: linear-gradient(180deg, var(--amber-500), var(--amber-500));
 }
 .dd-btn.danger {
-  color: #ffd6d0;
-  border-color: rgba(255, 107, 94, 0.65);
-  background: rgba(255, 107, 94, 0.14);
+  --fill: var(--danger-700);
+  --rim: rgba(255, 107, 94, 0.75);
+  --face: linear-gradient(180deg, rgba(255, 107, 94, 0.12), transparent);
+  color: var(--on-danger);
 }
 .dd-btn.danger:hover:not(:disabled) {
-  background: rgba(255, 107, 94, 0.24);
+  --fill: #7c1d16;
 }
 .dd-btn.ghost {
-  background: transparent;
+  --fill: rgba(7, 10, 15, 0.35);
+  --rim: var(--slate-600);
+  --face: linear-gradient(transparent, transparent);
 }
 .dd-btn:disabled {
+  --fill: rgba(19, 26, 36, 0.7);
+  --rim: var(--slate-600);
+  --face: linear-gradient(transparent, transparent);
   cursor: default;
-  opacity: 0.55;
-  box-shadow: none;
+  color: var(--bone-500);
 }
 .dd-contrast .dd-btn.secondary,
 .dd-contrast .dd-btn.ghost {
-  border-color: rgba(255, 255, 255, 0.7);
+  --rim: var(--brass-300);
 }
 .dd-close {
   flex-direction: row;
@@ -1095,7 +1424,6 @@
   top: -1px;
   width: 2px;
   height: 14px;
-  border-radius: 1px;
   background: currentColor;
   rotate: 45deg;
 }
@@ -1103,10 +1431,10 @@
   rotate: -45deg;
 }
 
-/* Main menu */
+/* Main menu: over the live cave. The wordmark, the tagline between brass rules, the buttons. */
 .dd-menu {
-  background: radial-gradient(ellipse 60% 75% at 50% 46%, rgba(3, 6, 10, 0.5), rgba(3, 6, 10, 0.15) 70%),
-    linear-gradient(180deg, rgba(3, 6, 10, 0.45), rgba(3, 6, 10, 0) 30%, rgba(3, 6, 10, 0) 70%, rgba(3, 6, 10, 0.6));
+  background: radial-gradient(ellipse 60% 75% at 50% 46%, rgba(4, 6, 10, 0.55), rgba(4, 6, 10, 0.18) 70%),
+    linear-gradient(180deg, rgba(4, 6, 10, 0.5), rgba(4, 6, 10, 0) 30%, rgba(4, 6, 10, 0) 70%, rgba(4, 6, 10, 0.62));
 }
 .dd-menu-col {
   display: flex;
@@ -1114,19 +1442,91 @@
   align-items: center;
   width: min(380px, 100%);
 }
-.dd-title {
+.dd-logo {
+  margin: 0;
+  display: flex;
+  justify-content: center;
+  line-height: 0;
+  font-size: 0;
+}
+.dd-wordmark {
   display: block;
-  image-rendering: pixelated;
-  max-width: calc(100vw - 24px);
+  overflow: visible;
+  height: auto;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.6));
+}
+.dd-logo .dd-wordmark-stack {
+  display: none;
+}
+.dd-logo-menu .dd-wordmark-line {
+  width: min(420px, calc(100vw - 48px), calc((100vh - 280px) * 4.9));
+  min-width: 300px;
+}
+.dd-logo-loading .dd-wordmark-line {
+  width: min(330px, calc(100vw - 48px));
+}
+/* The flame breathes (the one loop on the home screen); off under reduced motion. */
+.dd-wm-flame {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: dd-flicker 2.4s ease-in-out infinite;
+}
+.dd-wm-glow,
+.dd-wm-light {
+  animation: dd-flicker-light 2.4s ease-in-out infinite;
+}
+@keyframes dd-flicker {
+  0%, 100% {
+    transform: scale(1, 1);
+    opacity: 1;
+  }
+  30% {
+    transform: scale(0.94, 1.06);
+  }
+  55% {
+    transform: scale(1.04, 0.95);
+    opacity: 0.9;
+  }
+  80% {
+    transform: scale(0.98, 1.03);
+  }
+}
+@keyframes dd-flicker-light {
+  0%, 100% {
+    opacity: 1;
+  }
+  55% {
+    opacity: 0.8;
+  }
 }
 .dd-tagline {
-  margin: 2px 0 16px;
-  font-size: calc(12px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.3em;
-  color: #c7e8f8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 6px 0 18px;
+  font-family: var(--font-lintel);
+  font-size: calc(14px * var(--s));
+  letter-spacing: 0.2em;
+  color: var(--brass-300);
   text-align: center;
-  text-shadow: 0 0 12px rgba(95, 200, 255, 0.4), 0 1px 2px #000;
+  white-space: nowrap;
+  text-shadow: 0 1px 2px #000, 0 0 10px rgba(0, 0, 0, 0.6);
+}
+.dd-tagline::before,
+.dd-tagline::after {
+  content: '';
+  flex: 0 0 44px;
+  height: 3px;
+  background: var(--groove);
+}
+.dd-tagline::before {
+  -webkit-mask: linear-gradient(90deg, transparent, #000);
+  mask: linear-gradient(90deg, transparent, #000);
+}
+.dd-tagline::after {
+  -webkit-mask: linear-gradient(90deg, #000, transparent);
+  mask: linear-gradient(90deg, #000, transparent);
 }
 .dd-menu-buttons {
   display: flex;
@@ -1139,41 +1539,43 @@
   grid-template-columns: 1fr 1fr;
   gap: 9px;
 }
-.dd-menu .dd-btn.secondary {
-  background: rgba(9, 14, 22, 0.72);
+.dd-menu-row > :only-child {
+  grid-column: 1 / -1;
 }
+.dd-menu .dd-btn.secondary {
+  --fill: rgba(12, 17, 24, 0.86);
+}
+/* The quiet corner: version, and how the game was made. */
 .dd-version {
   position: absolute;
-  right: calc(14px + var(--safe-right));
+  left: calc(14px + var(--safe-left));
   bottom: calc(10px + var(--safe-bottom));
   margin: 0;
   font-size: calc(12px * var(--s));
-  color: var(--ink-dim);
-  letter-spacing: 0.08em;
+  color: var(--bone-500);
+  letter-spacing: 0.06em;
   text-shadow: 0 1px 2px #000;
 }
 
-/* Loading */
+/* Loading: the wordmark and a brass-capped gauge filling with lamplight. */
 .dd-loading {
   flex-direction: column;
-  gap: 18px;
-  background: radial-gradient(ellipse at 50% 42%, #0c1828 0%, #05080c 72%);
+  gap: 22px;
+  background: radial-gradient(ellipse at 50% 42%, #121b27 0%, #070a0f 72%);
 }
 .dd-progress {
+  --cut: 3px;
+  --fill: rgba(4, 7, 11, 0.85);
   width: min(360px, 78vw);
-  height: 6px;
-  border-radius: 3px;
+  height: 10px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(120, 170, 210, 0.22);
 }
 .dd-progress-fill {
   height: 100%;
   width: 100%;
   transform-origin: left center;
-  background: linear-gradient(90deg, #1f8fa6, #5ff0ff);
-  box-shadow: 0 0 12px rgba(95, 240, 255, 0.6);
-  transition: transform 0.3s ease-out;
+  background: linear-gradient(180deg, var(--amber-300), var(--amber-500) 60%, var(--ember));
+  transition: transform 0.3s var(--ease-enter);
 }
 .dd-loading-label {
   margin: 0;
@@ -1190,7 +1592,7 @@
   display: flex;
   flex-direction: column;
   gap: 9px;
-  padding: 14px 18px 18px;
+  padding: 18px 18px 18px;
   overflow-y: auto;
   min-height: 0;
 }
@@ -1209,7 +1611,7 @@
   padding: 3px 0;
 }
 .dd-row + .dd-row {
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgba(42, 53, 68, 0.7);
 }
 .dd-row-label {
   display: flex;
@@ -1220,8 +1622,8 @@
 }
 .dd-row-value {
   font-size: calc(13px * var(--s));
-  font-weight: 600;
-  color: var(--amber);
+  font-weight: 700;
+  color: var(--amber-300);
   font-variant-numeric: tabular-nums;
 }
 .dd-row > :last-child {
@@ -1248,30 +1650,34 @@
 }
 .dd-range::-webkit-slider-runnable-track {
   height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #f39c45 var(--fill), rgba(255, 255, 255, 0.14) var(--fill));
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--amber-500) var(--fill), var(--slate-600) var(--fill));
+  box-shadow: inset 0 1px 0 rgba(4, 7, 11, 0.8);
 }
 .dd-range::-moz-range-track {
   height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg, #f39c45 var(--fill), rgba(255, 255, 255, 0.14) var(--fill));
+  border-radius: 1px;
+  background: linear-gradient(90deg, var(--amber-500) var(--fill), var(--slate-600) var(--fill));
 }
+/* The thumb is a diamond: the lantern rune's shape. */
 .dd-range::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 24px;
-  height: 24px;
-  margin-top: -9px;
-  border-radius: 50%;
-  background: #ffe0b8;
-  border: 2px solid #f39c45;
+  width: 18px;
+  height: 18px;
+  margin-top: -6px;
+  rotate: 45deg;
+  border-radius: 2px;
+  background: var(--bone-100);
+  border: 2px solid var(--amber-500);
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
 }
 .dd-range::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: #ffe0b8;
-  border: 2px solid #f39c45;
+  width: 16px;
+  height: 16px;
+  rotate: 45deg;
+  border-radius: 2px;
+  background: var(--bone-100);
+  border: 2px solid var(--amber-500);
 }
 .dd-range:focus-visible {
   outline-offset: -6px;
@@ -1283,32 +1689,29 @@
   display: flex;
   flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 3px;
-  padding: 2px;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--panel-edge);
+  gap: 8px;
 }
 .dd-seg-btn,
 .dd-chip-btn {
-  min-height: 44px;
+  --cut: var(--cut-chip);
+  --fill: rgba(7, 10, 15, 0.5);
+  --rim: var(--slate-600);
+  position: relative;
+  min-height: 48px;
   padding: 0 13px;
-  border-radius: 9px;
-  border: none;
-  background: transparent;
-  color: var(--ink-dim);
+  color: var(--bone-300);
   font-size: calc(14px * var(--s));
   font-weight: 700;
   white-space: nowrap;
 }
 .dd-chip-btn {
-  border: 1px solid var(--panel-edge);
+  --rim: var(--brass-700);
 }
 .dd-seg-btn[aria-pressed='true'],
 .dd-chip-btn[aria-pressed='true'] {
-  background: rgba(255, 179, 92, 0.2);
-  color: #ffdcb0;
-  box-shadow: inset 0 0 0 1px rgba(255, 179, 92, 0.7);
+  --fill: rgba(255, 179, 92, 0.16);
+  --rim: var(--amber-400);
+  color: var(--amber-300);
 }
 .dd-switch {
   display: flex;
@@ -1318,19 +1721,17 @@
   padding: 0 2px;
   border: none;
   background: none;
-  color: var(--ink-dim);
+  color: var(--bone-300);
   font-size: calc(14px * var(--s));
   font-weight: 700;
 }
 .dd-switch-track {
+  --cut: var(--cut-chip);
+  --fill: rgba(7, 10, 15, 0.7);
+  --rim: var(--slate-600);
   position: relative;
   width: 46px;
   height: 26px;
-  border-radius: 13px;
-  box-sizing: border-box;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  transition: background 0.15s, border-color 0.15s;
 }
 .dd-switch-knob {
   position: absolute;
@@ -1338,20 +1739,20 @@
   left: 2px;
   width: 20px;
   height: 20px;
-  border-radius: 50%;
-  background: #c3cddb;
-  transition: translate 0.15s;
+  clip-path: polygon(5px 0, 15px 0, 100% 5px, 100% 15px, 15px 100%, 5px 100%, 0 15px, 0 5px);
+  background: var(--bone-500);
+  transition: translate var(--dur-short) var(--ease-enter);
 }
 .dd-switch[aria-checked='true'] {
-  color: #ffdcb0;
+  color: var(--amber-300);
 }
 .dd-switch[aria-checked='true'] .dd-switch-track {
-  background: rgba(255, 179, 92, 0.55);
-  border-color: rgba(255, 210, 160, 0.9);
+  --fill: rgba(243, 156, 69, 0.55);
+  --rim: var(--amber-300);
 }
 .dd-switch[aria-checked='true'] .dd-switch-knob {
   translate: 20px 0;
-  background: #fff;
+  background: var(--bone-100);
 }
 .dd-switch-text {
   min-width: 2.2em;
@@ -1362,8 +1763,8 @@
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
-  padding: 14px 20px 18px;
-  border-top: 1px solid rgba(120, 170, 210, 0.12);
+  padding: 16px 20px 18px;
+  border-top: 1px solid rgba(94, 66, 32, 0.45);
 }
 
 /* Inventory */
@@ -1374,19 +1775,19 @@
 .dd-tabs {
   display: flex;
   gap: 2px;
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(120, 170, 210, 0.14);
+  padding: 6px 10px 0;
   overflow-x: auto;
   flex: none;
   scrollbar-width: none;
+  border-bottom: 1px solid rgba(42, 53, 68, 0.8);
 }
 .dd-tab {
+  position: relative;
   min-height: 48px;
   padding: 0 14px;
   border: none;
-  border-bottom: 2px solid transparent;
   background: none;
-  color: var(--ink-dim);
+  color: var(--bone-300);
   font-size: calc(12px * var(--s));
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -1394,8 +1795,18 @@
   white-space: nowrap;
 }
 .dd-tab[aria-selected='true'] {
-  color: var(--ink);
-  border-bottom-color: var(--amber);
+  color: var(--bone-100);
+}
+/* The selected tab hangs a short amber bar with chamfered ends. */
+.dd-tab[aria-selected='true']::after {
+  content: '';
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: -1px;
+  height: 3px;
+  background: var(--amber-400);
+  clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 100%, 0 100%);
 }
 .dd-tabpanel {
   padding: 14px 18px 18px;
@@ -1413,16 +1824,16 @@
   gap: 8px;
 }
 .dd-slot {
+  --cut: var(--cut-chip);
+  --fill: var(--slate-800);
+  --rim: var(--slate-600);
+  --face: linear-gradient(180deg, rgba(239, 231, 216, 0.04), transparent);
   position: relative;
   width: 64px;
   height: 64px;
   padding: 0;
-  box-sizing: border-box;
   display: grid;
   place-items: center;
-  border-radius: 11px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(120, 170, 210, 0.22);
   color: var(--ink);
 }
 .dd-slot .dd-icon {
@@ -1430,32 +1841,42 @@
   height: 40px;
 }
 .dd-slot.empty {
-  background: rgba(0, 0, 0, 0.28);
-  border: 1px dashed rgba(120, 170, 210, 0.16);
+  --fill: rgba(4, 7, 11, 0.45);
+  --rim: var(--slate-700);
+  --face: linear-gradient(transparent, transparent);
+}
+.dd-slot.uncommon {
+  --face: radial-gradient(circle at 50% 40%, rgba(229, 132, 68, 0.14), transparent 70%);
+}
+.dd-slot.rare {
+  --face: radial-gradient(circle at 50% 40%, rgba(143, 227, 238, 0.14), transparent 70%);
+}
+.dd-slot.relic {
+  --face: radial-gradient(circle at 50% 40%, rgba(185, 162, 255, 0.16), transparent 70%);
 }
 .dd-slot.selected {
-  border-color: var(--amber);
-  box-shadow: inset 0 0 0 1px var(--amber), 0 0 14px rgba(255, 179, 92, 0.25);
+  --rim: var(--amber-400);
+  --fill: #1e1a14;
 }
 .dd-slot-count {
   position: absolute;
-  right: 5px;
+  right: 6px;
   bottom: 4px;
   font-size: calc(13px * var(--s));
   font-weight: 800;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
   text-shadow: 0 1px 0 #000, 0 0 4px #000, 0 0 2px #000;
 }
 .dd-detail {
+  --cut: var(--cut-panel);
+  --fill: rgba(7, 10, 15, 0.5);
+  --rim: var(--slate-700);
   display: flex;
   gap: 14px;
   align-items: flex-start;
   padding: 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(120, 170, 210, 0.14);
   min-height: 92px;
-  box-sizing: border-box;
 }
 .dd-detail h3 {
   margin: 0 0 4px;
@@ -1464,25 +1885,21 @@
   margin: 8px 0 0;
   font-weight: 800;
   font-size: calc(15px * var(--s));
+  color: var(--amber-300);
+  font-variant-numeric: tabular-nums;
 }
 .dd-item-name {
   font-size: calc(15px * var(--s));
   font-weight: 700;
 }
 .dd-item-name.uncommon {
-  color: #f6b47a;
+  color: var(--rarity-uncommon);
 }
 .dd-item-name.rare {
-  color: var(--cyan);
+  color: var(--rarity-rare);
 }
 .dd-item-name.relic {
-  color: #d3b4ff;
-}
-.dd-slot.rare {
-  background: rgba(95, 240, 255, 0.06);
-}
-.dd-slot.relic {
-  background: rgba(201, 162, 255, 0.07);
+  color: var(--rarity-relic);
 }
 .dd-cards,
 .dd-equip,
@@ -1501,13 +1918,16 @@
 }
 .dd-card,
 .dd-equip-card {
+  --cut: var(--cut-chip);
+  --fill: rgba(19, 26, 36, 0.7);
+  --rim: var(--slate-700);
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 14px 10px 10px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(120, 170, 210, 0.16);
+}
+.dd-card.relic {
+  --rim: rgba(185, 162, 255, 0.45);
 }
 .dd-card-text {
   display: flex;
@@ -1519,6 +1939,7 @@
 .dd-card-count {
   font-size: calc(16px * var(--s));
   font-variant-numeric: tabular-nums;
+  color: var(--amber-300);
 }
 .dd-equip {
   display: grid;
@@ -1530,27 +1951,40 @@
   padding: 14px;
 }
 .dd-eyebrow {
-  font-size: calc(11px * var(--s));
+  font-size: calc(12px * var(--s));
   font-weight: 800;
   letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--head);
 }
+/* Stats as ledger rows: label, dotted leader, value. */
 .dd-stats {
   display: grid;
-  grid-template-columns: auto auto;
-  justify-content: start;
-  gap: 2px 12px;
-  margin: 6px 0 0;
+  grid-template-columns: 1fr auto;
+  gap: 2px 0;
+  margin: 8px 0 0;
   font-size: calc(14px * var(--s));
+  max-width: 260px;
 }
 .dd-stats dt {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   color: var(--ink-dim);
+}
+.dd-stats dt::after {
+  content: '';
+  flex: 1;
+  min-width: 10px;
+  margin-right: 6px;
+  border-bottom: 2px dotted var(--brass-700);
 }
 .dd-stats dd {
   margin: 0;
   font-weight: 800;
-  color: #ffd9a8;
+  color: var(--amber-300);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .dd-journal .dd-section {
   padding: 0;
@@ -1568,22 +2002,23 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Journal entries are the builders' register: cyan ink on stone. */
 .dd-entry {
+  --cut: var(--cut-chip);
+  --fill: rgba(7, 42, 51, 0.42);
+  --rim: rgba(47, 182, 204, 0.4);
+  --face: linear-gradient(90deg, rgba(47, 182, 204, 0.08), transparent 70%);
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: linear-gradient(90deg, rgba(95, 240, 255, 0.08), rgba(95, 240, 255, 0.015));
-  border: 1px solid rgba(95, 240, 255, 0.2);
-  border-left: 3px solid var(--cyan);
+  padding: 12px 16px;
 }
 .dd-entry-title {
-  font-size: calc(14px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.1em;
+  font-family: var(--font-lintel);
+  font-size: calc(16px * var(--s));
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #e2fdff;
+  color: var(--rune-200);
 }
 .dd-empty {
   margin: 0;
@@ -1593,14 +2028,8 @@
   font-size: calc(15px * var(--s));
 }
 
-.dd-contrast .dd-slot,
-.dd-contrast .dd-card,
-.dd-contrast .dd-equip-card,
-.dd-contrast .dd-detail,
-.dd-contrast .dd-recipe,
-.dd-contrast .dd-seg,
-.dd-contrast .dd-chip-btn {
-  border-color: rgba(255, 255, 255, 0.45);
+.dd-contrast :is(.dd-slot, .dd-card, .dd-equip-card, .dd-detail, .dd-recipe, .dd-seg-btn, .dd-chip-btn) {
+  --rim: rgba(239, 231, 216, 0.55);
 }
 
 /* Workbench */
@@ -1611,21 +2040,21 @@
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 12px 16px 16px;
+  padding: 16px 16px 16px;
 }
 .dd-recipe {
+  --cut: var(--cut-panel);
+  --fill: rgba(19, 26, 36, 0.66);
+  --rim: var(--slate-700);
   display: grid;
   grid-template-columns: 56px 1fr auto;
   gap: 14px;
   align-items: center;
   padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(120, 170, 210, 0.16);
 }
 .dd-recipe.ready {
-  border-color: rgba(255, 179, 92, 0.5);
-  background: linear-gradient(90deg, rgba(255, 179, 92, 0.1), rgba(255, 255, 255, 0.02));
+  --rim: rgba(255, 179, 92, 0.6);
+  --face: linear-gradient(90deg, rgba(255, 179, 92, 0.1), transparent 70%);
 }
 .dd-recipe.owned .dd-recipe-icon,
 .dd-recipe.owned .dd-recipe-info {
@@ -1648,15 +2077,13 @@
   margin-top: 4px;
 }
 .dd-req {
+  --cut: var(--cut-chip);
+  --fill: rgba(4, 7, 11, 0.55);
   display: flex;
   align-items: center;
   gap: 6px;
   height: 30px;
-  box-sizing: border-box;
   padding: 0 10px 0 4px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.32);
-  border: 1px solid;
   font-size: calc(14px * var(--s));
   font-weight: 600;
 }
@@ -1668,75 +2095,65 @@
   font-variant-numeric: tabular-nums;
 }
 .dd-req.ok {
-  border-color: rgba(127, 224, 168, 0.45);
+  --rim: rgba(143, 196, 164, 0.5);
 }
 .dd-req.ok b {
   color: var(--good);
 }
 .dd-req.short {
-  border-color: rgba(255, 107, 94, 0.5);
+  --rim: rgba(255, 107, 94, 0.55);
 }
 .dd-req.short b {
-  color: #ff8d80;
+  color: var(--danger-400);
 }
 .dd-craft-btn {
   min-width: 136px;
 }
 .dd-craft-btn.owned {
-  border-color: rgba(127, 224, 168, 0.4);
+  --rim: rgba(143, 196, 164, 0.45);
   color: var(--good);
 }
 
-/* Death */
+/* Black-out */
 .dd-death {
-  background: radial-gradient(ellipse at center, rgba(42, 6, 6, 0.6), rgba(3, 4, 8, 0.92));
+  background: radial-gradient(ellipse at center, rgba(42, 8, 6, 0.62), rgba(4, 4, 8, 0.93));
 }
 .dd-death-panel {
+  --rim: rgba(255, 107, 94, 0.45);
+  --face: linear-gradient(180deg, rgba(106, 23, 18, 0.28), transparent 160px);
   width: min(480px, 100%);
   padding: 22px 24px 24px;
   gap: 10px;
   align-items: center;
   text-align: center;
-  border-color: rgba(255, 107, 94, 0.32);
   overflow-y: auto;
 }
 .dd-death-title {
   margin: 0;
-  font-size: calc(24px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.2em;
+  font-family: var(--font-lintel);
+  font-size: calc(26px * var(--s));
+  font-weight: 400;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #ffb6ac;
-  text-shadow: 0 0 18px rgba(255, 80, 60, 0.35);
+  color: var(--danger-400);
+  text-shadow: 0 0 16px rgba(255, 80, 60, 0.3);
 }
 .dd-death-body {
   margin: 0;
   color: var(--ink-dim);
 }
+.dd-death-cache {
+  margin: 2px 0 0;
+  color: var(--amber-300);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
 .dd-death-panel .dd-section-title {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
 }
-.dd-chips {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 8px;
-}
-.dd-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  box-sizing: border-box;
-  padding: 0 12px 0 5px;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 107, 94, 0.32);
-  font-size: calc(14px * var(--s));
-}
-.dd-chip .dd-icon {
-  width: 24px;
-  height: 24px;
+.dd-death-panel .dd-ledger {
+  max-width: 340px;
+  text-align: left;
 }
 .dd-death-panel > .dd-btn {
   margin-top: 8px;
@@ -1757,12 +2174,12 @@
   align-items: center;
   justify-content: center;
   padding: 16px;
-  background: rgba(2, 4, 8, 0.62);
-  animation: dd-fade-in 0.15s ease-out;
+  background: rgba(3, 4, 8, 0.64);
+  animation: dd-fade-in var(--dur-short) var(--ease-enter);
 }
 .dd-confirm {
   width: min(440px, 100%);
-  padding: 22px;
+  padding: 24px 22px 22px;
   gap: 18px;
 }
 .dd-confirm-text,
@@ -1783,6 +2200,22 @@
   gap: 10px;
 }
 
+/* A full-screen veil (UI.veil, for openings and fades to black). */
+.dd-veil {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: var(--slate-950);
+  opacity: 0;
+  pointer-events: none;
+  transition-property: opacity;
+  transition-timing-function: var(--ease-enter);
+}
+.dd-veil.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
 /* ------------------------------------------------------------------------------------ */
 /* Layout variants */
 
@@ -1798,25 +2231,25 @@
     padding-bottom: 4px;
   }
   .dd-section-title {
-    margin-top: 8px;
+    margin-top: 10px;
   }
   .dd-tagline {
-    margin-bottom: 10px;
+    margin-bottom: 12px;
   }
   .dd-menu-buttons {
-    gap: 7px;
+    gap: 8px;
   }
   .dd-menu-row {
-    gap: 7px;
+    gap: 8px;
   }
   .dd-stack {
-    padding-top: 10px;
+    padding-top: 14px;
     padding-bottom: 12px;
-    gap: 7px;
+    gap: 8px;
   }
   .dd-recipes {
     gap: 8px;
-    padding-top: 8px;
+    padding-top: 12px;
     padding-bottom: 10px;
   }
   .dd-recipe {
@@ -1847,7 +2280,7 @@
 @media (orientation: portrait) {
   /* Narrow top bar: keep the depth readout clear of the hearts. */
   .dd-depth-value {
-    font-size: calc(23px * var(--s));
+    font-size: calc(24px * var(--s));
   }
   /* Above the Use + Jump stack in the corner. */
   .dd-hud-bottom {
@@ -1868,8 +2301,14 @@
   }
   .dd-discovery {
     top: calc(28% + var(--safe-top));
-    padding-left: 28px;
-    padding-right: 28px;
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+  .dd-discovery-title {
+    font-size: calc(22px * var(--s));
+  }
+  .dd-discovery.major .dd-discovery-title {
+    font-size: calc(26px * var(--s));
   }
   .dd-backpack-grid {
     grid-template-columns: 1fr;
@@ -1895,8 +2334,22 @@
     line-height: 1.2;
     white-space: normal;
   }
+  /* The portrait stack lockup of the wordmark. */
+  .dd-logo .dd-wordmark-line {
+    display: none;
+  }
+  .dd-logo .dd-wordmark-stack {
+    display: block;
+  }
+  .dd-logo-menu .dd-wordmark-stack {
+    width: min(250px, calc(100vw - 64px));
+  }
+  .dd-logo-loading .dd-wordmark-stack {
+    width: min(210px, calc(100vw - 80px));
+  }
 }
 
+/* Reduced motion: opacity fades only, 150 ms at most; the flame and every loop stand still. */
 @media (prefers-reduced-motion: reduce) {
   .dd-ui *,
   .dd-ui *::before,
@@ -1904,6 +2357,24 @@
     animation-duration: 1ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 1ms !important;
+  }
+  .dd-ui .dd-screen,
+  .dd-ui .dd-modal,
+  .dd-ui .dd-screens-exit > .dd-screen {
+    animation-duration: 150ms !important;
+  }
+  .dd-ui .dd-panel {
+    animation: none !important;
+  }
+  .dd-ui .dd-discovery,
+  .dd-ui .dd-hud,
+  .dd-ui .dd-veil {
+    transition-duration: 150ms !important;
+  }
+  .dd-wm-flame,
+  .dd-wm-glow,
+  .dd-wm-light {
+    animation: none !important;
   }
 }
 

@@ -104,11 +104,16 @@ export class PickupFeed {
   }
 }
 
-/** Cinematic discovery banner: "DISCOVERY", title, body. Several discoveries play in turn. */
+/**
+ * Cinematic discovery banner in the builders' register: "DISCOVERY · 3/9", the title carved in
+ * the Lintel face under a lintel, the body. Major discoveries get the larger band. Several
+ * discoveries play in turn.
+ */
 export class DiscoveryBanner {
   readonly el: HTMLElement;
   private readonly title: HTMLElement;
   private readonly body: HTMLElement;
+  private readonly count: HTMLElement;
   private readonly queue: DiscoveryNotice[] = [];
   private showing = false;
   private timer = 0;
@@ -116,10 +121,20 @@ export class DiscoveryBanner {
   constructor() {
     this.title = h('h2', { class: 'dd-discovery-title' });
     this.body = h('p', { class: 'dd-discovery-body' });
+    this.count = h('span', { class: 'dd-discovery-count' });
     this.el = h(
       'div',
       { class: 'dd-discovery', role: 'status', 'aria-live': 'assertive' },
-      h('div', { class: 'dd-discovery-label' }, h('span', { class: 'dd-rule' }), h('span', { text: t('discovery.label') }), h('span', { class: 'dd-rule' })),
+      h(
+        'div',
+        { class: 'dd-discovery-label' },
+        h('span', { class: 'dd-rule' }),
+        h('span', { class: 'dd-discovery-mark', 'aria-hidden': 'true' }),
+        h('span', { text: t('discovery.label') }),
+        this.count,
+        h('span', { class: 'dd-discovery-mark', 'aria-hidden': 'true' }),
+        h('span', { class: 'dd-rule' }),
+      ),
       this.title,
       this.body,
     );
@@ -139,6 +154,10 @@ export class DiscoveryBanner {
     this.showing = true;
     this.title.textContent = n.title;
     this.body.textContent = n.body;
+    const counted = Number.isFinite(n.index) && Number.isFinite(n.total) && n.total > 0;
+    this.count.textContent = counted ? t('brand.discoveryCount', { index: n.index, total: n.total }) : '';
+    this.count.hidden = !counted;
+    this.el.classList.toggle('major', n.major === true);
     this.el.classList.remove('out');
     this.el.classList.add('on');
     const hold = this.queue.length > 0 ? DISCOVERY_QUEUED_MS : DISCOVERY_MS;

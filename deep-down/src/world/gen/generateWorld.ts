@@ -5,6 +5,7 @@ import { Rng } from '../../core/rng';
 import { VoxelWorld } from '../VoxelWorld';
 import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
 import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
+import { buildFeatures } from './features';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -44,7 +45,12 @@ export interface GenTimings {
   phases: Record<string, number>;
 }
 
-export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timings: GenTimings } {
+/** `features: false` leaves out the feature pass (world/gen/features), for the containment test. */
+export interface GenerateOptions {
+  features?: boolean;
+}
+
+export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions = {}): WorldLayout & { timings: GenTimings } {
   const t0 = performance.now();
   const phases: Record<string, number> = {};
   let tp = t0;
@@ -1050,6 +1056,12 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
     for (const [x, y, z] of [[111, 35, 128], [117, 34, 129], [128, 35, 128], [134, 34, 129]] as V3[]) keyLight(x, y, z, B.LIGHT_ABYSS);
   }
 
+  // ------------------------------------------------------------------------------------
+  // 14. World variety (world/gen/features): the places, rides, rune doors and living rock, built
+  // after the key lights with their own random stream, writing only inside the boxes they declare.
+  const features = opts.features === false ? undefined : buildFeatures({ world: w, seed, props, structures, discoveries, landmarks, blob, crystalSeam, groundAt });
+  mark('features');
+
   // Re-assert the bedrock shell (decoration passes must never open the world boundary).
   for (let z = 0; z < sz; z++)
     for (let y = 0; y < sy; y++) {
@@ -1063,7 +1075,7 @@ export function generateWorld(seed: number = WORLD.seed): WorldLayout & { timing
   mark('seal');
 
   const totalMs = Math.round(performance.now() - t0);
-  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, timings: { totalMs, phases } };
+  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, ...(features ? { features } : {}), timings: { totalMs, phases } };
 
   // ------------------------------------------------------------------------------------
   // helpers (hoisted)

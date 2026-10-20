@@ -239,3 +239,96 @@ test('every discovery triggers; a black-out leaves a cache, respawns at camp, is
 
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+// World variety (final pass W2): a Halden log is read, the hoist is chained until released from
+// below and stays released after a reload, rune door 1 wakes to the lantern, the rope goes down to
+// the rift floor, and the black stone can be touched. Rides end standing, with no fall damage.
+test('Halden log, hoist lock and ride, rune door, rope to the rift floor, the black stone', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => {
+    if (m.type() === 'error') errors.push(`console: ${m.text()}`);
+  });
+  await page.goto('/index.html');
+  await waitMode(page, 'menu');
+  await page.getByRole('button', { name: /New Expedition/i }).click();
+  await waitMode(page, 'playing');
+  const lm = await page.evaluate(() => window.__DD__.landmarks());
+  const use = (name: RegExp) => page.getByRole('button', { name }).first();
+  const rideEnded = (id: string) => page.waitForFunction((r) => window.__DD__.events('world:ride').some((e) => e.payload.id === r && e.payload.phase === 'end'), id, { timeout: LOADED_CEILING_MS });
+  const at = async (p: number[]) => {
+    const s = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), p as [number, number, number]);
+    expect(s, `standable near ${p}`).not.toBeNull();
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), s!);
+  };
+
+  // The first Halden log, on the Survey Office's desk off the tunnel.
+  await at([60.5, 100, 34.6]);
+  await use(/^Use Read$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Read$/).tap();
+  await discovered(page, 'note.office', /Halden Log: Survey Office/i);
+
+  // The hoist is chained from below: using it at the top does nothing but say so.
+  const L = await page.evaluate(() => window.__DD__.features.layout());
+  const hoist = L.links.find((l: any) => l.id === 'hoist');
+  await page.evaluate(() => window.__DD__.clearEvents());
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), hoist.top);
+  await use(/^Use Ride the hoist$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Ride the hoist$/).tap();
+  await expect(page.getByText(/The hoist is chained from below/i).first()).toBeVisible({ timeout: LOADED_CEILING_MS });
+  expect(await page.evaluate(() => window.__DD__.features.state().riding)).toBeNull();
+  // Released from the foot stage, it rides up to the ledge (and that is a discovery, saved at once).
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), hoist.bottom);
+  await use(/^Use Release the hoist$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Release the hoist$/).tap();
+  await discovered(page, 'hoist', /Halden Hoist/i);
+  await rideEnded('hoist');
+  let s = await page.evaluate(() => window.__DD__.state());
+  expect(s.player.y).toBe(hoist.top[1]);
+  expect(Math.hypot(s.player.x - hoist.top[0], s.player.z - hoist.top[2])).toBeLessThan(0.05);
+  expect(await page.evaluate(() => window.__DD__.events('player:damaged').length), 'no fall damage after the ride').toBe(0);
+
+  // It stays released after a reload: from the top it now rides down.
+  expect(await page.evaluate(() => window.__DD__.save())).toBe(true);
+  await page.reload();
+  await waitMode(page, 'menu');
+  await page.getByRole('button', { name: /Continue/i }).click();
+  await waitMode(page, 'playing');
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), hoist.top);
+  await use(/^Use Ride the hoist$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Ride the hoist$/).tap();
+  await rideEnded('hoist');
+  s = await page.evaluate(() => window.__DD__.state());
+  expect(s.player.y).toBe(hoist.bottom[1]);
+
+  // Rune door 1 at the bridge's end wakes to the lit lantern and sinks; the relic behind it is a discovery.
+  const door = L.runeDoors.find((d: any) => d.id === 'reliquary');
+  await at(door.wake);
+  await page.waitForFunction(() => window.__DD__.events('world:runeOpen').length > 0, null, { timeout: LOADED_CEILING_MS });
+  await page.waitForFunction((cells) => cells.every(([x, y, z]: number[]) => !window.__DD__.isSolid(x, y, z)), door.cells, { timeout: LOADED_CEILING_MS });
+  await at([122.5, 42, 147]);
+  await use(/^Use Take the relic$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Take the relic$/).tap();
+  await discovered(page, 'reliquary', /The Reliquary/i);
+
+  // The rope from the balcony down to the rift floor (the floor itself is a discovery).
+  const rope = L.links.find((l: any) => l.id === 'riftRope');
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), rope.top);
+  await use(/^Use Climb down$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await page.evaluate(() => window.__DD__.clearEvents());
+  await use(/^Use Climb down$/).tap();
+  await rideEnded('riftRope');
+  s = await page.evaluate(() => window.__DD__.state());
+  expect([s.player.x, s.player.y, s.player.z]).toEqual(rope.bottom);
+  await discovered(page, 'undercroft', /The Rift Floor/i);
+  expect(await page.evaluate(() => window.__DD__.events('player:damaged').length), 'no fall damage after the rope').toBe(0);
+
+  // The black stone: touched at its portal, it stays cold and silent (the finale is not this wave's).
+  await at(lm.stonePortal);
+  await use(/^Use Touch the stone$/).waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await use(/^Use Touch the stone$/).tap();
+  await discovered(page, 'monolith', /The Black Stone/i);
+  expect(await page.evaluate(() => window.__DD__.events('world:monolith').map((e) => e.payload.first))).toEqual([true]);
+
+  expect(errors, errors.join('\n')).toEqual([]);
+});

@@ -4,7 +4,10 @@
 //
 // Usage: node tools/ui-check.mjs [--out artifacts/ui] [--vp land,port,desk] [--scenes hud,hud:low+large+contrast] [--no-shots] [--no-touch] [--game]
 // The page is the UI sandbox (src/ui/dev/sandbox.html): the real UI with fake game actions.
-// --game also runs a smoke flow through the real game (index.html) on the same dev server.
+// --game also runs a smoke flow through the real game (index.html) on the same dev server, and
+// captures the boot mark (index.html before the bundle runs).
+// Viewports: land 915x412, mid 844x390, short 740x360 (landscape phones), port 390x844, desk.
+// Layout problems (clipped text, targets under 48 px, off-screen elements) count as failures.
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 import { mkdirSync } from 'node:fs';
@@ -21,9 +24,13 @@ for (let i = 0; i < args.length; i++) {
 
 const VIEWPORTS = {
   land: { width: 915, height: 412, touch: true },
+  mid: { width: 844, height: 390, touch: true },
+  short: { width: 740, height: 360, touch: true },
   port: { width: 390, height: 844, touch: true },
   desk: { width: 1280, height: 720, touch: false },
 };
+/** Minimum touch target (the brand's 48 px). */
+const MIN_TARGET = 48;
 const SCENES = opt.scenes
   ? opt.scenes.split(',')
   : ['menu', 'menu:nosave', 'loading', 'hud', 'hud:low', 'discovery', 'inventory:backpack', 'inventory:storage', 'inventory:equipment', 'inventory:journal', 'crafting', 'settings', 'pause', 'confirm', 'death',
@@ -54,9 +61,9 @@ async function openPage(vp, scene) {
   return { page, context };
 }
 
-/** Layout audit: visible text clipped by its box, and interactive targets under 44 px. */
+/** Layout audit: visible text clipped by its box, and interactive targets under 48 px. */
 async function audit(page) {
-  return page.evaluate(() => {
+  return page.evaluate((MIN) => {
     const out = [];
     const vw = window.innerWidth;
     const vh = window.innerHeight;
@@ -72,15 +79,16 @@ async function audit(page) {
       }
       if (hidden) continue;
       const label = `${el.tagName.toLowerCase()}.${String(el.className).split(' ')[0]} "${(el.textContent || '').trim().slice(0, 30)}"`;
-      if ((el.tagName === 'BUTTON' || el.tagName === 'INPUT') && !el.closest('[inert]') && (r.height < 44 || r.width < 44)) out.push(`small target ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
+      if ((el.tagName === 'BUTTON' || el.tagName === 'INPUT') && !el.closest('[inert]') && (r.height < MIN - 0.5 || r.width < MIN - 0.5)) out.push(`small target ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
       if (el.children.length === 0 && (el.textContent || '').trim() && cs.overflow !== 'visible' && el.scrollWidth > el.clientWidth + 1) out.push(`clipped text: ${label}`);
       const inScroll = el.closest('.dd-scroll');
       if (!inScroll && (r.right > vw + 1 || r.bottom > vh + 1 || r.left < -1 || r.top < -1) && !el.closest('.dd-stick')) out.push(`off-screen ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
     }
     return out;
-  });
+  }, MIN_TARGET);
 }
 
+const layoutProblems = [];
 if (opt.shots) {
   for (const name of opt.vp.split(',')) {
     const vp = VIEWPORTS[name];
@@ -90,6 +98,7 @@ if (opt.shots) {
       const file = `${opt.out}/${scene.replace(':', '-').replaceAll('+', '_')}-${name}.png`;
       await page.screenshot({ path: file });
       const issues = await audit(page);
+      for (const i of issues) layoutProblems.push(`[${scene} ${name}] ${i}`);
       console.log(`${file}${issues.length ? `\n  ${issues.join('\n  ')}` : ''}`);
       await context.close();
     }
@@ -291,19 +300,21 @@ if (opt.touch) {
     ui.pickup({ item: 'ironOre', count: 1 });
     ui.pickup({ item: 'ironOre', count: 2 });
     ui.toast('check-toast', 'info');
-    ui.showDiscovery({ id: 'a', title: 'First Discovery', body: 'a' });
-    ui.showDiscovery({ id: 'b', title: 'Second Discovery', body: 'b' });
+    ui.showDiscovery({ id: 'a', title: 'First Discovery', body: 'a', index: 3, total: 9, major: false });
+    ui.showDiscovery({ id: 'b', title: 'Second Discovery', body: 'b', index: 4, total: 9, major: true });
   });
   await wait(300);
   const iron = await page.locator('.dd-pickup', { hasText: 'Iron Ore' }).allInnerTexts();
   check('pickups of one item merge into one line', iron.length === 1 && iron[0].includes('+3 Iron Ore'), iron);
   check('discovery banner shows the first', (await page.locator('.dd-discovery-title').textContent()) === 'First Discovery');
+  check('discovery banner counts index/total', (await page.locator('.dd-discovery-count').textContent()) === '3/9');
   await wait(4000);
   check('toast auto-dismisses', (await page.getByText('check-toast').count()) === 0);
   const second = await page
     .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'Second Discovery', null, { timeout: 4000 })
     .then(() => true, () => false);
   check('queued discovery plays next', second);
+  check('a major discovery gets the major band', await page.evaluate(() => document.querySelector('.dd-discovery')?.classList.contains('major') === true));
 
   // Left-handed: sides swap.
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: true }));
@@ -412,7 +423,21 @@ if (opt.game) {
 }
 
 async function gameFlow(page, st, until, shot) {
-  await page.goto(`${base}index.html`);
+  // The boot mark: index.html's inline emblem, painted before the bundle runs.
+  await page.goto(`${base}index.html`, { waitUntil: 'commit' });
+  const boot = await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => {
+          const el = document.getElementById('dd-boot');
+          const r = el?.querySelector('svg')?.getBoundingClientRect();
+          const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime;
+          resolve({ present: !!el && !el.classList.contains('out'), w: r ? Math.round(r.width) : 0, fcp: fcp === undefined ? null : Math.round(fcp), at: Math.round(performance.now()) });
+        }),
+      ),
+  );
+  await page.screenshot({ path: `${opt.out}/game-boot.png` });
+  check('game: boot mark painted before the bundle', boot.present && boot.w > 40, boot);
   await until(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu');
   await page.waitForTimeout(800);
   check('game: menu title attached', (await page.getByText('DEEP DOWN').count()) > 0);
@@ -492,6 +517,7 @@ await browser.close();
 await server.close();
 
 if (problems.length) console.log(`\nConsole problems:\n  ${problems.join('\n  ')}`);
+if (layoutProblems.length) console.log(`\nLayout problems:\n  ${layoutProblems.join('\n  ')}`);
 const failed = checks.filter((c) => !c.ok);
-console.log(`\n${checks.length - failed.length}/${checks.length} checks passed, ${problems.length} console problems`);
-process.exit(failed.length || problems.length ? 1 : 0);
+console.log(`\n${checks.length - failed.length}/${checks.length} checks passed, ${problems.length} console problems, ${layoutProblems.length} layout problems`);
+process.exit(failed.length || problems.length || layoutProblems.length ? 1 : 0);

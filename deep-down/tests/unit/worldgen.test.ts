@@ -131,7 +131,9 @@ describe('world generation', () => {
         }
     expect(cyan).toBeLessThanOrEqual(120);
     const L = layout.landmarks;
-    for (const name of ['campfire', 'ledge', 'stairsTop', 'landing', 'stairsBottom', 'bridge', 'seal', 'balcony', 'shrineDoor', 'oldCamp'] as const) {
+    // The world-variety places (final pass W2) add the office, both ends of the hoist and of the rope,
+    // and the Halden's last camp on the rift floor.
+    for (const name of ['campfire', 'ledge', 'stairsTop', 'landing', 'stairsBottom', 'bridge', 'seal', 'balcony', 'shrineDoor', 'oldCamp', 'office', 'hoistTop', 'hoistFoot', 'ropeTop', 'lastCamp'] as const) {
       const p = L[name];
       const near = Math.min(...warm.map((c) => Math.hypot(c[0] - p[0], c[1] - p[1], c[2] - p[2])));
       expect(near, `warm light near ${name}`).toBeLessThanOrEqual(7);

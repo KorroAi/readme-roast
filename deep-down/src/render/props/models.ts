@@ -6,6 +6,7 @@ import { VoxBuilder } from '../voxModel';
 import { ASH, BARK, BRICK, CLOTH, COPPER, CYAN, FIRE, IRON, LEATHER, ROPE, RUST, SLATE, WOOD } from './palette';
 import { CAMP_LANTERN, Layers, beam, buildLantern, buildPickaxe, disc, ring, shade, vary } from './shapes';
 import { buildMonolith } from './monolith';
+import { haldenNote, hoistWinch, satchel } from './featureModels';
 
 /**
  * Procedural prop models. Every model stands on y = 0 centered on the origin and faces +Z.
@@ -67,6 +68,11 @@ export const PROP_VARIANTS: Record<PropKind, number> = {
   ropeCoil: 2,
   brokenCart: 1,
   abyssMonolith: 1,
+  // World variety (final pass W2, render/props/featureModels.ts). Append new kinds after these:
+  // buildPropModel seeds each kind by its index in this table.
+  haldenNote: 2,
+  hoistWinch: 2,
+  satchel: 1,
 };
 
 export const PROP_KINDS = Object.keys(PROP_VARIANTS) as PropKind[];
@@ -129,6 +135,9 @@ const BUILDERS: Record<PropKind, KindBuilder> = {
   ropeCoil,
   brokenCart,
   abyssMonolith: buildMonolith,
+  haldenNote,
+  hoistWinch,
+  satchel,
 };
 
 /** Variant index for a prop seed. */

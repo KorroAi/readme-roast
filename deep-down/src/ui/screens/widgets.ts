@@ -1,4 +1,4 @@
-import { h, type Child } from '../dom';
+import { h, icon, type Child } from '../dom';
 
 // Building blocks shared by every screen. `key` (data-key) lets a re-render restore focus
 // to the same control, so keyboard and gamepad users never lose their place.
@@ -40,6 +40,36 @@ export function header(title: string, ...right: Child[]): HTMLElement {
 /** Small square close button with a drawn X and an accessible name. */
 export function closeBtn(label: string, onClick: () => void): HTMLButtonElement {
   return h('button', { class: 'dd-btn ghost dd-close', type: 'button', 'aria-label': label, 'data-key': 'close', onclick: () => onClick() }, h('span', { class: 'dd-x', 'aria-hidden': 'true' }), h('span', { class: 'dd-close-text', text: label }));
+}
+
+export interface LedgerRow {
+  label: string;
+  value: string;
+  /** Icon data URL (24 px). */
+  icon?: string;
+  /** Extra class on the row, e.g. a rarity (uncommon, rare, relic) or ok / short. */
+  tone?: string;
+}
+
+/**
+ * Ledger rows, the expedition kit's tables: label, a brass dotted leader, a tabular value.
+ * Shared by every screen that lists counts (black-out, reports, requirements).
+ */
+export function ledger(rows: LedgerRow[], className = ''): HTMLElement {
+  return h(
+    'ul',
+    { class: `dd-ledger${className ? ` ${className}` : ''}` },
+    ...rows.map((r) =>
+      h(
+        'li',
+        { class: `dd-ledger-row${r.tone ? ` ${r.tone}` : ''}` },
+        r.icon ? icon(r.icon, 24) : null,
+        h('span', { class: 'dd-ledger-label', text: r.label }),
+        h('span', { class: 'dd-ledger-leader', 'aria-hidden': 'true' }),
+        h('b', { class: 'dd-ledger-value', text: r.value }),
+      ),
+    ),
+  );
 }
 
 export function section(title: string, ...rows: Child[]): HTMLElement {

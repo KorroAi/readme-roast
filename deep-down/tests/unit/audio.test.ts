@@ -53,6 +53,15 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'lantern:turnBack': { seconds: 40 },
   'player:cold': { damage: 10 },
   'record:depth': { depth: 60 },
+  'world:ride': { id: 'hoist', kind: 'hoist', dir: 'up', phase: 'start' },
+  'world:runeWake': { id: 'reliquary', progress: 0.5 },
+  'world:runeOpen': { id: 'reliquary', cells: 9 },
+  'world:hoistReleased': {},
+  'world:note': { id: 'office', first: true },
+  'world:monolith': { first: true },
+  'world:regrow': { epoch: 2, cells: 40, regrown: 6 },
+  'world:bloom': { epoch: 2, site: 'adit', area: 'adit', x: 1, y: 2, z: 3 },
+  'moths:startled': { x: 1, y: 2, z: 3, count: 4 },
 };
 
 const WORLD_STATE: AudioWorldState = {

@@ -1,24 +1,23 @@
-import { version } from '../../../package.json';
 import { ITEMS, type ItemId } from '../../config/items';
 import { t } from '../../i18n';
-import { h, icon } from '../dom';
+import { VERSION } from '../../version';
+import { logo } from '../brand/logo';
+import { h } from '../dom';
 import { formatRelativeTime } from '../format';
 import { iconPx, itemIconDataUrl } from '../icons';
 import type { ScreenHost } from './host';
-import { btn, header } from './widgets';
+import { btn, header, ledger } from './widgets';
 
-/** The Visual Lab button: dev builds, or ?lab=1 for reviewers. */
+/** The Visual Lab button: dev builds, or ?lab for reviewers (never on a player's home screen). */
 function showLab(): boolean {
   return import.meta.env.DEV || new URLSearchParams(location.search).has('lab');
 }
 
-/** Main menu over the live cave: pixel-font title, tagline, the expedition buttons. */
+/** Main menu over the live cave: the carved wordmark, the tagline between brass rules, the expedition buttons. */
 export function buildMenu(host: ScreenHost): HTMLElement {
   const a = host.actions;
   const hasSave = a.hasSave();
   const savedAt = hasSave ? a.saveTimestamp() : null;
-  const title = h('canvas', { class: 'dd-title', 'aria-hidden': 'true' });
-  host.setTitleCanvas(title, 1);
 
   const startNew = () => {
     if (!a.hasSave()) {
@@ -34,8 +33,7 @@ export function buildMenu(host: ScreenHost): HTMLElement {
     h(
       'div',
       { class: 'dd-menu-col' },
-      h('h1', { class: 'dd-sr', text: t('game.title') }),
-      title,
+      logo('menu'),
       h('p', { class: 'dd-tagline', text: t('game.tagline') }),
       h(
         'div',
@@ -59,19 +57,16 @@ export function buildMenu(host: ScreenHost): HTMLElement {
       ),
       h('p', { class: 'dd-rotate-hint', text: t('menu.rotateHint') }),
     ),
-    h('p', { class: 'dd-version', text: t('menu.version', { version }) }),
+    h('p', { class: 'dd-version', text: t('menu.version', { version: VERSION }) }),
   );
 }
 
 export function buildLoading(host: ScreenHost): HTMLElement {
-  const title = h('canvas', { class: 'dd-title', 'aria-hidden': 'true' });
-  host.setTitleCanvas(title, 0.62);
   const p = Math.round(host.state.loadingProgress * 100);
   return h(
     'section',
     { class: 'dd-screen dd-loading' },
-    h('h1', { class: 'dd-sr', text: t('game.title') }),
-    title,
+    logo('loading'),
     h(
       'div',
       { class: 'dd-progress', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p, 'aria-label': host.state.loadingLabel },
@@ -138,11 +133,7 @@ export function buildDeath(host: ScreenHost): HTMLElement {
   const inv = host.actions.getInventory();
   const kept = inv.pouchSlots > 0 ? (inv.backpack.slice(inv.backpack.length - inv.pouchSlots).filter((s) => s !== null) as Array<{ item: ItemId; count: number }>) : [];
   const chips = (list: Array<[ItemId, number]>) =>
-    h(
-      'ul',
-      { class: 'dd-chips' },
-      ...list.map(([id, n]) => h('li', { class: 'dd-chip' }, icon(itemIconDataUrl(id, iconPx(24)), 24), h('span', { text: t(ITEMS[id].name) }), h('b', { text: t('inventory.count', { count: n }) }))),
-    );
+    ledger(list.map(([id, n]) => ({ icon: itemIconDataUrl(id, iconPx(24)), label: t(ITEMS[id].name), value: t('inventory.count', { count: n }), tone: ITEMS[id].rarity })));
   return h(
     'section',
     { class: 'dd-screen dd-overlay dd-death' },

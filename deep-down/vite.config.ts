@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
 import { en } from './src/i18n/en';
+import { bootMarkSvg, emblemSvg } from './src/ui/brand/emblem.mjs';
 // @ts-expect-error plain ES module shared with android/build-apk.sh (no type declarations)
 import { iconPng } from './android/make-icon.mjs';
 import { readVersion } from './tools/version.mjs';
@@ -18,9 +19,12 @@ let readFileSync: Fs['readFileSync'] = () => {
 };
 
 // Relative base so the same build runs from a web server, file:// and the Android WebView asset loader.
-/** Fill %DD_key% placeholders in HTML from the string table (for text shown before any module runs). */
+/**
+ * Fill %DD_key% placeholders in HTML from the string table (for text shown before any module
+ * runs) and the boot mark (the emblem as inline SVG, from the same geometry as the launcher).
+ */
 function htmlStrings(): Plugin {
-  const table: Record<string, string> = { DD_WEBVIEW_OUTDATED: en['error.webviewOutdated'] };
+  const table: Record<string, string> = { DD_WEBVIEW_OUTDATED: en['error.webviewOutdated'], DD_BOOT_MARK: bootMarkSvg({ size: 112 }) };
   return {
     name: 'dd-html-strings',
     transformIndexHtml: (html) => html.replace(/%(DD_[A-Z_]+)%/g, (m, k: string) => table[k] ?? m),
@@ -32,6 +36,7 @@ function generatedFiles(name: string, files: Record<string, () => Uint8Array | s
   const types: Record<string, string> = {
     webmanifest: 'application/manifest+json',
     png: 'image/png',
+    svg: 'image/svg+xml',
     txt: 'text/plain; charset=utf-8',
     html: 'text/html; charset=utf-8',
     json: 'application/json',
@@ -54,8 +59,11 @@ function generatedFiles(name: string, files: Record<string, () => Uint8Array | s
 }
 
 /**
- * Web app manifest and icons, generated from the same procedural icon as the Android launcher:
- * "Add to Home Screen" then opens the game fullscreen in landscape, like the APK.
+ * Web app manifest and icons, generated from the same procedural emblem as the Android launcher:
+ * "Add to Home Screen" then opens the game fullscreen in landscape, like the APK. "any" icons are
+ * the rounded tile (transparent corners); "maskable" ones are full-bleed with the emblem inside
+ * the adaptive safe circle (61 % of the width, within the 80 % maskable zone), so no platform
+ * mask cuts the lantern. The SVG favicon is the emblem itself.
  */
 function webApp(): Plugin {
   const manifest = JSON.stringify({
@@ -66,20 +74,29 @@ function webApp(): Plugin {
     scope: './',
     display: 'fullscreen',
     orientation: 'landscape',
-    background_color: '#05080c',
-    theme_color: '#05080c',
-    icons: [192, 512].map((n) => ({ src: `./icon-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose: 'any maskable' })),
+    background_color: '#070a0f',
+    theme_color: '#070a0f',
+    icons: [
+      ...[192, 512].map((n) => ({ src: `./icon-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose: 'any' })),
+      ...[192, 512].map((n) => ({ src: `./icon-maskable-${n}.png`, sizes: `${n}x${n}`, type: 'image/png', purpose: 'maskable' })),
+    ],
   });
   return {
     ...generatedFiles('dd-web-app', {
       'manifest.webmanifest': () => manifest,
-      'icon-192.png': () => iconPng(192, false),
-      'icon-512.png': () => iconPng(512, false),
+      'icon-192.png': () => iconPng(192, true),
+      'icon-512.png': () => iconPng(512, true),
+      'icon-maskable-192.png': () => iconPng(192, false),
+      'icon-maskable-512.png': () => iconPng(512, false),
       'apple-touch-icon.png': () => iconPng(180, false),
+      'favicon.svg': () => emblemSvg({ size: 64, glow: false, idPrefix: 'f' }),
     }),
     transformIndexHtml: (html) =>
       html.includes('<title>DEEP DOWN</title>')
-        ? html.replace('</title>', '</title>\n    <link rel="manifest" href="./manifest.webmanifest" />\n    <link rel="icon" href="./icon-192.png" />\n    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />')
+        ? html.replace(
+            '</title>',
+            '</title>\n    <link rel="manifest" href="./manifest.webmanifest" />\n    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />\n    <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />\n    <link rel="apple-touch-icon" href="./apple-touch-icon.png" />',
+          )
         : html,
   };
 }

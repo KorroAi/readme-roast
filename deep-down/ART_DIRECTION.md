@@ -145,16 +145,76 @@ canteen (left). Hand lantern in the left hand, pickaxe in the right. Chunky prop
 to the crown, 1.87 m to the pole tips, under a 2 m tunnel), corners chamfered with crossed boxes,
 nothing cyan. Secondary motion (coat tails, vial) is procedural and never passes through the legs.
 
-## UI
+## UI — "Lamplight on the Lintel"
 
-The title is drawn with a pixel font defined in code: icy gradient, dark outline and bevel,
-soft glow, and the first O of DOWN cut as a cyan crystal.
+**Two registers, never mixed.**
+- *Expedition kit* — everything the player owns or does (buttons, gauges, the pack, the
+  workbench, reports): dark slate plates, an oiled brass rim, amber light, ledger typography
+  (label · dotted brass leader · tabular value).
+- *Builders' script* — only discoveries, lore, runes and the logo's O: cyan ink carved in stone.
+- Violet means the unknown (locked entries, records, relics). Red means danger only.
 
-Clean sans-serif in caps with generous letter spacing for headers, mixed case for body.
-Dark translucent panels (`rgba(9,14,22,0.82)`) with a thin cool edge. Amber for primary
-actions, cyan for discoveries, red only for danger. Touch targets are at least 44 px (48 px
-for primary buttons and tabs); button and body text 15 px, scaled up in Large mode;
-secondary labels go down to 12 px. Icons are isometric voxel cubes drawn from the same tiles.
+**Tokens** (`src/ui/brand/tokens.ts`, mirrored as custom properties on `.dd-ui`; a unit test
+checks they agree and computes WCAG contrast for every text/surface pair, all ≥ 4.5:1).
+Slate 950–600 `#070a0f … #2a3544`, bone 100/300/500 `#efe7d8 #c9bfae #948b7d`, brass 300/500/700
+`#e2b673 #b0823f #5e4220`, amber 300–700 and ember `#ffd29a #ffb35c #f39c45 #8a4f1c #d8722a`,
+rune cyan 200/400/900 `#8fe3ee #2fb6cc #072a33`, deep violet `#b9a2ff`, danger `#ff6b5e #6a1712`,
+verdigris `#8fc4a4`. Panels are slate-900 at 0.94. The old neon `#5ff0ff` is retired.
+
+**The octagon.** Every plate is an octagon with a 45° chamfer (`--cut`: 9 px panels, 8 buttons,
+6 chips, 3–4 bar caps), cut with `clip-path`. Because clip-path also cuts borders and shadows, the
+1 px rim is drawn by layered backgrounds: four corner gradients lay brass along the chamfers and
+the border draws the straight sides. A plate only sets `--fill`, `--rim` and optionally `--face`
+(a gradient over the fill). No rounded rectangles, no pills, no glass, no backdrop blur. The one
+round shape is the joystick base, a brass bezel. Focus is an amber-300 octagon drawn inside the
+plate on `::after`.
+
+**The lintel** is the signature device: a carved headline that things hang from — a 3 px groove
+(1 px `#04070b` over 1 px brass at 55 %) with a 2 × 7 px pendant tick at each end. Panel headers
+sit on one, the discovery band hangs its title from one (in cyan), the tagline sits between two
+grooved rules, and the wordmark's words hang from theirs.
+
+**Type.** UI text is the system stack (body 15/500, title 17/700, label 13/700 tabular, eyebrow
+12/800 caps at 0.24 em; nothing under 12 px; buttons in mixed case). The display face is
+**Lintel**: a stroke face on a 4 × 7 unit grid (M and W take 5), 1.0-unit strokes in the eight
+compass directions, every end and bend chamfered (`src/ui/brand/strokeFont.ts`). Each glyph is
+filled polygons: one rectangle per stroke segment and one octagon per node, all wound the same
+way. It covers A–Z, 0–9 and − . · / ? ' (plus , : ! + ×). The same polygons become a small
+TrueType font in memory at startup (`lintelFont.ts`, FontFace; no font file ships), so title
+plates, discovery titles, the depth numerals and report numbers are set in Lintel while staying
+real text; characters it lacks fall back to the system stack. Digits are tabular.
+
+**The logo.** DEEP DOWN in Lintel, each word hanging from its own lintel. Stone letters: a cool
+grey gradient, a carved `#04070b` outline and a top-left highlight. The O of DOWN is the
+builders' lantern rune hanging from the lintel on its stem: a diamond ring in cyan ink
+(`#8fe3ee → #2fb6cc`) with an amber flame inside (`#fff4dc → #ffc785 → #d8722a`). The flame's
+warm light falls on D, W and N and on the lintel above them; DEEP stays cold. Lockups
+(`wordmark.ts`): the landscape line (330–420 px), the portrait stack (250 px), the emblem (a
+lintel segment with the lantern hanging from it, plus the rune's foot bar), and an optional
+subtitle line ("LANTERN HOLLOW") ready for the title decision. The flame breathes on a 2.4 s
+loop, off under reduced motion. Tagline: FOLLOW THE LIGHT DOWN, in Lintel brass between grooves.
+
+**The emblem everywhere.** One geometry (`src/ui/brand/emblem.mjs`, a plain ES module) draws
+the lantern O, the boot mark inlined in `index.html` (~0.9 KB of SVG, visible before the bundle
+parses, its flame core breathing), the SVG favicon, the web app icons (a tile for "any",
+full-bleed for "maskable") and the Android launcher (`android/make-icon.mjs` rasterizes the same
+polygons: adaptive foreground inside the 66 dp safe circle, a warm-dark background with the
+lantern's glow, a monochrome silhouette for themed icons, the legacy tile, the splash and the
+512 px Play icon).
+
+**Icons are specimens, not blocks.** 16 × 16 pixel sprites lit from the top left: a slate flake,
+a coiled hank of root fibre, a copper lump with glints and a fleck of verdigris, a dark iron lump
+with a jasper streak, the glimmer and echo shards, the Ancient Tablet carrying the Lantern rune,
+and a rune stone per rune with its own mark. Icons map by item id; an id without art gets a
+pebble in its colour. No isometric cubes.
+
+**Motion** (`motion.ts`): micro 90, short 160, medium 240, exit 140, long 480, ceremony
+900–1400 ms. An enter is an 8 px rise plus a fade; an exit is a fade only and shorter (the leaving
+screen fades under the entering one on an inert layer). Only transform and opacity animate; at
+most one loop is on screen. Reduced motion: opacity fades of 150 ms at most, no loops.
+
+**Touch.** Targets are 48 px or more with 8 px gaps. The Mine button is a 100 px brass octagon
+(88 px on short screens) around an amber core; Jump, Bag and Pause are octagons in the same kit.
 
 ## Audio
 

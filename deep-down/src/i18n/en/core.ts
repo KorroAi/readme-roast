@@ -17,7 +17,7 @@ export const core = {
   'menu.loading': 'Carving the depths…',
   'menu.loadingLight': 'Lighting the crystals…',
   'menu.loadingMesh': 'Shaping the stone…',
-  'menu.version': 'v{version}',
+  'menu.version': 'v{version} · made entirely in code',
   'menu.rotateHint': 'Best played in landscape: turn your phone sideways.',
   'menu.saveFound': 'Last saved {time}',
   'menu.credits.body':

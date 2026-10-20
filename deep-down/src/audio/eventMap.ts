@@ -49,6 +49,12 @@ export const EVENT_SOUNDS: EventSounds = {
   'lantern:empty': () => req('lantern.empty'),
   'lantern:refueled': () => req('lantern.refueled'),
   'game:saved': () => req('saved'),
+  // World variety (W2): existing voices, re-pitched (feel W5 may replace them with their own).
+  'world:ride': (p) => (p.kind === 'hoist' ? req('break.metal', { pitch: p.phase === 'start' ? 0.7 : 0.85, gain: 0.7 }) : req('hit.wood', { pitch: 0.5, gain: 0.6 })),
+  'world:runeOpen': () => req('break.ancient', { pitch: 0.7 }),
+  'world:hoistReleased': () => req('break.metal', { pitch: 0.6 }),
+  'world:note': () => req('hit.wood', { pitch: 1.7, gain: 0.35 }),
+  'world:monolith': () => req('hit.ancient', { pitch: 0.45, gain: 0.7 }),
 };
 
 export const AUDIBLE_EVENTS = Object.keys(EVENT_SOUNDS) as Array<keyof GameEvents>;

@@ -1,13 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { RECIPES } from '../../src/config/recipes';
-import { TILE } from '../../src/config/tiles';
+import { ITEM_IDS } from '../../src/config/items';
 import { t } from '../../src/i18n';
-import { generateTiles } from '../../src/render/textures';
 import { depthText, formatRelativeTime } from '../../src/ui/format';
 import { HEART_COUNT, healthHalves, heartFill } from '../../src/ui/hud/hearts';
-import { GLYPH_H, hasGlyph, layoutPixelText } from '../../src/ui/pixelFont';
+import { hasLintelGlyph, layoutLintel, LINTEL_H, LINTEL_REQUIRED, LINTEL_SPACE } from '../../src/ui/brand/strokeFont';
+import { lanternPosition, wordmarkLayout } from '../../src/ui/brand/wordmark';
 import { craftState, equipInfo } from '../../src/ui/screens/inventory';
-import { cubeIcon, heartSprite, scaleNearest, sprite, type Raster } from '../../src/ui/sprites';
+import { heartSprite, itemRaster, scaleNearest, SPECIMENS, sprite, type Raster } from '../../src/ui/sprites';
 import {
   advanceLookPhase,
   clampBase,
@@ -25,42 +25,55 @@ import {
 
 const stick = (): StickOutput => ({ x: 0, y: 0, knobX: 0, knobY: 0 });
 
-describe('pixel font', () => {
-  it('has a glyph for every character of the title and the alphabet', () => {
-    for (const text of ['DEEP DOWN', t('game.title'), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789']) {
-      for (const ch of text) expect(hasGlyph(ch), `glyph for "${ch}"`).toBe(true);
-      expect(layoutPixelText(text).missing).toEqual([]);
+describe('Lintel face (title and display type)', () => {
+  it('has a glyph for every character of the title, the alphabet, the digits and the marks', () => {
+    for (const text of ['DEEP DOWN', t('game.title'), t('game.tagline'), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789', LINTEL_REQUIRED]) {
+      for (const ch of text) expect(hasLintelGlyph(ch), `glyph for "${ch}"`).toBe(true);
+      expect(layoutLintel(text).missing).toEqual([]);
     }
   });
 
-  it('lays out DEEP DOWN on a 51 x 7 cell grid with one column between glyphs', () => {
-    const l = layoutPixelText('DEEP DOWN');
-    // 8 letters x 5 + a 3-wide space + 8 gaps.
-    expect(l.width).toBe(51);
-    expect(l.height).toBe(GLYPH_H);
-    for (const c of l.cells) {
-      expect(c.x).toBeGreaterThanOrEqual(0);
-      expect(c.x).toBeLessThan(l.width);
-      expect(c.y).toBeGreaterThanOrEqual(0);
-      expect(c.y).toBeLessThan(GLYPH_H);
-    }
+  it('lays out DEEP DOWN on the 4 x 7 grid: 4-unit letters, a 5-unit W, 1-unit gaps', () => {
+    const l = layoutLintel('DEEP DOWN');
+    // DEEP = 4 letters x 4 + 3 gaps; the space is 2 with a gap each side; DOWN = 4 + 4 + 5 + 4 + 3 gaps.
+    expect(layoutLintel('DEEP').width).toBe(19);
+    expect(layoutLintel('DOWN').width).toBe(20);
+    expect(LINTEL_SPACE).toBe(2);
+    expect(l.width).toBe(19 + 1 + LINTEL_SPACE + 1 + 20);
+    expect(l.height).toBe(LINTEL_H);
+    for (const g of l.glyphs)
+      for (const p of g.glyph.polygons)
+        for (const [x, y] of p) {
+          expect(x).toBeGreaterThanOrEqual(-1e-9);
+          expect(x).toBeLessThanOrEqual(g.glyph.width + 1e-9);
+          expect(y).toBeGreaterThanOrEqual(-1e-9);
+          expect(y).toBeLessThanOrEqual(LINTEL_H + 1e-9);
+        }
   });
 
-  it('marks only the O as crystal when asked, and is case-insensitive', () => {
-    const plain = layoutPixelText('deep down');
-    expect(plain.cells.some((c) => c.crystal)).toBe(false);
-    const title = layoutPixelText('DEEP DOWN', { crystalO: true });
-    const crystal = title.cells.filter((c) => c.crystal);
-    expect(crystal.length).toBeGreaterThan(10);
-    // The O is the 7th glyph: "DEEP" spans 0..22, the space 24..26, "D" 28..32, "O" 34..38.
-    for (const c of crystal) {
-      expect(c.x).toBeGreaterThanOrEqual(34);
-      expect(c.x).toBeLessThanOrEqual(38);
+  it('puts the lantern-rune O second in DOWN, hanging from its lintel, in both lockups', () => {
+    for (const lockup of ['line', 'stack'] as const) {
+      const L = wordmarkLayout(lockup);
+      const pos = lanternPosition(lockup);
+      expect(pos.wordIndex).toBe(1);
+      expect(L.words[1].word).toBe('DOWN');
+      const down = L.words[1];
+      // Between the D and the W: the D ends before the lantern cell, the W starts after it.
+      const [d, w] = down.letters.glyphs;
+      expect(d.ch).toBe('D');
+      expect(w.ch).toBe('W');
+      expect(pos.x).toBeGreaterThan(down.x + d.x + d.glyph.width);
+      expect(pos.x).toBeLessThan(down.x + w.x);
+      // It hangs from the lintel (above the letters) and its ring centre sits within the letter band.
+      expect(down.lantern!.hangY).toBeLessThan(down.y);
+      expect(pos.y).toBeGreaterThan(down.y + 1);
+      expect(pos.y).toBeLessThan(down.y + LINTEL_H - 1);
     }
+    expect(lanternPosition('line').x).toBeGreaterThan(wordmarkLayout('line').words[0].x + wordmarkLayout('line').words[0].width);
   });
 
   it('reports characters it cannot draw instead of failing', () => {
-    expect(layoutPixelText('A~B').missing).toEqual(['~']);
+    expect(layoutLintel('A~B').missing).toEqual(['~']);
   });
 });
 
@@ -237,18 +250,24 @@ describe('icon rasters', () => {
     return n ? sum / n : 0;
   };
 
-  it('draws an isometric cube with a lit top and a darker right side', () => {
-    const atlas = generateTiles();
-    const r = cubeIcon(atlas, TILE.copperOre, TILE.copperOre, 64);
-    let opaque = 0;
-    for (let i = 3; i < r.data.length; i += 4) if (r.data[i] > 0) opaque++;
-    expect(opaque / (64 * 64)).toBeGreaterThan(0.6);
-    const top = avg(r, (x, y) => y < 16 && x > 24 && x < 40);
-    const right = avg(r, (x, y) => y > 40 && y < 56 && x > 40 && x < 56);
-    expect(top).toBeGreaterThan(right * 1.3);
-    // Corners stay transparent: it is a hexagon silhouette, not a square.
-    expect(r.data[3]).toBe(0);
-    expect(r.data[(63 + 63 * 64) * 4 + 3]).toBe(0);
+  it('draws every item as a specimen sprite, with a fallback for ids without art', () => {
+    const seen = new Set<string>();
+    for (const id of ITEM_IDS) {
+      const r = itemRaster(id, 32);
+      expect(r.size).toBe(32);
+      let opaque = 0;
+      for (let i = 3; i < r.data.length; i += 4) if (r.data[i] > 0) opaque++;
+      // A shape, not a filled square and not empty.
+      expect(opaque / (32 * 32), id).toBeGreaterThan(0.15);
+      expect(opaque / (32 * 32), id).toBeLessThan(0.92);
+      expect(r.data[3], `${id} corner`).toBe(0);
+      seen.add(Array.from(r.data).join(','));
+    }
+    // Materials each have their own art (the seven runes share the rune stone).
+    expect(seen.size).toBeGreaterThanOrEqual(8);
+    const unknown = itemRaster('tinOre', 16);
+    expect(unknown.data.some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
+    for (const def of Object.values(SPECIMENS)) for (const row of def.rows) expect(row.length).toBe(16);
   });
 
   it('builds sprites from ASCII rows and scales them crisply', () => {
