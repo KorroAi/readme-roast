@@ -263,3 +263,16 @@ describe('specimen rasters', () => {
     expect([...big.data.slice(4 * 4, 4 * 4 + 4)]).toEqual([0, 0, 255, 255]);
   });
 });
+
+import { tr } from '../../src/ui/idle/Card';
+
+describe('model texts (tr)', () => {
+  it('reads a parameter that names a key as its text, and shows nothing for a missing key', () => {
+    const s = tr('idle.goal.seal', { warden: 'idle.warden.haldenHatch', m: 28 });
+    expect(s).toContain('Halden Hatch');
+    expect(s).not.toContain('idle.');
+    expect(tr('idle.no.such.key')).toBe('');
+    // A plain string parameter stays as it is.
+    expect(tr('idle.goal.seal', { warden: 'the old gate', m: 3 })).toContain('the old gate');
+  });
+});

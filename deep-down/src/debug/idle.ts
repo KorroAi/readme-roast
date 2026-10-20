@@ -83,7 +83,7 @@ export interface IdleDebug {
   /** Frames from each recent `pointerdown` to its first changed frame (F1), oldest first, ≤ 256. */
   lastTapFrames(): number[];
   /** How the recent taps resolved: the column hit (−1: none), the cell row, the kind. */
-  lastTaps(): Array<{ x: number; y: number; col: number; row: number; kind: string; counted: boolean; entity: string }>;
+  lastTaps(): Array<{ x: number; y: number; col: number; raw: number; row: number; kind: string; counted: boolean; entity: string }>;
   ledger(): IdleLedgerView;
   columns(): IdleColumnsView;
   hud(): IdleHudView;
@@ -117,6 +117,8 @@ export interface IdleDebug {
   tutorial(): { time: number; id: string; index: number; started: boolean; done: boolean };
   /** Where the ghost hand points now (CSS px), or null when it is hidden. */
   guidePoint(): { id: string; x: number; y: number } | null;
+  /** The model clock's speed against the wall clock (1: real time); sets it when given. @returns the speed. */
+  timeScale(k?: number): number;
 }
 
 /** Install `window.__DD__.idle` (and keep `window.__DD__` itself as the container). */
@@ -191,7 +193,7 @@ export function installIdleSurface(g: IdleGame): void {
       };
     },
     lastTapFrames: () => [...g.dig.tapFrames],
-    lastTaps: () => g.dig.records.map((r) => ({ x: r.x, y: r.y, col: r.col, row: r.row, kind: r.kind, counted: r.counted, entity: r.entity })),
+    lastTaps: () => g.dig.records.map((r) => ({ x: r.x, y: r.y, col: r.col, raw: r.raw, row: r.row, kind: r.kind, counted: r.counted, entity: r.entity })),
     ledger: () => {
       const actual = g.state.run.gold;
       const shown = g.gold.shown(actual);
@@ -269,6 +271,10 @@ export function installIdleSurface(g: IdleGame): void {
     tutorial: () => {
       const s = g.state;
       return { time: s.time, id: currentStep(s)?.id ?? '', index: s.tutorial.index, started: s.tutorial.since >= 0, done: s.tutorial.done || s.meta.tutorial.done };
+    },
+    timeScale: (k?: number) => {
+      if (allowed && k !== undefined && Number.isFinite(k) && k > 0) g.modelScale = Math.min(4, k);
+      return g.modelScale;
     },
     guidePoint: () => {
       const gh = g.ui.hud.guide;

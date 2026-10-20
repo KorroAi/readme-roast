@@ -2,12 +2,12 @@
 //
 // 1. Renders every registered sound with OfflineAudioContext through the game's mix graph and
 //    reports duration, peak, RMS and spectral centroid. Fails unless every peak is in
-//    (0.05, 1.0] and mining hits are timbrally distinct: centroid crystal > metal > stone.
-//    Pickups must get brighter (higher centroid) with item rarity.
-// 2. Runs the realtime AudioSystem for a few seconds (ambience, music, every game event, a
-//    burst of hits) and checks it plays, stays under the voice cap and never clips.
+//    (0.05, 1.0] and taps are timbrally distinct: centroid crystal > metal > stone. The break
+//    ladder (the pentatonic pitch) must climb.
+// 2. Runs the realtime AudioSystem for a few seconds (ambience, music, every audible IdleEvent,
+//    a burst of taps) and checks it plays, stays under the voice cap and never clips.
 //
-// Usage: node tools/audio-check.mjs [--rate 48000] [--realtime 1] [--only hit.stone,hit.metal]
+// Usage: node tools/audio-check.mjs [--rate 48000] [--realtime 1] [--only tap.stone,tap.metal]
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 
@@ -49,8 +49,8 @@ try {
       const s = analyzeSignal(mono, sampleRate);
       rows.push({ name, ...s, truePeak: Math.max(...channels.map(peakOf)), renderMs: ms });
     }
-    const a = await renderSfxOffline('hit.stone', sampleRate);
-    const b = await renderSfxOffline('hit.stone', sampleRate);
+    const a = await renderSfxOffline('tap.stone', sampleRate);
+    const b = await renderSfxOffline('tap.stone', sampleRate);
     let maxDiff = a.length === b.length ? 0 : Infinity;
     for (let i = 0; i < a.length && i < b.length; i++) maxDiff = Math.max(maxDiff, Math.abs(a[i] - b[i]));
     return { rows, maxDiff, hasOffline: typeof OfflineAudioContext === 'function' };
@@ -67,27 +67,32 @@ try {
     if (!(r.truePeak <= 1.0)) fail(`${r.name}: true peak ${r.truePeak.toFixed(3)} exceeds 1.0`);
     if (!(r.duration > 0)) fail(`${r.name}: silent render`);
   }
-  console.log(`\nRepeat render of hit.stone: max sample difference ${offline.maxDiff.toExponential(2)}`);
+  console.log(`\nRepeat render of tap.stone: max sample difference ${offline.maxDiff.toExponential(2)}`);
   if (!(offline.maxDiff < 1e-3)) fail('offline renders are not repeatable');
   const c = Object.fromEntries(offline.rows.map((r) => [r.name, r.centroid]));
-  const stone = c['hit.stone'];
-  const metal = c['hit.metal'];
-  const crystal = c['hit.crystal'];
+  const stone = c['tap.stone'];
+  const metal = c['tap.metal'];
+  const crystal = c['tap.crystal'];
   if (stone && metal && crystal) {
-    console.log(`Hit centroids: stone ${stone.toFixed(0)} Hz, metal ${metal.toFixed(0)} Hz, crystal ${crystal.toFixed(0)} Hz` +
+    console.log(`Tap centroids: stone ${stone.toFixed(0)} Hz, metal ${metal.toFixed(0)} Hz, crystal ${crystal.toFixed(0)} Hz` +
       ` (metal/stone x${(metal / stone).toFixed(2)}, crystal/metal x${(crystal / metal).toFixed(2)})`);
-    if (!(metal > stone * 1.25)) fail('metal hit is not clearly brighter than stone');
-    if (!(crystal > metal * 1.25)) fail('crystal hit is not clearly brighter than metal');
+    if (!(metal > stone * 1.25)) fail('metal tap is not clearly brighter than stone');
+    if (!(crystal > metal * 1.25)) fail('crystal tap is not clearly brighter than metal');
   }
-  const pickups = ['common', 'uncommon', 'rare', 'relic'].map((r) => c[`pickup.${r}`]);
-  if (pickups.every(Boolean)) {
-    console.log(`Pickup centroids by rarity (common, uncommon, rare, relic): ${pickups.map((v) => v.toFixed(0)).join(' < ')} Hz`);
-    if (pickups.some((v, i) => i > 0 && !(v > pickups[i - 1]))) fail('pickups do not get brighter with rarity');
-  }
+  // The break ladder: the same break at three pentatonic steps gets brighter as it climbs.
+  const ladder = await page.evaluate(async (sampleRate) => {
+    const { renderSfxOffline } = await import('/src/audio/offline.ts');
+    const { spectralCentroid } = await import('/src/audio/analysis.ts');
+    const out = [];
+    for (const pitch of [1, Math.pow(2, 7 / 12), 2]) out.push(spectralCentroid(await renderSfxOffline('break.stone', sampleRate, { pitch }), sampleRate));
+    return out;
+  }, rate);
+  console.log(`Break ladder centroids (steps 0, 7, 12 semitones): ${ladder.map((v) => v.toFixed(0)).join(' < ')} Hz`);
+  if (ladder.some((v, i) => i > 0 && !(v > ladder[i - 1]))) fail('the break ladder does not climb');
 
   // ---------------------------------------------------------------------------------------
-  // CPU estimate: a busy 10 s mining scene (every continuous layer, the score, a hit per
-  // swing, footsteps, drips) rendered offline. Render time / audio time ~ audio-thread load.
+  // CPU estimate: a busy 10 s dig (every continuous layer, the score, a tap every 0.25 s, a break
+  // every 0.75 s, coin ticks, drips) rendered offline. Render time / audio time ~ audio-thread load.
   const scene = await page.evaluate(async (sampleRate) => {
     const { createMixGraph, busTarget } = await import('/src/audio/graph.ts');
     const { CampfireLoop, CaveBed, CrystalHum, LanternLoop } = await import('/src/audio/layers.ts');
@@ -107,8 +112,9 @@ try {
     const music = new MusicPlayer(t('music'), 3);
     for (let now = 0; now < seconds; now += 0.1) music.update(now, 'mid');
     let voices = 0;
-    for (let at = 0.5; at < seconds - 1; at += 0.42, voices++) playSfx(t('sfx'), voices % 3 ? 'hit.stone' : 'hit.metal', { progress: (voices % 8) / 8 }, at);
-    for (let at = 0.3; at < seconds - 1; at += 0.4) playSfx(t('sfx'), 'step.stone', {}, at);
+    for (let at = 0.5; at < seconds - 1; at += 0.25, voices++) playSfx(t('sfx'), voices % 3 ? 'tap.stone' : 'tap.metal', { progress: (voices % 8) / 8 }, at);
+    for (let at = 0.7; at < seconds - 1; at += 0.75, voices++) playSfx(t('sfx'), 'break.stone', { pitch: Math.pow(2, (voices % 5) * 2 / 12) }, at);
+    for (let at = 1.4; at < seconds - 1; at += 0.75) playSfx(t('sfx'), 'coin.tick', { pitch: 1.2 }, at);
     for (let at = 1; at < seconds - 1; at += 2.7) playSfx(t('ambience'), 'amb.drip', { pan: 0.5 }, at);
     const t0 = performance.now();
     const buf = await ctx.startRendering();
@@ -125,12 +131,13 @@ try {
     const live = await page.evaluate(async () => {
       const { EventBus } = await import('/src/core/events.ts');
       const { AudioSystem, SFX_VOICES } = await import('/src/audio/AudioSystem.ts');
-      const { B } = await import('/src/config/blocks.ts');
+      const { Big } = await import('/src/core/big.ts');
+      const { CELL } = await import('/src/idle/model/state.ts');
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       const bus = new EventBus();
       const audio = new AudioSystem(bus);
       await audio.unlock();
-      const state = { depth: 100, atCamp: false, openness: 0.8, lanternFuel: 0.15, lanternLit: true, nearCrystal: 0.6, nearFire: 0.5, playerSpeed: 3, inMenu: false };
+      const state = { depth: 100, openness: 0.8, nearCrystal: 0.6, nearFire: 0, inMenu: false };
       const out = { unlocked: audio.unlocked, contextState: audio.stats().state, ambientPeak: 0, eventPeak: 0, burstPeak: 0, maxVoices: 0, maxMusicVoices: 0, moods: [] };
       let last = performance.now();
       const frames = async (seconds, onFrame) => {
@@ -148,30 +155,34 @@ try {
           await sleep(16);
         }
       };
-      // Ambience, lantern sputter, campfire, crystal hum and the first music phrase.
+      // Ambience, the crystal hum and the first music phrase.
       await frames(3, (m) => (out.ambientPeak = Math.max(out.ambientPeak, m)));
-      const at = { x: 0, y: 0, z: 0 };
+      const G = (n) => Big.from(n);
+      const hit = (kind, combo) => ({ col: 3, depth: 100, kind, source: 'tap', dmg: G(5), crit: combo % 9 === 0, combo, comboMult: 1, cells: 0, chain: 1, surge: false });
       const events = [
-        ['block:hit', { ...at, block: B.SLATE, progress: 0.2 }], ['block:hit', { ...at, block: B.COPPER_ORE, progress: 0.5 }],
-        ['block:hit', { ...at, block: B.CRYSTAL, progress: 0.8 }], ['block:broken', { ...at, block: B.SLATE }],
-        ['block:tooHard', { ...at, block: B.ANCIENT_BRICK, requiredTier: 99 }], ['tool:swing', { tier: 1 }],
-        ['item:picked', { item: 'stone', count: 1 }], ['item:picked', { item: 'ancientTablet', count: 1 }],
-        ['items:banked', { total: 12, items: { stone: 12 } }], ['craft:done', { recipe: 'copperPickaxe' }], ['discovery', { id: 'hollow' }],
-        ['player:footstep', { block: B.SLATE, speed: 4 }], ['player:land', { fallSpeed: 18, block: B.SOIL }],
-        ['player:damaged', { amount: 20, cause: 'fall' }], ['lantern:empty', {}], ['lantern:refueled', {}], ['camp:entered', {}], ['game:saved', { reason: 'test' }],
+        ['tap:hit', hit(CELL.ROCK, 1)], ['tap:hit', hit(CELL.ORE, 12)], ['tap:hit', hit(CELL.GEM, 30)],
+        ['cell:break', { col: 3, depth: 100, kind: CELL.ORE, source: 'tap', gold: G(40), gems: 0, chainIndex: 0, belowRecord: true, crit: false }],
+        ['row:crumble', { depth: 101, cols: [0, 6] }], ['row:clear', { depth: 101, rows: 1, source: 'tap' }],
+        ['buy:done', { id: 'pick', mode: 'x1', levels: 1, from: 4, to: 5, cost: G(120) }], ['buy:fail', { id: 'pick', reason: 'gold' }],
+        ['crew:star', { line: 0, level: 10, stars: 1 }], ['pick:tier', { tier: 1, from: 0, tiers: 1, level: 25 }], ['combo:tier', { tier: 25, combo: 25 }],
+        ['chest:exposed', { id: 'chest:1', col: 3, depth: 102, floor: 'wood' }], ['chest:open', { id: 'chest:1', floor: 'wood', tier: 'crystal', steps: 2, gold: G(900), gems: 2, source: 'tap' }],
+        ['seal:start', { biome: 0, depth: 120, hp: G(5000), time: 30 }], ['seal:hit', { biome: 0, left: 0.5, dmg: G(100), weak: false }],
+        ['seal:break', { biome: 0, depth: 120, time: 19 }], ['biome:reveal', { biome: 1 }], ['skill:dynamite', { from: 100, rows: 6, gold: G(3000) }],
+        ['offline:collect', { gold: G(20000), chests: 1 }],
       ];
       for (const [type, payload] of events) {
         bus.emit(type, payload);
         await frames(0.12, (m) => (out.eventPeak = Math.max(out.eventPeak, m)));
       }
-      audio.ui('click');
-      // Stress: far more hits than the voice cap in one second.
+      audio.ui('tap');
+      // Stress: far more taps than the voice cap in one second.
       for (let i = 0; i < 60; i++) {
-        bus.emit('block:hit', { ...at, block: i % 2 ? B.SLATE : B.COPPER_ORE, progress: (i % 10) / 10 });
+        bus.emit('tap:hit', hit(i % 2 ? CELL.ROCK : CELL.ORE, i));
         await frames(0.016, (m) => (out.burstPeak = Math.max(out.burstPeak, m)));
       }
-      state.atCamp = true;
-      state.depth = 49;
+      // Back at the surface camp (the top of the shaft).
+      state.depth = 0;
+      state.nearFire = 1;
       await frames(2.5);
       audio.setPaused(true);
       await frames(0.5);

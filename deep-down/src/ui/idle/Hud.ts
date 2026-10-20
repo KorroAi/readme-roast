@@ -12,6 +12,7 @@ import { h } from '../dom';
 import { spring, tween } from '../fx/waapi';
 import { DepthRuler, type RulerMark } from './DepthRuler';
 import { FirstTimeCard } from './FirstTimeCard';
+import { ChestMarkers } from './ChestMarkers';
 import { GhostHand, type GuideTarget } from './GhostHand';
 import { GoalBar } from './GoalBar';
 import { iconEl } from './icons';
@@ -76,6 +77,8 @@ export class Hud {
   readonly sheets = new Sheets();
   readonly first = new FirstTimeCard();
   readonly guide = new GhostHand();
+  /** The popped chests waiting for a tap (W1: drawn by the HUD). */
+  readonly chests = new ChestMarkers();
   readonly feast: ReturnFeast;
   readonly dig: ReturnType<typeof createDigSheet>;
   readonly crew: ReturnType<typeof createCrewSheet>;
@@ -139,6 +142,7 @@ export class Hud {
       this.goal.el,
       this.sealBar,
       this.ruler.el,
+      this.chests.el,
       this.stampEl,
       this.skill.el,
       this.quick.el,

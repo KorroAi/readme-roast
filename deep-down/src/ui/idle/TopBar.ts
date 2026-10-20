@@ -91,9 +91,10 @@ export class TopBar {
     const d = formatDepth(rows);
     if (d !== this.depthS) {
       this.depthS = d;
-      const cut = d.lastIndexOf(' ');
-      this.depthV.textContent = cut > 0 ? d.slice(0, cut) : d;
-      this.depthU.textContent = cut > 0 ? d.slice(cut + 1) : '';
+      // "20 m", "4.52 km" (the notation puts a thin space before the unit).
+      const m = /^(.*?)[\s\u2009\u202f]+([a-zA-Z]+)$/.exec(d);
+      this.depthV.textContent = m ? m[1] : d;
+      this.depthU.textContent = m ? m[2] : '';
     }
     if (biome !== this.biomeS) {
       this.biomeS = biome;

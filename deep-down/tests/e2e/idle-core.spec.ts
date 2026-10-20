@@ -146,14 +146,15 @@ test('F2 + F3: 500 random taps in the world all resolve; 20 random points per co
       if (k % 6 === 5) await waitFrames(page, 1);
     }
     await waitFrames(page, 2);
-    const recs = (await page.evaluate(() => window.__DD__.idle.lastTaps())).slice(-pts.length);
-    expect(recs.length).toBe(pts.length);
+    // Match every point to its record by position (a record per pointerdown; none may be missing).
+    const all = (await page.evaluate(() => window.__DD__.idle.lastTaps())).slice(-pts.length - 16);
+    const recs = pts.map((p) => all.find((r) => Math.abs(r.x - p.x) < 1.5 && Math.abs(r.y - p.y) < 1.5));
     for (let i = 0; i < pts.length; i++) {
       const r = recs[i];
-      expect(r.col >= 0 || r.entity !== '', `tap at ${pts[i].x.toFixed(0)},${pts[i].y.toFixed(0)} resolved to nothing`).toBe(true);
-      if (pts[i].want !== undefined && !r.entity) expect(Math.abs(r.x - pts[i].x)).toBeLessThan(1.5);
+      expect(r, `tap at ${pts[i].x.toFixed(0)},${pts[i].y.toFixed(0)} has no record (dropped)`).toBeTruthy();
+      expect(r!.col >= 0 || r!.entity !== '', `tap at ${pts[i].x.toFixed(0)},${pts[i].y.toFixed(0)} resolved to nothing`).toBe(true);
     }
-    return recs;
+    return recs.map((r) => r!);
   };
   // F2: 500 random points in the world region (10 batches of 50).
   for (let b = 0; b < 10; b++) {
@@ -161,30 +162,26 @@ test('F2 + F3: 500 random taps in the world all resolve; 20 random points per co
     await check(pts);
   }
   // F3: 20 random points per column (x inside the strip, any height in the world region) map to that column.
-  const tops = await page.evaluate(() => window.__DD__.idle.columns());
   for (let c = 0; c < 7; c++) {
-    const s = tops.strips[c];
-    const pts = Array.from({ length: 20 }, () => ({ x: s.left + 2 + rnd() * (s.right - s.left - 4), y: region.top + 8 + rnd() * (region.bottom - region.top - 16), want: c }));
+    // The strips as they are now, 10 px inside each edge: the camera's idle sway (±0.6° of yaw at 12.6 m) moves the
+    // whole shaft up to about 6 px while a batch is tapped, and the mapping follows the shaft.
+    const s = (await page.evaluate(() => window.__DD__.idle.columns())).strips[c];
+    const pts = Array.from({ length: 20 }, () => ({ x: s.left + 10 + rnd() * (s.right - s.left - 20), y: region.top + 8 + rnd() * (region.bottom - region.top - 16), want: c }));
     const recs = await check(pts);
-    // The column mapping itself (the target rule may move the hit to a neighbour when this column is dug deep).
-    const mapped = await page.evaluate((xs) => xs.map((x) => {
-      const st = window.__DD__.idle.columns().strips;
-      let k = 0;
-      for (let i = 0; i < 7; i++) if (x >= st[i].left) k = i;
-      return k;
-    }), pts.map((p) => p.x));
-    for (let i = 0; i < pts.length; i++) expect(mapped[i], `x ${pts[i].x.toFixed(1)}`).toBe(c);
-    const own = recs.filter((r) => r.col === c).length;
-    expect(own, `column ${c}: ${recs.map((r) => r.col).join(',')}`).toBeGreaterThanOrEqual(16);
+    // The column under the finger is that column for every point (the target rule may then move the hit to a
+    // neighbour once this column is dug 2 rows below the floor; that is the hit, not the mapping).
+    const raws = recs.filter((r) => !r.entity).map((r) => r.raw);
+    expect(raws.length, `column ${c}: every tap resolved to a column`).toBeGreaterThanOrEqual(18);
+    for (const r of raws) expect(r, `column ${c}: raw columns ${raws.join(',')}`).toBe(c);
   }
-  // The wall margins: left of column 0 → 0, right of column 6 → 6 (when those columns still hold the target).
+  // The wall margins: left of column 0 → 0, right of column 6 → 6.
   const margins = [
     { x: Math.max(2, strips[0].left - 10), y: cols.floorY + 16, want: 0 },
     { x: Math.min(388, strips[6].right + 10), y: cols.floorY + 16, want: 6 },
   ];
   const mr = await check(margins);
-  expect(Math.abs(mr[0].col - 0)).toBeLessThanOrEqual(1);
-  expect(Math.abs(mr[1].col - 6)).toBeLessThanOrEqual(1);
+  expect(mr[0].raw, 'the left wall margin maps to column 0').toBe(0);
+  expect(mr[1].raw, 'the right wall margin maps to column 6').toBe(6);
 });
 
 test('buying the Pick and the Shovel Hand with real taps; a 1.5 s hold-to-buy; the BEST tab moves', async ({ page }) => {

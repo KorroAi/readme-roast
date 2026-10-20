@@ -29,7 +29,7 @@ export const release = {
   'release.privacy.networkTitle': 'Nothing leaves your device',
   'release.privacy.network': 'The game sends nothing over the network. The Android app does not request permission to use the internet, so it cannot.',
   'release.privacy.storageTitle': 'What stays on your device',
-  'release.privacy.storage': 'Your saved expedition and your settings are kept in the app’s own storage on your device. Uninstalling the game or clearing its storage deletes them.',
+  'release.privacy.storage': 'Your saved descent and your settings are kept in the app’s own storage on your device. Uninstalling the game or clearing its storage deletes them.',
   'release.privacy.backupTitle': 'Android backup',
   'release.privacy.backup': 'If you have turned on Android’s device backup, Android may include the game’s saved data in your backup, under Google’s terms. The developer cannot see or access it.',
   'release.privacy.permissionsTitle': 'Permissions',

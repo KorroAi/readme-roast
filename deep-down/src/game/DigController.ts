@@ -8,7 +8,7 @@ import type { IdleBus, IdleEvents } from '../idle/bus';
 import type { ModelTap } from '../idle/model/tap';
 import { columnTops } from '../idle/model/shaft';
 import type { IdleState } from '../idle/model/state';
-import type { DescentBreak, DescentScene } from '../render/descent/DescentScene';
+import type { DescentBreak, DescentScene, PickedEntity } from '../render/descent/DescentScene';
 import { TapCap, columnAt, inReach, targetColumn, type TapInput } from '../ui/idle/TapSurface';
 
 /** A tappable the UI knows about (chests popped out, the moth): its id and screen circle. */
@@ -22,7 +22,10 @@ export interface UiEntity {
 export interface TapRecord {
   x: number;
   y: number;
+  /** The column the target rule hit (−1: an entity). */
   col: number;
+  /** The column under the finger (F3), before the target rule. */
+  raw: number;
   row: number;
   kind: string;
   counted: boolean;
@@ -52,6 +55,9 @@ export class DigController {
   entities: () => readonly UiEntity[] = () => [];
   /** Cells that took a hit over the cap this frame (they flash, nothing else). */
   capped = 0;
+  /** Hits so far on the scene's multi-tap props, and the tutorial crystals' model ids in the order first touched. */
+  private readonly propHits = new Map<string, number>();
+  private readonly crystalIds = new Map<string, string>();
 
   constructor(
     bus: IdleBus,
@@ -104,7 +110,15 @@ export class DigController {
       }
       if (!entity) {
         const picked = this.scene.pickEntity(tp.x, tp.y);
-        if (picked && inReach(picked.y, floorY)) entity = picked.id;
+        if (picked && inReach(picked.y, floorY)) {
+          const id = this.propEntity(picked, strips);
+          if (id === '') {
+            // A hit on a multi-tap prop that is not done yet: the thumb sees it, the model has nothing to do.
+            this.record(tp, -1, picked.row, true, picked.id, frame);
+            return -1;
+          }
+          if (id) entity = id;
+        }
       }
     }
     if (entity) {
@@ -124,13 +138,37 @@ export class DigController {
       this.capped++;
       if (target >= 0) this.scene.cellFx(row, target, 0.4, 0.4, 0);
     }
-    this.record(tp, target >= 0 ? target : col, row, counted, '', frame);
+    this.record(tp, target >= 0 ? target : col, row, counted, '', frame, col);
     return target;
   }
 
-  private record(tp: TapInput, col: number, row: number, counted: boolean, entity: string, frame: number): void {
+  /**
+   * The model's id for a scene prop that was tapped: '' for a hit that does not finish it yet, null when the model has
+   * no use for it in this build (the tap then digs the column, as any other tap). W1: the tutorial grotto's crystal
+   * clusters (B's props, `taps` hits each) become the model's `crystal:<n>` on their last hit.
+   */
+  private propEntity(p: PickedEntity, strips: { left: number; right: number }): string | null {
+    if (p.kind !== 'crystal') return null;
+    const hits = (this.propHits.get(p.id) ?? 0) + 1;
+    this.propHits.set(p.id, hits);
+    const col = Math.max(0, Math.min(6, Math.floor(((p.x - strips.left) / Math.max(1, strips.right - strips.left)) * 7)));
+    if (hits < p.taps) {
+      this.scene.burst('gem', p.row, col, 5);
+      return '';
+    }
+    let id = this.crystalIds.get(p.id);
+    if (!id) {
+      id = `crystal:${this.crystalIds.size}`;
+      this.crystalIds.set(p.id, id);
+    }
+    this.propHits.delete(p.id);
+    this.scene.removeEntity(p.id);
+    return id;
+  }
+
+  private record(tp: TapInput, col: number, row: number, counted: boolean, entity: string, frame: number, raw = -1): void {
     if (this.records.length >= RECORDS) this.records.shift();
-    this.records.push({ x: tp.x, y: tp.y, col, row, kind: tp.kind, counted, entity, t: tp.t, frame });
+    this.records.push({ x: tp.x, y: tp.y, col, raw, row, kind: tp.kind, counted, entity, t: tp.t, frame });
     if (tp.kind === 'tap') this.pendingFrames.push({ frame });
   }
 

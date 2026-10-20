@@ -52,7 +52,7 @@ export interface LedgerRow {
 }
 
 /**
- * Ledger rows, the expedition kit's tables: label, a brass dotted leader, a tabular value.
+ * Ledger rows, the kit's tables: label, a brass dotted leader, a tabular value.
  * Shared by every screen that lists counts (black-out, reports, requirements).
  */
 export function ledger(rows: LedgerRow[], className = ''): HTMLElement {

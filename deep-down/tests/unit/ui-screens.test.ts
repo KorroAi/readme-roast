@@ -185,17 +185,17 @@ describe('the menu at the surface', () => {
     el.byKey('settings')!.click();
     el.byKey('about')!.click();
     expect(log).toEqual(['play', 'show:settings', 'show:about']);
-    expect(el.textContent).not.toMatch(/expedition|backpack|camp/i);
+    expect(el.textContent).not.toMatch(/backpack|workbench|inventory|camp/i);
   });
 });
 
 describe('settings', () => {
-  it('lists the W1 rows: sound, haptics, shake, left-handed, quality, brightness, show FPS, text size, contrast', async () => {
+  it('lists the W1 rows: sound, haptics and their strength, shake, left-handed, quality, brightness, show FPS, text size, contrast, motion, flashes, notation', async () => {
     const { settings, types } = await load();
     const { h } = host({}, { ...types.DEFAULT_SETTINGS });
     const el = settings.buildSettings(h) as unknown as El;
     const keys = new Set(el.all().map((e) => e.getAttribute('data-key')).filter(Boolean));
-    for (const k of ['masterVolume', 'musicVolume', 'sfxVolume', 'vibration', 'shake', 'leftHanded', 'quality:battery', 'quality:balanced', 'quality:high', 'brightness', 'showFps', 'textSize:normal', 'textSize:large', 'contrast', 'reset', 'delete', 'about', 'close']) {
+    for (const k of ['masterVolume', 'musicVolume', 'sfxVolume', 'vibration', 'shake', 'leftHanded', 'quality:battery', 'quality:balanced', 'quality:high', 'brightness', 'showFps', 'textSize:normal', 'textSize:large', 'contrast', 'hapticStrength:light', 'hapticStrength:strong', 'motion:full', 'motion:reduced', 'motion:off', 'flashes:on', 'flashes:soft', 'flashes:off', 'notation:letters', 'notation:scientific', 'reset', 'delete', 'about', 'close']) {
       expect(keys.has(k), k).toBe(true);
     }
     // No look sensitivity, invert Y or camera follow: there is no camera to drive.
@@ -208,8 +208,12 @@ describe('settings', () => {
     const el = settings.buildSettings(ctx.h) as unknown as El;
     el.byKey('leftHanded')!.click();
     el.byKey('quality:high')!.click();
+    el.byKey('motion:reduced')!.click();
+    el.byKey('flashes:soft')!.click();
     expect(ctx.settings.leftHanded).toBe(true);
     expect(ctx.settings.quality).toBe('high');
+    expect(ctx.settings.motion).toBe('reduced');
+    expect(ctx.settings.flashes).toBe('soft');
     expect(ctx.log).toContain('set:leftHanded');
   });
 

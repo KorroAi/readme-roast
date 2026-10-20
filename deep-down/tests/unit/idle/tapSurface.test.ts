@@ -135,3 +135,73 @@ describe('desktop keys (SPEC §3.1)', () => {
     expect(keyAction('KeyW', false)).toBeNull();
   });
 });
+
+import { TapSurface } from '../../../src/ui/idle/TapSurface';
+
+describe('TapSurface hold stream (SPEC §3.1, CRITIQUE MUST 1)', () => {
+  /** A fake canvas: records listeners so the test can fire pointer events. */
+  function surface() {
+    const listeners = new Map<string, (e: unknown) => void>();
+    const el = { addEventListener: (t: string, fn: (e: unknown) => void) => listeners.set(t, fn), removeEventListener: () => undefined, setPointerCapture: () => undefined };
+    let clock = 0;
+    const ts = new TapSurface(el as unknown as HTMLElement, {
+      region: () => ({ top: 0, bottom: 800, left: 0, right: 390 }),
+      strips: () => ({ left: 41, right: 349, floorY: 400 }),
+      now: () => clock,
+    });
+    const fire = (type: string, x = 195, id = 1) => listeners.get(type)?.({ pointerId: id, clientX: x, clientY: 420, pointerType: 'touch', button: 0, cancelable: false, preventDefault: () => undefined });
+    const kinds = () => {
+      const out: string[] = [];
+      ts.drain((t) => out.push(t.kind));
+      return out;
+    };
+    return { ts, fire, kinds, at: (t: number) => (clock = t) };
+  }
+
+  it('a held finger streams at the hold rate after 250 ms (one frame later than the delay)', () => {
+    const { ts, fire, kinds, at } = surface();
+    at(0);
+    fire('pointerdown');
+    expect(kinds()).toEqual(['tap']);
+    let holds = 0;
+    for (let t = 16; t <= 2000; t += 16) {
+      at(t);
+      ts.update(t, 3);
+      holds += kinds().filter((k) => k === 'hold').length;
+    }
+    // 3/s from 250 ms to 2 s: 1 + floor(1750 / 333) = 6.
+    expect(holds).toBeGreaterThanOrEqual(5);
+    expect(holds).toBeLessThanOrEqual(6);
+  });
+
+  it('a quick tap whose pointerup waited behind one long frame is not read as a hold', () => {
+    const { ts, fire, kinds, at } = surface();
+    at(0);
+    fire('pointerdown');
+    kinds();
+    // One 700 ms frame runs before the queued pointerup is handled.
+    at(700);
+    ts.update(700, 3);
+    expect(kinds()).toEqual([]);
+    fire('pointerup');
+    at(716);
+    ts.update(716, 3);
+    expect(kinds()).toEqual([]);
+  });
+
+  it('one stream for every finger together (three held fingers still give 3/s)', () => {
+    const { ts, fire, kinds, at } = surface();
+    at(0);
+    fire('pointerdown', 100, 1);
+    fire('pointerdown', 195, 2);
+    fire('pointerdown', 300, 3);
+    kinds();
+    let holds = 0;
+    for (let t = 16; t <= 1300; t += 16) {
+      at(t);
+      ts.update(t, 3);
+      holds += kinds().filter((k) => k === 'hold').length;
+    }
+    expect(holds).toBeLessThanOrEqual(4);
+  });
+});

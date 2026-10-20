@@ -49,7 +49,8 @@ export function hudLayout(width: number, height: number, safeTop = 0, safeBottom
   const goalH = 48;
   const grow = large ? 12 : 0;
   const tabH = 56;
-  const quickH = (compact ? 68 : 76) + grow;
+  // 74 px on compact screens: the card's name, socket and price need it (68 clipped the name at 360 × 740).
+  const quickH = (compact ? 74 : 76) + grow;
   const skillH = compact ? 48 : 56;
 
   const topA = safeTop;
@@ -65,7 +66,8 @@ export function hudLayout(width: number, height: number, safeTop = 0, safeBottom
   // ≡ is a 48 px target (U1), centred on the top bar's line.
   const menuW = 48;
   const menu: Rect = { x: colX + colW - pad - menuW + 8, y: topA + Math.round((barA - 48) / 2), w: menuW, h: 48 };
-  const depthW = compact ? 100 : 108;
+  // Wide enough for the longest W1 biome name under the depth ("Topsoil Roots", "Crystal Grotto") at 12 px.
+  const depthW = compact ? 112 : 120;
   const depth: Rect = { x: menu.x - GAP - depthW - 2, y: topA, w: depthW, h: barA };
   const gold: Rect = { x: colX + pad, y: topA, w: depth.x - GAP - (colX + pad) - 2, h: barA };
   const gems: Rect = { x: depth.x, y: topB, w: depthW, h: barB };

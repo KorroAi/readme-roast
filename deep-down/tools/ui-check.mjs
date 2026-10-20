@@ -201,8 +201,19 @@ try {
       const f0 = await floor();
       checks++;
       if (!(f0.floorY > f0.top && f0.floorY < f0.bottom)) fail(where, `U3 floor y ${f0.floorY.toFixed(0)} outside the region ${f0.top}–${f0.bottom}`);
-      // Reveal the Dig tab (the Pick step arrives at 30 gold), then open the sheet with a real tap.
-      await page.evaluate(() => window.__DD__.idle.give({ gold: 40 }));
+      // Reveal the Dig tab the way a player does: real taps on the floor (the Pick step arrives at 30 gold and brings
+      // the tab), then open the sheet with a real tap.
+      for (let i = 0; i < 120; i++) {
+        if (await page.evaluate(() => window.__DD__.idle.hud().rects['tab:dig']?.visible === true)) break;
+        const p = await page.evaluate(() => {
+          const c = window.__DD__.idle.columns();
+          const s = c.strips[2 + (Math.floor(Math.random() * 3))];
+          return { x: (s.left + s.right) / 2, y: c.floorY + 18 };
+        });
+        await page.touchscreen.tap(p.x, p.y);
+        await page.waitForTimeout(150);
+        if (i === 30) await page.evaluate(() => window.__DD__.idle.give({ gold: 40 }));
+      }
       await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:dig']?.visible, null, { timeout: 60_000, polling: 250 });
       const tab = await page.evaluate(() => window.__DD__.idle.hud().rects['tab:dig']);
       await page.touchscreen.tap(tab.x + tab.w / 2, tab.y + tab.h / 2);

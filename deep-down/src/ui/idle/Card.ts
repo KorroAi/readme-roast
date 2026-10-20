@@ -17,8 +17,21 @@ export type CardState = 'hidden' | 'locked' | 'poor' | 'near' | 'ready' | 'maxed
  * placeholder ever reaches a player.
  */
 export function tr(key: string, params?: Record<string, string | number>): string {
-  return key && hasText(key) ? t(key as TextKey, params) : '';
+  if (!key || !hasText(key)) return '';
+  if (!params) return t(key as TextKey);
+  // A parameter may itself name a key (the model passes `warden: 'idle.warden.haldenHatch'`): it reads as its text.
+  let resolved: Record<string, string | number> | null = null;
+  for (const k in params) {
+    const v = params[k];
+    if (typeof v === 'string' && KEYISH.test(v) && hasText(v)) {
+      resolved ??= { ...params };
+      resolved[k] = t(v as TextKey);
+    }
+  }
+  return t(key as TextKey, resolved ?? params);
 }
+
+const KEYISH = /^[a-z][a-zA-Z0-9]*(\.[a-zA-Z0-9]+)+$/;
 
 /** Ready pings: ≤ 1 per card per 3 s and ≤ 1 per 400 ms overall (SPEC §10.7). */
 export class PingLimiter {
@@ -208,7 +221,7 @@ export class Card {
       this.nameS = name;
       this.name.textContent = name;
     }
-    const lv = v.locked ? t('ui.card.locked', { depth: `${v.unlockDepth} m` }) : v.kind === 'gear' ? '' : v.maxed ? t('ui.card.maxed') : v.levels > 1 ? t('ui.card.levelUp', { level: v.level, to: v.level + v.levels }) : v.level === 0 && v.kind === 'crew' ? t('ui.card.hire') : t('ui.card.level', { level: v.level });
+    const lv = v.locked ? t('ui.card.locked', { depth: `${v.unlockDepth} m` }) : v.kind === 'gear' ? '' : v.maxed ? t('ui.card.maxed') : v.levels > 1 ? t(this.o.shape === 'quick' ? 'ui.card.levelUpShort' : 'ui.card.levelUp', { level: v.level, to: v.level + v.levels }) : v.level === 0 && v.kind === 'crew' ? t('ui.card.hire') : t('ui.card.level', { level: v.level });
     if (lv !== this.lvS) {
       this.lvS = lv;
       this.lv.textContent = lv;

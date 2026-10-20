@@ -2,8 +2,9 @@
 // virtual origin https://appassets.androidplatform.net/ with the same MIME table, every other
 // request refused (data:/blob: pass through). Then play the opening of the game on a phone-sized
 // touch viewport. This checks packaging, relative paths, module workers and storage on that
-// origin, the bundled privacy statement and licences, and the crash panel. It is not a device
-// test: a real Android WebView may still differ.
+// origin, the bundled privacy statement and licences, and the crash panel: a first launch lands in the
+// shaft, a real tap digs, a save survives a reload (the menu at the surface offers Descend). It is not a
+// device test: a real Android WebView may still differ.
 //
 // Usage: node tools/apk-sim.mjs [path/to/deep-down-debug.apk]
 // SwiftShader under load is slow: every wait allows minutes, and the load average is printed so
@@ -27,7 +28,7 @@ const since = () => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 console.log(`apk-sim: ${apk}; load average ${load()}`);
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
 const refused = [];
 const served = [];
 await ctx.route('**/*', async (route) => {
@@ -55,38 +56,41 @@ const check = (ok, what) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`);
   if (!ok) process.exitCode = 1;
 };
-const atMenu = () => page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: WAIT });
+const atMode = (m) => page.waitForFunction((x) => window.__DD__?.idle?.ready && window.__DD__.idle.mode() === x, m, { timeout: WAIT });
+const atMenu = () => atMode('menu');
 
 try {
   await page.goto(`https://${HOST}/index.html`);
-  await atMenu();
-  check(true, `game boots to the main menu from the APK files (${since()})`);
+  // A first launch goes straight into the shaft.
+  await atMode('playing');
+  check(true, `a first launch boots into the shaft from the APK files (${since()})`);
   const version = await page.evaluate(() => window.__DD_RELEASE__?.version ?? null);
   const packaged = JSON.parse(readFileSync(join(www, 'version.json'), 'utf8'));
   check(version?.versionCode === packaged.versionCode && version?.version === packaged.version, `the game reports version ${version?.version} (versionCode ${version?.versionCode}), as packaged`);
-  const timings = await page.evaluate(() => window.__DD__.report().timings);
-  check(timings.worker === 1, `world generated in the module worker (${JSON.stringify(timings)})`);
-  await page.getByRole('button', { name: /New Expedition/i }).tap();
-  await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: WAIT });
-  check(true, `New Expedition starts play (${since()})`);
-  const icons = await page.evaluate(() => [...document.querySelectorAll('img')].filter((i) => i.complete && i.naturalWidth > 0).length);
-  // Generated icons are data: PNGs (the shell must let them through): decode one for real.
-  const heart = await page.evaluate(async () => {
-    const el = [...document.querySelectorAll('[style]')].find((e) => e.style.getPropertyValue('--heart-1'));
-    const url = el?.style.getPropertyValue('--heart-1').match(/url\("(.*)"\)/)?.[1];
-    if (!url) return 0;
-    const img = new Image();
-    img.src = url;
-    await img.decode();
-    return img.naturalWidth;
+  const slabs = await page.evaluate(() => window.__DD__.internals.game.scene.debug.slabs());
+  check(slabs.worker === true && slabs.applied > 0, `slabs generated in the module worker (${JSON.stringify(slabs)})`);
+  // A real tap on the floor digs.
+  await page.evaluate(() => window.__DD__.idle.clearEvents());
+  const floor = await page.evaluate(() => {
+    const c = window.__DD__.idle.columns();
+    const s = c.strips[3];
+    return { x: (s.left + s.right) / 2, y: c.floorY + 18 };
   });
-  check(heart > 0, `HUD heart icon (data: PNG) decodes (${heart} px)`);
-  const saved = await page.evaluate(() => window.__DD__.save());
+  for (let i = 0; i < 3; i++) await page.touchscreen.tap(floor.x, floor.y);
+  await page.waitForFunction(() => window.__DD__.idle.events('tap:hit').length > 0, null, { timeout: WAIT });
+  check(true, `a real tap digs the floor (${since()})`);
+  // The icons are one inline SVG sprite sheet (no image files): every HUD icon resolves to a symbol.
+  const icons = await page.evaluate(() => {
+    const uses = [...document.querySelectorAll('#ui use')];
+    return { uses: uses.length, missing: uses.filter((u) => !document.querySelector(u.getAttribute('href') ?? '#none')).length };
+  });
+  check(icons.uses > 0 && icons.missing === 0, `HUD icons resolve from the sprite sheet (${icons.uses} uses, ${icons.missing} missing)`);
+  const saved = await page.evaluate(() => window.__DD__.idle.save());
   const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('deepdown.save')).length);
   check(saved && stored > 0, `save written to localStorage on the app origin (${stored} keys)`);
   await page.reload();
   await atMenu();
-  check(await page.getByRole('button', { name: /Continue/i }).count() > 0, `after a reload the menu offers Continue (${since()})`);
+  check(await page.getByRole('button', { name: /Descend/i }).count() > 0, `after a reload the menu at the surface offers Descend (${since()})`);
 
   // The bundled privacy statement and licences open offline from the app origin.
   const doc = await ctx.newPage();
@@ -116,7 +120,7 @@ try {
     await page.locator('.dd-crash-restart').tap();
     await atMenu();
     expectErrors = false;
-    check(await page.getByRole('button', { name: /Continue/i }).count() > 0, `Restart reloads to the menu with Continue (${since()})`);
+    check(await page.getByRole('button', { name: /Descend/i }).count() > 0, `Restart reloads to the menu with Descend (${since()})`);
   }
 } catch (e) {
   check(false, `${e instanceof Error ? e.message.split('\n')[0] : e} (after ${since()}, load average ${load()})`);

@@ -169,40 +169,50 @@ const SCENES = {
   async 'quickbuy-states'(page, touch) {
     await mode(page, 'playing');
     await earlyGame(page, touch, 12);
-    for (let k = 0; k < 24; k++) {
-      const v = (await quickViews(page)).filter(Boolean);
-      const best = v.find((x) => x.best);
-      const others = v.filter((x) => !x.best).sort((a, b) => a.cost - b.cost);
-      if (best && others.length && others[0].cost < best.cost + Math.log10(0.86)) {
-        const target = Math.max(others[0].cost, best.cost + Math.log10(0.9));
-        const now = await page.evaluate(() => window.__DD__.idle.ledger().actualLog10);
-        await page.evaluate((add) => window.__DD__.idle.give({ gold: add }), Math.max(0, Math.pow(10, target) - Math.pow(10, Number.isFinite(now) ? now : 0)) + 0.5);
-        await waitFrames(page, 4);
-        break;
-      }
-      // BEST is the cheapest: buy it once so the others become the cheaper ones.
-      await page.evaluate((c) => window.__DD__.idle.give({ gold: Math.pow(10, c) + 1 }), best ? best.cost : 1);
-      await waitFrames(page, 2);
-      const slot = (await page.evaluate(() => window.__DD__.idle.hud().quick)).find((q) => q.best)?.slot ?? 0;
-      await touch.tapRect(`quick:${slot}`);
-      await waitFrames(page, 2);
-    }
-    await page.waitForTimeout(500);
+    // Set the bank so the cheaper card is ready, BEST sits at 90 % of its price and the newest line stays out of
+    // reach (a capture tool may set the state; the shot is of the HUD's answer to it).
+    const v = (await quickViews(page)).filter(Boolean);
+    const best = v.find((x) => x.best) ?? v[0];
+    const cheaper = v.filter((x) => x !== best && x.cost < best.cost + Math.log10(0.9));
+    const target = Math.max(best.cost + Math.log10(0.9), ...cheaper.map((x) => x.cost));
+    await page.evaluate((l) => {
+      const g = window.__DD__.internals.game;
+      g.state.run.gold.setLog10(l);
+      g.ui.hud.top.gold.snap(l);
+    }, target + 1e-4);
+    await waitFrames(page, 6);
+    await page.waitForTimeout(600);
   },
-  /** The first ★: the Shovel Hand's 10th level, the stamp on screen. */
+  /** The first ★: the Shovel Hand's 10th level bought with taps on its quick-buy card, the ★ on the card, its ring
+   * and the "★ ×2" label (the FX clock held a quarter second into the ceremony). */
   async star(page, touch) {
     await mode(page, 'playing');
-    await earlyGame(page, touch, 12);
+    await earlyGame(page, touch, 8);
     await page.evaluate(() => window.__DD__.idle.give({ gold: 1e5 }));
     await waitFrames(page, 2);
-    for (let i = 0; i < 20; i++) {
-      const lv = await page.evaluate(() => window.__DD__.internals.game.state.run.lines[0]);
-      if (lv >= 10) break;
+    await page.evaluate(() => {
+      const fx = window.__DD__.internals.fx;
+      const tick = () => {
+        const e = window.__DD__.idle.events('crew:star')[0];
+        if (e && performance.now() - e.t > 220) {
+          fx.frozenAt = performance.now();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (let i = 0; i < 14; i++) {
+      if (await page.evaluate(() => window.__DD__.internals.fx.frozenAt !== null)) break;
+      const q = await page.evaluate(() => window.__DD__.idle.hud().quick[2]);
+      if (q.id !== 'crew:0') throw new Error(`slot 3 shows ${q.id}, not the Shovel Hand`);
       await touch.tapRect('quick:2');
-      await page.waitForTimeout(80);
-      if (await page.evaluate(() => !!document.querySelector('.dd-stamp:not(.hide)'))) break;
+      await page.waitForTimeout(150);
+      await waitFrames(page, 1);
     }
-    await page.waitForFunction(() => !!document.querySelector('.dd-stamp:not(.hide)'), null, { timeout: 30_000, polling: 30 });
+    await page.waitForFunction(() => window.__DD__.internals.fx.frozenAt !== null, null, { timeout: 30_000, polling: 30 });
+    await waitFrames(page, 1);
+    return async () => page.evaluate(() => (window.__DD__.internals.fx.frozenAt = null));
   },
   /** Back after two hours: the return feast's plate and count-up. */
   async 'return-feast'(page, touch) {

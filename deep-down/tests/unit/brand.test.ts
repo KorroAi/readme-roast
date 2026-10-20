@@ -12,6 +12,7 @@ const NODE_FS: string = 'node:fs';
 const fs = (await import(/* @vite-ignore */ NODE_FS)) as { readFileSync(path: URL, encoding: 'utf8'): string };
 const uiCss = fs.readFileSync(new URL('../../src/ui/ui.css', import.meta.url), 'utf8');
 const stylesCss = fs.readFileSync(new URL('../../src/ui/styles.css', import.meta.url), 'utf8');
+const idleCss = fs.readFileSync(new URL('../../src/ui/idle/idle.css', import.meta.url), 'utf8');
 
 describe('brand tokens', () => {
   it('every text token reads at WCAG AA (4.5:1) on its surface', () => {
@@ -46,18 +47,17 @@ describe('brand tokens', () => {
   });
 
   it('has no neon cyan, no backdrop blur and no pill radii in the UI stylesheets', () => {
-    for (const [name, css] of [['ui.css', uiCss], ['styles.css', stylesCss]] as const) {
+    for (const [name, css] of [['ui.css', uiCss], ['styles.css', stylesCss], ['idle.css', idleCss]] as const) {
       expect(css.toLowerCase(), name).not.toContain('#5ff0ff');
       expect(css, name).not.toMatch(/backdrop-filter/);
       for (const m of css.matchAll(/border-radius:\s*([^;]+);/g)) {
         const v = m[1].trim();
-        // The one listed exception: the joystick base, a round brass bezel (50%).
-        if (v === '50%') continue;
         const px = Number.parseFloat(v);
-        expect(px, `${name}: border-radius ${v}`).toBeLessThan(11);
+        expect(v.endsWith('%') ? Number.NaN : px, `${name}: border-radius ${v}`).toBeLessThan(11);
       }
     }
-    expect([...uiCss.matchAll(/border-radius:\s*50%/g)].length).toBe(1);
+    // The old touch stick's round bezel (the one 50 % exception) left with the old game: the idle HUD is octagons only.
+    expect([...`${uiCss}${idleCss}`.matchAll(/border-radius:\s*50%/g)].length).toBe(0);
   });
 
   it('never sets text below the 12 px floor', () => {

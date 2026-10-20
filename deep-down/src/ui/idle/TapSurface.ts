@@ -172,6 +172,11 @@ interface PointerTrack {
   moved: boolean;
   /** The order it went down (the most recent still finger leads the hold stream). */
   seq: number;
+  /**
+   * A frame has already seen this finger held past the delay. The stream starts on the next one: a quick tap whose
+   * pointerup was queued behind one long frame (a GC pause, a slow device) is never read as a hold.
+   */
+  armed: boolean;
 }
 
 export interface TapSurfaceOptions {
@@ -274,6 +279,10 @@ export class TapSurface {
       this.nextHold = Number.NaN;
       return;
     }
+    if (!lead.armed) {
+      lead.armed = true;
+      return;
+    }
     const interval = 1000 / Math.max(0.5, rate);
     if (Number.isNaN(this.nextHold)) this.nextHold = lead.downT + HOLD_DELAY_MS;
     // At most 2 stream hits a frame (a long frame never floods the ring).
@@ -317,6 +326,7 @@ export class TapSurface {
       col: strips ? columnAt(e.clientX, strips) : -1,
       moved: false,
       seq: ++this.seq,
+      armed: false,
     });
     try {
       this.el.setPointerCapture?.(e.pointerId);

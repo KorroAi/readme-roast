@@ -114,11 +114,17 @@ export class DepthRuler {
         }
       }
     }
-    // Labels every 20 m below the floor (not on the notch).
+    // Labels every 20 m below the floor (not on the notch). Far below, the soft log scale packs them: a label closer
+    // than a line (15 px) to the one above it, or to the next seal's mark, is left out.
     const firstL = Math.ceil((floor + 3) / 20) * 20;
+    let lastY = ny;
+    const sealY = marks.find((m) => m.kind === 'seal' && m.depth >= floor && m.depth <= floor + BELOW);
+    const markY = sealY ? Math.round(rulerY(sealY.depth, floor, floorY, top, bottom) - top) : NaN;
     for (let i = 0; i < LABELS; i++) {
       const d = firstL + i * 20;
-      const y = d <= floor + BELOW ? Math.round(rulerY(d, floor, floorY, top, bottom) - top) : NaN;
+      let y = d <= floor + BELOW ? Math.round(rulerY(d, floor, floorY, top, bottom) - top) : NaN;
+      if (!Number.isNaN(y) && (y - lastY < 15 || Math.abs(y - markY) < 15)) y = NaN;
+      if (!Number.isNaN(y)) lastY = y;
       const el = this.labels[i];
       const text = Number.isNaN(y) ? '' : formatDepth(d);
       if (text !== this.labelText[i]) {

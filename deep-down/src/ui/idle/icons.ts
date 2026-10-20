@@ -1,6 +1,7 @@
 // Vector icons for the idle HUD (cards, plates, tabs): small SVG drawings on a 24-unit grid in the brand's
-// registers (brass and amber for the kit, rune cyan for gems). Built once as markup; elements are made when a
-// card is built, never during play.
+// registers (brass and amber for the kit, rune cyan for gems). Every drawing is a <symbol> in one hidden sprite
+// sheet made at the first icon; an icon element is an <svg><use> made when its card or plate is built, and a swap
+// (a card changing slot, the goal bar's next goal) only rewrites the use's href: no element is made during play (F10).
 
 const svg = (body: string, label = ''): string =>
   `<svg viewBox="0 0 24 24" width="100%" height="100%" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'} fill="none" stroke-linecap="round" stroke-linejoin="round">${body}</svg>`;
@@ -53,19 +54,38 @@ export function iconSvg(id: IconId, label = ''): string {
   return svg(ICONS[id], label);
 }
 
+const SHEET_ID = 'dd-icon-sheet';
+const ref = (id: IconId): string => `#ddi-${id}`;
+
+/** The hidden sprite sheet of every icon (made once). */
+function ensureSheet(): void {
+  if (typeof document === 'undefined' || document.getElementById(SHEET_ID)) return;
+  const host = document.createElement('div');
+  host.innerHTML = `<svg id="${SHEET_ID}" xmlns="http://www.w3.org/2000/svg" width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true">${(Object.keys(ICONS) as IconId[])
+    .map((k) => `<symbol id="ddi-${k}" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">${ICONS[k]}</symbol>`)
+    .join('')}</svg>`;
+  const sheet = host.firstElementChild;
+  if (sheet) (document.body ?? document.documentElement).appendChild(sheet);
+}
+
 /** A span holding an icon (decorative unless `label`). */
 export function iconEl(id: IconId, className = 'dd-ico', label = ''): HTMLElement {
+  ensureSheet();
   const el = document.createElement('span');
   el.className = className;
-  el.innerHTML = iconSvg(id, label); // trusted: generated from the table above
+  el.dataset.icon = id;
+  // trusted: generated from the table above
+  el.innerHTML = `<svg viewBox="0 0 24 24" width="100%" height="100%" ${label ? `role="img" aria-label="${label}"` : 'aria-hidden="true"'}><use href="${ref(id)}"/></svg>`;
   return el;
 }
 
-/** Swap an icon element's drawing (when a card's id changes slot). */
+/** Swap an icon element's drawing (when a card's id changes slot): one attribute write. */
 export function setIcon(el: HTMLElement, id: IconId): void {
   if (el.dataset.icon === id) return;
   el.dataset.icon = id;
-  el.innerHTML = iconSvg(id);
+  const use = el.querySelector('use');
+  if (use) use.setAttribute('href', ref(id));
+  else el.innerHTML = iconSvg(id);
 }
 
 /** The icon for a card id ('pick', 'up:<id>', 'crew:<n>', 'gear:<biome>.<kind>', 'skill:<id>'). */

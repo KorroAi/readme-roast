@@ -1,7 +1,7 @@
 /**
  * Phone screen format. In a mobile browser the game asks for fullscreen (no address bar, no
- * navigation bar) and an upright (portrait) lock when an expedition starts, so the cave fills the screen
- * the way the controls are laid out for. Both requests need a user gesture, so they are made
+ * navigation bar) and an upright (portrait) lock when play starts, so the shaft fills the screen
+ * the way the HUD is laid out for. Both requests need a user gesture, so they are made
  * synchronously from the Start / Continue tap, and any refusal is ignored: the game also plays in
  * landscape and in a windowed browser. The Android shell is already fullscreen and upright.
  */

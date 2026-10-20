@@ -29,6 +29,17 @@ export function settingsRows(sink: SettingsSink): HTMLElement[] {
     section(
       t('ui.settings.feel'),
       toggle(t('ui.settings.haptics'), s.vibration, (vibration) => sink.set({ vibration }), 'vibration', on, off),
+      segmented(
+        t('ui.settings.hapticStrength'),
+        [
+          { value: 'light', text: t('ui.settings.haptic.light') },
+          { value: 'normal', text: t('ui.settings.haptic.normal') },
+          { value: 'strong', text: t('ui.settings.haptic.strong') },
+        ],
+        s.hapticStrength === 'off' ? 'normal' : s.hapticStrength,
+        (hapticStrength) => sink.set({ hapticStrength }),
+        'hapticStrength',
+      ),
       slider(t('settings.cameraShake'), s.cameraShake, (cameraShake) => sink.drag({ cameraShake }), { min: 0, max: 1, step: 0.05, format: percent, key: 'shake' }),
       toggle(t('settings.leftHanded'), s.leftHanded, (leftHanded) => sink.set({ leftHanded }), 'leftHanded', on, off),
     ),
@@ -67,6 +78,40 @@ export function settingsRows(sink: SettingsSink): HTMLElement[] {
         'textSize',
       ),
       toggle(t('settings.highContrast'), s.highContrast, (highContrast) => sink.set({ highContrast }), 'contrast', on, off),
+      // SPEC §10.13: Reduced keeps every flight but stills the camera; Off replaces flights with a highlight.
+      segmented(
+        t('ui.settings.motion'),
+        [
+          { value: 'full', text: t('ui.settings.motion.full') },
+          { value: 'reduced', text: t('ui.settings.motion.reduced') },
+          { value: 'off', text: t('ui.settings.motion.off') },
+        ],
+        s.motion,
+        (motion) => sink.set({ motion }),
+        'motion',
+      ),
+      segmented(
+        t('ui.settings.flashes'),
+        [
+          { value: 'on', text: t('ui.settings.flashes.on') },
+          { value: 'soft', text: t('ui.settings.flashes.soft') },
+          { value: 'off', text: t('ui.settings.flashes.off') },
+        ],
+        s.flashes,
+        (flashes) => sink.set({ flashes }),
+        'flashes',
+      ),
+      segmented(
+        t('ui.settings.notation'),
+        [
+          { value: 'letters', text: t('ui.settings.notation.letters') },
+          { value: 'scientific', text: t('ui.settings.notation.scientific') },
+          { value: 'engineering', text: t('ui.settings.notation.engineering') },
+        ],
+        s.notation,
+        (notation) => sink.set({ notation }),
+        'notation',
+      ),
     ),
   ];
 }

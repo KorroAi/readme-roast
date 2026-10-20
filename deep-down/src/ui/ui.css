@@ -1,5 +1,5 @@
 /* DEEP DOWN UI: "Lamplight on the Lintel".
-   Two registers that never mix. Expedition kit (everything the player owns or does): slate
+   Two registers that never mix. The kit (everything the player owns or does): slate
    plates, an oiled brass rim, amber light, ledger typography. Builders' script (discoveries,
    lore, runes): cyan ink carved in stone. Violet means the unknown, red means danger only.
    Shapes are octagons (45 degree chamfers through clip-path; the 1 px rim is drawn by layered
@@ -125,7 +125,7 @@
    gradient over the fill); the corner layers draw the rim along the chamfers. :where() keeps
    this rule at zero specificity, so any element rule below overrides its variables. */
 
-:where(.dd-panel, .dd-btn, .dd-toast, .dd-seg-btn, .dd-chip-btn, .dd-progress, .dd-switch-track, .dd-ledger, .dd-licences) {
+:where(.dd-panel, .dd-btn, .dd-toast, .dd-seg-btn, .dd-switch-track, .dd-ledger, .dd-licences) {
   --cut: var(--cut-btn);
   --fill: var(--slate-800);
   --rim: var(--brass-700);
@@ -145,10 +145,10 @@
 }
 
 /* Focus ring: an amber-300 octagon drawn inside the plate (clip-path would cut an outline). */
-:is(.dd-btn, .dd-seg-btn, .dd-chip-btn):focus-visible {
+:is(.dd-btn, .dd-seg-btn):focus-visible {
   outline: none;
 }
-:is(.dd-btn, .dd-seg-btn, .dd-chip-btn):focus-visible::after {
+:is(.dd-btn, .dd-seg-btn):focus-visible::after {
   --c: calc(var(--cut) - 1.2px);
   --i: calc(var(--cut) - 2.4px);
   content: '';
@@ -245,23 +245,6 @@
 }
 
 /* ------------------------------------------------------------------------------------ */
-/* HUD */
-
-/* Low health and low fuel share one beat (one loop on screen). */
-
-/* Gauges: an octagon-capped slot with a brass rim. */
-
-/* Room for the Bag and Pause buttons in the corner (2 x 48 px + gaps). */
-
-/* Depth numerals in the Lintel face: carved, tabular, readable at a glance. */
-
-/* The cache chip (Hud.ts) carries its own inline pill style until W4-B moves it to CSS. */
-
-/* Compass bezel: a small brass octagon with the needle inside. */
-
-/* At camp the bezel holds a small lit diamond (the lantern's flame). */
-
-/* The Next line: a ledger plate led by the lantern's diamond. */
 
 /* ------------------------------------------------------------------------------------ */
 /* Notifications */
@@ -295,7 +278,7 @@
 .dd-toast-dot {
   width: 7px;
   height: 7px;
-  rotate: 45deg;
+  transform: rotate(45deg);
   background: var(--bone-300);
   flex: none;
 }
@@ -323,93 +306,7 @@
   }
 }
 
-/* Discovery band: the builders' register. Cyan ink carved under a lintel, on dark stone. */
-
-/* Top: the lintel the title hangs from (groove in ink, a pendant tick at each end). */
-
-.dd-discovery-label {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  color: var(--rune-200);
-  font-size: calc(12px * var(--s));
-  font-weight: 800;
-  letter-spacing: 0.3em;
-  text-transform: uppercase;
-  text-shadow: 0 1px 2px #000;
-}
-
-.dd-discovery-count {
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.12em;
-  color: var(--bone-300);
-}
-.dd-discovery-count::before {
-  content: '\00b7';
-  margin-right: 10px;
-  color: var(--rune-400);
-}
-.dd-discovery-count[hidden] {
-  display: none;
-}
-.dd-discovery-title {
-  margin: 10px 0 6px;
-  font-family: var(--font-lintel);
-  font-size: calc(26px * var(--s));
-  font-weight: 400;
-  line-height: 1.15;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--rune-200);
-  text-shadow: 0 0 14px rgba(47, 182, 204, 0.45), 0 2px 2px rgba(0, 0, 0, 0.85);
-  text-wrap: balance;
-}
-.dd-discovery-body {
-  margin: 0 auto;
-  max-width: 460px;
-  font-size: calc(15px * var(--s));
-  line-height: 1.45;
-  color: var(--bone-100);
-  text-shadow: 0 1px 2px #000;
-}
-/* Major discoveries (the hollow, shrine, gate, rift, the answer): a deeper band, a larger carving,
-   the lantern rune glowing between the rules. */
-
-.dd-discovery-mark {
-  display: none;
-  width: 9px;
-  height: 9px;
-  rotate: 45deg;
-  border: 2px solid var(--rune-200);
-  box-sizing: border-box;
-  background: radial-gradient(circle, var(--amber-300) 0 2px, transparent 2.5px);
-}
-
 /* ------------------------------------------------------------------------------------ */
-/* Touch controls (sizes, positions and behaviour are fixed by the mobile work) */
-
-/* The joystick base stays a ring (a brass bezel): listed exception to the octagon rule. */
-
-/* The knob: an octagon of oiled brass. */
-.dd-stick-knob {
-  --k: calc(var(--stick-r, 60px) * 0.88);
-  --kc: calc(var(--k) * 0.293);
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: var(--k);
-  height: var(--k);
-  margin: calc(var(--stick-r, 60px) * -0.44) 0 0 calc(var(--stick-r, 60px) * -0.44);
-  box-sizing: border-box;
-  clip-path: polygon(var(--kc) 0, calc(100% - var(--kc)) 0, 100% var(--kc), 100% calc(100% - var(--kc)), calc(100% - var(--kc)) 100%, var(--kc) 100%, 0 calc(100% - var(--kc)), 0 var(--kc));
-  background: radial-gradient(circle at 40% 32%, rgba(239, 231, 216, 0.62), rgba(176, 130, 63, 0.38) 60%, rgba(94, 66, 32, 0.5));
-}
-/* Where a held finger mines: an octagon ring (charging, mining, tap). */
-
-/* Right-thumb arc: the big Mine button in the corner, Jump beside it, Use above it. */
-
-/* Mine: a regular octagon of brass around an amber core. */
 
 /* ------------------------------------------------------------------------------------ */
 /* Screens */
@@ -424,20 +321,6 @@
 }
 .dd-modal-layer {
   z-index: 30;
-}
-/* A leaving screen (UI.ts): inert, aria-hidden, fading out under the one entering. */
-.dd-screens-exit {
-  position: absolute;
-  inset: 0;
-  z-index: 19;
-  pointer-events: none;
-}
-.dd-screens-exit > .dd-screen {
-  animation: dd-exit var(--dur-exit) var(--ease-exit) forwards;
-}
-.dd-screens-exit,
-.dd-screens-exit * {
-  pointer-events: none !important;
 }
 @keyframes dd-exit {
   to {
@@ -478,10 +361,6 @@
     transform: translateY(8px);
   }
 }
-.dd-rebuilt,
-.dd-rebuilt .dd-panel {
-  animation: none;
-}
 .dd-contrast .dd-panel {
   --rim: var(--brass-300);
 }
@@ -513,7 +392,7 @@
   flex: none;
   width: 8px;
   height: 8px;
-  rotate: 45deg;
+  transform: rotate(45deg);
   border: 2px solid var(--brass-500);
   background: radial-gradient(circle, var(--amber-400) 0 1.5px, transparent 2px);
 }
@@ -530,20 +409,6 @@
   flex: 1 1 auto;
   scrollbar-width: thin;
   scrollbar-color: rgba(176, 130, 63, 0.45) transparent;
-}
-.dd-muted {
-  margin: 0;
-  color: var(--ink-dim);
-  font-size: calc(14px * var(--s));
-  line-height: 1.4;
-}
-.dd-muted.small {
-  font-size: calc(14px * var(--s));
-}
-.dd-caption {
-  margin: 0 0 12px;
-  color: var(--ink-dim);
-  font-size: calc(14px * var(--s));
 }
 .dd-section {
   padding: 4px 20px 10px;
@@ -578,7 +443,7 @@
   align-items: center;
   justify-content: center;
   gap: 2px;
-  transition: translate var(--dur-micro), filter var(--dur-micro);
+  transition: transform var(--dur-micro), filter var(--dur-micro);
 }
 .dd-btn:hover:not(:disabled) {
   --fill: var(--slate-700);
@@ -586,7 +451,7 @@
 }
 .dd-btn:active:not(:disabled) {
   --fill: var(--slate-700);
-  translate: 0 1px;
+  transform: translateY(1px);
 }
 .dd-btn.has-sub {
   min-height: 58px;
@@ -657,10 +522,10 @@
   width: 2px;
   height: 14px;
   background: currentColor;
-  rotate: 45deg;
+  transform: rotate(45deg);
 }
 .dd-x::after {
-  rotate: -45deg;
+  transform: rotate(-45deg);
 }
 
 /* Main menu: over the live cave. The wordmark, the tagline between brass rules, the buttons. */
@@ -694,9 +559,6 @@
   width: min(420px, calc(100vw - 48px), calc((100vh - 280px) * 4.9));
   min-width: 300px;
 }
-.dd-logo-loading .dd-wordmark-line {
-  width: min(330px, calc(100vw - 48px));
-}
 /* The flame breathes (the one loop on the home screen); off under reduced motion. */
 .dd-wm-flame {
   transform-box: fill-box;
@@ -708,7 +570,8 @@
   animation: dd-flicker-light 2.4s ease-in-out infinite;
 }
 @keyframes dd-flicker {
-  0%, 100% {
+  0%,
+100% {
     transform: scale(1, 1);
     opacity: 1;
   }
@@ -724,7 +587,8 @@
   }
 }
 @keyframes dd-flicker-light {
-  0%, 100% {
+  0%,
+100% {
     opacity: 1;
   }
   55% {
@@ -787,46 +651,6 @@
   color: var(--bone-500);
   letter-spacing: 0.06em;
   text-shadow: 0 1px 2px #000;
-}
-
-/* Loading: the wordmark and a brass-capped gauge filling with lamplight. */
-.dd-loading {
-  flex-direction: column;
-  gap: 22px;
-  background: radial-gradient(ellipse at 50% 42%, #121b27 0%, #070a0f 72%);
-}
-.dd-progress {
-  --cut: 3px;
-  --fill: rgba(4, 7, 11, 0.85);
-  width: min(360px, 78vw);
-  height: 10px;
-  overflow: hidden;
-}
-.dd-progress-fill {
-  height: 100%;
-  width: 100%;
-  transform-origin: left center;
-  background: linear-gradient(180deg, var(--amber-300), var(--amber-500) 60%, var(--ember));
-  transition: transform 0.3s var(--ease-enter);
-}
-.dd-loading-label {
-  margin: 0;
-  color: var(--ink-dim);
-  font-size: calc(14px * var(--s));
-  letter-spacing: 0.06em;
-}
-
-/* Pause */
-.dd-pause {
-  width: min(400px, 100%);
-}
-.dd-stack {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 18px 18px 18px;
-  overflow-y: auto;
-  min-height: 0;
 }
 
 /* Settings */
@@ -897,7 +721,7 @@
   width: 18px;
   height: 18px;
   margin-top: -6px;
-  rotate: 45deg;
+  transform: rotate(45deg);
   border-radius: 2px;
   background: var(--bone-100);
   border: 2px solid var(--amber-500);
@@ -906,7 +730,7 @@
 .dd-range::-moz-range-thumb {
   width: 16px;
   height: 16px;
-  rotate: 45deg;
+  transform: rotate(45deg);
   border-radius: 2px;
   background: var(--bone-100);
   border: 2px solid var(--amber-500);
@@ -923,8 +747,7 @@
   justify-content: flex-end;
   gap: 8px;
 }
-.dd-seg-btn,
-.dd-chip-btn {
+.dd-seg-btn {
   --cut: var(--cut-chip);
   --fill: rgba(7, 10, 15, 0.5);
   --rim: var(--slate-600);
@@ -936,11 +759,7 @@
   font-weight: 700;
   white-space: nowrap;
 }
-.dd-chip-btn {
-  --rim: var(--brass-700);
-}
-.dd-seg-btn[aria-pressed='true'],
-.dd-chip-btn[aria-pressed='true'] {
+.dd-seg-btn[aria-pressed='true'] {
   --fill: rgba(255, 179, 92, 0.16);
   --rim: var(--amber-400);
   color: var(--amber-300);
@@ -973,7 +792,7 @@
   height: 20px;
   clip-path: polygon(5px 0, 15px 0, 100% 5px, 100% 15px, 15px 100%, 5px 100%, 0 15px, 0 5px);
   background: var(--bone-500);
-  transition: translate var(--dur-short) var(--ease-enter);
+  transition: transform var(--dur-short) var(--ease-enter);
 }
 .dd-switch[aria-checked='true'] {
   color: var(--amber-300);
@@ -983,7 +802,7 @@
   --rim: var(--amber-300);
 }
 .dd-switch[aria-checked='true'] .dd-switch-knob {
-  translate: 20px 0;
+  transform: translateX(20px);
   background: var(--bone-100);
 }
 .dd-switch-text {
@@ -999,7 +818,7 @@
   border-top: 1px solid rgba(94, 66, 32, 0.45);
 }
 
-/* Inventory */
+/* Tabs (the About screen) */
 
 .dd-tabs {
   display: flex;
@@ -1037,92 +856,6 @@
   background: var(--amber-400);
   clip-path: polygon(2px 0, calc(100% - 2px) 0, 100% 100%, 0 100%);
 }
-.dd-tabpanel {
-  padding: 14px 18px 18px;
-}
-
-.dd-slot-count {
-  position: absolute;
-  right: 6px;
-  bottom: 4px;
-  font-size: calc(13px * var(--s));
-  font-weight: 800;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  text-shadow: 0 1px 0 #000, 0 0 4px #000, 0 0 2px #000;
-}
-
-/* Stats as ledger rows: label, dotted leader, value. */
-
-.dd-journal .dd-section {
-  padding: 0;
-}
-.dd-journal .dd-section + .dd-section {
-  margin-top: 14px;
-  border: none;
-}
-.dd-journal .dd-section-title {
-  margin-top: 0;
-  margin-bottom: 8px;
-}
-
-/* Journal entries are the builders' register: cyan ink on stone. */
-
-.dd-entry-title {
-  font-family: var(--font-lintel);
-  font-size: calc(16px * var(--s));
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--rune-200);
-}
-
-/* Workbench */
-
-/* Black-out */
-
-.dd-death-panel {
-  --rim: rgba(255, 107, 94, 0.45);
-  --face: linear-gradient(180deg, rgba(106, 23, 18, 0.28), transparent 160px);
-  width: min(480px, 100%);
-  padding: 22px 24px 24px;
-  gap: 10px;
-  align-items: center;
-  text-align: center;
-  overflow-y: auto;
-}
-.dd-death-title {
-  margin: 0;
-  font-family: var(--font-lintel);
-  font-size: calc(26px * var(--s));
-  font-weight: 400;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--danger-400);
-  text-shadow: 0 0 16px rgba(255, 80, 60, 0.3);
-}
-.dd-death-body {
-  margin: 0;
-  color: var(--ink-dim);
-}
-.dd-death-cache {
-  margin: 2px 0 0;
-  color: var(--amber-300);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-.dd-death-panel .dd-section-title {
-  margin: 8px 0 0;
-}
-.dd-death-panel .dd-ledger {
-  max-width: 340px;
-  text-align: left;
-}
-.dd-death-panel > .dd-btn {
-  margin-top: 8px;
-  min-width: 240px;
-}
-
-/* Confirm */
 /* The screen under a confirm dialog fades back so the question stands alone. */
 .dd-screen[inert] .dd-panel,
 .dd-screen[inert] .dd-menu-col {
@@ -1144,9 +877,7 @@
   padding: 24px 22px 22px;
   gap: 18px;
 }
-.dd-confirm-text,
-.dd-discovery-body,
-.dd-death-body {
+.dd-confirm-text {
   text-wrap: balance;
 }
 .dd-confirm-text {
@@ -1161,24 +892,7 @@
   gap: 10px;
 }
 
-/* A full-screen veil (UI.veil, for openings and fades to black). */
-.dd-veil {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  background: var(--slate-950);
-  opacity: 0;
-  pointer-events: none;
-  transition-property: opacity;
-  transition-timing-function: var(--ease-enter);
-}
-.dd-veil.on {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 /* ------------------------------------------------------------------------------------ */
-/* Layout variants */
 
 /* Short landscape phones: tighten vertical rhythm so menus fit without scrolling. */
 @media (max-height: 460px) {
@@ -1200,11 +914,6 @@
   .dd-menu-row {
     gap: 8px;
   }
-  .dd-stack {
-    padding-top: 14px;
-    padding-bottom: 12px;
-    gap: 8px;
-  }
   
   
   
@@ -1224,19 +933,12 @@
 }
 
 @media (orientation: portrait) {
-  /* Narrow top bar: keep the depth readout clear of the hearts. */
-  
-  /* Above the Use + Jump stack in the corner. */
   
   /* Pickups rise from just above the hint line, clear of the toasts and the banner. */
   
   
   .dd-toasts {
     top: calc(140px + var(--safe-top));
-  }
-  
-  .dd-discovery-title {
-    font-size: calc(22px * var(--s));
   }
   
   
@@ -1264,9 +966,6 @@
   .dd-logo-menu .dd-wordmark-stack {
     width: min(250px, calc(100vw - 64px));
   }
-  .dd-logo-loading .dd-wordmark-stack {
-    width: min(210px, calc(100vw - 80px));
-  }
 }
 
 /* Reduced motion: opacity fades only, 150 ms at most; the flame and every loop stand still. */
@@ -1279,15 +978,11 @@
     transition-duration: 1ms !important;
   }
   .dd-ui .dd-screen,
-.dd-ui .dd-modal,
-.dd-ui .dd-screens-exit > .dd-screen {
+.dd-ui .dd-modal {
     animation-duration: 150ms !important;
   }
   .dd-ui .dd-panel {
     animation: none !important;
-  }
-  .dd-ui .dd-veil {
-    transition-duration: 150ms !important;
   }
   .dd-wm-flame,
 .dd-wm-glow,
@@ -1295,6 +990,4 @@
     animation: none !important;
   }
 }
-
-/* Home screen: a gentle nudge to hold the phone upright, only on short touch screens held sideways. */
 

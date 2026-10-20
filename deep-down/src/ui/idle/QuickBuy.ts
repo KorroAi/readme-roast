@@ -13,6 +13,7 @@ export class QuickBuy {
   readonly el: HTMLElement;
   readonly cards: Card[] = [];
   private readonly shown = [false, false, false];
+  private readonly empty = [false, false, false];
   private readonly pings = new PingLimiter();
   /** One BEST tab that rides over whichever card is best (it slides when BEST moves). */
   private readonly bestTab: HTMLElement;
@@ -50,6 +51,12 @@ export class QuickBuy {
       const v = this.shown[i] ? (views[i] ?? null) : null;
       this.cards[i].update(v, shownLog10, now);
       if (v?.best && best < 0) best = i;
+      // A revealed slot with nothing to offer (BEST is the Pick or the crew card itself) shows no empty frame.
+      const empty = this.shown[i] && !v;
+      if (empty !== this.empty[i]) {
+        this.empty[i] = empty;
+        this.cards[i].el.classList.toggle('dd-card-empty', empty);
+      }
     }
     if (best !== this.bestSlot) {
       this.bestSlot = best;

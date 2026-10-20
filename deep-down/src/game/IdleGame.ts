@@ -4,6 +4,7 @@
 // the pointerdown, F1). Autosave every 30 s, on pause and hide, and 2 s after a purchase burst. The idle frame cap
 // (SPEC §4.1, CRITIQUE SHOULD 16): 30 fps after 20 s without input; never lower while in the foreground.
 
+import { Vector3 } from 'three';
 import { Big } from '../core/big';
 import { EventBus } from '../core/events';
 import { AudioSystem } from '../audio/AudioSystem';
@@ -40,7 +41,7 @@ import type { GuideTarget } from '../ui/idle/GhostHand';
 import type { HudModel } from '../ui/idle/Hud';
 import { hudLayout } from '../ui/idle/layout';
 import type { SkillView } from '../ui/idle/SkillRow';
-import { TapSurface, holdRate, type TapInput } from '../ui/idle/TapSurface';
+import { TapSurface, holdRate, inReach, type TapInput } from '../ui/idle/TapSurface';
 import { enterGameScreen } from '../ui/screenFormat';
 import type { ScreenId, UiActions } from '../ui/types';
 import { UI } from '../ui/UI';
@@ -51,6 +52,7 @@ import { FrameGuard } from './FrameGuard';
 import { CameraFx } from './fx/CameraFx';
 import { JuiceDirector } from './fx/JuiceDirector';
 import { installIdleSurface } from '../debug/idle';
+import { debugMutationsAllowed } from '../debug/DebugApi';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row) or the shell saw an error. */
 export type IdleMode = 'boot' | 'menu' | 'playing' | 'paused' | 'crashed';
@@ -185,7 +187,9 @@ export class IdleGame implements IdleShell, HudModel {
       const r = returnFromAway(this.state, res.data.savedAt, now, this.events);
       feast = !!r && r.seconds >= 30;
     } else {
-      this.state = createIdle(newSeed(), now);
+      // ?seed=<n> under automation or ?debug=1 (the e2e G1 replays the sim's seed); otherwise a fresh random seed.
+      const fixed = Number(new URLSearchParams(location.search).get('seed'));
+      this.state = createIdle(debugMutationsAllowed() && Number.isInteger(fixed) && fixed > 0 ? fixed : newSeed(), now);
       this.firstLaunch = true;
     }
     this.audio = new AudioSystem(this.events);
@@ -333,7 +337,12 @@ export class IdleGame implements IdleShell, HudModel {
     on('crew:star', () => {
       if (this.buyMode === 'x1' && this.state.meta.stats.stars <= 1) this.setBuyMode('star');
     });
-    on('firsttime', (p) => this.ui.hud.firstTime(tr(`idle.first.${p.id}.title`), tr(`idle.first.${p.id}.body`)));
+    // A first-time card shows only with its words (the model's idle.first.*, else the UI's own ui.first.*): never empty.
+    on('firsttime', (p) => {
+      const title = tr(`idle.first.${p.id}.title`) || tr(`ui.first.${p.id}.title`);
+      const body = tr(`idle.first.${p.id}.body`) || tr(`ui.first.${p.id}.body`);
+      if (title) this.ui.hud.firstTime(title, body);
+    });
     on('seal:break', () => (this.saveSoon = 1));
     on('biome:reveal', (p) => this.ui.hud.stamp(tr(`idle.biome.${biomeDef(p.biome).id}`).toUpperCase(), tr('idle.biome.revealSub', { depth: biomeStart(p.biome) }), 'rune'));
     on('chest:exposed', (p) => this.addChestEntity(p.id, p.col, p.depth));
@@ -531,6 +540,12 @@ export class IdleGame implements IdleShell, HudModel {
   // ----------------------------------------------------------------------------------------------------------
   // Save
 
+  /**
+   * Debug only (__DD__.idle.timeScale): the model clock's speed against the wall clock. The e2e tutorial bot slows
+   * the model so its real taps keep their rate in model seconds on a slow software renderer.
+   */
+  modelScale = 1;
+
   /** Debug only (__DD__.idle.offline): a planted save must survive the reload's pagehide. */
   savesHeld = false;
 
@@ -590,7 +605,7 @@ export class IdleGame implements IdleShell, HudModel {
     } else this.taps.drain(() => {});
     // 2. The model: fixed 1/60 s steps, ≤ 4 a frame; a frame with taps always steps (the hit shows now, F1).
     if (playing || this.mode === 'menu') {
-      this.acc += dt;
+      this.acc += dt * this.modelScale;
       let n = Math.min(4, Math.floor(this.acc / STEP_DT + 1e-6));
       if (n === 0 && this.dig.taps.length) n = 1;
       if (this.mode === 'menu') n = Math.min(n, 1);
@@ -615,6 +630,7 @@ export class IdleGame implements IdleShell, HudModel {
     this.ui.fx.frame(now, dt);
     // 8. The DOM.
     this.ui.hud.update(dt, now, this.cam.budget.exclusive(now));
+    this.ui.hud.chests.update(this.mode === 'playing' ? this.uiEntities() : []);
     this.dig.drawn(this.frames, this.downFrames);
     this.downFrames.length = 0;
     // Autosave.
@@ -792,6 +808,11 @@ export class IdleGame implements IdleShell, HudModel {
   /** World guide targets: the cell to tap, a chest, the seal. */
   private worldTarget(id: string): GuideTarget | null {
     const s = this.state;
+    if (id === 'crystal') {
+      // The nearest crystal cluster in reach (B's tappable props), else the floor.
+      const c = this.crystalTarget();
+      if (c) return c;
+    }
     if (id === 'cell' || id === 'seal' || id === 'crystal') {
       const c = this.scene.screenOf(s.run.depth, 3);
       return { x: c.x, y: c.y, w: 44, h: 44 };
@@ -799,6 +820,25 @@ export class IdleGame implements IdleShell, HudModel {
     const e = this.uiEntities().find((x) => x.id === id);
     if (e) return { x: e.x, y: e.y, w: 56, h: 56 };
     return null;
+  }
+
+  private readonly projScratch = new Vector3();
+  /** A live crystal cluster prop within the reach band, projected to the screen (read-only use of the scene's props). */
+  private crystalTarget(): GuideTarget | null {
+    const floorY = this.scene.columns().floorY;
+    let best: GuideTarget | null = null;
+    let bestD = Infinity;
+    for (const spec of this.scene.world.liveProps.values()) {
+      if (spec.tap !== 'crystal') continue;
+      const p = this.scene.rig.project(spec.x, spec.y + 0.45 * spec.scale, spec.z, this.projScratch);
+      const d = Math.abs(p.y - floorY);
+      // A cluster half off the screen edge is still tappable (the pick radius is at least 32 px): the hand points at
+      // the visible half.
+      if (!inReach(p.y, floorY) || p.x < -24 || p.x > innerWidth + 24 || d >= bestD) continue;
+      bestD = d;
+      best = { x: Math.max(8, Math.min(innerWidth - 8, p.x)), y: p.y, w: 56, h: 56 };
+    }
+    return best;
   }
 
   // ----------------------------------------------------------------------------------------------------------
