@@ -41,7 +41,7 @@ counter that rolls over a threshold. This design keeps the brand's calm register
 | # | Rule | Hard number |
 |---|---|---|
 | M1 | **Impact first.** The frame after `pointerdown` shows the hit: flash, crack, number spawn and strike pose. A wind-up never delays a tap. The swing that "already happened" is drawn as a smear | input → first changed frame ≤ 1 frame (16.7 ms at 60 Hz) |
-| M2 | **The peak lands with the sound.** The visual maxima (pop, number scale) fall 2 frames after the tap, where Android Web Audio output arrives (typically 20–60 ms) | pop peak at 31–40 ms |
+| M2 | **The peak lands with the sound.** The impact maxima (the cell's face pop and the camera kick) fall 2 frames after the tap, where Android Web Audio output arrives (typically 20–60 ms). The damage number's own pop peaks later, at 95 ms, as the follow-up beat | pop and kick peaks at 31–40 ms |
 | M3 | **Gains travel.** Every gold, gem, XP, specimen and Ember gain moves from where it was earned to where it is kept. The counter changes when the gain **arrives** | 100 % of gains have a flight or a stream |
 | M4 | **Counters roll, never jump** | a displayed value changes by at most ×1.5 per frame, except during a scripted count |
 | M5 | **The more frequent, the smaller.** Every response belongs to one tier of the ladder (§0.3) and stays inside its tier's caps | trauma ≤ 0.06 and no hit-stop for anything faster than 1/s |
@@ -75,8 +75,8 @@ At 4 taps/s, 10 s gives 40 taps **(sim, run 1, first 25 min)**:
 - **54–61 %** of taps crack a cell without breaking it (T1 tick);
 - **26–36 %** break one cell (T2 pop);
 - **6–14 %** break 2–3 cells (pierce crack line, chain counter);
-- **0–5 %** break 4–7 (column burst);
-- **0–4 %** break 8 or more (row wipe).
+- **0–4 %** break 4–7 (column burst);
+- **0–1 %** break 8 or more (row wipe).
 
 This mix is a variable-ratio schedule that comes for free from the HP and damage curves. Each break launches 1–6
 coins, which land on the gold counter 0.5–0.8 s later. Each landing rolls the digits and moves the BEST card's fill bar.
@@ -165,8 +165,8 @@ new biome raises HP, it falls back, and climbs again as the player grows (the sa
 | E0 Crack | no break | 54–61 % | cell flash 0.6, face pop 0.08 m, crack stage, 4 dust and 2 chips, damage number, camera kick 2 px |
 | E1 Break | 1 cell | 26–36 % | shatter (8 shards), 16 dust and 6 sparks, world shock ring 0.45 s, 1–6 loot tokens |
 | E2 Pierce | 2–3 cells | 6–14 % | crack line through the column (120 ms ribbon), chain counter "×3", arpeggio +2 semitones per cell |
-| E3 Column | 4–7 cells | 0–5 % | vertical light pillar 180 ms (HDR amber ×4), trauma +0.15, screen shock 0.004 |
-| E4 Row wipe | 8+ cells, or one tap clears the row | 0–4 % | row ripple from the tapped column outward (30 ms per column), trauma +0.30, chroma 0.003 |
+| E3 Column | 4–7 cells | 0–4 % | vertical light pillar 180 ms (HDR amber ×4), trauma +0.15, screen shock 0.004 |
+| E4 Row wipe | 8+ cells, or one tap clears the row | 0–1 % (run 2, first 5 min: 3 %) | row ripple from the tapped column outward (30 ms per column), trauma +0.30, chroma 0.003 |
 | E5 Plunge | ≥ 6 rows/s for 1.5 s (Dive Start, bomb cascades, run 2+ early depths) | run 2 dive: 100 % for 11 s | the Plunge renderer (§9.18) |
 
 Breaks per second over the whole run **(sim)**: p50 2, p95 11, max 36. Rows per second: p95 2, max 6–7 (the 6 rows/s
@@ -184,7 +184,7 @@ stands on the scaffold at the shaft's left wall and mirrors the swing gesture.
 |---|---|---|---|---|---|
 | 1 | 1 | Rusty Pick | 0.6 m (30 px) | 0.7 m | chips |
 | 2 | 25 | Bronze Pick | 0.8 m | 0.9 m | + sparks |
-| 3 | 50 | Iron Pick | 1.0 m | 1.2 m | + world shock ring on every hit |
+| 3 | 50 | Iron Pick | 1.0 m | 1.2 m | + a world shock ring on every crit |
 | 4 | 75 | Steel Mattock | 1.3 m | 1.5 m | + a crack line on crits |
 | 5 | 100 | Runed Pick | 1.6 m (80 px) | 1.9 m | cyan runes glow along the haft (0.7 Hz pulse) |
 | 6 | 125 | Lantern Hammer | 2.0 m | 2.4 m | + an ember trail behind the smear |
@@ -269,7 +269,8 @@ gold per cell = HP(d) / 3 × kind        (expected kind multiplier 1.00)
 | Gem / fossil / geode | 1 % | 8 | 2 | rune-cyan or violet light, star glints |
 | Chest | 1 per 15 rows to 50 m, then 1 per 25 rows | (contents §6.1) | 3 | brass lid seam |
 
-Expected multiplier: 0.84·0.6 + 0.10·2.5 + 0.04·4 + 0.01·8 = 0.994 (chests carry the rest).
+Expected multiplier: 0.84·0.6 + 0.10·2.5 + 0.04·4 + 0.01·8 = 0.994 (chests carry the rest). The sim pays chests at
+1 per 15 rows throughout, so it slightly overstates gold after 50 m.
 
 ### 4.2 Upgrades (gold, reset by Rekindle)
 
@@ -315,7 +316,8 @@ gold    = HP/3 · kind · goldBoosts            (gold follows HP, so income ∝ 
   skins.
 - **Dive Start.** A run opens at 40 % of the record depth (+5 % per Charm level, max 70 %). The descent is played as an
   11 s plunge (§9.18) that pays the gold of every row it passes. That gold is spent at once in the **spree**: a Max-all
-  ceremony where cards light up one after another, 60 ms apart (sim: 603 levels bought at 340 m).
+  ceremony where each card lights once with its total levels, 60 ms after the previous card (sim: 603 levels bought at
+  340 m, across about 10 cards, so about 600 ms).
 - **Pacing (sim).** Run 1 reaches 850 m at 23:53 (4 taps/s). Run 2, with 72 Embers and a 340 m dive, reaches 600 m at
   5:28 and 850 m at 12:39, and passes 1,150 m at 29:56. **Run 2 matches run 1's record in 53 % of the time and goes 42 %
   deeper.**
@@ -602,7 +604,7 @@ y=844  └───────────────────────�
 |---|---|---|
 | Rank badge | 12, 47, 48, 48 | octagon plate, rank in Lintel 17 px, the XP ring as an octagonal stroke |
 | Gold counter | 68, 47, 190, 48 | coin socket 28 px (the flights' target), value in Lintel 26 px tabular, rate 12 px verdigris300 |
-| Depth | 266, 47, 112, 48 | value in Lintel 22 px amber300, biome name 11 px… raised to the 12 px floor and set in brass300 |
+| Depth | 266, 47, 112, 48 | value in Lintel 22 px amber300, biome name 12 px brass300 |
 | XP bar | 68, 103, 190, 6, plus a 12 px label | amber400 fill, near-glow at ≥ 85 % |
 | Gems | 266, 99, 112, 24 | gem socket 18 px, value in Lintel 15 px |
 | Objective chip | 16, 131, 358, 44 | icon 20, text 15 bone100, bar 4 amber400, reward chip |
@@ -619,9 +621,11 @@ through a 48 px hit slop.
 
 | Viewport (safe top / bottom) | Top bar (rows A+B) | Chip | World window | Face y | Cards |
 |---|---|---|---|---|---|
-| 360 × 740 (24 / 16) | 44 + 22 | 40 | 138–582 | 369 | 3 × 108 × 66 |
+| 360 × 740 (24 / 16) | 44 + 22 | 40 | 146–594 | 379 | 3 × 108 × 66 |
 | 390 × 844 (47 / 34) | 48 + 24 | 44 | 183–674 | 438 | 3 × 116 × 72 |
-| 412 × 915 (40 / 24) | 48 + 24 | 44 | 176–733 | 466 | 3 × 123 × 76 |
+| 412 × 915 (40 / 24) | 48 + 24 | 44 | 176–751 | 475 | 3 × 123 × 76 |
+
+The gaps are 4 px between rows A and B, then 8 px around the chip, the cards and the tab bar (48 px) on all three.
 
 ### 8.3 The layer stack (bottom to top)
 
@@ -741,7 +745,7 @@ position on an outer wrapper, squash on an inner one, never `composite: 'add'`.
 
 | Object | Moment | s (y) | Duration and curve |
 |---|---|---|---|
-| Coin token | flight | stretch along the velocity: s = 1 + min(0.35, |v| / 2,400 px/s) | per frame |
+| Coin token | flight | stretch along the velocity: s = 1 + min(0.35, speed / 2,400 px/s) | per frame |
 | Coin token | landing in the socket | s 0.7 → 1 | 120 ms outQuad, while it shrinks into the socket |
 | Counter socket | catch | sx 1.22, sy 0.82 → 1 | jelly (403 ms). Retriggers ≥ 70 ms apart; faster landings charge the next bump (max 1.35) |
 | Chest | anticipation / jump / land | 0.86 (80 ms outQuad) → 1.12 in the air → 0.82 on landing → 1 | bounce spring after landing |
@@ -798,11 +802,11 @@ hit-stop ended at least 300 ms ago. ⁴ Inside a hold-to-buy chain, ★ ceremoni
 
 | Frame (ms) | Tap without a break (E0) | Tap that breaks (E1) |
 |---|---|---|
-| F0 (0) | The tap is drained from the queue and resolved. Cell flash +0.6 (`uCellFx`), crack stage set, front face pop starts (+0.06 m). The strike ghost appears at the impact pose, with its smear at 0.7 alpha. Damage number spawned at scale 0.6. Kick impulse 2.9 m/s. Sound and haptic issued now | The same, plus: voxels set to air (the mesh arrives at F1 from the workers); **8 shards spawn filling the cell's front metre** (so the hole never shows a 1-frame gap); dust 16, sparks 6; world shock ring t = 0; loot pops start in 3D |
-| F1 (17) | Number 0.80 → (jelly). Pop +0.08 m (peak). Flash 0.35 | The remesh lands. Shards fly at 2.5–4.5 m/s from the tap point, spin 4–9 rad/s |
-| F2 (33) | Audio output arrives (typical). Number 1.082. Kick peak 2 px (31 ms) | Shock ring radius 0.23 m |
-| F4 (67) | Pop back to 0.02 m, flash 0. Smear gone (90 ms) | — |
-| F6 (100) | Number at peak 1.155. Follow-through ends at 120 ms | — |
+| F0 (0) | The tap is drained from the queue and resolved. Cell flash +0.6 (`uCellFx`), crack stage set, front face pop starts (+0.04 m). The strike ghost appears at the impact pose, with its smear at 0.7 alpha. Damage number spawned at scale 0.60. Kick impulse 2.9 m/s. Sound and haptic issued now | The same, plus: voxels set to air (the mesh arrives at F1 from the workers); **8 shards spawn filling the cell's front metre** (so the hole never shows a 1-frame gap); dust 16, sparks 6; world shock ring t = 0; loot pops start in 3D |
+| F1 (17) | Number 0.66 (jelly keyframes, §9.2). Pop +0.07 m. Flash 0.35 | The remesh lands. Shards fly at 2.5–4.5 m/s from the tap point, spin 4–9 rad/s |
+| F2 (33) | Audio output arrives (typical). **Pop peak +0.08 m and kick peak 2 px (31 ms)**. Number 0.80 | Shock ring radius 0.23 m |
+| F4 (67) | Pop back to 0.02 m, flash 0. Smear gone at 90 ms. Number 1.08 | — |
+| F6 (100) | Number at its peak, 1.155 (95 ms). Follow-through ends at 120 ms | — |
 | F19 (320) | Number rise phase: +46 px over 620 ms, outCubic | 3D loot pops reach the top of their arc and hand off to the FX canvas (§9.7) |
 | F27 (450) | — | Shock ring ends (3.15 m). Shards begin to land and bounce (restitution 0.25) |
 | F37–F49 (620–820) | Number fades over its last 200 ms | First coins land on the socket (counter catch, digit roll) |
@@ -855,9 +859,11 @@ damage instead of spawning another one. It bumps (jelly 1 → 1.18) and its life
   (`strokeFont.ts`). For each texel, `sd = min over parts of (max over each part's edges of the signed distance to that
   edge's line)`. The half-plane form gives **mitred** offsets, so outlines and glows keep the face's 45° chamfers.
 - **Resolution.** 6 texels per lattice unit, a 42 px cap height, and a spread of ±2 units.
-- **Layout.** Glyph cells of (width + 3) × 10 units, holding 0–9, A–Z (titles), a–z (suffixes), `. , + − × ! ? / : ★ m`.
-  That is 74 glyphs in a **1024 × 256 R8** atlas (256 KB).
-- **Build.** ≈ 40 ms in a worker at boot; the digits and suffix glyphs are built first (12 ms).
+- **Layout.** Glyph cells of (width + 4) × 11 units (2 units of padding on every side, so the ±2 spread is never cut),
+  that is 48 × 66 texels for a 4-unit glyph. The set is 0–9, A–Z and `. , + − × ! ? / : ★`. Lower case maps to the caps,
+  as in the TrueType face, so suffixes such as "aa" set in caps. ★ is a new lattice glyph added to `strokeFont.ts`.
+  That is 47 glyphs in a **1024 × 256 R8** atlas (21 × 3 cells, 256 KB).
+- **Build.** Estimated at ≈ 40 ms in a worker at boot. The digits and the suffix letters are built first (≈ 12 ms).
 - **The test.** The sign at each texel centre matches the polygon coverage of `lintelGlyph()`, and every glyph's
   advance matches the TrueType hmtx.
 
@@ -881,9 +887,10 @@ fragColor  = vec4(rgb, max(edge, glow)) * vAlpha;
 
 **Rolling counters (`ui/fx/Ticker.ts`, DOM).**
 1. **Approach.** The value approaches its target in log space: `logD += (logT − logD)·(1 − e^(−dt/τ))`, with τ 90 ms
-   for gains (95 % in 270 ms) and τ 60 ms for spending (no sound, no bump).
-2. **Scripted count.** For a jump of more than ×1,000 (chests, the offline feast, the spree), the counter plays a count
-   over `clamp(500 + 220·log10(T/D), 500, 2000)` ms on outQuart in log space. Ticks follow the digits at ≤ 24/s.
+   for gains (95 % in 270 ms) and τ 60 ms for spending (no sound, no bump). The per-frame ratio is clamped to ×1.5 (M4).
+   A ×10 gap moves ×1.48 in the first frame.
+2. **Scripted count.** For a jump of more than ×10 (chests, the offline feast, the spree), the counter plays a count over
+   `clamp(500 + 220·log10(T/D), 500, 2000)` ms on outQuart in log space. Ticks follow the digits at ≤ 24/s.
 3. **The DOM is touched only when the string changes.** `format()` gives 3 significant digits with tabular Lintel digits.
 4. **Digit roll.** Every digit is a strip of 0–9 inside a 1 em mask. On a change the strip translates by −digit em over
    90 ms on outCubic, driven by JS `transform` writes on ≤ 6 strips per counter while rolling. A strip retriggered
@@ -1124,9 +1131,9 @@ request is instead scaled by `k = min(1, cap / (live + requested))` and by a scr
 all particles must stay ≤ 1.0 × the screen on Balanced (High 1.5, Battery 0.5), estimated at spawn from the mid-life size.
 On-screen size caps: dust ≤ 64 px, glints ≤ 48 px, sparks ≤ 6 × 40 px.
 
-**Budget check (sim rates, Balanced):** spawns = 4 taps × 6 + 3 crits × 10 + 11 breaks × 22 = 296/s at p95, so about 222
-live. At the maximum of 36 breaks/s: 846/s, about 635 live, under the 1,024 cap. Shards at 36 breaks/s would be 288/s and
-230 live, so the governor trims them to 192.
+**Budget check (sim rates, Balanced, counts from §9.4, mean life 0.75 s):** spawns = 4 taps × 6 + 3 crits × 18 +
+11 breaks × 22 = 320/s at p95, so about 240 live. At the maximum of 36 breaks/s: 870/s, about 653 live, under the 1,024
+cap. Shards at 36 breaks/s would be 288/s and 230 live (0.8 s life), so the governor trims them to 192.
 
 ### 9.18 The Plunge renderer (E5: Dive Start, cavern dives, bomb cascades, run 2+ early depths)
 
@@ -1382,7 +1389,7 @@ and the governor stay.
 | ID | Metric | Threshold | How |
 |---|---|---|---|
 | MX-1 | Input → first changed frame | ≤ 1 frame for 100 % of 500 scripted taps | e2e: CDP touch, then `__DD__.fx.lastTapFrames` |
-| MX-2 | Pop and number peaks after a tap | 31–40 ms | unit: `Timeline` + spring sampling |
+| MX-2 | Face-pop and kick peaks after a tap; number peak | pop and kick 31–40 ms; number 90–100 ms | unit: `Timeline` + spring sampling |
 | MX-3 | Taps dropped during hit-stops and ceremonies | 0 of 1,000 | e2e: taps every 37 ms through a scripted tool-tier and a biome reveal |
 | MX-4 | A tap during a hit-stop ends it | in the same frame | unit: `juiceBudget` |
 | MX-5 | Hit-stops | ≤ 120 ms (T5 ≤ 160); ≥ 300 ms apart; never on T1; never at break EMA ≥ 3/s | unit over a 30 min sim event stream |
