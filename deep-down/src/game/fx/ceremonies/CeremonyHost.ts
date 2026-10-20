@@ -50,6 +50,11 @@ export class CeremonyHost {
   readonly rekindleView: RekindleView;
   /** The highest pick tier ever celebrated in full (lifetime; read from the model at boot). */
   private tierSeen = 1;
+
+  /** The next tier that would play in full (the capture hook asks for it). */
+  get nextTier(): number {
+    return this.tierSeen + 1;
+  }
   private toastMerge = 0;
 
   constructor(private readonly d: CeremonyHostDeps, toastLayer: HTMLElement) {

@@ -137,9 +137,21 @@ export class WidgetBar {
     this.el = h('div', { class: 'dd-wbar hide', 'aria-hidden': 'true' }, this.label, h('span', { class: 'dd-wbar-track' }, this.fill));
   }
 
+  /** Bars on screen: while any is, first-time cards and toasts slide in below them (`dd-wbar-on` on the body). */
+  private static shown = 0;
+  private on = false;
+
+  private mark(on: boolean): void {
+    if (on === this.on) return;
+    this.on = on;
+    WidgetBar.shown += on ? 1 : -1;
+    document.body.classList.toggle('dd-wbar-on', WidgetBar.shown > 0);
+  }
+
   show(tone: string): void {
     this.el.dataset.tone = tone;
     this.el.classList.remove('hide');
+    this.mark(true);
     spring(this.el, 'snap', 0, 1, (v) => `translateY(${(v - 1) * 16}px)`);
   }
 
@@ -157,6 +169,7 @@ export class WidgetBar {
 
   hide(): void {
     this.el.classList.add('hide');
+    this.mark(false);
     this.labelS = '';
     this.fillS = -1;
   }

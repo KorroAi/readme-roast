@@ -196,10 +196,16 @@ test('Pick: a Supply Rope crate tapped, then a boost card picked', async ({ page
   expect(errors).toEqual([]);
 });
 
-test('a chest opened with a real tap rolls up through its steps; the ceremony plays them', async ({ page }) => {
+test('a chest opened with a real tap rolls up through its steps; the ceremony plays them; its Board contract completes', async ({ page }) => {
   const errors: string[] = [];
-  const touch = await boot(page, errors, 20);
-  await page.evaluate(() => window.__DD__.idle.clearEvents());
+  // Past the first Warden (130 m): the Board and its contracts run.
+  const touch = await boot(page, errors, 130);
+  // The setup: the Board's first slot holds "open 1 chest" (a contract the next real tap completes).
+  await page.evaluate(() => {
+    const s = window.__DD__.internals.game.state;
+    s.meta.contracts[0] = { tpl: 'chests', target: 1, progress: 0, base: s.meta.stats.chests, arg: '', grand: false };
+    window.__DD__.idle.clearEvents();
+  });
   expect(await page.evaluate(() => window.__DD__.idle.forceChest('copper'))).toBe(true);
   await waitFrames(page, 2);
   const at = await page.evaluate(() => {
@@ -215,6 +221,9 @@ test('a chest opened with a real tap rolls up through its steps; the ceremony pl
   expect(log.some((e) => e.id === 'chest')).toBe(true);
   // The ceremony's chest is on screen during its roll-up.
   expect(await page.evaluate(() => !document.querySelector('.dd-cr')!.classList.contains('hide'))).toBe(true);
+  expect(await until(page, async () => (await events(page, 'contract:done')).length > 0, 20_000)).toBe(true);
+  const done = (await events(page, 'contract:done'))[0].payload;
+  console.log(`Contract done: ${done.id} (+${done.gems} gems); Board dot ${await page.evaluate(() => !document.querySelector('[data-tab="board"] .dd-tab-dot')?.classList.contains('hide'))}`);
   expect(errors).toEqual([]);
 });
 
@@ -279,10 +288,6 @@ test('a seal fight won at 5 taps/s with real taps (its HUD on screen, the finish
   );
   console.log(`Seal: won ${won}; hits ${(await events(page, 'seal:hit')).length}; ceremonies ${(await page.evaluate(() => window.__DD__.idle.ceremonies().log)).map((e) => e.id).join(', ')}`);
   expect(won).toBe(true);
-  // The Board's contracts moved with the same real taps and purchases (levels bought, cells, depth, the seal).
-  const done = (await events(page, 'contract:done')).map((e) => e.payload);
-  console.log(`Contracts done on the way: ${JSON.stringify(done).slice(0, 200)}`);
-  expect(done.length).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
 
@@ -366,18 +371,12 @@ test('a fossil broken with real taps gives a new Find: its label pops and the Co
     const s = window.__DD__.internals.game.state;
     const row = s.shaft.rows.find((r: { depth: number }) => r.depth === s.run.depth);
     row.kinds[3] = 5;
-    row.left[3] = 1;
+    // Already cracked nearly through (a fossil at 130 m is hard rock for a fresh pick): a few real taps break it.
+    row.left[3] = 0.004;
     s.overrides.push({ depth: s.run.depth, col: 3, kind: 5, floor: -2 });
     window.__DD__.idle.give({ gold: '1e12' });
     window.__DD__.idle.clearEvents();
   });
-  for (let i = 0; i < 16; i++) {
-    const h = await page.evaluate(() => window.__DD__.idle.hud());
-    if (h.quick[0]?.state !== 'ready' || h.quick[0].level >= 60) break;
-    const r = h.rects['quick:0'];
-    await touch.tapAt(r.x + r.w / 2, r.y + r.h / 2);
-    await page.waitForTimeout(150);
-  }
   const found = await until(page, async () => {
     await touch.tapColumn(3);
     return (await events(page, 'codex:new')).length > 0;

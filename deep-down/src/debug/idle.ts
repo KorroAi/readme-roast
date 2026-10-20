@@ -83,7 +83,8 @@ export interface IdleDebug {
   /** Frames from each recent `pointerdown` to its first changed frame (F1), oldest first, ≤ 256. */
   lastTapFrames(): number[];
   /** How the recent taps resolved: the column hit (−1: none), the cell row, the kind. */
-  lastTaps(): Array<{ x: number; y: number; col: number; raw: number; row: number; kind: string; counted: boolean; entity: string }>;
+  /** The last 256 resolved taps, oldest first (`t` the press time, performance.now ms). */
+  lastTaps(): Array<{ x: number; y: number; col: number; raw: number; row: number; kind: string; counted: boolean; entity: string; t: number }>;
   ledger(): IdleLedgerView;
   columns(): IdleColumnsView;
   hud(): IdleHudView;
@@ -224,7 +225,7 @@ export function installIdleSurface(g: IdleGame): void {
       };
     },
     lastTapFrames: () => [...g.dig.tapFrames],
-    lastTaps: () => g.dig.records.map((r) => ({ x: r.x, y: r.y, col: r.col, raw: r.raw, row: r.row, kind: r.kind, counted: r.counted, entity: r.entity })),
+    lastTaps: () => g.dig.records.map((r) => ({ x: r.x, y: r.y, col: r.col, raw: r.raw, row: r.row, kind: r.kind, counted: r.counted, entity: r.entity, t: r.t })),
     ledger: () => {
       const actual = g.state.run.gold;
       const shown = g.gold.shown(actual);

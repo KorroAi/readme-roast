@@ -1464,7 +1464,7 @@
 }
 
 /* While a widget's timer chip rides under the goal bar, a first-time card or a toast slides in below it (never over it). */
-.dd-idle:has(.dd-wbar:not(.hide)) .dd-first,
-.dd-idle:has(.dd-wbar:not(.hide)) .dd-ft {
+.dd-wbar-on .dd-first,
+.dd-wbar-on .dd-ft {
   margin-top: 34px;
 }

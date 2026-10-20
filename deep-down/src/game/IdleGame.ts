@@ -1268,7 +1268,7 @@ export class IdleGame implements IdleShell, HudModel {
     const s = this.state;
     switch (id) {
       case 'pickTier':
-        ev.emit('pick:tier', { tier: Math.max(2, (s.meta.bestTier || 1) + 1), from: 1, tiers: 1, level: 25 });
+        ev.emit('pick:tier', { tier: Math.max(2, (s.meta.bestTier || 1) + 1, this.ceremonyHost.nextTier), from: 1, tiers: 1, level: 25 });
         break;
       case 'chest':
         ev.emit('chest:open', { id: 'debug:chest', floor: 'wood', tier: 'crystal', steps: 2, gold: Big.from(1234), gems: 9, source: 'debug', path: ['wood', 'copper', 'crystal'], extras: ['find:2:0'] });

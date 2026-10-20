@@ -309,7 +309,7 @@ export const idleUi = {
   'ui.ceremony.tier': 'Tap damage ×2.5',
   'ui.ceremony.tiers': '+{n} tiers',
   'ui.tool.new': 'NEW TOOL FORM',
-  'ui.tool.newSub': 'Forged by the new depth: the foreman swings it now',
+  'ui.tool.newSub': 'In hand now',
   'ui.tool.newA11y': 'New tool form: {name}',
   'ui.ceremony.crowned': '{name} CROWNED',
   'ui.ceremony.sealBroken': 'SEAL BROKEN',

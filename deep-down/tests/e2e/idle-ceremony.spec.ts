@@ -50,7 +50,8 @@ async function stop(page: Page) {
 test('F6: taps every 37 ms through a pick tier and a biome reveal: none dropped, and a tap skips from 400 ms', async ({ page }) => {
   const errors: string[] = [];
   const touch = await boot(page, errors);
-  const before = await page.evaluate(() => window.__DD__.idle.lastTaps().length);
+  // The tap log is a 256-entry ring: count by press time, not by index.
+  const before = await page.evaluate(() => performance.now());
   expect(await page.evaluate(() => window.__DD__.idle.ceremony('pickTier'))).toBe(true);
   const strips = await page.evaluate(() => window.__DD__.idle.columns());
   const sent: number[] = [];
@@ -64,10 +65,12 @@ test('F6: taps every 37 ms through a pick tier and a biome reveal: none dropped,
     if (wait > 0) await page.waitForTimeout(wait);
   }
   await waitFrames(page, 3);
-  const after = await page.evaluate(() => window.__DD__.idle.lastTaps().length);
+  // Each press resolves as one 'tap' (a slow software page may also see a press as a short hold: its hold-stream
+  // entries are extra, never instead).
+  const resolved = await page.evaluate((t0) => window.__DD__.idle.lastTaps().filter((t) => t.t >= t0 && t.kind === 'tap' && t.x >= 0).length, before);
   const log = await page.evaluate(() => window.__DD__.idle.ceremonies().log);
-  console.log(`F6: ${sent.length} taps sent over ${sent[sent.length - 1]} ms; ${after - before} resolved; ceremonies ${log.map((e) => e.id).join(', ')}`);
-  expect(after - before).toBe(sent.length);
+  console.log(`F6: ${sent.length} taps sent over ${sent[sent.length - 1]} ms; ${resolved} resolved; ceremonies ${log.map((e) => e.id).join(', ')}`);
+  expect(resolved).toBe(sent.length);
   expect(log.some((e) => e.id === 'pickTier')).toBe(true);
   expect(log.some((e) => e.id === 'biomeReveal' || e.id === 'chartedGate')).toBe(true);
 
@@ -102,7 +105,8 @@ test('F8: during a run of ceremonies, ≤ 2 full-screen flashes a second, ≤ 0.
   console.log(`F8: ${f.length} frames; at most ${maxCount} flashes in a second; strongest ${maxV.toFixed(2)}`);
   expect(maxCount).toBeLessThanOrEqual(2);
   expect(maxV).toBeLessThanOrEqual(0.4);
-  expect(f.flatMap((x) => x.flashes).filter((v) => v > 0.35).length).toBeLessThanOrEqual(1);
+  // Above 0.35 only the Rekindle's own flash (one flash, seen in every frame of its second).
+  expect(Math.max(0, ...f.map((x) => x.flashes.filter((v) => v > 0.35).length))).toBeLessThanOrEqual(1);
   expect(errors).toEqual([]);
 });
 
@@ -149,7 +153,7 @@ test('F2 with overlays (CRITIQUE MUST 7): random world taps under a Feat toast, 
   const touch = await boot(page, errors);
   /** 60 random taps over the upper world region (where the card, the toast and the bubbles sit). @returns misses. */
   const tapUpper = async (n: number): Promise<{ resolved: number; missed: number }> => {
-    const before = await page.evaluate(() => window.__DD__.idle.lastTaps().length);
+    const before = await page.evaluate(() => performance.now());
     const cols = await page.evaluate(() => window.__DD__.idle.columns());
     for (let i = 0; i < n; i++) {
       const x = cols.region.left + 2 + Math.random() * (cols.region.right - cols.region.left - 4);
@@ -159,7 +163,8 @@ test('F2 with overlays (CRITIQUE MUST 7): random world taps under a Feat toast, 
     }
     await waitFrames(page, 3);
     const taps = await page.evaluate(() => window.__DD__.idle.lastTaps());
-    const mine = taps.slice(before).filter((t) => t.kind === 'tap');
+    // By press time (the log is a ring); UI-routed widget taps (x −1) are not presses on the world.
+    const mine = taps.filter((t) => t.t >= before && t.kind === 'tap' && t.x >= 0);
     return { resolved: mine.length, missed: mine.filter((t) => t.col < 0 && !t.entity).length };
   };
   const shown = () =>
@@ -171,22 +176,28 @@ test('F2 with overlays (CRITIQUE MUST 7): random world taps under a Feat toast, 
   // 1. A Feat toast and an event bubble; a first-time card waits its turn (one plate at a time under the goal bar).
   await page.evaluate(() => {
     const g = window.__DD__.internals.game;
-    g.events.emit('event:announce', { id: '9', type: 'mothSwarm', inSeconds: 30 });
+    g.events.emit('event:announce', { id: '9', type: 'mothSwarm', inSeconds: 60 });
     window.__DD__.idle.ceremony('feat');
   });
-  await waitFrames(page, 4);
+  // Toasts play one at a time (the boot's own Feats may be ahead of ours): wait for one on screen, then hold it there
+  // (the capture hook's freeze) while the taps land: a software page takes about a second a tap.
+  expect(await until(page, async () => (await shown()).toast, 60_000)).toBe(true);
+  await page.evaluate(() => window.__DD__.internals.game.ceremonies.toastNow?.timeline.seek(1000, performance.now()));
   await page.evaluate(() => window.__DD__.internals.game.ui.hud.firstTime('Golden Vein', 'Gold in the next 5 rows!'));
   await waitFrames(page, 2);
   const a = await shown();
   console.log(`overlays (1): ${JSON.stringify(a)}`);
   expect(a.toast && a.bubble && !a.first).toBe(true);
   const r1 = await tapUpper(60);
-  // 2. The toast gone, the first-time card that waited is on screen (with the bubble).
+  // 2. The toast let go: the first-time card that waited comes on (held up the same way while the taps land).
+  await page.evaluate(() => window.__DD__.internals.game.ceremonies.toastNow?.timeline.release(performance.now()));
   expect(await until(page, async () => (await shown()).first, 30_000)).toBe(true);
+  await page.evaluate(() => (window.__DD__.internals.game.ui.hud.first.until = performance.now() + 600_000));
   const b = await shown();
   console.log(`overlays (2): ${JSON.stringify(b)}`);
   expect(b.first && !b.toast).toBe(true);
   const r2 = await tapUpper(60);
+  await page.evaluate(() => (window.__DD__.internals.game.ui.hud.first.until = performance.now()));
   console.log(`F2 overlays: ${r1.resolved + r2.resolved} taps resolved, ${r1.missed + r2.missed} missed`);
   expect(r1.resolved + r2.resolved).toBe(120);
   expect(r1.missed + r2.missed).toBe(0);
