@@ -1,0 +1,104 @@
+/* About / Licences (screens/about.ts). */
+
+.dd-about {
+  width: min(760px, 100%);
+  height: min(600px, 100%);
+}
+.dd-about-panel {
+  padding: 12px 20px 18px;
+}
+.dd-about-main,
+.dd-about-privacy,
+.dd-about-licences {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.dd-about-name {
+  align-self: flex-start;
+  margin: 2px 0 8px;
+  padding: 0 14px 12px 0;
+  font-family: var(--font-lintel);
+  font-weight: 400;
+  font-size: calc(22px * var(--s));
+  letter-spacing: 0.12em;
+  color: var(--bone-100);
+}
+.dd-about-ledger {
+  max-width: 380px;
+}
+.dd-about-ledger .dd-ledger-value {
+  font-family: var(--font-lintel);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+.dd-about-copy {
+  margin: 2px 0 0;
+  font-size: calc(14px * var(--s));
+  font-weight: 700;
+  color: var(--bone-300);
+}
+.dd-about-sec .dd-section-title {
+  margin: 10px 0 4px;
+}
+.dd-about-text {
+  margin: 0;
+  font-size: calc(14px * var(--s));
+  line-height: 1.5;
+  color: var(--ink);
+  max-width: 62ch;
+}
+.dd-about-summary {
+  margin: 0;
+  font-size: calc(16px * var(--s));
+  font-weight: 700;
+  line-height: 1.45;
+  color: var(--bone-100);
+}
+.dd-about-fine {
+  margin: 12px 0 0;
+  font-size: calc(13px * var(--s));
+  color: var(--bone-500);
+}
+/* The licence texts: as written, wrapped (never a sideways scroll on a phone). */
+.dd-licences {
+  --cut: var(--cut-chip);
+  --fill: rgba(4, 7, 11, 0.7);
+  --rim: var(--slate-700);
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-size: calc(12px * var(--s));
+  line-height: 1.5;
+  color: var(--bone-300);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dd-licences.failed {
+  color: var(--amber-300);
+}
+.dd-licences:focus-visible {
+  outline: 2px solid var(--amber-300);
+  outline-offset: -2px;
+}
+
+@media (orientation: portrait) {
+  .dd-about {
+    height: 100%;
+  }
+  .dd-about-panel {
+    padding: 10px 14px 14px;
+  }
+  .dd-about-tabs {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* The way in: Settings' header. */
+.dd-about-link {
+  min-width: 48px;
+  padding: 0 14px;
+  font-size: calc(13px * var(--s));
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}

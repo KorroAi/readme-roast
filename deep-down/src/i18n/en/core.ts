@@ -318,4 +318,13 @@ export const core = {
   'lab.scene.settings': 'Settings',
   'lab.scene.confirm': 'Confirm',
   'lab.scene.death': 'Death',
+  'lab.scene.tree': 'Upgrade tree',
+  'lab.scene.forge': 'Upgrade tree: Forge',
+  'lab.scene.report': 'Expedition Report',
+  'lab.scene.reportBlackout': 'Expedition Report: black-out',
+  'lab.scene.board': 'Survey Table',
+  'lab.scene.journalDiscoveries': 'Journal: discoveries',
+  'lab.scene.journalRunes': 'Journal: runes',
+  'lab.scene.ending': 'End card',
+  'lab.scene.about': 'About',
 } as const;

@@ -338,3 +338,21 @@ export function crystal(c: MatCanvas, rng: Rng): void {
       c.set(x, y, hex, alpha);
     }
 }
+
+/**
+ * Echo crystal (final pass W3, block 39): the crystal's facets bleached toward a pale cyan-white
+ * glass, with the inner glow kept a little brighter (it is the only light it has: the block emits
+ * none into the light volume, the shader alone makes it glow).
+ */
+export function echoCrystal(c: MatCanvas, rng: Rng): void {
+  crystal(c, rng);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const i = c.idx(x, y);
+      const lum = (c.rgb[i * 3] * 0.3 + c.rgb[i * 3 + 1] * 0.55 + c.rgb[i * 3 + 2] * 0.15) / 255;
+      c.tint(x, y, ECHO_WHITE, 0.32 + 0.3 * lum);
+      if (c.a[i] > 0) c.a[i] = Math.min(255, c.a[i] * 1.15 + 12);
+    }
+}
+
+const ECHO_WHITE = 0xd8f4f6;

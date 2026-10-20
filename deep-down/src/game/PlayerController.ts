@@ -53,6 +53,10 @@ export class PlayerController {
   private safeZ = 0;
   private safeTimer = 0;
   private readonly hw = PLAYER.width / 2;
+  /** Take-off speed of a jump (m/s): PLAYER.jumpVelocity, more with the Grip Boots (game/Progression). */
+  jumpVelocity: number = PLAYER.jumpVelocity;
+  /** Landing faster than this (m/s) hurts: PLAYER.safeFallSpeed, more with the Grip Boots. */
+  safeFallSpeed: number = PLAYER.safeFallSpeed;
   /** Highest stair plane among the stair cells that blocked the last test() (see test()). */
   private rampTop = -Infinity;
   readonly events: PlayerFrameEvents = { jumped: false, landedSpeed: 0, footstep: false, footBlock: 0, rescued: false };
@@ -139,7 +143,7 @@ export class PlayerController {
     this.coyote = this.grounded ? PLAYER.coyoteTime : Math.max(0, this.coyote - dt);
     this.jumpBuffer = jumpPressed ? PLAYER.jumpBuffer : Math.max(0, this.jumpBuffer - dt);
     if (this.jumpBuffer > 0 && this.coyote > 0) {
-      this.vy = PLAYER.jumpVelocity;
+      this.vy = this.jumpVelocity;
       this.grounded = false;
       this.coyote = 0;
       this.jumpBuffer = 0;

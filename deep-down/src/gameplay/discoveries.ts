@@ -32,6 +32,9 @@ export const DISCOVERIES: readonly DiscoveryDef[] = [
   { id: 'note.landing', major: false, log: true },
   { id: 'note.yard', major: false, log: true },
   { id: 'note.rift', major: false, log: true },
+  // The deep tier and the finale (final pass W3; the Rift is the world's 'undercroft').
+  { id: 'echo', major: false },
+  { id: 'answer', major: true },
 ];
 
 /** Number of discoveries in the game. */

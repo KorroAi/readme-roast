@@ -30,6 +30,10 @@ export const loop = {
   'equip.expeditionPack.desc': '10 slots. The last 2 are a Sealed Pouch that survives a black-out.',
   'equip.stat.pouch': 'Sealed Pouch',
 
+  // The deep tier's blocks (final pass W3)
+  'block.echoCrystal': 'Echo Crystal',
+  'block.ironbound': 'Ironbound Stone',
+
   // The upgrade tree (final pass W3): node names and behaviour sentences
   'recipe.surveyTable': 'Survey Table',
   'recipe.forge': 'Forge',
@@ -100,6 +104,17 @@ export const loop = {
   'next.craft': 'Next: {item} — {material} {have}/{need}',
   'next.craftReady': 'Next: craft the {item} at the Workbench',
   'next.deeper': 'Go deeper — your best is -{depth} m',
+  'next.readyForge': 'Next: forge the {item} at the Forge',
+  'next.readyCamp': 'Next: build the {item} at camp',
+  'next.runes': 'Find the runes — {have}/{total}',
+  'next.stone': 'Take the eight runes to the black stone',
+
+  // Camp stations (final pass W3)
+  'hint.plotBuild': 'Build the {item}',
+  'hint.plotShelf': 'Relic Shelf — it waits for a rune',
+  'hint.useForge': 'Use the Forge',
+  'hint.useTable': 'Survey Table',
+  'hint.useShelf': 'Relic Shelf',
 
   // Expedition and records
   'toast.depthRecord': 'New depth record: -{depth} m',

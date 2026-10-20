@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { B, BLOCKS } from '../config/blocks';
 import { PLAYER, SAVE, WORLD, lanternForTier, packForTier, pickaxeForTier } from '../config/balance';
 import { ITEMS, type ItemId } from '../config/items';
-import type { RecipeId } from '../config/recipes';
+import { NODES, type NodeId, type Place } from '../config/recipes';
 import { EventBus, type GameEvents } from '../core/events';
 import { clamp, damp } from '../core/math';
 import { Rng } from '../core/rng';
@@ -12,13 +12,12 @@ import { consumeEdges, createInputState, type InputState } from '../input/types'
 import { Renderer } from '../render/Renderer';
 import type { PropSpec, Region } from '../world/gen/types';
 import type { GameUi, UiFactory } from './GameUi';
-import type { HudState, InventoryView, SaveSummary, UiActions } from '../ui/types';
+import type { HudState, InventoryView, JournalTab, SaveSummary, UiActions } from '../ui/types';
 import { AudioSystem } from '../audio/AudioSystem';
 import { ExplorerModel } from '../entities/character/ExplorerModel';
 import { Backpack } from '../gameplay/Inventory';
 import { CampStorage } from '../gameplay/Storage';
 import { Equipment } from '../gameplay/Equipment';
-import { Crafting } from '../gameplay/Crafting';
 import { Lantern } from '../gameplay/Lantern';
 import { Health } from '../gameplay/Health';
 import { MiningProgress, rollDrop } from '../gameplay/Mining';
@@ -234,6 +233,8 @@ export class Game {
     bus.on('block:tooHard', ({ block }) => {
       if (block === B.IRON_ORE) this.discover('ironVein');
     });
+    // The tree, the runes, the rumours (final pass W3).
+    this.progression.wire();
   }
 
   private wireLifecycle(): void {
@@ -425,6 +426,7 @@ export class Game {
     this.stats = { blocksMined: 0, deaths: 0, itemsBanked: 0 };
     this.playTime = 0;
     this.progression.reset();
+    this.progression.applyGear();
     this.drops.clear();
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
   }
@@ -435,7 +437,7 @@ export class Game {
     this.backpack = Backpack.fromJSON(d.backpack, pack.slots, pack.pouch);
     this.storage = CampStorage.fromJSON(d.storage);
     this.lanternFuel = new Lantern(lanternForTier(this.equipment.tiers.lantern).fuelSeconds, d.player.lanternFuel);
-    this.health = new Health(PLAYER.maxHealth, d.player.health);
+    this.health = new Health(Health.maxFor(d.progression.gear), d.player.health);
     this.objectives = Objectives.fromJSON(d.objectives);
     this.journal = Journal.fromJSON({ discoveries: d.discoveries, keyItems: d.journal });
     this.stats = { ...d.stats };
@@ -461,7 +463,7 @@ export class Game {
       worldSeed: WORLD.seed,
       playTime: this.playTime,
       player: dead
-        ? { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, health: PLAYER.maxHealth, lanternFuel: lanternForTier(this.equipment.tiers.lantern).fuelSeconds }
+        ? { x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw, health: this.health.max, lanternFuel: lanternForTier(this.equipment.tiers.lantern).fuelSeconds }
         : {
             // Mid-ride, the save wakes the explorer on the ride's end stand.
             x: this.features.rideSavePosition?.[0] ?? this.player.x,
@@ -689,7 +691,7 @@ export class Game {
     const below = this.session.world.get(Math.floor(this.player.x), Math.floor(this.player.y - 0.1), Math.floor(this.player.z));
     this.bus.emit('player:land', { fallSpeed: speed, block: below });
     this.cameraRig.addTrauma(clamp((speed - 6) / 20, 0, 0.6));
-    const dmg = Health.fallDamage(speed);
+    const dmg = Health.fallDamage(speed, this.player.safeFallSpeed);
     if (dmg > 0) {
       const dealt = this.health.damage(dmg);
       if (dealt > 0) this.bus.emit('player:damaged', { amount: dealt, cause: 'fall' });
@@ -898,6 +900,8 @@ export class Game {
     this.focusedProp = null;
     this.ui.touch.setInteractVisible(null);
     this.discover('tablet');
+    // The Ancient Tablet is the Lantern rune: its socket on the Relic Shelf (game/Runes).
+    this.progression.runes.onFound('ancientTablet');
   }
 
   private onBlockBroken(x: number, y: number, z: number, oldId: number): void {
@@ -909,6 +913,7 @@ export class Game {
     }
     this.session.blockChanged(x, y, z, oldId);
     if (oldId === B.CRYSTAL) this.discover('crystals');
+    if (oldId === B.ECHO_CRYSTAL) this.discover('echo');
   }
 
   /** Halo sources: lamps owned by live props plus static abyss lights. */
@@ -942,6 +947,7 @@ export class Game {
   }
 
   private onPropBroken(spec: PropSpec): void {
+    if (spec.minable?.drop === 'echoShard') this.discover('echo');
     this.session.removeProp(spec.id);
     this.halosDirty = true;
     if (this.focusedProp?.id === spec.id) this.focusedProp = null;
@@ -972,7 +978,7 @@ export class Game {
   respawn(): void {
     const spawn = this.session.layout.spawn;
     this.features.cancelRide();
-    this.health = new Health(PLAYER.maxHealth);
+    this.health = new Health(this.health.max);
     this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
     this.mode = 'playing';
@@ -998,24 +1004,21 @@ export class Game {
   // ------------------------------------------------------------------------------------
   // Crafting & inventory
 
-  craft(recipe: RecipeId): void {
+  /** Make a node of the upgrade tree (game/Progression holds the rules and the built list). */
+  craft(id: NodeId): void {
     const before = { ...this.equipment.tiers };
-    const res = Crafting.craft(recipe, this.backpack, this.storage, this.equipment, this.atCamp);
+    const res = this.progression.craft(id);
     if (!res.ok) {
-      this.bus.emit('craft:failed', { recipe, reason: res.reason });
+      this.bus.emit('craft:failed', { recipe: id, reason: res.reason });
       this.audio.ui('error');
       return;
     }
-    if (this.equipment.tiers.pack !== before.pack) {
-      const pack = packForTier(this.equipment.tiers.pack);
-      this.backpack.resize(pack.slots, pack.pouch);
-    }
     if (this.equipment.tiers.lantern !== before.lantern) this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.refreshEquipmentVisuals();
-    this.bus.emit('craft:done', { recipe });
+    this.bus.emit('craft:done', { recipe: id });
     this.bus.emit('inventory:changed', {});
-    const name = t(recipe === 'copperPickaxe' ? 'recipe.copperPickaxe' : recipe === 'copperLantern' ? 'recipe.copperLantern' : 'recipe.sturdyPack');
-    this.ui.toast(t('toast.crafted', { item: name }), 'good');
+    const def = NODES[id];
+    this.ui.toast(t(def.result.kind === 'station' ? 'toast.built' : 'toast.crafted', { item: t(def.name) }), 'good');
     this.particles.sparkle(this.player.x, this.player.y + 1.2, this.player.z, 0xffc58a, 18, this.rng, 2);
     this.saveNow('craft');
   }
@@ -1032,12 +1035,43 @@ export class Game {
     this.ui.showScreen('inventory');
   }
 
-  openCrafting(): void {
+  /** The upgrade tree, on the tab of `place`, optionally with a node selected (a stake sign). */
+  openCrafting(place: Place = 'workbench', select: NodeId | null = null): void {
     if (this.mode !== 'playing') return;
+    this.progression.focusTree(place, select);
+    this.openScreen('crafting');
+  }
+
+  /** The Survey Table board: records and rumours. */
+  openBoard(): void {
+    if (this.mode !== 'playing') return;
+    this.openScreen('board');
+  }
+
+  /** The Journal (discoveries, runes, relic texts). */
+  openJournal(tab: JournalTab = 'discoveries'): void {
+    if (this.mode !== 'playing' && this.mode !== 'paused') return;
+    this.progression.focusJournal(tab);
+    this.openScreen('journal');
+  }
+
+  private openScreen(id: 'crafting' | 'board' | 'journal'): void {
     this.mining.cancel();
     this.input.mining = false;
     this.desktop.releasePointer();
-    this.ui.showScreen('crafting');
+    this.ui.showScreen(id);
+  }
+
+  /** Drop one backpack stack in front of the explorer (it lies there like any drop). */
+  dropStack(slot: number): void {
+    if (this.mode !== 'playing') return;
+    const s = this.backpack.dropStack(slot);
+    if (!s) return;
+    const p = this.player;
+    const fx = Math.sin(p.yaw);
+    const fz = Math.cos(p.yaw);
+    this.drops.spawn(s.item, s.count, p.x + fx * 0.9, p.y + 0.9, p.z + fz * 0.9, this.rng);
+    this.bus.emit('inventory:changed', {});
   }
 
   inventoryView(): InventoryView {
@@ -1204,9 +1238,9 @@ export class Game {
         this.enterMenu();
       },
       respawn: () => this.respawn(),
-      craft: (r) => this.craft(r),
+      craft: (id) => this.craft(id),
       openInventory: () => this.openInventory(),
-      openCrafting: () => this.openCrafting(),
+      openCrafting: (place) => this.openCrafting(place ?? 'workbench'),
       closeScreen: () => {
         if (this.mode === 'paused') this.resume();
         else this.ui.showScreen(this.mode === 'menu' ? 'menu' : 'none');
@@ -1225,6 +1259,17 @@ export class Game {
       getSaveSummary: () => this.saveSummary(),
       getReport: () => this.progression.report,
       dismissReport: () => this.progression.dismissReport(),
+      getCraftTree: () => this.progression.treeView(),
+      openBoard: () => this.openBoard(),
+      getSurvey: () => this.progression.surveyView(),
+      setCompassTarget: (id) => this.progression.setCompassTarget(id),
+      openJournal: (tab) => this.openJournal(tab ?? 'discoveries'),
+      getJournal: () => this.progression.journalView(),
+      openAbout: () => this.ui.showScreen('about'),
+      continueAfterEnding: () => {
+        if (this.ui.screen === 'ending') this.ui.showScreen('none');
+      },
+      dropStack: (slot) => this.dropStack(slot),
     };
   }
 

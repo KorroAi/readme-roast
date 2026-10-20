@@ -62,6 +62,9 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'world:regrow': { epoch: 2, cells: 40, regrown: 6 },
   'world:bloom': { epoch: 2, site: 'adit', area: 'adit', x: 1, y: 2, z: 3 },
   'moths:startled': { x: 1, y: 2, z: 3, count: 4 },
+  'station:built': { id: 'forge', x: 42, y: 101, z: 33 },
+  'relic:found': { id: 'runeEye', count: 2, total: 8 },
+  'finale:reached': {},
 };
 
 const WORLD_STATE: AudioWorldState = {

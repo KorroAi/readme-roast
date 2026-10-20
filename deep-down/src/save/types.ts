@@ -83,8 +83,10 @@ export interface ProgressionSave {
   hintsShown: string[];
   /** The finale has been seen (W3). */
   finale: boolean;
-  /** The compass target the player picked (a seam or a site id), or null for camp. */
+  /** The compass target the player picked (a rumour's site id), or null for camp. */
   compassTarget: string | null;
+  /** When each discovery and rune was found: [expedition number, displayed depth m] (the Journal). */
+  foundAt: Record<string, [number, number]>;
 }
 
 /** Everything needed to resume an expedition. Versioned; see save/SaveSystem migrations. */

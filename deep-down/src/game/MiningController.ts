@@ -214,7 +214,7 @@ export class MiningController {
         if (tgt.protectedReason === 'protected') this.hooks.hint(t('hint.protected'));
         else if (tgt.tier >= UNBREAKABLE_TIER || tgt.protectedReason === 'unbreakable') this.hooks.hint(t('hint.unbreakable'));
         else {
-          const toolKey: TextKey = tgt.tier >= 2 ? 'equip.copperPickaxe' : 'equip.rustyPickaxe';
+          const toolKey: TextKey = tgt.tier >= 3 ? 'equip.ironPickaxe' : tgt.tier >= 2 ? 'equip.copperPickaxe' : 'equip.rustyPickaxe';
           this.hooks.hint(t('hint.tooHard', { tool: t(toolKey) }));
         }
       }

@@ -9,8 +9,14 @@ import { Hud } from './hud/Hud';
 import { DiscoveryBanner, PickupFeed, Toasts, type ToastTone } from './notices';
 import { installLintelFont } from './brand/lintelFont';
 import { DURATION, playDuration } from './brand/motion';
+import { buildAbout } from './screens/about';
+import { buildBoard } from './screens/board';
+import { buildEnding } from './screens/ending';
 import type { ConfirmSpec, ScreenHost, ScreenState } from './screens/host';
-import { buildCrafting, buildInventory } from './screens/inventory';
+import { buildInventory } from './screens/inventory';
+import { buildJournal } from './screens/journal';
+import { buildSummary } from './screens/summary';
+import { buildTree } from './screens/workbench';
 import { buildDeath, buildLoading, buildMenu, buildPause, updateLoading } from './screens/menu';
 import { buildSettings } from './screens/settings';
 import { btn } from './screens/widgets';
@@ -25,11 +31,19 @@ const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   pause: buildPause,
   settings: buildSettings,
   inventory: buildInventory,
-  crafting: buildCrafting,
+  crafting: buildTree,
   death: buildDeath,
+  summary: buildSummary,
+  board: buildBoard,
+  journal: buildJournal,
+  ending: buildEnding,
+  about: buildAbout,
 };
 
-const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: 'craft.notAtCamp', missing: 'craft.missing' };
+/** Screens closed by Escape (and the system Back, through Game) straight back to play. */
+const CLOSABLE: ReadonlySet<ScreenId> = new Set<ScreenId>(['inventory', 'crafting', 'board', 'journal']);
+
+const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: 'craft.notAtCamp', notHere: 'craft.notAtCamp', missing: 'craft.missing', locked: 'ui.tree.state.locked', carryToSite: 'ui.tree.state.carry' };
 
 /**
  * The complete DOM user interface: screens, HUD, notifications and touch controls.
@@ -55,12 +69,35 @@ export class UI implements GameUi {
   private underConfirm: ScreenId = 'none';
   private settingsReturn: ScreenId = 'menu';
   private gameplay = false;
+  /** True while the open screen is being built because it was just opened (ScreenHost.opening). */
+  private opening = false;
+  /**
+   * An Expedition Report waiting to open: 'free' opens as soon as play has no screen up;
+   * 'respawn' (a black-out: the death screen is up) waits for 'player:respawned'.
+   */
+  private reportWaiting: 'free' | 'respawn' | null = null;
+  /** The finale has been reached: the end card opens when play has no screen up. */
+  private endingWaiting = false;
+  /** The end card's fade to black is playing: play is held still under the veil. */
+  private ceremony = false;
   private showFps = false;
   private pendingPatch: Partial<Settings> | null = null;
   private patchRaf = 0;
   private readonly host: ScreenHost;
   private readonly disposers: Array<() => void> = [];
-  readonly state: ScreenState = { invTab: 'backpack', invSlot: 0, loadingProgress: 0, loadingLabel: '', deathLost: {} };
+  readonly state: ScreenState = {
+    invTab: 'backpack',
+    invSlot: 0,
+    loadingProgress: 0,
+    loadingLabel: '',
+    deathLost: {},
+    treeTab: 'workbench',
+    treeSel: null,
+    treeCrafted: null,
+    journalTab: 'discoveries',
+    aboutTab: 'about',
+    reportAt: 0,
+  };
 
   constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
     this.screensEl = h('div', { class: 'dd-screens' });
@@ -77,15 +114,28 @@ export class UI implements GameUi {
     // first) and sits under them (z-index), so the new screen fades in over the old one.
     this.el.append(this.screensEl, this.exitEl, this.modalEl, this.toasts.el);
 
+    const ui = this;
     this.host = {
       actions,
       state: this.state,
+      get opening() {
+        return ui.opening;
+      },
       show: (id) => this.showScreen(id),
       confirm: (c) => this.openConfirm(c),
       settingsBack: () => this.showScreen(this.settingsReturn === 'pause' || this.settingsReturn === 'menu' ? this.settingsReturn : 'none'),
       toast: (text, tone) => this.toast(text, tone),
       rerender: () => this.rerender(),
       patchSettings: (p, coalesce) => this.patchSettings(p, coalesce ?? false),
+      closeReport: () => {
+        actions.dismissReport();
+        actions.closeScreen();
+      },
+      openFromReport: () => {
+        actions.dismissReport();
+        actions.openCrafting('workbench');
+      },
+      aboutBack: () => this.showScreen('settings'),
     };
     // The display face (titles, depth numerals) is built in code and registered here.
     void installLintelFont();
@@ -98,6 +148,24 @@ export class UI implements GameUi {
       bus.on('toast', (p) => this.toast(p.text, p.tone)),
       bus.on('inventory:changed', () => {
         if (this.current === 'inventory' || this.current === 'crafting') this.refresh();
+      }),
+      // The Expedition Report: after the camp autosave (Game announces the trip after saving),
+      // never over another open screen. A black-out ends the trip under the death screen: the
+      // report waits for the respawn.
+      bus.on('expedition:ended', ({ report }) => {
+        if (!report.show) return;
+        this.reportWaiting = report.outcome === 'blackout' ? 'respawn' : 'free';
+        this.openWaiting();
+      }),
+      bus.on('player:respawned', () => {
+        if (this.reportWaiting === 'respawn') this.reportWaiting = 'free';
+        this.openWaiting();
+      }),
+      // The end card, once the black stone has answered (the game emits this after "The Answer"
+      // has been read, with no screen up): the world fades to black and the card rises.
+      bus.on('finale:reached', () => {
+        this.endingWaiting = true;
+        this.openWaiting();
       }),
       bus.on('craft:failed', ({ reason }) => this.toast(t(CRAFT_FAIL[reason] ?? 'craft.missing'), 'warn')),
       // A rune door waking under the lantern: the ring on the interact chip fills (it opens at 1).
@@ -122,16 +190,54 @@ export class UI implements GameUi {
       return;
     }
     if (this.confirmSpec) this.dismissConfirm();
-    if (id === 'settings' && this.current !== 'settings') this.settingsReturn = this.current;
+    // About opens from Settings and returns to it: Settings keeps the screen it came from.
+    if (id === 'settings' && this.current !== 'settings' && this.current !== 'about') this.settingsReturn = this.current;
+    if (this.current === 'summary' && id !== 'summary') {
+      // Backgrounding pauses over the report: it opens again on resume. Any other way out skips it.
+      if (id === 'pause') this.reportWaiting = 'free';
+      else this.actions.dismissReport();
+    }
+    if (id === 'menu' || id === 'loading') {
+      this.reportWaiting = null;
+      this.endingWaiting = false;
+    }
+    if (id === 'summary') this.state.reportAt = performance.now();
     this.current = id;
     this.render(false);
     // The first screen replaces the boot mark in one cut (it is drawn over it), not a crossfade.
     if (first) this.screenEl?.classList.add('dd-rebuilt');
     this.updateTouch();
+    if (id === 'none') this.openWaiting();
+  }
+
+  /** Open a waiting end card or report once play has no screen up (the end card first). */
+  private openWaiting(): void {
+    if (!this.gameplay || this.current !== 'none' || this.confirmSpec || this.ceremony) return;
+    if (this.endingWaiting) {
+      this.endingWaiting = false;
+      if (this.actions.getJournal().ending.reached) {
+        this.openEnding();
+        return;
+      }
+    }
+    if (this.reportWaiting !== 'free') return;
+    this.reportWaiting = null;
+    if (this.actions.getReport()) this.showScreen('summary');
+  }
+
+  /** The end card's ceremony: the world fades to black, the card rises out of it. */
+  private openEnding(): void {
+    this.ceremony = true;
+    this.updateTouch();
+    void this.veil(true, DURATION.ceremony).then(() => {
+      this.ceremony = false;
+      this.showScreen('ending');
+      void this.veil(false, DURATION.long);
+    });
   }
 
   isBlockingInput(): boolean {
-    return this.current !== 'none';
+    return this.current !== 'none' || this.ceremony;
   }
 
   setGameplayActive(active: boolean): void {
@@ -234,7 +340,13 @@ export class UI implements GameUi {
     const scroll = keepPlace ? old?.querySelector('.dd-scroll')?.scrollTop ?? 0 : 0;
     const focusKey = keepPlace ? (document.activeElement as HTMLElement | null)?.closest?.('[data-key]')?.getAttribute('data-key') : null;
     const build = BUILDERS[id];
-    const next = build ? build(this.host) : null;
+    this.opening = !keepPlace;
+    let next: HTMLElement | null;
+    try {
+      next = build ? build(this.host) : null;
+    } finally {
+      this.opening = false;
+    }
     if (old) {
       // A rebuild swaps in place; a real change lets the old screen fade out underneath.
       if (keepPlace) old.remove();
@@ -336,7 +448,7 @@ export class UI implements GameUi {
 
   /** HUD and touch controls only while playing with no screen open (screens stay uncluttered). */
   private updateTouch(): void {
-    const live = this.gameplay && this.current === 'none';
+    const live = this.gameplay && this.current === 'none' && !this.ceremony;
     this.touch.setEnabled(live);
     this.hud.setVisible(live);
   }
@@ -377,7 +489,13 @@ export class UI implements GameUi {
       } else if (this.current === 'settings') {
         stop();
         this.host.settingsBack();
-      } else if (this.current === 'inventory' || this.current === 'crafting') {
+      } else if (this.current === 'about') {
+        stop();
+        this.host.aboutBack();
+      } else if (this.current === 'summary') {
+        stop();
+        this.host.closeReport();
+      } else if (CLOSABLE.has(this.current)) {
         stop();
         this.actions.closeScreen();
       }

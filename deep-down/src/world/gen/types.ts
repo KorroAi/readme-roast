@@ -53,6 +53,8 @@ export interface PropSpec {
   minable?: { hardness: number; tier: number; drop: 'glimmerShard' | 'echoShard'; min: number; max: number };
   /** Variation seed for procedural mesh details. */
   seed: number;
+  /** A chosen model variant (render/props: PROP_VARIANTS), instead of the seed's pick. */
+  modelVariant?: number;
 }
 
 export interface Region {

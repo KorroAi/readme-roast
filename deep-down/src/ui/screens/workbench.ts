@@ -190,7 +190,8 @@ function detail(host: ScreenHost, view: CraftTreeView, n: CraftTreeNode, tab: Tr
   const look = nodeLook(n);
   const place = view.places.find((p) => p.id === n.place);
   const station = n.result.kind === 'station';
-  const eyebrow = [place?.name ?? '', t(LOOK_TEXT[look])].filter(Boolean).join(' · ');
+  // The place only when it is not the open tab's (the tab already says where you stand).
+  const eyebrow = [tabOf(n.place) === tab ? '' : place?.name ?? '', t(LOOK_TEXT[look])].filter(Boolean).join(' · ');
   const why = look === 'owned' || look === 'craftable' ? null : n.reason;
   const prereqs = look === 'locked' && n.prereqs.length
     ? h(

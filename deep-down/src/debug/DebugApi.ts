@@ -6,6 +6,22 @@ import type { InputState } from '../input/types';
 import type { GameEvents } from '../core/events';
 import { standable } from '../world/analysis/reachability';
 import { SOLID } from '../config/blocks';
+import { NODES, isNodeId, type NodeId } from '../config/recipes';
+import { stationPropId } from '../game/Stations';
+
+/**
+ * Mutating helpers (give, teleport, setBlock, grant...) work only under automation
+ * (navigator.webdriver: Playwright, the capture tools) or with ?debug=1 in the address. In a
+ * normal session they do nothing, so the console cannot hand out items.
+ */
+export function debugMutationsAllowed(): boolean {
+  try {
+    if (typeof navigator !== 'undefined' && navigator.webdriver) return true;
+    return typeof location !== 'undefined' && new URLSearchParams(location.search).get('debug') === '1';
+  } catch {
+    return false;
+  }
+}
 
 /**
  * window.__DD__: a small, stable surface for automated tests and on-device debugging.
@@ -23,6 +39,8 @@ export function installDebugApi(game: Game): void {
     'expedition:started', 'expedition:ended', 'cache:created', 'cache:recovered', 'lantern:turnBack', 'player:cold', 'record:depth',
     // World variety (W2).
     'world:ride', 'world:runeWake', 'world:runeOpen', 'world:hoistReleased', 'world:note', 'world:monolith', 'world:regrow', 'world:bloom', 'moths:startled',
+    // The tree, the runes, the finale (W3).
+    'station:built', 'relic:found', 'finale:reached',
   ];
   for (const type of types) {
     game.bus.on(type, (payload) => {
@@ -31,6 +49,9 @@ export function installDebugApi(game: Game): void {
     });
   }
   const w = () => game.session.world;
+  const allowed = debugMutationsAllowed();
+  /** A mutating helper: the real one under automation or ?debug=1, otherwise a no-op returning `none`. */
+  const gate = <A extends unknown[], R>(fn: (...a: A) => R, none: R) => (allowed ? fn : (..._a: A) => none);
 
   /** Find a block of `id` near a point that is exposed to air and has a standable cell within reach. */
   const prepareMining = (id: number, nx: number, ny: number, nz: number, radius = 30) => {
@@ -85,10 +106,12 @@ export function installDebugApi(game: Game): void {
     }),
     /** Merge into the live InputState (e.g. { moveY: 1 }). */
     input: (patch: Partial<InputState>) => Object.assign(game.input, patch),
-    teleport: (x: number, y: number, z: number, yaw?: number) => {
+    /** Mutating helpers run (automation or ?debug=1). */
+    mutations: allowed,
+    teleport: gate((x: number, y: number, z: number, yaw?: number) => {
       game.player.teleport(x, y, z, yaw);
       game.cameraRig.snapTo(x, y + 1.45, z);
-    },
+    }, undefined),
     look: (yaw: number, pitch: number) => {
       game.cameraRig.yaw = yaw;
       game.cameraRig.pitch = pitch;
@@ -142,15 +165,20 @@ export function installDebugApi(game: Game): void {
       aim(x + 0.5, y + 0.5, z + 0.5);
       return false;
     },
-    give: (item: ItemId, count: number) => game.backpack.add(item, count),
-    bank: (item: ItemId, count: number) => {
+    give: gate((item: ItemId, count: number) => {
+      const n = game.backpack.add(item, count);
+      game.bus.emit('inventory:changed', {});
+      return n;
+    }, 0),
+    bank: gate((item: ItemId, count: number) => {
       const s = game.storage as unknown as { add?: (i: ItemId, n: number) => void };
       s.add?.(item, count);
-    },
+      game.bus.emit('inventory:changed', {});
+    }, undefined),
     block: (x: number, y: number, z: number) => game.session.world.get(x, y, z),
     /** Changes the voxels (and light) at once; the chunk mesh follows from the mesh workers a
      *  frame or two later (see meshIdle). */
-    setBlock: (x: number, y: number, z: number, id: number) => game.session.setBlock(x, y, z, id),
+    setBlock: gate((x: number, y: number, z: number, id: number) => game.session.setBlock(x, y, z, id), undefined),
     /** Resolves once every pending chunk mesh is applied: await it before judging the terrain on
      *  screen right after setBlock or mining. */
     meshIdle: () => game.session.chunks.flush(),
@@ -164,12 +192,12 @@ export function installDebugApi(game: Game): void {
       game.input.interactPressed = true;
     },
     save: () => game.saveNow('debug'),
-    discover: (id: string) => game.discover(id),
+    discover: gate((id: string) => game.discover(id), undefined),
     events: (type?: string) => (type ? events.filter((e) => e.type === type) : events.slice()),
     clearEvents: () => {
       events.length = 0;
     },
-    prepareMining,
+    prepareMining: gate(prepareMining, null),
     /** Nearest standable cell to a point (searching up/down a few blocks). */
     standableNear: (x: number, y: number, z: number) => {
       for (let r = 0; r <= 4; r++)
@@ -216,15 +244,74 @@ export function installDebugApi(game: Game): void {
     features: {
       state: () => game.features.debugState(),
       /** Start a ride ('hoist' | 'riftRope', 'up' | 'down'); with t (0..1) it holds there for a capture. */
-      ride: (id: string, dir: 'up' | 'down', t?: number) => game.features.debugRide(id, dir, t),
+      ride: gate((id: string, dir: 'up' | 'down', t?: number) => game.features.debugRide(id, dir, t), false),
       /** Let a held ride run on to its end. */
       release: () => game.features.debugRelease(),
-      openDoor: (id: string) => game.features.openDoor(id),
-      wake: (id: string) => game.features.debugWake(id),
+      openDoor: gate((id: string) => game.features.openDoor(id), false),
+      wake: gate((id: string) => game.features.debugWake(id), false),
       /** Jump to an epoch (re-rolls the living rock and moves the bloom); @returns the regrowth's ms. */
-      setEpoch: (n: number) => game.features.debugSetEpoch(n),
+      setEpoch: gate((n: number) => game.features.debugSetEpoch(n), 0),
       sites: () => game.features.sites(),
       layout: () => game.session.layout.features ?? null,
+    },
+    /** The tree, the stations, the runes, the rumours (final pass W3, game/Progression). */
+    progression: {
+      state: () => {
+        const p = game.progression;
+        const save = p.toSave();
+        return {
+          stations: [...save.stations],
+          standing: (['surveyTable', 'forge', 'relicShelf'] as const).filter((id) => game.session.liveProps.has(stationPropId(id))),
+          gear: [...save.gear],
+          relics: [...save.relics],
+          runes: p.runes.found(),
+          runeMask: p.runeMask,
+          awake: p.runes.awake,
+          finale: save.finale,
+          compassTarget: save.compassTarget,
+          foundAt: { ...save.foundAt },
+          next: { ...p.nextStep },
+          health: { current: game.health.current, max: game.health.max },
+          jumpVelocity: game.player.jumpVelocity,
+          safeFallSpeed: game.player.safeFallSpeed,
+          busy: p.stations.busy,
+        };
+      },
+      tree: () => game.progression.treeView(),
+      survey: () => game.progression.surveyView(),
+      journal: () => game.progression.journalView(),
+      craft: (id: string) => {
+        if (isNodeId(id)) game.craft(id);
+      },
+      setTarget: (id: string | null) => game.progression.setCompassTarget(id),
+      /** Own a node without paying (equipment tier, station rising on its plot, gear worn). */
+      grantNode: gate((id: string) => {
+        if (!isNodeId(id)) return false;
+        const def = NODES[id as NodeId];
+        const r = def.result;
+        const p = game.progression;
+        if (r.kind === 'equip') {
+          game.equipment.upgrade(r.slot, r.tier);
+          if (r.slot === 'pack') game.progression.applyPack();
+        } else {
+          const list = r.kind === 'station' ? p.extra.stations : p.extra.gear;
+          if (!list.includes(id)) list.push(id);
+          if (r.kind === 'station') p.stations.build(r.station);
+          else p.applyGear();
+        }
+        p.invalidateNext();
+        game.bus.emit('inventory:changed', {});
+        return true;
+      }, false),
+      /** Give the first n runes (RUNE_ITEMS order) with their pages; @returns how many are found. */
+      grantRunes: gate((n: number) => game.progression.runes.debugGrant(n), 0),
+      /** Distance (m) from the explorer to the black stone's faces. */
+      stoneDistance: () => {
+        for (const spec of game.session.liveProps.values()) if (spec.kind === 'abyssMonolith') return game.features.focusDistance(spec, game.player.x, game.player.y, game.player.z);
+        return Infinity;
+      },
+      plots: () => game.session.layout.progression?.plots ?? [],
+      runeSites: () => game.session.layout.progression?.runes ?? [],
     },
     /** Fullbright amount and an optional section clip height (compiles the clip into the terrain shader). */
     debugLight: (fullbright: number, clipY = 9999) => {
@@ -237,7 +324,8 @@ export function installDebugApi(game: Game): void {
         m.needsUpdate = true;
       }
     },
-    game,
+    // The whole game, for automation only (a normal session gets the read-only surface above).
+    game: allowed ? game : (undefined as unknown as Game),
   };
   (window as unknown as { __DD__: typeof api }).__DD__ = api;
 }

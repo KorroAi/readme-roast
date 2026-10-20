@@ -5,6 +5,7 @@ import { Rng } from '../../core/rng';
 import { VoxelWorld } from '../VoxelWorld';
 import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
 import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
+import { buildProgression } from './progression';
 import { buildFeatures } from './features';
 
 /**
@@ -1057,6 +1058,13 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   }
 
   // ------------------------------------------------------------------------------------
+  // 13b. The upgrade tree and the runes (world/gen/progression, final pass W3): camp plots, rune
+  // stones and their Ironbound niches, Echo crystal, iron for a tier. Its own forked stream; its
+  // props come after every earlier one and before the feature pass's.
+  const progression = buildProgression({ world: w, rng: rng.fork(0x7e3e5), props, addProp, landmarks });
+  mark('progression');
+
+  // ------------------------------------------------------------------------------------
   // 14. World variety (world/gen/features): the places, rides, rune doors and living rock, built
   // after the key lights with their own random stream, writing only inside the boxes they declare.
   const features = opts.features === false ? undefined : buildFeatures({ world: w, seed, props, structures, discoveries, landmarks, blob, crystalSeam, groundAt });
@@ -1075,7 +1083,7 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   mark('seal');
 
   const totalMs = Math.round(performance.now() - t0);
-  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, ...(features ? { features } : {}), timings: { totalMs, phases } };
+  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, progression, ...(features ? { features } : {}), timings: { totalMs, phases } };
 
   // ------------------------------------------------------------------------------------
   // helpers (hoisted)

@@ -7,6 +7,7 @@ import { ASH, BARK, BRICK, CLOTH, COPPER, CYAN, FIRE, IRON, LEATHER, ROPE, RUST,
 import { CAMP_LANTERN, Layers, beam, buildLantern, buildPickaxe, disc, ring, shade, vary } from './shapes';
 import { buildMonolith } from './monolith';
 import { haldenNote, hoistWinch, satchel } from './featureModels';
+import { forge, plotStake, relicShelf, runeStone, surveyTable } from './progressionModels';
 
 /**
  * Procedural prop models. Every model stands on y = 0 centered on the origin and faces +Z.
@@ -67,12 +68,21 @@ export const PROP_VARIANTS: Record<PropKind, number> = {
   pickaxeRack: 1,
   ropeCoil: 2,
   brokenCart: 1,
-  abyssMonolith: 1,
+  // Variant 1: the stone awake (its niche cyan). Only ever chosen through PropSpec.variant.
+  abyssMonolith: 2,
   // World variety (final pass W2, render/props/featureModels.ts). Append new kinds after these:
   // buildPropModel seeds each kind by its index in this table.
   haldenNote: 2,
   hoistWinch: 2,
   satchel: 1,
+  // The tree and the runes (final pass W3, render/props/progressionModels.ts). A plot's variant is
+  // its station's sketch, the shelf's the mask of lit sockets, a rune stone's its glyph (all set
+  // through PropSpec.variant).
+  plotStake: 3,
+  forge: 1,
+  surveyTable: 1,
+  relicShelf: 256,
+  runeStone: 8,
 };
 
 export const PROP_KINDS = Object.keys(PROP_VARIANTS) as PropKind[];
@@ -138,6 +148,11 @@ const BUILDERS: Record<PropKind, KindBuilder> = {
   haldenNote,
   hoistWinch,
   satchel,
+  plotStake,
+  forge,
+  surveyTable,
+  relicShelf,
+  runeStone,
 };
 
 /** Variant index for a prop seed. */

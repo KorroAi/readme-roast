@@ -70,9 +70,10 @@ export function prereqMet(p: Prereq, ctx: Pick<CraftContext, 'equipment' | 'buil
   return isOwned(nodeDef(p), ctx.equipment, ctx.built);
 }
 
-/** Can node `id` be made right now, and if not, why? Changes nothing. */
-export function evaluate(id: NodeId, ctx: CraftContext): CraftResult {
-  const def = nodeDef(id);
+/** Can a node be made right now, and if not, why? Changes nothing. */
+export function evaluate(node: NodeId | NodeDef, ctx: CraftContext): CraftResult {
+  const def = typeof node === 'string' ? nodeDef(node) : node;
+  const id = def.id;
   const field = def.place === 'field';
   const have: ItemCounts = {};
   const missing: ItemCounts = {};
@@ -100,10 +101,10 @@ export function evaluate(id: NodeId, ctx: CraftContext): CraftResult {
  * pack), and applies an equipment result (a pack result also resizes `ctx.backpack`). Stations and
  * gear are recorded by the caller (Progression), which owns `built`. Nothing changes on failure.
  */
-export function craft(id: NodeId, ctx: CraftContext): CraftResult {
-  const res = evaluate(id, ctx);
+export function craft(node: NodeId | NodeDef, ctx: CraftContext): CraftResult {
+  const res = evaluate(node, ctx);
   if (!res.ok) return res;
-  const def = nodeDef(id);
+  const def = typeof node === 'string' ? nodeDef(node) : node;
   pay(def, ctx.backpack, ctx.storage);
   const r = def.result;
   if (r.kind === 'equip') {

@@ -1,0 +1,310 @@
+/* The Expedition Report (screens/summary.ts). Expedition kit: a ledger, the banked haul counting
+   up, and what lies ahead. Report numbers are set in the Lintel face. Records are violet. */
+
+.dd-report {
+  width: min(980px, 100%);
+}
+.dd-report-head {
+  padding-left: 18px;
+}
+.dd-report-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dd-report-outcome {
+  color: var(--head);
+}
+.dd-report.blackout .dd-report-outcome {
+  color: var(--danger-400);
+}
+.dd-report-title {
+  font-size: calc(21px * var(--s));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dd-report-body {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr) minmax(0, 1fr);
+  gap: 0 16px;
+  padding: 6px 18px 8px;
+  align-items: start;
+  align-content: start;
+}
+.dd-report-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dd-report-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dd-report-sec-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 24px;
+  margin: 10px 0 0;
+}
+.dd-report-ledger .dd-ledger-row {
+  min-height: 31px;
+}
+.dd-report-ledger .dd-ledger-value {
+  font-family: var(--font-lintel);
+  font-weight: 400;
+  font-size: calc(15px * var(--s));
+  letter-spacing: 0.04em;
+}
+.dd-report-ledger .dd-ledger-row.best .dd-ledger-value {
+  color: var(--deep-300);
+}
+
+/* NEW BEST: a violet stamp, set a little askew like a mark pressed into the ledger. */
+.dd-report-stamp {
+  --cut: var(--cut-chip);
+  --fill: rgba(30, 22, 58, 0.85);
+  --rim: var(--deep-300);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 0 0;
+  padding: 2px 10px 2px 8px;
+  font-family: var(--font-lintel);
+  font-size: calc(13px * var(--s));
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--deep-300);
+  transform: rotate(-3deg);
+  animation: dd-stamp 480ms var(--ease-enter) both;
+}
+@keyframes dd-stamp {
+  from {
+    opacity: 0;
+    transform: rotate(-3deg) scale(1.35);
+  }
+}
+.dd-report-star {
+  font-family: var(--font);
+  font-size: calc(13px * var(--s));
+}
+.dd-report-records {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: calc(13px * var(--s));
+  font-weight: 700;
+  color: var(--deep-300);
+}
+
+/* Banked: the haul as specimen chips with counts. */
+.dd-report-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dd-report-chip {
+  --cut: var(--cut-chip);
+  --fill: rgba(4, 7, 11, 0.6);
+  --rim: var(--slate-600);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+  padding: 0 10px 0 4px;
+}
+.dd-report-chip.uncommon {
+  --rim: rgba(229, 132, 68, 0.6);
+}
+.dd-report-chip.rare {
+  --rim: rgba(143, 227, 238, 0.55);
+}
+.dd-report-chip-n,
+.dd-report-total {
+  font-family: var(--font-lintel);
+  font-weight: 400;
+  font-size: calc(15px * var(--s));
+  color: var(--amber-300);
+  font-variant-numeric: tabular-nums;
+  min-width: 2.2em;
+}
+.dd-report-sum {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0;
+  font-size: calc(13px * var(--s));
+  color: var(--ink-dim);
+}
+.dd-report-total {
+  min-width: 0;
+  font-size: calc(18px * var(--s));
+}
+
+/* The black-out variant. */
+.dd-report-cache-at {
+  margin: 0;
+  color: var(--amber-300);
+  font-weight: 700;
+  font-size: calc(14px * var(--s));
+  font-variant-numeric: tabular-nums;
+}
+.dd-report-lost {
+  margin: 0;
+  color: var(--danger-400);
+  font-size: calc(14px * var(--s));
+  font-weight: 600;
+}
+
+/* Found: runes as their stones, discoveries with the builders' diamond, in cyan ink. */
+.dd-report-found {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dd-report-find {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  font-size: calc(14px * var(--s));
+  font-weight: 700;
+  color: var(--rune-200);
+}
+.dd-report-find.rune {
+  color: var(--deep-300);
+}
+.dd-report-mark {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin: 0 9px;
+  border: 2px solid var(--rune-200);
+  transform: rotate(45deg);
+}
+
+/* Overnight and the Next card. */
+.dd-report-night {
+  margin: 0;
+  font-size: calc(14px * var(--s));
+  color: var(--ink);
+}
+.dd-report-rumours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.dd-report-rumour {
+  position: relative;
+  padding-left: 16px;
+  font-size: calc(13px * var(--s));
+  line-height: 1.35;
+  color: var(--ink-dim);
+}
+.dd-report-rumour::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.45em;
+  width: 6px;
+  height: 6px;
+  background: var(--amber-400);
+  transform: rotate(45deg);
+}
+.dd-report-rumour.bloom::before {
+  background: var(--rune-200);
+}
+.dd-report-next {
+  --cut: var(--cut-panel);
+  --fill: rgba(19, 26, 36, 0.7);
+  --rim: var(--slate-600);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+}
+.dd-report-next.ready {
+  --rim: rgba(255, 179, 92, 0.6);
+  --face: linear-gradient(90deg, rgba(255, 179, 92, 0.1), transparent 70%);
+}
+.dd-report-next-name {
+  font-size: calc(16px * var(--s));
+  font-weight: 700;
+}
+.dd-report-next-chips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dd-report-foot {
+  flex: none;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 8px 18px 14px;
+  border-top: 1px solid rgba(94, 66, 32, 0.45);
+}
+.dd-report-foot .dd-btn {
+  min-width: 220px;
+}
+
+@media (max-height: 460px) {
+  .dd-report-sec-title {
+    margin-top: 6px;
+  }
+  .dd-report-foot {
+    padding-top: 6px;
+    padding-bottom: 8px;
+  }
+  .dd-report-chip {
+    height: 36px;
+  }
+}
+
+/* Portrait: one column, the CTA full width at the foot. */
+@media (orientation: portrait) {
+  .dd-report {
+    height: 100%;
+  }
+  .dd-report-body {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 16px 10px;
+  }
+  .dd-report-foot .dd-btn {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .dd-report-title {
+    font-size: calc(19px * var(--s));
+  }
+}
+
+/* Report ledgers wrap a long label rather than cut it. */
+.dd-report .dd-ledger-label {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.25;
+}

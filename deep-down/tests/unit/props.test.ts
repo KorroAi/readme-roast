@@ -50,7 +50,18 @@ const SIZE: Record<PropKind, [[number, number], [number, number], [number, numbe
   haldenNote: [[0.3, 0.65], [0.04, 0.5], [0.2, 0.45]],
   hoistWinch: [[0.12, 1.6], [0.7, 1.15], [0.5, 1.05]],
   satchel: [[0.35, 0.9], [0.18, 0.4], [0.25, 0.75]],
+  plotStake: [[1.9, 2.1], [0.68, 0.8], [1.95, 2.1]],
+  forge: [[1.6, 2.0], [2.25, 2.45], [1.3, 1.6]],
+  surveyTable: [[1.35, 1.55], [0.95, 1.1], [0.85, 1.0]],
+  relicShelf: [[1.15, 1.3], [1.4, 1.55], [0.45, 0.6]],
+  runeStone: [[0.5, 0.7], [0.75, 0.9], [0.25, 0.5]],
 };
+
+/** Variants to check per kind: all of them, but a few masks of the Relic Shelf's 256. */
+function variantsOf(kind: PropKind): number[] {
+  if (kind === 'relicShelf') return [0, 1, 0x55, 0xaa, 0xff];
+  return Array.from({ length: PROP_VARIANTS[kind] }, (_, i) => i);
+}
 
 function geometries(m: PropModel): THREE.BufferGeometry[] {
   return [m.body, ...(m.glow ? [m.glow] : []), ...m.parts.map((p) => p.geometry)];
@@ -180,7 +191,7 @@ function coplanarConflictArea(g: THREE.BufferGeometry): number {
 describe('prop models', () => {
   for (const kind of PROP_KINDS) {
     it(`${kind}: valid geometry and sensible size in every variant`, () => {
-      for (let v = 0; v < PROP_VARIANTS[kind]; v++) {
+      for (const v of variantsOf(kind)) {
         const m = buildPropModel(kind, { variant: v, hangHeight: kind === 'hangingLantern' ? 1.8 : undefined });
         for (const g of geometries(m)) checkGeometry(g);
         const size = m.bounds.getSize(new THREE.Vector3());
@@ -223,7 +234,7 @@ describe('prop models', () => {
   it('has no visible coplanar faces of different colors (no z-fighting)', () => {
     // Ring segments, monolith cornices/ribs and chain links used to share planes here.
     for (const kind of PROP_KINDS) {
-      for (let v = 0; v < PROP_VARIANTS[kind]; v++) {
+      for (const v of variantsOf(kind)) {
         const m = buildPropModel(kind, { variant: v, hangHeight: 1.8 });
         for (const g of geometries(m)) expect(coplanarConflictArea(g), `${kind}#${v}`).toBeLessThan(0.003);
       }

@@ -129,7 +129,10 @@
     .dd-panel, .dd-btn, .dd-slot, .dd-detail, .dd-card, .dd-equip-card, .dd-recipe, .dd-entry,
     .dd-toast, .dd-pickup, .dd-pill, .dd-compass, .dd-objective, .dd-target, .dd-hint,
     .dd-use-prompt, .dd-req, .dd-seg-btn, .dd-chip-btn, .dd-tbtn, .dd-bar, .dd-progress,
-    .dd-switch-track, .dd-perf, .dd-use-prompt kbd, .dd-ledger
+    .dd-switch-track, .dd-perf, .dd-use-prompt kbd, .dd-ledger,
+    /* Progression screens (final pass W3): tree nodes and pane, report, board, journal, about. */
+    .dd-wake, .dd-node, .dd-tree-detail, .dd-report-stamp, .dd-report-chip, .dd-report-next,
+    .dd-rumour, .dd-lore, .dd-rune-plate, .dd-rune-face, .dd-licences
   ) {
   --cut: var(--cut-btn);
   --fill: var(--slate-800);

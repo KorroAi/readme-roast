@@ -1,12 +1,13 @@
 import { lanternForTier, packForTier, pickaxeForTier, PICKAXES } from '../../config/balance';
 import { ITEM_IDS, ITEMS, type ItemId } from '../../config/items';
-import { RECIPE_LIST, type EquipmentSlot, type RecipeDef } from '../../config/recipes';
-import { hasText, t, type TextKey } from '../../i18n';
+import type { EquipmentSlot } from '../../config/recipes';
+import { t, type TextKey } from '../../i18n';
+import './inventory.css';
 import { h, icon } from '../dom';
 import { equipmentIconDataUrl, iconPx, itemIconDataUrl } from '../icons';
 import type { InventoryView } from '../types';
 import type { InventoryTab, ScreenHost } from './host';
-import { btn, closeBtn, header } from './widgets';
+import { btn, closeBtn, header, ledger } from './widgets';
 
 const TABS: Array<{ id: InventoryTab; label: TextKey }> = [
   { id: 'backpack', label: 'inventory.backpack' },
@@ -14,8 +15,6 @@ const TABS: Array<{ id: InventoryTab; label: TextKey }> = [
   { id: 'equipment', label: 'inventory.equipment' },
   { id: 'journal', label: 'inventory.journal' },
 ];
-
-const isItem = (id: string): id is ItemId => Object.prototype.hasOwnProperty.call(ITEMS, id);
 
 export function buildInventory(host: ScreenHost): HTMLElement {
   const inv = host.actions.getInventory();
@@ -42,7 +41,7 @@ export function buildInventory(host: ScreenHost): HTMLElement {
     );
   }
   const body =
-    tab === 'backpack' ? backpackTab(host, inv) : tab === 'storage' ? storageTab(inv) : tab === 'equipment' ? equipmentTab(inv) : journalTab(inv);
+    tab === 'backpack' ? backpackTab(host, inv) : tab === 'storage' ? storageTab(inv) : tab === 'equipment' ? equipmentTab(inv) : journalTab(host);
   return h(
     'section',
     { class: 'dd-screen dd-overlay' },
@@ -56,14 +55,22 @@ export function buildInventory(host: ScreenHost): HTMLElement {
   );
 }
 
+/** How long Drop must be held (ms): a stack is never dropped by a stray tap. */
+export const DROP_HOLD_MS = 600;
+
 function backpackTab(host: ScreenHost, inv: InventoryView): HTMLElement {
   const used = inv.backpack.filter((s) => s !== null).length;
   let sel = host.state.invSlot;
   if (!inv.backpack[sel]) sel = inv.backpack.findIndex((s) => s !== null);
-  const grid = h('div', { class: 'dd-slots' });
+  const pouchFrom = inv.backpack.length - inv.pouchSlots;
+  // Two even rows for the bigger packs (8 -> 4 x 2, 10 -> 5 x 2), so the pouch sits on the last row.
+  const cols = inv.backpack.length > 6 ? Math.ceil(inv.backpack.length / 2) : 3;
+  const grid = h('div', { class: 'dd-slots', style: `--cols: ${cols}` });
   inv.backpack.forEach((slot, i) => {
+    const pouch = inv.pouchSlots > 0 && i >= pouchFrom;
+    const lock = pouch ? h('span', { class: 'dd-slot-lock', 'aria-hidden': 'true' }) : null;
     if (!slot) {
-      grid.appendChild(h('div', { class: 'dd-slot empty', 'aria-label': t('inventory.empty'), role: 'img' }));
+      grid.appendChild(h('div', { class: `dd-slot empty${pouch ? ' pouch' : ''}`, 'aria-label': t(pouch ? 'ui.inv.pouchEmpty' : 'inventory.empty'), role: 'img' }, lock));
       return;
     }
     const name = t(ITEMS[slot.item].name);
@@ -71,10 +78,10 @@ function backpackTab(host: ScreenHost, inv: InventoryView): HTMLElement {
       h(
         'button',
         {
-          class: `dd-slot ${ITEMS[slot.item].rarity}${i === sel ? ' selected' : ''}`,
+          class: `dd-slot ${ITEMS[slot.item].rarity}${i === sel ? ' selected' : ''}${pouch ? ' pouch' : ''}`,
           type: 'button',
           'aria-pressed': String(i === sel),
-          'aria-label': `${name} ${t('inventory.count', { count: slot.count })}`,
+          'aria-label': `${name} ${t('inventory.count', { count: slot.count })}${pouch ? `. ${t('equip.stat.pouch')}` : ''}`,
           'data-key': `slot:${i}`,
           onclick: () => {
             host.state.invSlot = i;
@@ -83,6 +90,7 @@ function backpackTab(host: ScreenHost, inv: InventoryView): HTMLElement {
         },
         icon(itemIconDataUrl(slot.item, iconPx(40)), 40),
         h('span', { class: 'dd-slot-count', text: slot.count }),
+        lock,
       ),
     );
   });
@@ -94,10 +102,11 @@ function backpackTab(host: ScreenHost, inv: InventoryView): HTMLElement {
         icon(itemIconDataUrl(picked.item, iconPx(56)), 56),
         h(
           'div',
-          null,
+          { class: 'dd-detail-text' },
           h('h3', { class: `dd-item-name ${ITEMS[picked.item].rarity}`, text: t(ITEMS[picked.item].name) }),
           h('p', { class: 'dd-muted', text: t(ITEMS[picked.item].desc) }),
           h('p', { class: 'dd-detail-count', text: t('inventory.count', { count: picked.count }) }),
+          dropButton(host, sel),
         ),
       )
     : h('div', { class: 'dd-detail empty' }, h('p', { class: 'dd-muted', text: t('hint.pickup') }));
@@ -106,7 +115,38 @@ function backpackTab(host: ScreenHost, inv: InventoryView): HTMLElement {
     { class: 'dd-backpack' },
     h('p', { class: 'dd-caption', text: t('inventory.slots', { used, max: inv.backpack.length }) }),
     h('div', { class: 'dd-backpack-grid' }, grid, detail),
+    inv.pouchSlots > 0 ? h('p', { class: 'dd-caption dd-pouch-note' }, h('span', { class: 'dd-slot-lock', 'aria-hidden': 'true' }), t('ui.inv.pouchNote', { count: inv.pouchSlots })) : null,
   );
+}
+
+/**
+ * Drop the selected stack on the ground in front of the explorer: press and hold (a brass bar
+ * fills over DROP_HOLD_MS). A keyboard press is deliberate already and drops at once.
+ */
+function dropButton(host: ScreenHost, slot: number): HTMLElement {
+  let timer = 0;
+  const drop = () => {
+    window.clearTimeout(timer);
+    host.actions.dropStack(slot);
+    host.rerender();
+  };
+  const b = btn(t('ui.inv.drop'), () => undefined, { key: `drop:${slot}`, className: 'dd-drop', label: t('ui.inv.dropLabel') });
+  b.prepend(h('span', { class: 'dd-drop-fill', 'aria-hidden': 'true' }));
+  const cancel = () => {
+    window.clearTimeout(timer);
+    b.classList.remove('holding');
+  };
+  b.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    b.classList.add('holding');
+    window.clearTimeout(timer);
+    timer = window.setTimeout(drop, DROP_HOLD_MS);
+  });
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel'] as const) b.addEventListener(type, cancel);
+  b.addEventListener('click', (e) => {
+    if ((e as MouseEvent).detail === 0) drop();
+  });
+  return b;
 }
 
 function storageTab(inv: InventoryView): HTMLElement {
@@ -196,35 +236,25 @@ function equipmentTab(inv: InventoryView): HTMLElement {
   );
 }
 
-function journalTab(inv: InventoryView): HTMLElement {
-  const discoveries = inv.journal.filter((id) => hasText(`discovery.${id}.title`));
-  const keyItems = inv.journal.filter(isItem);
-  if (!discoveries.length && !keyItems.length) return h('p', { class: 'dd-empty', text: t('inventory.journalEmpty') });
+/** The Bag's Journal tab: how much of the Hollow has been found, and the way into the Journal. */
+function journalTab(host: ScreenHost): HTMLElement {
+  const j = host.actions.getJournal();
+  const relics = j.relics.filter((r) => r.found).length;
+  const runes = j.runes.filter((r) => r.found).map((r) => r.item);
   return h(
     'div',
     { class: 'dd-journal' },
-    discoveries.length
-      ? h(
-          'section',
-          { class: 'dd-section' },
-          h('h3', { class: 'dd-section-title', text: t('inventory.discoveries') }),
-          h(
-            'ul',
-            { class: 'dd-entries' },
-            ...discoveries.map((id) =>
-              h(
-                'li',
-                { class: 'dd-entry' },
-                h('span', { class: 'dd-entry-title', text: t(`discovery.${id}.title` as TextKey) }),
-                h('span', { class: 'dd-muted small', text: t(`discovery.${id}.body` as TextKey) }),
-              ),
-            ),
-          ),
-        )
-      : null,
-    keyItems.length
-      ? h('section', { class: 'dd-section' }, h('h3', { class: 'dd-section-title', text: t('inventory.keyItems') }), h('ul', { class: 'dd-cards' }, ...keyItems.map((id) => keyItemCard(id))))
-      : null,
+    h(
+      'div',
+      { class: 'dd-journal-head' },
+      ledger([
+        { label: t('ui.journal.tab.discoveries'), value: `${j.found}/${j.total}`, tone: 'rare' },
+        { label: t('ui.journal.tab.runes'), value: `${j.runesFound}/${j.runesTotal}`, tone: 'relic' },
+        ...(j.relics.length ? [{ label: t('ui.journal.tab.relics'), value: `${relics}/${j.relics.length}`, tone: 'relic' }] : []),
+      ]),
+      h('div', { class: 'dd-journal-open' }, btn(t('ui.journal.open'), () => host.actions.openJournal(), { variant: 'primary', key: 'open-journal' })),
+    ),
+    runes.length ? h('ul', { class: 'dd-cards dd-journal-keys' }, ...runes.map((id) => keyItemCard(id))) : h('p', { class: 'dd-empty', text: t('inventory.journalEmpty') }),
   );
 }
 
@@ -234,75 +264,5 @@ function keyItemCard(id: ItemId): HTMLElement {
     { class: `dd-card ${ITEMS[id].rarity}` },
     icon(itemIconDataUrl(id, iconPx(40)), 40),
     h('div', { class: 'dd-card-text' }, h('span', { class: 'dd-item-name', text: t(ITEMS[id].name) }), h('span', { class: 'dd-muted small', text: t(ITEMS[id].desc) })),
-  );
-}
-
-// ---------------------------------------------------------------------------------------
-// Workbench
-
-export type CraftState = 'ready' | 'owned' | 'missing' | 'notAtCamp';
-
-/** Same precedence as gameplay/Crafting.evaluate: owned > notAtCamp > missing. */
-export function craftState(recipe: RecipeDef, inv: Pick<InventoryView, 'available' | 'equipment' | 'atCamp'>): CraftState {
-  if (inv.equipment[recipe.result.slot] >= recipe.result.tier) return 'owned';
-  if (!inv.atCamp) return 'notAtCamp';
-  for (const [id, need] of Object.entries(recipe.inputs) as Array<[ItemId, number]>) if ((inv.available[id] ?? 0) < need) return 'missing';
-  return 'ready';
-}
-
-const CRAFT_REASON: Record<Exclude<CraftState, 'ready'>, TextKey> = { owned: 'craft.owned', missing: 'craft.missing', notAtCamp: 'craft.notAtCamp' };
-
-export function buildCrafting(host: ScreenHost): HTMLElement {
-  const inv = host.actions.getInventory();
-  let focused = false;
-  const cards = RECIPE_LIST.map((recipe) => {
-    const state = craftState(recipe, inv);
-    const info = equipInfo(recipe.result.slot, recipe.result.tier);
-    const inputs = (Object.entries(recipe.inputs) as Array<[ItemId, number]>).map(([id, need]) => {
-      const have = inv.available[id] ?? 0;
-      const ok = have >= need;
-      return h(
-        'li',
-        { class: `dd-req ${ok ? 'ok' : 'short'}` },
-        icon(itemIconDataUrl(id, iconPx(22)), 22),
-        h('span', { class: 'dd-req-name', text: t(ITEMS[id].name) }),
-        h('b', { text: t('craft.from', { have, need }) }),
-      );
-    });
-    const ready = state === 'ready';
-    const action = ready
-      ? btn(
-          t('craft.craft'),
-          () => {
-            host.actions.craft(recipe.id);
-            host.rerender();
-          },
-          { variant: 'primary', key: `craft:${recipe.id}`, autofocus: !focused, className: 'dd-craft-btn' },
-        )
-      : btn(t(CRAFT_REASON[state]), () => undefined, { disabled: true, key: `craft:${recipe.id}`, className: `dd-craft-btn ${state}` });
-    focused ||= ready;
-    return h(
-      'li',
-      { class: `dd-recipe ${state}` },
-      icon(equipmentIconDataUrl(recipe.result.slot, recipe.result.tier, iconPx(56)), 56, 'dd-icon dd-recipe-icon'),
-      h(
-        'div',
-        { class: 'dd-recipe-info' },
-        h('span', { class: 'dd-item-name', text: t(recipe.name) }),
-        h('span', { class: 'dd-muted small', text: t(info.desc) }),
-        h('ul', { class: 'dd-reqs', 'aria-label': t('craft.requires') }, ...inputs),
-      ),
-      action,
-    );
-  });
-  return h(
-    'section',
-    { class: 'dd-screen dd-overlay' },
-    h(
-      'div',
-      { class: 'dd-panel dd-crafting', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('craft.title') },
-      header(t('craft.title'), closeBtn(t('craft.close'), () => host.actions.closeScreen())),
-      h('ul', { class: 'dd-scroll dd-recipes' }, ...cards),
-    ),
   );
 }

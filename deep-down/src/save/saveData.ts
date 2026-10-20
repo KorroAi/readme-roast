@@ -26,6 +26,7 @@ export function defaultProgression(): ProgressionSave {
     hintsShown: [],
     finale: false,
     compassTarget: null,
+    foundAt: {},
   };
 }
 
@@ -114,7 +115,8 @@ function validProgression(x: unknown): boolean {
     x.minedDay.every(Number.isInteger) &&
     strings(x.hintsShown) &&
     typeof x.finale === 'boolean' &&
-    (x.compassTarget === null || typeof x.compassTarget === 'string')
+    (x.compassTarget === null || typeof x.compassTarget === 'string') &&
+    (x.foundAt === undefined || isObj(x.foundAt))
   );
 }
 
@@ -214,7 +216,19 @@ export function normalizeProgression(x: unknown, report?: NormalizeReport): Prog
     hintsShown: strs(p.hintsShown, def.hintsShown),
     finale: p.finale === true,
     compassTarget: typeof p.compassTarget === 'string' ? p.compassTarget : null,
+    foundAt: normalizeFoundAt(p.foundAt),
   };
+}
+
+/** Keep [expedition, depth] pairs of non-negative integers keyed by id; drop anything else. */
+function normalizeFoundAt(x: unknown): Record<string, [number, number]> {
+  const out: Record<string, [number, number]> = {};
+  if (!isObj(x)) return out;
+  for (const [k, v] of Object.entries(x)) {
+    if (!Array.isArray(v) || v.length !== 2 || !count(v[0]) || !count(v[1])) continue;
+    out[k] = [v[0] as number, v[1] as number];
+  }
+  return out;
 }
 
 function normalizeCache(x: unknown, report?: NormalizeReport): CacheState | null {

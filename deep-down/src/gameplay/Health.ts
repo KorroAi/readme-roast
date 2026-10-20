@@ -1,4 +1,4 @@
-import { PLAYER } from '../config/balance';
+import { GEAR, PLAYER } from '../config/balance';
 
 /** Player health. Damage and healing are clamped to [0, max]; at 0 the player is dead. */
 export class Health {
@@ -39,11 +39,16 @@ export class Health {
   }
 
   /**
-   * Damage for landing at `fallSpeed` (m/s): none up to PLAYER.safeFallSpeed, then linear in
-   * the excess speed, rounded to whole points.
+   * Damage for landing at `fallSpeed` (m/s): none up to `safe` (PLAYER.safeFallSpeed, or the Grip
+   * Boots' GEAR.gripBoots.safeFallSpeed), then linear in the excess speed, rounded to whole points.
    */
-  static fallDamage(fallSpeed: number): number {
-    if (!(fallSpeed > PLAYER.safeFallSpeed)) return 0;
-    return Math.round((fallSpeed - PLAYER.safeFallSpeed) * PLAYER.fallDamagePerSpeed);
+  static fallDamage(fallSpeed: number, safe: number = PLAYER.safeFallSpeed): number {
+    if (!(fallSpeed > safe)) return 0;
+    return Math.round((fallSpeed - safe) * PLAYER.fallDamagePerSpeed);
+  }
+
+  /** Health for the gear worn: 100, or 140 with the Miner's Coat. */
+  static maxFor(gear: readonly string[]): number {
+    return gear.includes('minersCoat') ? GEAR.minersCoat.maxHealth : PLAYER.maxHealth;
   }
 }

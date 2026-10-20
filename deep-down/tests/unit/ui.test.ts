@@ -1,12 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { RECIPES } from '../../src/config/recipes';
 import { ITEM_IDS } from '../../src/config/items';
+import { evaluate, type CraftContext } from '../../src/gameplay/Crafting';
+import { Equipment } from '../../src/gameplay/Equipment';
+import { Backpack } from '../../src/gameplay/Inventory';
+import { CampStorage } from '../../src/gameplay/Storage';
 import { t } from '../../src/i18n';
 import { depthText, formatRelativeTime } from '../../src/ui/format';
 import { HEART_COUNT, healthHalves, heartFill } from '../../src/ui/hud/hearts';
 import { hasLintelGlyph, layoutLintel, LINTEL_H, LINTEL_REQUIRED, LINTEL_SPACE } from '../../src/ui/brand/strokeFont';
 import { lanternPosition, wordmarkLayout } from '../../src/ui/brand/wordmark';
-import { craftState, equipInfo } from '../../src/ui/screens/inventory';
+import { equipInfo } from '../../src/ui/screens/inventory';
+import { nodeLook } from '../../src/ui/screens/progress';
 import { heartSprite, itemRaster, scaleNearest, SPECIMENS, sprite, type Raster } from '../../src/ui/sprites';
 import {
   advanceLookPhase,
@@ -290,13 +294,36 @@ describe('icon rasters', () => {
 });
 
 describe('workbench rules shown in the UI', () => {
-  const inv = { available: { stone: 20, copperOre: 9 }, equipment: { pickaxe: 1, lantern: 1, pack: 2 }, atCamp: true };
-  it('matches the gameplay precedence: owned > not at camp > missing', () => {
-    expect(craftState(RECIPES.copperPickaxe, inv)).toBe('ready');
-    expect(craftState(RECIPES.sturdyPack, inv)).toBe('owned');
-    expect(craftState(RECIPES.copperLantern, inv)).toBe('missing');
-    expect(craftState(RECIPES.copperPickaxe, { ...inv, atCamp: false })).toBe('notAtCamp');
-    expect(craftState(RECIPES.sturdyPack, { ...inv, atCamp: false })).toBe('owned');
+  const context = (o: { tiers?: Partial<Record<'pickaxe' | 'lantern' | 'pack', number>>; stone?: number; copper?: number; atCamp?: boolean; built?: string[] }): CraftContext => {
+    const storage = new CampStorage();
+    if (o.stone) storage.add('stone', o.stone);
+    if (o.copper) storage.add('copperOre', o.copper);
+    return { backpack: new Backpack(6), storage, equipment: new Equipment(o.tiers), built: new Set(o.built ?? []), atCamp: o.atCamp ?? true, rift: false, rune: false };
+  };
+  // The tree draws what the rules decide (gameplay/Crafting.evaluate), so the precedence the
+  // W1 list had (owned first, then where you stand, then materials) holds on the screen too.
+  const look = (id: Parameters<typeof evaluate>[0], c: CraftContext) => {
+    const r = evaluate(id, c);
+    return nodeLook({ state: r.reason, partial: false });
+  };
+  it('matches the gameplay precedence: owned > locked > not at camp > missing', () => {
+    const inv = { stone: 20, copper: 9, tiers: { pickaxe: 1, lantern: 1, pack: 2 } };
+    expect(look('copperPickaxe', context(inv))).toBe('craftable');
+    expect(look('sturdyPack', context(inv))).toBe('owned');
+    expect(look('copperLantern', context(inv))).toBe('short');
+    expect(look('copperPickaxe', context({ ...inv, atCamp: false }))).toBe('away');
+    expect(look('sturdyPack', context({ ...inv, atCamp: false }))).toBe('owned');
+    // Owned wins over everything; a missing prerequisite wins over missing materials and place.
+    expect(look('copperPickaxe', context({ tiers: { pickaxe: 2 }, atCamp: false }))).toBe('owned');
+    expect(look('ironPickaxe', context({ atCamp: false }))).toBe('locked');
+    expect(look('ironPickaxe', context({ tiers: { pickaxe: 2 }, built: ['forge'] }))).toBe('short');
+  });
+
+  it('maps every rule outcome to one look', () => {
+    expect(nodeLook({ state: 'missing', partial: true })).toBe('partial');
+    expect(nodeLook({ state: 'carryToSite', partial: true })).toBe('carry');
+    expect(nodeLook({ state: 'owned', partial: true })).toBe('owned');
+    expect(nodeLook({ state: 'locked', partial: true })).toBe('locked');
   });
 
   it('describes equipment stats from the balance tables', () => {

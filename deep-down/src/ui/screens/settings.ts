@@ -26,7 +26,8 @@ export function buildSettings(host: ScreenHost): HTMLElement {
     h(
       'div',
       { class: 'dd-panel dd-settings', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('settings.title') },
-      header(t('settings.title'), closeBtn(t('menu.back'), () => host.settingsBack())),
+      // About / Licences: one tap from here, two from the menu.
+      header(t('settings.title'), btn(t('ui.settings.about'), () => host.show('about'), { variant: 'ghost', key: 'about', className: 'dd-about-link', label: t('ui.settings.aboutLabel') }), closeBtn(t('menu.back'), () => host.settingsBack())),
       h(
         'div',
         { class: 'dd-scroll' },

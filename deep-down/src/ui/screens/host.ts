@@ -53,4 +53,10 @@ export interface ScreenHost {
   rerender(): void;
   /** Apply a settings change; with `coalesce` (slider drags) at most one patch per frame. */
   patchSettings(p: Partial<Settings>, coalesce?: boolean): void;
+  /** Close the Expedition Report (dismissing it) and return to play. */
+  closeReport(): void;
+  /** The report's Open Workbench: dismiss it and open the upgrade tree. */
+  openFromReport(): void;
+  /** Leave About for Settings (where it was opened from). */
+  aboutBack(): void;
 }

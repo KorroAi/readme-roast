@@ -202,6 +202,22 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   const campSave = await persisted(page);
   expect(campSave.storage.copperOre ?? 0).toBeGreaterThan(0);
   expect(campSave.backpack.filter(Boolean).length).toBe(0);
+  // The trip is over: the Expedition Report opens, after the camp autosave (never before it),
+  // and closes through summary-close.
+  await page.waitForFunction(() => window.__DD__.state().screen === 'summary', null, { timeout: LOADED_CEILING_MS });
+  const order = await page.evaluate(() => {
+    const ev = window.__DD__.events();
+    return { save: ev.findIndex((e) => e.type === 'game:saved' && e.payload?.reason === 'camp'), ended: ev.findIndex((e) => e.type === 'expedition:ended') };
+  });
+  expect(order.save, 'the camp autosave').toBeGreaterThanOrEqual(0);
+  expect(order.save, 'the camp is saved before the report opens').toBeLessThan(order.ended);
+  const report = page.locator('.dd-report');
+  await expect(report).toBeVisible();
+  await expect(report.locator('.dd-report-title')).toHaveText(/^Expedition 1 · \d+:\d\d$/);
+  await expect(report.locator('.sec-banked .dd-report-chip').first()).toBeVisible();
+  await page.locator('[data-key="summary-close"]').tap();
+  await page.waitForFunction(() => window.__DD__.state().screen === 'none', null, { timeout: LOADED_CEILING_MS });
+  expect(await page.evaluate(() => window.__DD__.game.progression.report)).toBeNull();
   await expect(hud.locator('.dd-compass')).toHaveText('Camp');
   await expect(hud.locator('.dd-compass')).toHaveClass(/\bat-camp\b/);
   await expect(hud.locator('.dd-pill')).toHaveText('0/6');
@@ -217,13 +233,15 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(slateNearCamp).not.toBeNull();
   const hitsRusty = await mineWithTouch(page, touch, slateNearCamp!.block);
 
-  // 7. Craft an upgrade at the Workbench: walk up, tap Use, tap Craft.
+  // 7. Craft an upgrade at the Workbench: walk up, tap Use, pick the node in the tree, tap Craft.
   const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
   await page.getByRole('button', { name: /Workbench/i }).first().waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
   await page.getByRole('button', { name: /Workbench/i }).first().tap();
   await page.waitForFunction(() => window.__DD__.state().screen === 'crafting', null, { timeout: LOADED_CEILING_MS });
-  await page.getByRole('button', { name: /^Craft/ }).first().tap();
+  await page.locator('[data-key="node:copperPickaxe"]').tap();
+  await expect(page.locator('.dd-tree-detail .dd-tree-name')).toHaveText('Copper Pickaxe');
+  await page.locator('[data-key="craft:copperPickaxe"]').tap();
   await page.waitForFunction(() => window.__DD__.state().equipment.pickaxe === 2, null, { timeout: LOADED_CEILING_MS });
   // Crafting is saved at once.
   expect(await saveReasonAfter(page, 'craft:done', { recipe: 'copperPickaxe' })).toBe('craft');

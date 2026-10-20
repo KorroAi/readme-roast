@@ -7,7 +7,13 @@ import { t } from '../../src/i18n';
 import { DISCOVERIES, DISCOVERY_TOTAL, discoveryDef, discoveryNumbering } from '../../src/gameplay/discoveries';
 import { Lantern } from '../../src/gameplay/Lantern';
 import { Objectives, OBJECTIVE_CHAIN } from '../../src/gameplay/Objectives';
-import { closestRecipe, nextLine } from '../../src/gameplay/NextStep';
+import { nextLine, type NextInput } from '../../src/gameplay/NextStep';
+import { closestNode } from '../../src/gameplay/Tree';
+import { Equipment } from '../../src/gameplay/Equipment';
+import { Backpack } from '../../src/gameplay/Inventory';
+import { CampStorage } from '../../src/gameplay/Storage';
+import type { CraftContext } from '../../src/gameplay/Crafting';
+import type { ItemCounts } from '../../src/save/types';
 
 describe('materials, packs and lanterns (loop spec 2.1, 2.2)', () => {
   it('has the six materials with tight stacks and the eight runes as key items', () => {
@@ -73,18 +79,27 @@ describe('discoveries table', () => {
 });
 
 describe('the Next line', () => {
-  const tier1 = { pickaxe: 1, lantern: 1, pack: 1 };
+  const ctx = (tiers: Partial<Record<'pickaxe' | 'lantern' | 'pack', number>>, storage: ItemCounts = {}, built: string[] = [], extra: Partial<CraftContext> = {}): CraftContext => {
+    const st = new CampStorage();
+    for (const [k, v] of Object.entries(storage)) st.add(k as keyof typeof ITEMS, v as number);
+    return { backpack: new Backpack(6), storage: st, equipment: new Equipment(tiers), built: new Set(built), atCamp: true, rift: false, rune: false, ...extra };
+  };
+  const base = (over: Partial<NextInput>): NextInput => ({ cacheDistance: null, chain: null, node: null, runes: 0, runesTotal: 8, finale: false, rumour: null, bestDepth: 0, ...over });
+  const node = (c: CraftContext) => {
+    const n = closestNode(c);
+    return n ? { id: n.id, short: n.short } : null;
+  };
 
   it('a waiting pack comes first, even during the tutorial', () => {
     const o = new Objectives();
-    const n = nextLine({ cacheDistance: 84.4, chain: o.step(), equipment: tier1, available: {}, bestDepth: 60 });
+    const n = nextLine(base({ cacheDistance: 84.4, chain: o.step(), bestDepth: 60 }));
     expect(n).toEqual({ id: 'recoverPack', text: t('next.recoverPack', { distance: 84 }) });
     expect(n.text).toBe('Recover your pack — 84 m');
   });
 
-  it('then the tutorial chain, then the closest upgrade, then going deeper; never empty, never "done"', () => {
+  it('then the chain, the cheapest node, the runes, the stone, a rumour; never empty, never "done"', () => {
     const o = new Objectives();
-    expect(nextLine({ cacheDistance: null, chain: o.step(), equipment: tier1, available: {}, bestDepth: 0 }).text).toBe('Mine stone (0/12)');
+    expect(nextLine(base({ chain: o.step() })).text).toBe('Mine stone (0/12)');
     // Finish the chain.
     o.onEvent('item:picked', { item: 'stone', count: 12 });
     o.onEvent('item:picked', { item: 'copperOre', count: 8 });
@@ -94,25 +109,41 @@ describe('the Next line', () => {
     o.onEvent('discovery', { id: 'gate' });
     expect(o.done).toBe(true);
     expect(o.step()).toBeNull();
-    const eq = { pickaxe: 2, lantern: 1, pack: 1 };
-    const n = nextLine({ cacheDistance: null, chain: o.step(), equipment: eq, available: { stone: 10, copperOre: 4 }, bestDepth: 96 });
-    // Sturdy Pack needs 16 stone 4 copper (6 short); Copper Lantern needs 6 copper 3 glimmer (5 short): the lantern is closer.
-    expect(n.id).toBe('craft:copperLantern');
-    expect(n.text).toBe('Next: Copper Lantern — Copper Ore 4/6');
-    const ready = nextLine({ cacheDistance: null, chain: null, equipment: eq, available: { copperOre: 6, glimmerShard: 3 }, bestDepth: 96 });
+    // Copper pickaxe made; 10 stone 4 copper on hand. The Survey Table (12 St 4 Cu 2 Gl) is 4 short,
+    // the Copper Lantern (6 Cu 3 Gl) 5 short, the Grip Boots (8 St 6 Fi 3 Cu) 6 short: the Table.
+    const c1 = ctx({ pickaxe: 2 }, { stone: 10, copperOre: 4 });
+    const n = nextLine(base({ chain: o.step(), node: node(c1), bestDepth: 96 }));
+    expect(n.id).toBe('craft:surveyTable');
+    expect(n.text).toBe('Next: Survey Table — Stone 10/12');
+    const ready = nextLine(base({ node: node(ctx({ pickaxe: 2 }, { copperOre: 6, glimmerShard: 3 })) }));
     expect(ready.text).toBe('Next: craft the Copper Lantern at the Workbench');
-    const all = nextLine({ cacheDistance: null, chain: null, equipment: { pickaxe: 2, lantern: 2, pack: 2 }, available: {}, bestDepth: 96.4 });
-    expect(all).toEqual({ id: 'deeper', text: 'Go deeper — your best is -96 m' });
-    for (const line of [n, ready, all]) {
+    const forge = nextLine(base({ node: node(ctx({ pickaxe: 3, lantern: 2, pack: 2 }, { stone: 24, copperOre: 6, ironOre: 3 }, ['surveyTable', 'gripBoots'])) }));
+    expect(forge.text).toBe('Next: build the Forge at camp');
+    // Everything made that can be (the rift not reached yet): the runes.
+    const all = ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf'];
+    const done = ctx({ pickaxe: 3, lantern: 2, pack: 3 }, {}, all);
+    expect(closestNode(done)).toBeNull();
+    const runes = nextLine(base({ node: null, runes: 5, bestDepth: 96 }));
+    expect(runes).toEqual({ id: 'runes', text: 'Find the runes — 5/8' });
+    const stone = nextLine(base({ runes: 8 }));
+    expect(stone).toEqual({ id: 'stone', text: 'Take the eight runes to the black stone' });
+    const rumour = nextLine(base({ runes: 8, finale: true, rumour: { id: 'haldenFace', what: 'Fresh copper and iron at the Halden Face', distance: 61.2 } }));
+    expect(rumour).toEqual({ id: 'rumour:haldenFace', text: 'Fresh copper and iron at the Halden Face — 61 m' });
+    const deeper = nextLine(base({ runes: 8, finale: true, bestDepth: 96.4 }));
+    expect(deeper).toEqual({ id: 'deeper', text: 'Go deeper — your best is -96 m' });
+    for (const line of [n, ready, forge, runes, stone, rumour, deeper]) {
       expect(line.text.length).toBeGreaterThan(0);
       expect(line.text).not.toMatch(/done|complete/i);
     }
     expect(en).not.toHaveProperty('objective.done');
   });
 
-  it('closestRecipe skips what is owned', () => {
-    expect(closestRecipe({ pickaxe: 2, lantern: 2, pack: 2 }, {})).toBeNull();
-    expect(closestRecipe(tier1, { copperOre: 8, stone: 12 })).toMatchObject({ recipe: { id: 'copperPickaxe' }, missing: 0, short: null });
+  it('the closest node skips what is owned, locked or free', () => {
+    // Nothing owned: the Forge is locked (Copper Pickaxe first), the shelf is free (it comes with a rune).
+    const c = ctx({}, { copperOre: 8, stone: 12 });
+    expect(closestNode(c)).toMatchObject({ id: 'copperPickaxe', missing: 0, short: null });
+    const later = ctx({ pickaxe: 4, lantern: 3, pack: 3 }, {}, ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf'], { rift: true, rune: true });
+    expect(closestNode(later)).toBeNull();
   });
 
   it('the chain still has its six steps', () => {

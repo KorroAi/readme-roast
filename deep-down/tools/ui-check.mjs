@@ -34,8 +34,11 @@ const MIN_TARGET = 48;
 const SCENES = opt.scenes
   ? opt.scenes.split(',')
   : ['menu', 'menu:nosave', 'loading', 'hud', 'hud:low', 'discovery', 'inventory:backpack', 'inventory:storage', 'inventory:equipment', 'inventory:journal', 'crafting', 'settings', 'pause', 'confirm', 'death',
+     // The progression screens (final pass W3): the tree, the report, the board, the journal, the end card, About.
+     'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'ending', 'about', 'about:privacy', 'about:licences',
      // Accessibility variants: Large text, high contrast, left-handed controls.
-     'hud:low+large+contrast', 'settings+large', 'crafting+large', 'inventory:backpack+contrast', 'hud+lefty'];
+     'hud:low+large+contrast', 'settings+large', 'crafting+large', 'inventory:backpack+contrast', 'hud+lefty',
+     'crafting:tree+large', 'crafting:forge+contrast', 'summary+large', 'summary:blackout+large+contrast', 'board+large', 'journal:discoveries+large', 'journal:runes+contrast', 'ending+large', 'about+large'];
 
 mkdirSync(opt.out, { recursive: true });
 const server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
@@ -94,7 +97,8 @@ if (opt.shots) {
     const vp = VIEWPORTS[name];
     for (const scene of SCENES) {
       const { page, context } = await openPage(vp, scene);
-      await page.waitForTimeout(scene === 'discovery' ? 1100 : 600);
+      // The discovery banner rises over 1 s; the report counts its haul up over 600 ms.
+      await page.waitForTimeout(scene === 'discovery' ? 1100 : scene.startsWith('summary') ? 900 : 600);
       const file = `${opt.out}/${scene.replace(':', '-').replaceAll('+', '_')}-${name}.png`;
       await page.screenshot({ path: file });
       const issues = await audit(page);
@@ -288,6 +292,20 @@ if (opt.touch) {
   check('use button -> interactPressed -> crafting', after.interact === before.interact + 1 && (await page.evaluate(() => window.__UI__.ui.screen)) === 'crafting', { interact: after.interact - before.interact });
   const craft = page.getByRole('button', { name: /^Craft/ }).first();
   check('crafting has a Craft button', await craft.isVisible());
+  // The tree: a tap on a node fills the detail pane; Craft lights the node and runs a spark down its groove.
+  await page.locator('[data-key="node:copperLantern"]').tap();
+  check('tree: tapping a node selects it', (await page.locator('.dd-tree-detail .dd-tree-name').textContent()) === 'Copper Lantern' && (await page.locator('[data-key="node:copperLantern"]').getAttribute('aria-pressed')) === 'true');
+  await page.locator('[data-key="node:copperPickaxe"]').tap();
+  await page.locator('[data-key="craft:copperPickaxe"]').tap();
+  const lit = await page.evaluate(() => ({
+    owned: window.__UI__.camp.equipment.tiers.pickaxe === 2,
+    lit: !!document.querySelector('[data-key="node:copperPickaxe"].lit .dd-node-flash'),
+    spark: !!document.querySelector('.line-pickaxe .dd-tree-spark'),
+    button: document.querySelector('[data-key="craft:copperPickaxe"]')?.textContent ?? '',
+  }));
+  check('tree: craft lights the node, sparks the groove, and reads Owned', lit.owned && lit.lit && lit.spark && /Owned/.test(lit.button), lit);
+  await page.getByRole('tab', { name: /Forge/ }).tap();
+  check('tree: the Forge tab shows the Forge nodes first', await page.evaluate(() => document.querySelector('[data-key="node:ironPickaxe"]')?.classList.contains('here') === true && document.querySelector('[data-key="node:copperPickaxe"]')?.classList.contains('elsewhere') === true));
   await page.getByRole('button', { name: /Close/i }).first().tap();
   await page.evaluate(() => {
     window.__UI__.hud.interactLabel = null;
@@ -302,6 +320,7 @@ if (opt.touch) {
     ui.toast('check-toast', 'info');
     ui.showDiscovery({ id: 'a', title: 'First Discovery', body: 'a', index: 3, total: 9, major: false });
     ui.showDiscovery({ id: 'b', title: 'Second Discovery', body: 'b', index: 4, total: 9, major: true });
+    ui.showDiscovery({ id: 'note.office', title: 'A Halden log', body: 'c', index: 5, total: 9, major: false });
   });
   await wait(300);
   const iron = await page.locator('.dd-pickup', { hasText: 'Iron Ore' }).allInnerTexts();
@@ -315,6 +334,46 @@ if (opt.touch) {
     .then(() => true, () => false);
   check('queued discovery plays next', second);
   check('a major discovery gets the major band', await page.evaluate(() => document.querySelector('.dd-discovery')?.classList.contains('major') === true));
+  const log = await page
+    .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'A Halden log', null, { timeout: 7000 })
+    .then(() => page.evaluate(() => document.querySelector('.dd-discovery-kind')?.textContent), () => null);
+  check('a Halden log banner is labelled HALDEN LOG', /halden log/i.test(log ?? ''), log);
+
+  // The Expedition Report: opens when the trip ends, never over another screen, after a black-out
+  // only once the explorer has woken; summary-close dismisses it.
+  {
+    const screen = () => page.evaluate(() => window.__UI__.ui.screen);
+    await page.evaluate(() => window.__UI__.actions.openInventory());
+    await page.evaluate(() => window.__UI__.bus.emit('expedition:ended', { report: window.__UI__.actions.getReport() }));
+    check('report waits while another screen is open', (await screen()) === 'inventory');
+    await page.getByRole('button', { name: /Close/i }).first().tap();
+    await wait(80);
+    check('report opens once play has no screen up', (await screen()) === 'summary');
+    await page.locator('[data-key="summary-close"]').tap();
+    await wait(80);
+    check('summary-close closes and dismisses the report', (await screen()) === 'none' && (await page.evaluate(() => window.__UI__.actions.getReport())) === null);
+    // A black-out: the death screen is up when the trip ends (the fake game holds the black-out report).
+    await page.evaluate(() => window.__UI__.scene('death'));
+    await page.evaluate(() => window.__UI__.bus.emit('expedition:ended', { report: window.__UI__.actions.getReport() }));
+    check('a black-out report never opens over the death screen', (await screen()) === 'death');
+    await page.locator('[data-key="respawn"]').tap();
+    await wait(80);
+    await page.evaluate(() => window.__UI__.bus.emit('player:respawned', {}));
+    await wait(80);
+    check('the black-out report opens after the respawn', (await screen()) === 'summary' && (await page.locator('.dd-report.blackout .sec-cached').count()) === 1);
+    await page.keyboard.press('Escape');
+    check('escape skips the report', (await screen()) === 'none');
+  }
+
+  // The rune-door ring on the interact chip fills while a door wakes and hides when it stops.
+  await page.evaluate(() => {
+    window.__UI__.bus.emit('world:runeWake', { id: 'reliquary', progress: 0.5 });
+  });
+  await wait(60);
+  const ring = await page.evaluate(() => ({ on: document.querySelector('.dd-wake')?.classList.contains('on'), now: document.querySelector('.dd-wake')?.getAttribute('aria-valuenow') }));
+  check('rune wake shows the ring at its progress', ring.on === true && ring.now === '50', ring);
+  await wait(900);
+  check('rune wake ring hides once the waking stops', await page.evaluate(() => !document.querySelector('.dd-wake')?.classList.contains('on')));
 
   // Left-handed: sides swap.
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: true }));
@@ -375,6 +434,15 @@ if (opt.touch) {
     await p.getByRole('button', { name: /Delete saved game/i }).click();
     await p.getByRole('button', { name: /^Delete$/ }).click();
     check('delete save removes it and disables the button', (await p.evaluate(() => window.__UI__.actions.hasSave())) === false && (await p.getByRole('button', { name: /Delete saved game/i }).isDisabled()));
+    await p.getByRole('button', { name: /About DEEP DOWN/i }).click();
+    check('about is two taps from the menu (Settings, About)', (await screen()) === 'about');
+    await p.getByRole('tab', { name: /Licences/i }).click();
+    const notices = await p
+      .waitForFunction(() => /three\.js authors/.test(document.querySelector('.dd-licences')?.textContent ?? ''), null, { timeout: 5000 })
+      .then(() => p.locator('.dd-licences').textContent(), () => '');
+    check('about shows the three.js copyright and the MIT text', /Copyright © 2010-\d{4} three\.js authors/.test(notices) && /Permission is hereby granted, free of charge/.test(notices));
+    await p.keyboard.press('Escape');
+    check('escape in about returns to settings', (await screen()) === 'settings');
     await p.keyboard.press('Escape');
     check('escape in settings returns to the menu', (await screen()) === 'menu');
     check('menu without a save has no Continue', (await p.getByRole('button', { name: /Continue/i }).count()) === 0);
@@ -494,7 +562,8 @@ async function gameFlow(page, st, until, shot) {
   await use.tap();
   await until(() => window.__DD__.state().screen === 'crafting');
   await shot('crafting');
-  await page.getByRole('button', { name: /^Craft/ }).first().tap();
+  await page.locator('[data-key="node:copperPickaxe"]').tap();
+  await page.locator('[data-key="craft:copperPickaxe"]').tap();
   await until(() => window.__DD__.state().equipment.pickaxe === 2);
   check('game: crafting the copper pickaxe', true);
   check('game: craft button now reads Owned', await page.getByRole('button', { name: /Owned/ }).first().isVisible());

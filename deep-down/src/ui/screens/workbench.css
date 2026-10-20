@@ -72,7 +72,7 @@
   height: 22px;
   font-size: calc(12px * var(--s));
   font-weight: 800;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--head);
   white-space: nowrap;
@@ -115,9 +115,11 @@
   --rim: var(--brass-700);
 }
 .dd-node.elsewhere .dd-node-icon,
-.dd-node.elsewhere .dd-node-q,
 .dd-node.elsewhere .dd-node-check {
   opacity: 0.45;
+}
+.dd-node.elsewhere .dd-node-q {
+  opacity: 0.75;
 }
 .dd-node.elsewhere {
   --fill: rgba(19, 26, 36, 0.7);
@@ -137,8 +139,9 @@
   --rim: rgba(185, 162, 255, 0.4);
   --fill: rgba(16, 14, 30, 0.85);
 }
-.dd-node.locked .dd-node-icon {
-  opacity: 0.22;
+.dd-node.locked .dd-node-icon,
+.dd-node.locked.elsewhere .dd-node-icon {
+  opacity: 0.16;
 }
 .dd-node.away .dd-node-icon,
 .dd-node.short .dd-node-icon {
@@ -177,8 +180,9 @@
   display: grid;
   place-items: center;
   font-family: var(--font-lintel);
-  font-size: 26px;
+  font-size: 28px;
   color: var(--deep-300);
+  text-shadow: 0 0 6px rgba(4, 7, 11, 0.9), 0 1px 0 var(--carve);
   pointer-events: none;
 }
 /* Owned: a verdigris check in the corner. */
@@ -469,13 +473,42 @@
     padding: 6px 10px 8px;
   }
 }
-@media (max-height: 380px) {
+@media (max-height: 400px) {
   .dd-tree-grid {
     --pitch: 58px;
     --node: 52px;
   }
   .dd-node {
     --cut: 11px;
+  }
+  /* The pane keeps what matters on a short screen: name, sentence, bars, cost, button. */
+  .dd-tree-detail .dd-eyebrow {
+    display: none;
+  }
+  .dd-tree-id-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .dd-tree-name {
+    font-size: calc(16px * var(--s));
+  }
+  .dd-tree-does {
+    font-size: calc(13px * var(--s));
+    line-height: 1.35;
+  }
+  .dd-stat {
+    gap: 0 8px;
+  }
+  .dd-tree-cost .dd-ledger-row {
+    min-height: 28px;
+  }
+  .dd-tree-cost-title {
+    margin-top: 2px;
+  }
+}
+@media (orientation: landscape) and (max-width: 800px) {
+  .dd-large .dd-tree-col-label {
+    letter-spacing: 0.02em;
   }
 }
 
@@ -488,11 +521,25 @@
     display: none;
   }
   .dd-tree-tabs {
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
   }
   .dd-tree-tab {
-    padding: 0 8px;
-    letter-spacing: 0.06em;
+    justify-content: center;
+    padding: 0 4px;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: center;
+  }
+  /* The close control keeps its accessible name; the X alone fits beside three tabs. */
+  .dd-tree-head .dd-close-text {
+    display: none;
+  }
+  .dd-tree-head {
+    padding-left: 8px;
+    padding-right: 8px;
   }
   .dd-tree-body {
     grid-template-columns: minmax(0, 1fr);
@@ -505,9 +552,16 @@
     grid-template-columns: repeat(5, minmax(0, 1fr));
   }
   .dd-tree-col-label {
-    letter-spacing: 0.04em;
+    letter-spacing: 0.02em;
+  }
+  .dd-large .dd-tree-col-label {
+    font-size: 12.5px;
   }
   .dd-tree-detail {
     margin: 0 8px 8px;
   }
+}
+.dd-node-ring {
+  width: 100%;
+  height: 100%;
 }

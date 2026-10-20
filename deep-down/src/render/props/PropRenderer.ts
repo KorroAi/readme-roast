@@ -3,7 +3,7 @@ import type { PropSpec } from '../../world/gen/types';
 import type { LightingUniforms } from '../lighting';
 import { createEntityMaterial } from '../entityMaterial';
 import { hash32 } from '../../core/math';
-import { buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
+import { PROP_VARIANTS, buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
 
 export interface PropHit {
   id: string;
@@ -184,6 +184,23 @@ export class PropRenderer {
     return this.entries.has(id);
   }
 
+  /**
+   * Draw a prop `dy` metres off its spec position (a station rising out of the floor: dy < 0 sinks
+   * it). Picking and culling follow. 0 puts it back.
+   */
+  setLift(id: string, dy: number): void {
+    const e = this.entries.get(id);
+    if (!e) return;
+    const y = e.spec.y + dy;
+    if (e.root.position.y === y) return;
+    const before = e.root.position.y;
+    e.root.position.y = y;
+    e.root.updateMatrix();
+    e.root.updateMatrixWorld(true);
+    e.center.y += y - before;
+    e.inverse.copy(e.root.matrix).invert();
+  }
+
   /** Number of distinct geometry sets currently alive (shared between props of a kind/variant). */
   get modelCount(): number {
     return this.cache.size;
@@ -277,7 +294,8 @@ function setFx(mat: THREE.ShaderMaterial, tint: number, lift: number): void {
 }
 
 function modelOptions(spec: PropSpec): PropModelOptions {
-  const variant = propVariant(spec.kind, spec.seed);
+  // A chosen variant wins; the black stone sleeps (variant 0) unless the finale wakes it.
+  const variant = spec.modelVariant !== undefined ? Math.max(0, Math.floor(spec.modelVariant)) % PROP_VARIANTS[spec.kind] : spec.kind === 'abyssMonolith' ? 0 : propVariant(spec.kind, spec.seed);
   if (spec.kind !== 'hangingLantern') return { variant };
   // Hang from the ceiling block this lantern is anchored to; quantized so lanterns share meshes.
   const above = spec.anchor && spec.anchor[1] > spec.y + 0.5 ? (spec.anchor[1] - spec.y) / spec.scale : 1.6;

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
 import type { VoxBuilder } from '../voxModel';
-import type { ModelBuilder } from './models';
+import type { ModelBuilder, PropModelOptions } from './models';
 import { BRICK, CYAN, VIOLET } from './palette';
 import { vary } from './shapes';
 
@@ -36,7 +36,7 @@ const hwAt = (y: number) => SHAFT_HW0 + ((SHAFT_HW1 - SHAFT_HW0) * (y - SHAFT_Y0
  * deep in the core that floats over the capstone. Weathered: stones fallen from the plinth, a
  * chipped arris here and there.
  */
-export function buildMonolith(m: ModelBuilder, rng: Rng): void {
+export function buildMonolith(m: ModelBuilder, rng: Rng, o?: PropModelOptions): void {
   const b = m.body;
   const g = m.glow;
 
@@ -88,10 +88,16 @@ export function buildMonolith(m: ModelBuilder, rng: Rng): void {
   // violet glow low and deep in it.
   const zn = SHAFT_HW0 + 0.04;
   b.box(-NICHE_HW, SHAFT_Y0, zn - 0.2, NICHE_HW, NICHE_TOP, zn, 0x07080c);
-  g.box(-NICHE_HW + 0.12, SHAFT_Y0, zn, NICHE_HW - 0.12, NICHE_TOP - 1.4, zn + 0.03, VIOLET.deep, 0.55);
-  g.box(-NICHE_HW + 0.35, SHAFT_Y0, zn + 0.03, NICHE_HW - 0.35, SHAFT_Y0 + 3.2, zn + 0.05, VIOLET.dark, 0.7);
+  // Variant 1 is the stone awake (final pass W3: all eight runes found): the niche turns from the
+  // deep's violet to the builders' cyan.
+  const awake = o?.variant === 1;
+  const deep = awake ? CYAN.deep : VIOLET.deep;
+  const dark = awake ? CYAN.dark : VIOLET.dark;
+  const mid = awake ? CYAN.mid : VIOLET.mid;
+  g.box(-NICHE_HW + 0.12, SHAFT_Y0, zn, NICHE_HW - 0.12, NICHE_TOP - 1.4, zn + 0.03, deep, 0.55);
+  g.box(-NICHE_HW + 0.35, SHAFT_Y0, zn + 0.03, NICHE_HW - 0.35, SHAFT_Y0 + 3.2, zn + 0.05, dark, 0.7);
   // Its sill: the one line of light that reaches out (the abyss seeping over the threshold).
-  g.box(-NICHE_HW + 0.05, SHAFT_Y0 - 0.02, zn + 0.06, NICHE_HW - 0.05, SHAFT_Y0 + 0.03, zf + 0.04, VIOLET.mid, 0.6);
+  g.box(-NICHE_HW + 0.05, SHAFT_Y0 - 0.02, zn + 0.06, NICHE_HW - 0.05, SHAFT_Y0 + 0.03, zf + 0.04, mid, 0.6);
 
   // Fallen blocks resting on the plinth ledges (kept off the stair).
   for (let i = 0; i < 8; i++) {

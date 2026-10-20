@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { B } from '../config/blocks';
-import { CACHE, COLD, HOME, WORLD, lanternForTier } from '../config/balance';
-import { ITEMS, ITEM_IDS, RUNE_ITEMS, type ItemId } from '../config/items';
+import { CACHE, COLD, GEAR, HOME, PLAYER, WORLD, lanternForTier, packForTier } from '../config/balance';
+import { RUNE_ITEMS, type ItemId } from '../config/items';
+import { NODES, isNodeId, type NodeId, type Place, type StationId } from '../config/recipes';
 import { damp } from '../core/math';
 import { t } from '../i18n';
 import { Cold } from '../gameplay/Cold';
@@ -10,15 +11,25 @@ import { cacheFits, makeCache, recoverCache, replaceCache, type CacheState } fro
 import { totalCount } from '../gameplay/counts';
 import { discoveryNumbering, DISCOVERY_TOTAL } from '../gameplay/discoveries';
 import { nextLine, type NextLine } from '../gameplay/NextStep';
-import { Records, type ExpeditionReport, type TripOutcome } from '../gameplay/Records';
+import { Records, type ExpeditionReport, type ReportOvernight, type TripOutcome } from '../gameplay/Records';
+import { craft as craftNode, type CraftContext, type CraftResult } from '../gameplay/Crafting';
+import { Health } from '../gameplay/Health';
+import { buildJournalView } from '../gameplay/Journal';
+import { anyCraftable, availableCounts, buildTreeView, closestNode } from '../gameplay/Tree';
 import { defaultProgression } from '../save/saveData';
 import type { ItemCounts, ProgressionSave, SaveData } from '../save/types';
-import type { FuelState, HudState, SaveSummary } from '../ui/types';
+import type { CraftTreeView, FuelState, HudState, JournalTab, JournalView, Rumour, SaveSummary, SurveyView } from '../ui/types';
 import { HomeField, ReachSet, walkSeconds } from '../world/analysis/homeField';
 import type { PropSpec } from '../world/gen/types';
 import type { HaloSource } from './effects/Halos';
 import type { Game } from './Game';
 import { Guidance } from './Guidance';
+import { Runes, RUNES_TOTAL } from './Runes';
+import { Stations } from './Stations';
+import { areaNameOf, buildRumours, focusRumour, siteCell } from './Survey';
+
+/** Within this far of a compass target's cell (walking steps), it counts as reached. */
+const TARGET_REACHED_STEPS = 4;
 
 /** Prop id of the pack left behind (a satchel with an ember glow and halo). */
 export const CACHE_PROP_ID = 'cache:pack';
@@ -46,15 +57,21 @@ export interface LeftBehind {
  * - The cache: a black-out leaves the pack (minus the Sealed Pouch) where the explorer last
  *   stood safely; walking back to it returns the items.
  * - The Next line on the objective pill (gameplay/NextStep).
+ * - The upgrade tree (config/recipes NODES, gameplay/Crafting, gameplay/Tree): stations and gear
+ *   built, their effects (the Grip Boots, the Miner's Coat), the tree view.
+ * - The camp stations rising on their plots (game/Stations), the runes and the finale
+ *   (game/Runes), the Survey Table's rumours and the compass target (game/Survey), the Journal.
  */
 export class Progression {
   records = new Records();
+  readonly stations: Stations;
+  readonly runes: Runes;
   cache: CacheState | null = null;
   readonly cold = new Cold();
   /** Tutorial hints already shown (persisted). */
   readonly hintsShown = new Set<string>();
-  /** Fields of SaveData.progression that later waves own, carried through unchanged. */
-  private extra: Omit<ProgressionSave, 'expeditions' | 'trip' | 'records' | 'cache' | 'hintsShown'> = strip(defaultProgression());
+  /** Fields of SaveData.progression beyond the trip and records (stations, gear, relics, finale...). */
+  extra: Omit<ProgressionSave, 'expeditions' | 'trip' | 'records' | 'cache' | 'hintsShown'> = strip(defaultProgression());
 
   home: HomeField | null = null;
   reach: ReachSet | null = null;
@@ -99,7 +116,40 @@ export class Progression {
   private cacheCount = 0;
   private nextTimer = 0;
 
-  constructor(private readonly game: Game) {}
+  // The compass target (a rumour) and the field that walks to it.
+  private targetField: HomeField | null = null;
+  private targetFieldFor: string | null = null;
+  private targetCell: [number, number, number] | null = null;
+  private readonly targetAim = new THREE.Vector3();
+  private targetAimSet = false;
+  private targetBearing = 0;
+  private targetDistance: number | null = null;
+  private rumourCache: Rumour[] | null = null;
+  private rumourTimer = 0;
+  /** The last breath of the deep (world:regrow), for the report's Overnight section. */
+  private lastBreath: { epoch: number; cells: number; regrown: number } | null = null;
+  /** Where openCrafting / openJournal want the screen to start. */
+  private treeFocus: { place: Place; select: NodeId | null } = { place: 'workbench', select: null };
+  private journalFocus: JournalTab = 'discoveries';
+
+  constructor(private readonly game: Game) {
+    this.stations = new Stations(game);
+    this.runes = new Runes(game);
+  }
+
+  /** Listen to the world (called once the bus exists, at boot). */
+  wire(): void {
+    const bus = this.game.bus;
+    bus.on('world:regrow', (e) => {
+      this.lastBreath = { epoch: e.epoch, cells: e.cells, regrown: e.regrown };
+      this.rumoursChanged();
+    });
+    bus.on('world:bloom', () => this.rumoursChanged());
+    bus.on('prop:broken', (e) => {
+      if (e.propId.startsWith('bloom_e')) this.rumoursChanged();
+    });
+    bus.on('world:monolith', () => this.runes.onStoneTouched());
+  }
 
   // ------------------------------------------------------------------------------------
   // Lifecycle
@@ -115,6 +165,8 @@ export class Progression {
     this.turnBackShown = false;
     this.coldHinted = false;
     this.nextTimer = 0;
+    this.resetTarget();
+    this.lastBreath = null;
   }
 
   fromSave(p: ProgressionSave): void {
@@ -124,10 +176,15 @@ export class Progression {
     this.hintsShown.clear();
     for (const h of p.hintsShown) this.hintsShown.add(h);
     this.extra = strip(p);
+    // Drop unknown node ids (a save from a build with other nodes).
+    this.extra.stations = this.extra.stations.filter((id) => isNodeId(id) && NODES[id].result.kind === 'station');
+    this.extra.gear = this.extra.gear.filter((id) => isNodeId(id) && NODES[id].result.kind === 'gear');
     this.spot.reset();
     this.turnBackShown = false;
     this.coldHinted = false;
     this.nextTimer = 0;
+    this.resetTarget();
+    this.lastBreath = null;
   }
 
   toSave(): ProgressionSave {
@@ -160,6 +217,13 @@ export class Progression {
     this.campAimSet = this.cacheAimSet = false;
     this.cachePropShown = false;
     this.syncCacheProp();
+    // Runes found by builds before the shelf existed sit on it now; the shelf stands with the first.
+    for (const id of this.runes.found()) if (!this.extra.relics.includes(id)) this.extra.relics.push(id);
+    if (this.runes.count > 0 && !this.extra.stations.includes('relicShelf')) this.extra.stations.push('relicShelf');
+    this.stations.attach(this.built);
+    this.runes.attach();
+    this.applyGear();
+    this.rumoursChanged();
     if (!atCamp && !this.records.trip) this.startTrip();
     // A save written at camp with the trip still open (by builds before the camp-save fix) would
     // merge it into the next trip: close it quietly, as returned.
@@ -181,8 +245,12 @@ export class Progression {
   onCampEntered(banked: ItemCounts): ExpeditionReport | null {
     this.cold.reset();
     // The deep breathes after a trip into the Hollow (game/WorldFeatures), before the camp save.
+    const day0 = this.day;
+    this.lastBreath = null;
     this.game.features?.onCampEntered(this.records.trip?.deepest ?? 0);
-    return this.endTrip('returned', { banked }, false);
+    const report = this.endTrip('returned', { banked }, false);
+    if (report) this.decorate(report, this.day !== day0);
+    return report;
   }
 
   /** The expedition counter the living rock and the bloom follow (SaveData.progression.day). */
@@ -240,6 +308,7 @@ export class Progression {
   /** Banner numbering for a discovery just recorded (the journal already holds it). */
   onDiscovery(id: string): { index: number; total: number; major: boolean } {
     this.records.discovered(id);
+    this.markFound(id);
     return discoveryNumbering(id, this.game.journal.discoveries);
   }
 
@@ -296,7 +365,11 @@ export class Progression {
     }
 
     this.updateCachePickup();
+    this.updateTarget();
+    this.stations.update(dt);
+    this.runes.update(dt);
 
+    this.rumourTimer -= dt;
     this.nextTimer -= dt;
     if (this.nextTimer <= 0) this.refreshNext();
     return false;
@@ -322,12 +395,15 @@ export class Progression {
     out.cold = atCamp ? 0 : this.cold.level;
     // Nested HUD objects are reused: the HUD compares values, and nothing is allocated per frame.
     const compass = this.compassOut;
-    compass.kind = 'camp';
-    compass.bearing = this.campBearing;
-    compass.distance = this.campDistance;
+    // A rumour picked on the Survey Table leads the way out while the lantern has fuel to spare;
+    // past the turn-back mark (and at camp) the needle points home again.
+    const seam = this.targetActive && !atCamp && this.fuelStateV === 'ok' && this.targetDistance !== null;
+    compass.kind = seam ? 'seam' : 'camp';
+    compass.bearing = seam ? this.targetBearing : this.campBearing;
+    compass.distance = seam ? (this.targetDistance as number) : this.campDistance;
     out.compass = compass;
-    out.campBearing = this.campBearing;
-    out.campDistance = this.campDistance;
+    out.campBearing = compass.bearing;
+    out.campDistance = compass.distance;
     if (this.cache) {
       const c = this.cacheOut;
       c.bearing = this.cacheBearing;
@@ -396,6 +472,8 @@ export class Progression {
     const sp = s.layout.spawn;
     this.reach.computeFrom(Math.floor(sp.x), Math.floor(sp.y) + 1, Math.floor(sp.z));
     this.computeCacheField();
+    this.rumourCache = null;
+    this.computeTargetField();
   }
 
   /** Timing of the last field recompute, ms. */
@@ -418,6 +496,10 @@ export class Progression {
         return t('hint.interactTablet');
       case 'feature':
         return this.game.features.label(spec);
+      case 'station':
+        return this.stations.label(spec);
+      case 'rune':
+        return this.runes.label();
       default:
         return t('hud.interact');
     }
@@ -445,6 +527,12 @@ export class Progression {
       case 'feature':
         g.features.interact(spec);
         break;
+      case 'station':
+        this.stations.interact(spec);
+        break;
+      case 'rune':
+        this.runes.take(spec);
+        break;
     }
   }
 
@@ -464,6 +552,7 @@ export class Progression {
     const g = this.game;
     const report = this.records.end({ outcome, now: g.playTime, fuelLeft: g.lanternFuel.fuel, ...extra });
     this.turnBackShown = false;
+    if (report && outcome !== 'returned') this.decorate(report, false);
     if (report && announce) g.bus.emit('expedition:ended', { report });
     return report;
   }
@@ -605,7 +694,7 @@ export class Progression {
   }
 
   private applyRides(): void {
-    for (const f of [this.home, this.cacheField]) {
+    for (const f of [this.home, this.cacheField, this.targetField]) {
       if (!f) continue;
       f.clearEdges();
       for (const e of this.rides) f.addEdge(e.from, e.to, e.cost);
@@ -645,19 +734,306 @@ export class Progression {
   private refreshNext(): void {
     const g = this.game;
     this.nextTimer = 0.25;
-    const available: ItemCounts = {};
-    for (const id of ITEM_IDS) {
-      if (ITEMS[id].keyItem) continue;
-      const n = g.backpack.count(id) + g.storage.count(id);
-      if (n > 0) available[id] = n;
-    }
+    const ctx = this.craftContext();
+    const node = closestNode(ctx);
+    const r = node ? null : this.focusRumour();
     this.next = nextLine({
       cacheDistance: this.cache ? this.cacheDistance : null,
       chain: g.objectives.step(),
-      equipment: g.equipment.tiers,
-      available,
+      node: node ? { id: node.id, short: node.short } : null,
+      runes: this.runes.count,
+      runesTotal: RUNES_TOTAL,
+      finale: this.extra.finale,
+      rumour: r ? { id: r.id, what: r.kind === 'bloom' ? t('rumour.bloom', { area: r.areaName }) : r.text.split(' — ')[0], distance: r.id === this.targetFieldFor && this.targetDistance !== null && !g.inCamp ? this.targetDistance : r.distance } : null,
       bestDepth: this.records.records.deepest,
     });
+  }
+
+  // ------------------------------------------------------------------------------------
+  // The upgrade tree (final pass W3)
+
+  /** Stations and gear built (node ids). */
+  get built(): ReadonlySet<string> {
+    return new Set([...this.extra.stations, ...this.extra.gear]);
+  }
+
+  hasGear(id: 'gripBoots' | 'minersCoat'): boolean {
+    return this.extra.gear.includes(id);
+  }
+
+  stationBuilt(id: StationId): boolean {
+    return this.extra.stations.includes(id);
+  }
+
+  /** What the tree's rules read right now. */
+  craftContext(): CraftContext {
+    const g = this.game;
+    return {
+      backpack: g.backpack,
+      storage: g.storage,
+      equipment: g.equipment,
+      built: this.built,
+      atCamp: g.inCamp,
+      rift: g.journal.hasDiscovery('undercroft'),
+      rune: this.runes.count > 0,
+    };
+  }
+
+  /**
+   * Make node `id` (Game.craft calls this and shows the result). Equipment nodes upgrade a tier;
+   * stations are recorded and rise on their plot; gear is recorded and worn at once.
+   */
+  craft(id: NodeId): CraftResult {
+    const res = craftNode(id, this.craftContext());
+    if (!res.ok) return res;
+    const r = NODES[id].result;
+    if (r.kind === 'station') {
+      if (!this.extra.stations.includes(id)) this.extra.stations.push(id);
+      this.stations.build(r.station);
+    } else if (r.kind === 'gear') {
+      if (!this.extra.gear.includes(id)) this.extra.gear.push(id);
+      this.applyGear();
+    }
+    this.invalidateNext();
+    return res;
+  }
+
+  /** The backpack follows the pack tier (a debug grant of a pack node). */
+  applyPack(): void {
+    const g = this.game;
+    const pack = packForTier(g.equipment.tiers.pack);
+    g.backpack.resize(pack.slots, pack.pouch);
+  }
+
+  /** Wear the gear built: the Grip Boots' jump and safe drop, the Miner's Coat's health. */
+  applyGear(): void {
+    const g = this.game;
+    const boots = this.hasGear('gripBoots');
+    g.player.jumpVelocity = boots ? GEAR.gripBoots.jumpVelocity : PLAYER.jumpVelocity;
+    g.player.safeFallSpeed = boots ? GEAR.gripBoots.safeFallSpeed : PLAYER.safeFallSpeed;
+    const max = Health.maxFor(this.extra.gear);
+    if (g.health.max !== max) {
+      // Keep the fraction of health: a coat put on at full health is a full 140.
+      const frac = g.health.max > 0 ? g.health.current / g.health.max : 1;
+      g.health = new Health(max, Math.round(max * frac));
+    }
+  }
+
+  /** The tree for the crafting screen. */
+  treeView(): CraftTreeView {
+    const ctx = this.craftContext();
+    const node = closestNode(ctx);
+    return buildTreeView(ctx, { focus: this.treeFocus.place, select: this.treeFocus.select, next: node?.id ?? null });
+  }
+
+  /** Where the tree screen opens next (openCrafting(place) / a stake sign). */
+  focusTree(place: Place = 'workbench', select: NodeId | null = null): void {
+    this.treeFocus = { place, select };
+  }
+
+  focusJournal(tab: JournalTab = 'discoveries'): void {
+    this.journalFocus = tab;
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Runes, the shelf, the finale
+
+  get finale(): boolean {
+    return this.extra.finale;
+  }
+
+  set finale(v: boolean) {
+    this.extra.finale = v;
+  }
+
+  /** The Relic Shelf's lit sockets (bit i = glyph i). */
+  get runeMask(): number {
+    return this.runes.mask;
+  }
+
+  relicPlaced(item: string): boolean {
+    return this.extra.relics.includes(item);
+  }
+
+  placeRelic(item: string): void {
+    if (!this.extra.relics.includes(item)) this.extra.relics.push(item);
+  }
+
+  /** Remember when something was found (the Journal shows the expedition and the depth). */
+  markFound(id: string): void {
+    if (this.extra.foundAt[id]) return;
+    const p = this.game.player;
+    const n = this.records.trip?.n ?? Math.max(1, this.records.records.expeditions);
+    this.extra.foundAt[id] = [n, Math.max(0, Math.round(WORLD.depthOffset - p.y))];
+  }
+
+  /** The Relic Shelf comes with the first rune. @returns true when it was raised just now. */
+  ensureShelf(): boolean {
+    if (this.extra.stations.includes('relicShelf')) return false;
+    this.extra.stations.push('relicShelf');
+    this.stations.build('relicShelf');
+    return true;
+  }
+
+  syncShelf(): void {
+    this.stations.setShelfMask(this.runes.mask);
+  }
+
+  journalView(): JournalView {
+    const g = this.game;
+    const r = this.records.records;
+    return buildJournalView({
+      discoveries: g.journal.discoveries,
+      keyItems: g.journal.keyItems,
+      foundAt: this.extra.foundAt,
+      finale: this.extra.finale,
+      expeditions: r.expeditions,
+      deepest: r.deepest,
+      playTime: g.playTime,
+      focus: this.journalFocus,
+    });
+  }
+
+  // ------------------------------------------------------------------------------------
+  // The Survey Table: rumours and the compass target
+
+  /** Rumours as they stand (cached; rebuilt when the deep breathes or the fields change). */
+  rumours(): Rumour[] {
+    if (!this.rumourCache || this.rumourTimer <= 0) {
+      this.rumourTimer = 2;
+      this.rumourCache = buildRumours(this.game.features?.sites() ?? [], this.home, this.extra.compassTarget);
+    }
+    return this.rumourCache;
+  }
+
+  surveyView(): SurveyView {
+    return {
+      records: { ...this.records.records },
+      day: this.day,
+      rumours: this.rumours().map((r) => ({ ...r, ore: r.ore.map((o) => ({ ...o })) })),
+      target: this.extra.compassTarget,
+      built: this.stationBuilt('surveyTable'),
+    };
+  }
+
+  get compassTarget(): string | null {
+    return this.extra.compassTarget;
+  }
+
+  /** Point the compass at a rumour's site (its id), or home (null). Unknown ids point home. */
+  setCompassTarget(id: string | null): void {
+    const r = id ? this.rumours().find((x) => x.id === id && x.present) : null;
+    const next = r ? r.id : null;
+    if (next === this.extra.compassTarget) return;
+    this.extra.compassTarget = next;
+    this.rumoursChanged();
+    this.computeTargetField();
+    this.game.ui.toast(r ? t('toast.targetSet', { area: r.areaName }) : t('toast.targetCleared'), 'info');
+  }
+
+  private get targetActive(): boolean {
+    return this.extra.compassTarget !== null && this.targetFieldFor === this.extra.compassTarget;
+  }
+
+  private focusRumour(): Rumour | null {
+    return focusRumour(this.rumours(), this.extra.compassTarget);
+  }
+
+  private rumoursChanged(): void {
+    this.rumourCache = null;
+    this.invalidateNext();
+  }
+
+  private resetTarget(): void {
+    this.targetFieldFor = null;
+    this.targetCell = null;
+    this.targetDistance = null;
+    this.targetAimSet = false;
+    this.rumourCache = null;
+  }
+
+  /** The walk to the rumour the Next line offers (the compass target first). */
+  private computeTargetField(): void {
+    const home = this.home;
+    const r = home ? this.focusRumour() : null;
+    const site = r ? (this.game.features?.sites() ?? []).find((s) => s.id === r.id) : null;
+    const cell = home && site ? siteCell(home, site.x, site.y, site.z) : null;
+    if (!cell) {
+      this.resetTarget();
+      return;
+    }
+    if (!this.targetField) {
+      this.targetField = new HomeField(this.game.session.world);
+      for (const e of this.rides) this.targetField.addEdge(e.from, e.to, e.cost);
+    }
+    this.targetField.computeToCell(cell[0], cell[1], cell[2]);
+    this.targetFieldFor = r!.id;
+    this.targetCell = cell;
+    this.targetAimSet = false;
+  }
+
+  /** Follow the target field like the cache's; clear the target once reached (or gone). */
+  private updateTarget(): void {
+    const g = this.game;
+    const tf = this.targetField;
+    const id = this.targetFieldFor;
+    if (!tf || !id || !this.targetCell) {
+      this.targetDistance = null;
+      return;
+    }
+    const p = g.player;
+    const c = tf.cellNear(p.x, p.y, p.z);
+    if (c >= 0) {
+      this.targetDistance = tf.dist[c];
+      const [tx, ty, tz] = tf.cellXYZ(tf.descend(c, HOME.lookAheadSteps));
+      aimAt(this.targetAim, tx + 0.5, ty, tz + 0.5, 1 / 60, !this.targetAimSet);
+      this.targetAimSet = true;
+      this.targetBearing = Guidance.bearing(g.cameraRig.yaw, p.x, p.z, this.targetAim.x, this.targetAim.z);
+    } else {
+      const [x, y, z] = this.targetCell;
+      this.targetDistance = Math.round(Math.hypot(x + 0.5 - p.x, y - p.y, z + 0.5 - p.z));
+      this.targetAimSet = false;
+      this.targetBearing = Guidance.bearing(g.cameraRig.yaw, p.x, p.z, x + 0.5, z + 0.5);
+    }
+    if (id === this.extra.compassTarget && this.targetDistance !== null && this.targetDistance <= TARGET_REACHED_STEPS && !g.inCamp) {
+      const r = this.rumours().find((x) => x.id === id);
+      this.extra.compassTarget = null;
+      g.ui.toast(t('toast.targetReached', { area: r ? r.areaName : areaNameOf('hall') }), 'good');
+      this.rumoursChanged();
+    }
+  }
+
+  // ------------------------------------------------------------------------------------
+  // The Expedition Report's Next card, CTA and Overnight section
+
+  private decorate(report: ExpeditionReport, breathed: boolean): void {
+    const ctx = this.craftContext();
+    const node = closestNode(ctx);
+    if (node) {
+      const def = NODES[node.id];
+      const have = availableCounts(ctx);
+      report.next = {
+        id: def.id,
+        name: t(def.name),
+        cost: Object.entries(def.inputs).filter(([, n]) => (n ?? 0) > 0).map(([item, need]) => ({ item: item as ItemId, have: have[item as ItemId] ?? 0, need: need as number })),
+        ready: node.short === null,
+      };
+    } else report.next = null;
+    report.craftableNow = anyCraftable({ ...ctx, atCamp: true });
+    report.overnight = breathed ? this.overnight() : null;
+  }
+
+  private overnight(): ReportOvernight {
+    const b = this.lastBreath;
+    // The bloom grows a frame after the breath: count it as present (its id is new tonight).
+    const sites = (this.game.features?.sites() ?? []).map((s) => (s.kind === 'bloom' ? { ...s, present: true } : s));
+    const rumours = buildRumours(sites, this.home, this.extra.compassTarget);
+    return {
+      day: this.day,
+      cells: b?.cells ?? 0,
+      regrown: b?.regrown ?? 0,
+      rumours: rumours.map((r) => ({ id: r.id, kind: r.kind, area: r.area, text: r.text, distance: r.distance })),
+    };
   }
 }
 
@@ -675,12 +1051,15 @@ export function summarizeSave(d: SaveData): SaveSummary {
     runesTotal: RUNE_ITEMS.length,
     equipment: { ...d.equipment },
     cacheWaiting: d.progression.cache !== null,
+    finale: d.progression.finale,
   };
 }
 
 function strip(p: ProgressionSave): Omit<ProgressionSave, 'expeditions' | 'trip' | 'records' | 'cache' | 'hintsShown'> {
   const { expeditions: _e, trip: _t, records: _r, cache: _c, hintsShown: _h, ...rest } = p;
-  return { ...rest, stations: [...rest.stations], gear: [...rest.gear], relics: [...rest.relics], seams: [...rest.seams], minedDay: [...rest.minedDay] };
+  const foundAt: Record<string, [number, number]> = {};
+  for (const [k, v] of Object.entries(rest.foundAt ?? {})) foundAt[k] = [v[0], v[1]];
+  return { ...rest, stations: [...rest.stations], gear: [...rest.gear], relics: [...rest.relics], seams: [...rest.seams], minedDay: [...rest.minedDay], foundAt };
 }
 
 /** Ease the compass aim point toward a new target (snap the first time). */

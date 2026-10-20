@@ -1,6 +1,7 @@
 import { B } from '../../config/blocks';
 import { MAT_SIZE, MatCanvas, rngFor } from './paint';
-import { PAINTERS } from './painters';
+import { PAINTERS, type MaterialPainter } from './painters';
+import { echoCrystal } from './minerals';
 import { beginHostCache, endHostCache } from './rock';
 
 /**
@@ -51,6 +52,8 @@ export const MATERIAL_NAMES = [
   // The builders' script: eight carved lines of inscription (alpha = groove / ink mask), laid
   // along an inscription band by the terrain shader. Never on a block face by itself.
   'script',
+  // The deep tier (final pass W3): Echo crystal, the crystal bleached pale (minerals.ts echoCrystal).
+  'echoCrystal',
 ] as const;
 
 export type MaterialName = (typeof MATERIAL_NAMES)[number];
@@ -93,6 +96,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   masonryB: { glow: 0 },
   crumblingB: { glow: 0.9 },
   script: { glow: 0 },
+  echoCrystal: { glow: 0.95 },
 };
 
 /**
@@ -140,6 +144,9 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   [B.PLANK]: { top: 'plank', side: 'plank', bottom: 'plank', family: FAMILY.NONE, rigidity: 0 },
   [B.BEAM]: { top: 'beamEnd', side: 'beamSide', bottom: 'beamEnd', family: FAMILY.NONE, rigidity: 0 },
   [B.HEARTH]: { top: 'hearth', side: 'hearth', bottom: 'hearth', family: FAMILY.NONE, rigidity: 1 },
+  // The deep tier (final pass W3): Echo crystal, and Ironbound (the seal-stone with a rune band).
+  [B.ECHO_CRYSTAL]: { top: 'echoCrystal', side: 'echoCrystal', bottom: 'echoCrystal', family: FAMILY.CRYSTAL, rigidity: 1 },
+  [B.IRONBOUND]: { top: 'sealStone', side: 'sealStone', bottom: 'sealStone', family: FAMILY.NONE, rigidity: 2, rune: true },
 };
 
 /** Per block id: lowest-rigidity lookup used by the mesher (255 = not solid / no constraint). */
@@ -185,6 +192,9 @@ export interface MaterialAtlas {
   data: Uint8Array;
 }
 
+/** Layers added after the painters table (final pass W3): painted from here, after all the others. */
+const EXTRA_PAINTERS: Record<string, MaterialPainter> = { echoCrystal };
+
 /** Paint every material layer (deterministic). */
 export function generateMaterials(): MaterialAtlas {
   const layers = MATERIAL_NAMES.length;
@@ -193,7 +203,8 @@ export function generateMaterials(): MaterialAtlas {
   try {
     MATERIAL_NAMES.forEach((name, layer) => {
       const c = new MatCanvas();
-      PAINTERS[name](c, rngFor(name));
+      const paint = (PAINTERS as Record<string, MaterialPainter>)[name] ?? EXTRA_PAINTERS[name];
+      paint(c, rngFor(name));
       c.toBytes(data, layer * MAT_SIZE * MAT_SIZE * 4);
     });
   } finally {
