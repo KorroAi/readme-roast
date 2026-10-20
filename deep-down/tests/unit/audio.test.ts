@@ -8,7 +8,7 @@ import { Rng } from '../../src/core/rng';
 import { activeDuration, peakOf, rmsOf, spectralCentroid } from '../../src/audio/analysis';
 import { AudioSystem, renderSfxOffline, type AudioWorldState } from '../../src/audio/AudioSystem';
 import { brownNoise, crackleTexture, crumbleTexture, impulseResponse, pinkNoise } from '../../src/audio/buffers';
-import { AUDIBLE_EVENTS, PENTATONIC, SoundCues, materialOf, semis } from '../../src/audio/eventMap';
+import { AUDIBLE_EVENTS, CEREMONY_TIMED, PENTATONIC, SoundCues, materialOf, semis } from '../../src/audio/eventMap';
 import { MusicScheduler, type MusicNote } from '../../src/audio/MusicScheduler';
 import { SFX, SFX_NAMES, isSfxName } from '../../src/audio/sfx';
 import { MODES, MOODS, degreeToMidi, inMode, midiToHz, moodFor, volumeToGain, type MoodName } from '../../src/audio/theory';
@@ -38,6 +38,14 @@ const SAMPLES: Partial<{ [K in keyof IdleEvents]: IdleEvents[K] }> = {
   'moth:catch': { id: 'moth:1', outcome: 'gold', gold: G(800), gems: 0 },
   'skill:dynamite': { from: 40, rows: 6, gold: G(900) },
   'offline:collect': { gold: G(12000), chests: 2 },
+  'surge:start': { duration: 8, scripted: false },
+  'surge:end': {},
+  'skill:earthquake': { dmg: G(5000), rows: 3 },
+  'skill:cataclysm': { duration: 20 },
+  'event:start': { id: '1', type: 'glimmerfall', widget: 'catch', life: 8, first: true, depth: 60 },
+  'record:new': { id: 'deepest', value: 120, old: 100 },
+  'seal:fail': { biome: 0, left: 0.4, kept: 0.5, pct: 40 },
+  'facet:offer': { cards: [], rerollFree: true, rerollGems: 0 },
   // Silent: gains are the coin flights' business (the ledger ticks them), goals are the bar's.
   'gold:gain': { amount: G(9), source: 'cell', col: 3, depth: 4 },
   'goal:change': { id: 'pick5' },
@@ -61,7 +69,10 @@ describe('music theory', () => {
     expect(degreeToMidi(57, 'phrygian', 1)).toBe(58);
     expect(inMode(66, 62, 'ionian')).toBe(true); // F# in D major
     expect(inMode(65, 62, 'ionian')).toBe(false); // F natural
-    for (const steps of Object.values(MODES)) expect(steps).toHaveLength(7);
+    // The diatonic modes have 7 steps; the biome moods add a pentatonic (5) and a whole-tone scale (6).
+    for (const [name, steps] of Object.entries(MODES)) expect(steps.length, name).toBe(name === 'pentatonic' ? 5 : name === 'wholeTone' ? 6 : 7);
+    expect(degreeToMidi(60, 'pentatonic', 5)).toBe(72);
+    expect(degreeToMidi(60, 'wholeTone', 6)).toBe(72);
   });
 
   it('uses a perceptual, clamped volume curve', () => {
@@ -207,6 +218,11 @@ describe('event to sound mapping', () => {
 
   it('maps every audible event to a registered sound, and stays quiet for the rest', () => {
     for (const type of AUDIBLE_EVENTS) {
+      // A ceremony's own beats play these; the event only ducks the music.
+      if (CEREMONY_TIMED.includes(type)) {
+        expect(ask(new SoundCues(), type, SAMPLES[type] as never), type).toEqual([]);
+        continue;
+      }
       const p = SAMPLES[type];
       expect(p, `sample for ${type}`).toBeDefined();
       const reqs = ask(new SoundCues(), type, p as never);

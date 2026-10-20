@@ -78,3 +78,32 @@ export function simTutorial(taps: number, maxSecs = 600, seed = 7): TutorialSimR
 
 /** The tutorial's step ids in order (for the e2e G1 table). */
 export const TUTORIAL_IDS = TUTORIAL_STEPS.map((x) => x.id);
+
+/**
+ * G4 (SPEC §13.3): a random tapper at `taps`/s who never reads and never buys, on a fresh game (the tutorial running,
+ * its fallbacks acting). Columns are random across the world region, the wall margins counting as columns 0 and 6
+ * (41 px of 390 each side). @returns the depth reached in `secs` model seconds.
+ */
+export function simRandomTapper(taps = 3, secs = 60, seed = 7, tapSeed = 4242): { depth: number; at20: number; state: IdleState } {
+  const s = createIdle(seed, 0);
+  const bus = createIdleBus();
+  let r = tapSeed >>> 0;
+  const rnd = () => ((r = (Math.imul(r, 1664525) + 1013904223) >>> 0) / 4294967296);
+  const interval = 1 / taps;
+  let next = 0.4;
+  let at20 = Infinity;
+  const queue: ModelTap[] = [];
+  for (let t = 0; t < secs; t += STEP_DT) {
+    queue.length = 0;
+    while (s.time >= next) {
+      // 390 px: walls of 41 px each side map to columns 0 and 6.
+      const x = rnd() * 390;
+      const col = x < 41 ? 0 : x >= 349 ? 6 : Math.min(6, Math.floor((x - 41) / 44));
+      queue.push({ col, kind: 'tap' });
+      next += interval;
+    }
+    stepIdle(s, STEP_DT, queue, bus);
+    if (at20 === Infinity && s.run.dmax >= 20) at20 = s.time;
+  }
+  return { depth: s.run.dmax, at20, state: s };
+}

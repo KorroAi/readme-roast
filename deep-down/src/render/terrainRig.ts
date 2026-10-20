@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { Rng } from '../core/rng';
+import { sectionUniforms } from './look';
+import { IMPACT_LIGHTS } from './lighting';
 import { MATERIAL_INFO, MATERIAL_NAMES, generateMaterials, type MaterialAtlas } from './materials';
 
 /**
@@ -71,7 +72,8 @@ export class TerrainRig {
     m.unpackAlignment = 1;
     m.needsUpdate = true;
     this.materialTex = m;
-    this.noiseTex = makeNoise3D();
+    // One lattice for the terrain and the section look (look.ts).
+    this.noiseTex = sectionUniforms().uSecNoise.value;
     this.uniforms = {
       uMat: { value: m },
       uNoise: { value: this.noiseTex },
@@ -85,8 +87,9 @@ export class TerrainRig {
       uSectionField: { value: DUMMY_FIELD },
       uCellFx: { value: Array.from({ length: 8 }, () => new THREE.Vector4(-999, -999, 0, 0)) },
       uCellPop: { value: [new THREE.Vector4(), new THREE.Vector4()] },
-      uImpactPos: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) },
-      uImpactCol: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) },
+      // Shared with every entity material (lighting.ts IMPACT_LIGHTS).
+      uImpactPos: IMPACT_LIGHTS.uImpactPos,
+      uImpactCol: IMPACT_LIGHTS.uImpactCol,
     };
   }
 
@@ -98,23 +101,5 @@ export class TerrainRig {
 
   dispose(): void {
     this.materialTex.dispose();
-    this.noiseTex.dispose();
   }
-}
-
-/** 32^3 RGBA random lattice; trilinear filtering + REPEAT turns it into smooth tiling value noise. */
-function makeNoise3D(): THREE.Data3DTexture {
-  const n = NOISE_SIZE;
-  const data = new Uint8Array(n * n * n * 4);
-  const rng = new Rng(424242);
-  for (let i = 0; i < data.length; i++) data[i] = Math.floor(rng.next() * 256);
-  const t = new THREE.Data3DTexture(data, n, n, n);
-  t.format = THREE.RGBAFormat;
-  t.type = THREE.UnsignedByteType;
-  t.minFilter = t.magFilter = THREE.LinearFilter;
-  t.wrapS = t.wrapT = t.wrapR = THREE.RepeatWrapping;
-  t.generateMipmaps = false;
-  t.unpackAlignment = 1;
-  t.needsUpdate = true;
-  return t;
 }

@@ -9,6 +9,7 @@ import { crewLine } from '../config/crew';
 import { lineDpsLog10 } from './run';
 import { hitSeal } from './seals';
 import { applyHit, weakestCell } from './shaft';
+import { facetStats } from './facets';
 import { CELL, type IdleState } from './state';
 
 const L10 = Math.log10;
@@ -71,8 +72,26 @@ export function stepCrew(s: IdleState, dt: number, bus?: IdleBus): number {
     }
     const c = weakestCell(s);
     if (c < 0) continue;
+    const rows0 = s.run.rows;
     const res = applyHit(s, c, floor.depth, dmg, { source: 'crew', crit: false, pierce: 1 }, bus);
-    bus?.emit('crew:strike', { line: i, col: c, depth: floor.depth, dmg: Big.fromLog10(dmg), cells: res.cells });
+    let cells = res.cells;
+    // Crew 4: crew strikes hit 2 cells.
+    const fs = facetStats(s);
+    if (fs.crewTwoCells) {
+      const c2 = weakestCell(s);
+      if (c2 >= 0) cells += applyHit(s, c2, s.shaft.rows[0].depth, dmg, { source: 'crew', crit: false, pierce: 1 }, bus).cells;
+    }
+    // Foreman's Luck: the crew finds a chest per 40 rows it clears.
+    if (fs.crewChest > 0 && s.run.rows > rows0) {
+      s.crewRows += s.run.rows - rows0;
+      while (s.crewRows >= fs.crewChest) {
+        s.crewRows -= fs.crewChest;
+        const id = `chest:${s.nextId++}`;
+        s.chests.push({ id, col: c, depth: s.run.depth, floor: 0, at: s.time });
+        bus?.emit('chest:exposed', { id, col: c, depth: s.run.depth, floor: 'wood' });
+      }
+    }
+    bus?.emit('crew:strike', { line: i, col: c, depth: floor.depth, dmg: Big.fromLog10(dmg), cells });
   }
   return strikes;
 }

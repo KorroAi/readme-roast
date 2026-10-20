@@ -53,9 +53,10 @@ export class CardSheet implements SheetBody {
     this.body = h('div', { class: 'dd-sheet-body' });
   }
 
-  opened(): void {
+  opened(focus = ''): void {
     this.signature = '';
     this.refresh(performance.now());
+    void focus;
   }
 
   refresh(now: number): void {

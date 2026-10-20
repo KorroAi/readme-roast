@@ -1,6 +1,7 @@
 import './ui.css';
 import './screens/compat.css';
 import './idle/idle.css';
+import './idle/w2.css';
 import { t } from '../i18n';
 import type { Settings } from '../save/types';
 import { focusables, h } from './dom';

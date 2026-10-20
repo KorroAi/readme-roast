@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { LIGHTING_GLSL, type LightingUniforms } from '../../render/lighting';
 import type { Rng } from '../../core/rng';
-import type { ParticleSystem } from './Particles';
+import type { GpuParticles } from '../../render/fx/GpuParticles';
 
 // Three kinds of quads in one geometry (one draw call): 0 the falling sheet (two crossed
 // ribbons), 1 mist (camera-facing, upright billboards at the foot), 2 the splash ring (flat on
@@ -216,14 +216,15 @@ export class Waterfall {
     this.group.add(mesh);
   }
 
-  update(dt: number, particles: ParticleSystem, rng: Rng, cameraPos: THREE.Vector3): void {
+  update(dt: number, particles: GpuParticles, rng: Rng, cameraPos: THREE.Vector3): void {
     // Spray only when the impact point could plausibly be seen (saves particles elsewhere).
     if (cameraPos.distanceTo(this.bottom) > 70) return;
     this.mistTimer -= dt;
     if (this.mistTimer <= 0) {
       this.mistTimer = 0.12;
-      particles.sparkle(this.bottom.x, this.bottom.y + 0.5, this.bottom.z, 0x7ff0ff, 1, rng, 1.2);
-      particles.dust(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0x8fc4d8, 2, rng, 1.0);
+      const { x, y, z } = this.bottom;
+      particles.burst({ kind: 'glint', x, y: y + 0.5, z, count: 1, color: 0x7ff0ff, speed: [0.5, 1.6], spread: 1, life: [0.5, 1], size: [0.1, 0.03], drag: 1.5, gravity: -1, jitter: 1.2, glow: 1 }, rng);
+      particles.burst({ kind: 'dust', x, y: y + 0.4, z, count: 2, color: 0x8fc4d8, speed: [0.3, 1.2], dir: [0, 1, 0], spread: 0.8, life: [0.8, 1.6], size: [0.4, 1.2], drag: 1.2, gravity: 0.3, jitter: 1.0 }, rng);
     }
   }
 

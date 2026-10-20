@@ -14,6 +14,79 @@
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 import { mkdirSync } from 'node:fs';
+import { inflateSync } from 'node:zlib';
+
+/** Decode an 8-bit RGB/RGBA PNG (Playwright's screenshots) to { width, height, rgba }. */
+function decodePng(buf) {
+  let p = 8;
+  let width = 0;
+  let height = 0;
+  let type = 6;
+  const idat = [];
+  while (p < buf.length) {
+    const len = buf.readUInt32BE(p);
+    const kind = buf.toString('ascii', p + 4, p + 8);
+    const data = buf.subarray(p + 8, p + 8 + len);
+    if (kind === 'IHDR') {
+      width = data.readUInt32BE(0);
+      height = data.readUInt32BE(4);
+      type = data[9];
+    } else if (kind === 'IDAT') idat.push(data);
+    p += 12 + len;
+  }
+  const bpp = type === 6 ? 4 : 3;
+  const raw = inflateSync(Buffer.concat(idat));
+  const out = new Uint8Array(width * height * 4);
+  const stride = width * bpp;
+  const prev = new Uint8Array(stride);
+  const cur = new Uint8Array(stride);
+  for (let y = 0; y < height; y++) {
+    const f = raw[y * (stride + 1)];
+    const row = raw.subarray(y * (stride + 1) + 1, (y + 1) * (stride + 1));
+    for (let i = 0; i < stride; i++) {
+      const a = i >= bpp ? cur[i - bpp] : 0;
+      const b = prev[i];
+      const c = i >= bpp ? prev[i - bpp] : 0;
+      let v = row[i];
+      if (f === 1) v += a;
+      else if (f === 2) v += b;
+      else if (f === 3) v += (a + b) >> 1;
+      else if (f === 4) {
+        const pp = a + b - c;
+        const pa = Math.abs(pp - a);
+        const pb = Math.abs(pp - b);
+        const pc = Math.abs(pp - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      cur[i] = v & 255;
+    }
+    for (let x = 0; x < width; x++) {
+      out[(y * width + x) * 4] = cur[x * bpp];
+      out[(y * width + x) * 4 + 1] = cur[x * bpp + 1];
+      out[(y * width + x) * 4 + 2] = cur[x * bpp + 2];
+      out[(y * width + x) * 4 + 3] = bpp === 4 ? cur[x * bpp + 3] : 255;
+    }
+    prev.set(cur);
+  }
+  return { width, height, rgba: out };
+}
+
+/**
+ * HUD weight (W2.md §4, CRITIQUE SHOULD 10): over a white world, the share of the screen the HUD darkens to below
+ * 50 % luminance, i.e. covers at alpha ≥ 0.5 with its near-black plates and scrims. Must stay ≤ 35 % in play.
+ */
+const HUD_WEIGHT_MAX = 0.35;
+function hudWeight(png) {
+  const { width, height, rgba } = decodePng(png);
+  let heavy = 0;
+  for (let i = 0; i < width * height; i++) {
+    const r = rgba[i * 4] / 255;
+    const g = rgba[i * 4 + 1] / 255;
+    const b = rgba[i * 4 + 2] / 255;
+    if (0.2126 * r + 0.7152 * g + 0.0722 * b < 0.5) heavy++;
+  }
+  return heavy / (width * height);
+}
 
 const args = process.argv.slice(2);
 const opt = { out: 'artifacts/idle/ui', vp: '360x740,390x844,412x915', shots: true, game: true };
@@ -177,7 +250,20 @@ try {
       if (m.hscroll) fail(where, `U3 horizontal scroll ${m.hscroll} px`);
       if (m.thumb.length && preset !== 'feast') fail(where, `U4 controls above the thumb zone: ${m.thumb.join(', ')}`);
       if (opt.shots) await page.screenshot({ path: `${opt.out}/${vp.name}-${scene.replace(/[:+]/g, '_')}.png` });
-      console.log(`${where}: ${m.controls} controls, ${m.small.length + m.tinyText.length + m.overlaps.length + (m.hscroll ? 1 : 0) + (preset === 'feast' ? 0 : m.thumb.length)} issues`);
+      // HUD weight during play (no sheet, no feast): the same scene over a white world.
+      let weight = '';
+      if (preset !== 'feast' && !flags.some((f) => f.startsWith('sheet:'))) {
+        const white = await context.newPage();
+        await white.goto(`${base}src/ui/dev/sandbox.html?state=${preset}${q}&white=1`);
+        await white.waitForFunction(() => !!window.__SANDBOX__, null, { timeout: 60_000 });
+        await white.waitForTimeout(preset === 'fresh' ? 2000 : 900);
+        const w = hudWeight(await white.screenshot());
+        checks++;
+        weight = `, HUD weight ${(w * 100).toFixed(1)} %`;
+        if (w > HUD_WEIGHT_MAX) fail(where, `HUD weight ${(w * 100).toFixed(1)} % of the screen at alpha ≥ 0.5 (max ${HUD_WEIGHT_MAX * 100} %)`);
+        await white.close();
+      }
+      console.log(`${where}: ${m.controls} controls, ${m.small.length + m.tinyText.length + m.overlaps.length + (m.hscroll ? 1 : 0) + (preset === 'feast' ? 0 : m.thumb.length)} issues${weight}`);
       await context.close();
     }
   }

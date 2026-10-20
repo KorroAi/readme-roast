@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { BLOCKS, SIDE_VARIANTS, VARIANT_COUNT } from '../config/blocks';
 import { CRACK_FIRST_LAYER, CRACK_STAGES, TILE_NAMES, TILE_SIZE } from '../config/tiles';
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
-import { FAMILY, GEO_SIDE_OF, GEO_TOP_OF, MAT, MATERIAL_NAMES } from './materials';
+import { FAMILY, GEO_SIDE_OF, GEO_TOP_OF, KITS, LAYER_FALLBACK, MAT, MATERIAL_NAMES } from './materials';
+import { SECTION_SHADE_GLSL, sectionUniforms } from './look';
 import { courseGlsl } from './materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
 import { AO_SCALE, OFFSET_RANGE } from './mesher';
@@ -119,6 +120,12 @@ precision highp float;
 precision highp sampler2DArray;
 precision highp sampler3D;
 ${LIGHTING_GLSL}
+${SECTION_SHADE_GLSL}
+// Preset switches as uniforms (CRITIQUE B SHOULD 7): a quality change never compiles a program.
+uniform float uPresetBlend;
+uniform float uPresetLampDir;
+// The section look's guess of a block from its layer (materials/index.ts LAYER_FALLBACK).
+const int LAYER_FB[${LAYER_FALLBACK.length}] = int[](${Array.from(LAYER_FALLBACK).join(', ')});
 uniform sampler2DArray uMat;
 uniform sampler3D uNoise;
 uniform float uMatGlow[${MATERIAL_NAMES.length}];
@@ -131,8 +138,6 @@ uniform vec3 uDeepTint;
 uniform sampler2D uSectionField;
 uniform vec4 uCellFx[8];    // cell x, cell bottom y, flash, crack
 uniform vec4 uCellPop[2];
-uniform vec4 uImpactPos[4]; // xyz, radius
-uniform vec4 uImpactCol[4]; // rgb, intensity
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -287,6 +292,29 @@ void main() {
   ivec3 cell = ivec3(floor(vGrid - n * 0.5));
   int family = vFlags & 3;
   int layer = int(vLayer + 0.5);
+  // The HD look (look.ts): every cut-plane face of a painted block, and the ledge tops of the dig band, are
+  // painted per pixel from the block's ramp; the other faces of biome blocks take their biome's ramp over the
+  // legacy texture. The block comes from the SectionIds ring when bound, else from the layer and the depth.
+  bool onCut = uSection.x > 0.5 && vFace == 4 && abs(vGrid.z - 60.0) < 0.02;
+  float secId = -1.0;
+  if (uSection.x > 0.5) {
+    if (onCut) secId = sectionIdAt(cell.xy);
+    if (secId < 0.0 || sectionRow(secId) < 0.0) {
+      float bio = vGrid.y > uSecFallback.z ? uSecFallback.x : uSecFallback.y;
+      int fb = LAYER_FB[int(mod(bio, ${KITS}.0) + 0.5) * ${MATERIAL_NAMES.length} + layer];
+      secId = fb < 0 ? 64.0 + 8.0 * bio + float(-fb - 1) : fb > 0 ? float(fb) : -1.0;
+    }
+  }
+  float secRowV = secId >= 0.0 ? sectionRow(secId) : -1.0;
+  bool ledge = vFace == 2 && cell.z >= 57 && cell.x >= 28 && cell.x <= 34;
+  // Every camera-facing face (the cut, the shaft's back wall, alcove backs) and the ledge tops are HD.
+  bool hdFace = secRowV >= 0.0 && (vFace == 4 || ledge);
+  vec2 pHD = vFace == 4 ? vWorldPos.xy + vec2(0.37, 0.21) * (60.0 - vGrid.z) : vec2(vWorldPos.x, vWorldPos.z * 0.8 + vGrid.y);
+  SecTexel sTex;
+  sTex.albedo = vec3(0.0);
+  sTex.h = 0.5;
+  sTex.spec = 0.0;
+  sTex.emit = 0.0;
   // Shading normal of the sculpted surface: smooth across natural rock (the mesher's lattice
   // normal, bent by the relief), flat on masonry, crystal and timber. NO_DERIV: face normal.
 #ifdef NO_DERIV
@@ -313,7 +341,10 @@ void main() {
   vec4 tex;
   int shownLayer = layer;
   bool topShown = false;
-  if (family == ${FAMILY.MASONRY}) {
+  if (hdFace) {
+    sTex = sectionTexel(pHD, secRowV);
+    tex = vec4(sTex.albedo, 0.0);
+  } else if (family == ${FAMILY.MASONRY}) {
     // The face's plane from its solid cell (half a voxel inside), not the interpolated vGrid:
     // on a plane that is a multiple of the vocabulary cell, interpolation noise would flip the
     // region hash per pixel.
@@ -346,6 +377,12 @@ void main() {
     }
     shownLayer = topShown ? topL : sideL;
   } else tex = matGrad(uv, vLayer, uvDx, uvDy, SOFT_CUT);
+  // The other faces of biome blocks (cavern walls, the back wall, alcoves): the legacy texture's values
+  // walked through the biome's own ramp, so a Fungal wall is violet even where it shares Topsoil's painter.
+  if (!hdFace && secRowV >= 0.0) {
+    float tv = clamp(sqrt(luma(tex.rgb)) * 1.75 - 0.1, 0.0, 1.0);
+    tex.rgb = mix(tex.rgb, secRamp(secRowV, tv), 0.82);
+  }
 
 #ifdef USE_BLEND
   // Natural boundaries: near an edge shared with a different material of the same family (the
@@ -353,7 +390,7 @@ void main() {
   // (rock nubs, pebbles, vein metal) pushes across. Both faces evaluate the same world-space
   // test, so they agree exactly. Faces without partners pay nothing. Rock partners are mapped to
   // the same top or side layer as the shown one and sampled through the same projection.
-  if (family != 0 && min(min(vNb.x, vNb.y), min(vNb.z, vNb.w)) < 253.5) {
+  if (uPresetBlend > 0.5 && !hdFace && family != 0 && min(min(vNb.x, vNb.y), min(vNb.z, vNb.w)) < 253.5) {
     int ax = vFace >> 1;
     vec3 t1 = ax == 0 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 t2 = ax == 2 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
@@ -391,14 +428,14 @@ void main() {
   float macro = macroN.b;
   if (!natural) macro = textureLod(uNoise, vGrid * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
 #endif
-  vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
+  vec3 albedo = tex.rgb * (hdFace ? 0.93 + 0.14 * macro : 0.84 + 0.32 * macro);
   // Near the lens a rock texel spans many pixels: a fine grain (64 per metre, ALU value noise on
   // the main projection, no fetch, about 25 ALU) fades in there, so close rock reads as stone,
-  // not as a magnified pixel. Skipped wherever a texel is under 5 px.
-  if (natural) {
+  // not as a magnified pixel. Skipped wherever a texel is under 2 px (CRITIQUE B SHOULD 16).
+  if (natural && !hdFace) {
     vec2 fwr = (abs(rockGx) + abs(rockGy)) * ${MAT_SIZE}.0;
     float ppt = 1.0 / max(max(fwr.x, fwr.y), 1e-4);
-    if (ppt > 5.0) {
+    if (ppt > 2.0) {
       vec2 dq = rockUv * ${MAT_SIZE * 4}.0;
       vec2 i = floor(dq);
       vec2 f = fract(dq);
@@ -408,7 +445,7 @@ void main() {
       i = mod(i, 1024.0);
       vec4 hv = fract(sin(vec4(dot(i, vec2(12.9898, 78.233)), dot(i + vec2(1.0, 0.0), vec2(12.9898, 78.233)), dot(i + vec2(0.0, 1.0), vec2(12.9898, 78.233)), dot(i + 1.0, vec2(12.9898, 78.233)))) * 43758.5453);
       float g = mix(mix(hv.x, hv.y, f.x), mix(hv.z, hv.w, f.x), f.y);
-      albedo *= 1.0 + (g - 0.5) * 0.2 * smoothstep(5.0, 12.0, ppt);
+      albedo *= 1.0 + (g - 0.5) * 0.2 * smoothstep(2.0, 7.0, ppt);
     }
   }
 
@@ -421,26 +458,20 @@ void main() {
   // gradient), so faces turned away and recesses lose them faster than the all-round cool fill: a
   // crevice inside a warm pool falls to blue-black, not to dark amber.
 #ifdef LAMP_DIR
-  vec2 facing = placedFacing(ls, samplePos, n);
+  vec2 facing = uPresetLampDir > 0.5 ? placedFacing(ls, samplePos, n) : vec2(1.0);
 #else
   vec2 facing = vec2(1.0);
 #endif
   vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
   // The descent's drawn section (SPEC §11.2): the cut-plane faces facing the camera.
-  bool section = uSection.x > 0.5 && vFace == 4 && abs(vGrid.z - 60.0) < 0.02;
-  float value = uMatValue[shownLayer];
+  bool section = onCut;
+  float value = hdFace ? sectionValue(secRowV) : uMatValue[shownLayer];
   float below = uSection.y - vGrid.y; // metres below the floor's top edge
+  // A back wall or alcove back 1-3 m behind the flame takes it nearly head-on: a soft knee keeps that pool
+  // from burning white (Magma, Fossil), while the weaker light further out is untouched.
+  if (hdFace && !section && vFace == 4) lantern /= 1.0 + 0.6 * max(lantern.r, max(lantern.g, lantern.b));
   // Transient impact lights (crits, breaks, blasts): no visibility term, uniform-driven.
-  vec3 impact = vec3(0.0);
-  for (int i = 0; i < 4; i++) {
-    vec4 ip = uImpactPos[i];
-    vec4 ic = uImpactCol[i];
-    if (ic.a <= 0.0) continue;
-    vec3 d = ip.xyz - vWorldPos;
-    float dl = length(d);
-    float att = max(0.0, 1.0 - dl / max(ip.w, 0.1));
-    impact += ic.rgb * (ic.a * att * att * (0.3 + 0.7 * max(dot(ng, d / max(dl, 1e-3)), 0.0)));
-  }
+  vec3 impact = impactLight(vWorldPos, ng);
   vec3 ambient;
   vec3 secAdd = vec3(0.0);
   if (section) {
@@ -463,8 +494,19 @@ void main() {
     float win = clamp(1.0 - lx * lx * lx * lx, 0.0, 1.0);
     float lat = win * win / (1.0 + 6.0 * lx * lx);
     float lwrap = clamp(dot(vec3(0.0, 0.0, 1.0), dl / max(dist, 1e-3)) * 0.65 + 0.35, 0.0, 1.0);
-    vec3 secLantern = uLanternColor * mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, lx)) * (1.6 * lwrap * lat * uLanternIntensity);
-    ambient = uSectionKey * depthKey + ls.rgb * 1.15 + uRimColor * rim * (0.55 + 0.45 * depthKey);
+    // On host rock the flame's amber is half as deep (V11): the valuables keep the full warm light, so copper,
+    // iron and the chest stay apart from the lit rock around them; the floor, ledges and back wall keep the pool.
+    vec3 deepL = lanternDeep();
+    if (value < 0.5) {
+      vec3 hostT = mix(vec3(1.0), deepL, 0.5);
+      deepL = hostT * (dot(deepL, vec3(0.2126, 0.7152, 0.0722)) / dot(hostT, vec3(0.2126, 0.7152, 0.0722))); // same luminance
+    }
+    vec3 secLantern = uLanternColor * mix(vec3(1.0), deepL, smoothstep(0.05, 0.18, lx)) * (1.6 * lwrap * lat * uLanternIntensity);
+    // Focus (SPEC §11.1 pillar 5): the key falls off away from the dig band, so the floor is the brightest band.
+    float focus = mix(1.0, 0.6, smoothstep(1.5, 7.5, below)) * mix(1.0, 0.72, smoothstep(1.0, 5.0, -below));
+    // The dig band is a lit stage: +45 % on the floor row and the row under it, falling off over 1 m.
+    focus *= 1.0 + 0.6 * exp(-pow((below - 0.6) / 1.1, 2.0));
+    ambient = (uSectionKey * depthKey + ls.rgb * 0.85) * focus + uRimColor * rim * (0.55 + 0.45 * depthKey);
     lantern = secLantern;
     // The dig band as a designed object (CRITIQUE B5): chisel seams at the shaft cells' boundaries, a
     // lit lip toward the lantern, fading out by 4 rows below the floor.
@@ -483,18 +525,31 @@ void main() {
   }
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
-  if (family == ${FAMILY.CRYSTAL} && !section) ambient *= 0.3;
+  if (family == ${FAMILY.CRYSTAL} && !section && !hdFace) ambient *= 0.3;
   // The camera fill: faces turned toward the camera never go black (the shaft interior, the back wall).
   vec3 camFill = uCamFill * max(ng.z, 0.0) * aoCurve;
-  vec3 color = albedo * (ambient + lantern + camFill + impact + vec3(uDebug.x) * shade * aoCurve) + secAdd * albedo;
+  // Focus for the stage above the floor too (the back wall, the shaft's sides): the dig band stays the brightest.
+  if (uSection.x > 0.5 && !section && vGrid.z > 50.0 && vGrid.x > 25.0 && vGrid.x < 38.0) {
+    float up = vGrid.y - uSection.y;
+    ambient *= mix(1.0, 0.62, smoothstep(0.8, 5.0, up)) * (1.0 + 0.35 * exp(-pow((up - 0.4) / 0.9, 2.0)));
+    camFill *= mix(1.0, 0.6, smoothstep(0.8, 5.0, up));
+  }
+  // The same knee for the light volume on camera-facing walls: a row of magma or resin emitters at the foot of
+  // the back wall must light it, not burn it white (Magma, Fossil); ordinary walls (below 0.6) are untouched.
+  if (hdFace && !section && vFace == 4) {
+    float am = max(ambient.r, max(ambient.g, ambient.b));
+    if (am > 0.6) ambient *= (0.6 + (am - 0.6) / (1.0 + 1.6 * (am - 0.6))) / am;
+  }
+  vec3 diffuse = ambient + lantern + camFill + impact + vec3(uDebug.x) * shade * aoCurve;
+  vec3 color = hdFace ? sectionLight(sTex, pHD, diffuse, lantern, vWorldPos) * (0.93 + 0.14 * macro) + secAdd * albedo : albedo * diffuse + secAdd * albedo;
 
-  float glow = tex.a * uMatGlow[shownLayer];
-  vec3 emissive = tex.rgb * glow;
+  float glow = hdFace ? 0.0 : tex.a * uMatGlow[shownLayer];
+  vec3 emissive = hdFace ? sectionEmission(sTex) : tex.rgb * glow;
   if (uSection.x > 0.5 && value > 0.5) {
     // Valuables read through the dark (CRITIQUE B6): a self-light by value, rich ore pulsing at 0.7 Hz,
     // and the shine sweep (a 45 degree band crossing the screen every 3.2 s) lifting them by +1.6.
     float h = hash13(vec3(cell) + 0.5);
-    float self = value < 1.5 ? 0.1 : value < 2.5 ? 0.34 : 0.5;
+    float self = value < 1.5 ? 0.3 : value < 2.5 ? 0.48 : 0.6;
     float pulse = value > 1.5 ? 1.0 + 0.25 * sin(6.2832 * 0.7 * uTime + h * 6.2832) : 1.0;
     float sweepPos = (vGrid.x - vGrid.y) * 0.7071 - ((uSection.z - uSection.w) * 0.7071 - 14.0);
     float sweep = 1.0 - smoothstep(0.0, 0.3, abs(sweepPos - mod(uTime, 3.2) * 9.0));
@@ -505,7 +560,7 @@ void main() {
   // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
   // the explorer moves, and the painted glints at the prism tips flare when their own (tilted)
   // facet mirrors the flame toward the eye, so the seam sparkles in a few places, not everywhere.
-  if (family == ${FAMILY.CRYSTAL}) {
+  if (family == ${FAMILY.CRYSTAL} && !hdFace) {
     vec3 toEye = normalize(cameraPosition - vWorldPos);
     vec3 toLamp = normalize(uLanternPos - vWorldPos);
     float sheen = pow(max(dot(reflect(-toLamp, n), toEye), 0.0), 24.0);
@@ -574,7 +629,7 @@ void main() {
     // The fog of rock: rows more than 6 m below the floor fade to a deep tint (x0.7 by 9 m); treasure and
     // gem emission passes through (the tease).
     float fr = smoothstep(6.0, 9.0, below);
-    color = mix(color, uDeepTint, 0.7 * fr);
+    color = mix(color, uDeepTint, 0.6 * fr);
   }
 
   // Zone atmosphere: haze (pooling low, lit by the light volume around the fragment) takes the
@@ -585,6 +640,13 @@ void main() {
   fragColor = vec4(sceneOut(color), 1.0);
 }
 `;
+
+/**
+ * The quality preset's terrain switches (shared by every terrain material; Renderer.setQuality sets them):
+ * natural material boundaries (one extra fetch near a boundary) and the directional placed light (one extra
+ * light-volume fetch). Uniforms, not defines, so a preset change never compiles a program (P3).
+ */
+export const TERRAIN_PRESET = { blend: { value: 1 } as THREE.IUniform<number>, lampDir: { value: 1 } as THREE.IUniform<number> };
 
 /**
  * @param debugClip compile the debug section-view discard (uDebug.y). Off in the game: any
@@ -602,6 +664,9 @@ export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.D
     uniforms: {
       ...lighting,
       ...terrain,
+      ...sectionUniforms(),
+      uPresetBlend: TERRAIN_PRESET.blend,
+      uPresetLampDir: TERRAIN_PRESET.lampDir,
       // The tile atlas is no longer sampled here (inscriptions come from the script layer of
       // uMat, mining fractures are computed); kept bound for callers that read it back.
       uTiles: { value: tiles },

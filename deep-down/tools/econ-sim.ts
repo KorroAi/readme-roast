@@ -1,8 +1,10 @@
 // The economy sim (SPEC §5.12, BUILD §2.1): prints the first-run table against its targets, the taps per
 // cell, the reward gaps, E20 and the Pick's slot-1 check (CRITIQUE MUST 2), and the tutorial's step times
-// at 5 and 3 taps/s (CRITIQUE MUST 9).
-// Usage: node tools/run-ts.mjs tools/econ-sim.ts [first|human|hold|tutorial|all]
+// at 5 and 3 taps/s (CRITIQUE MUST 9). `days N [seed]` runs the session sim (BUILD §3.1 MUST 8: the real model with
+// every W2 system on, a 40-minute first session then 6 minutes every 2 h) and prints the E-metrics it measures.
+// Usage: node tools/run-ts.mjs tools/econ-sim.ts [first|human|hold|tutorial|all|days N [seed]]
 import { FIRST_RUN_TARGETS, simFirstRun } from '../src/idle/sim/pacing';
+import { daysReport, simDays } from '../src/idle/sim/days';
 import { simTutorial } from '../src/idle/sim/tutorialSim';
 import { formatTime } from '../src/idle/num/notation';
 
@@ -35,8 +37,18 @@ function tutorial(): void {
   }
 }
 
+function days(n: number, seed: number): void {
+  console.log(`\n== session sim · ${n} days · seed ${seed} (a 40-minute first session, then 6 minutes every 2 h, 08:00–24:00)`);
+  const r = simDays({ days: n, seed, log: (l) => console.log(`  ${l}`) });
+  for (const line of daysReport(r)) console.log(line);
+}
+
 export default function main(args: string[]): void {
   const mode = args[0] ?? 'first';
+  if (mode === 'days') {
+    days(Math.max(1, Number(args[1] ?? 3) || 3), Number(args[2] ?? 2026) || 2026);
+    return;
+  }
   if (mode === 'first' || mode === 'all') {
     first('bot', 5);
     first('bot', 3);

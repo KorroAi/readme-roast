@@ -7,6 +7,7 @@ import { rowsCostLog10 } from '../config/curves';
 import { CATACLYSM, dynamiteRows, earthquakeSeconds, skillDef, SKILLS } from '../config/skills';
 import { activeDpsLog10, crewDpsLog10 } from './run';
 import { analyticRows, settleFloor } from './shaft';
+import { flagSecret } from './feats';
 import { CELL, type IdleState } from './state';
 
 const L10 = Math.log10;
@@ -38,6 +39,8 @@ export function useSkill(s: IdleState, id: string, bus?: IdleBus): boolean {
   else k.cdEnd = s.time + def.cooldown;
   if (def.duration > 0) k.activeEnd = s.time + def.duration;
   if (!s.meta.firstTime.includes(`used:${id}`)) s.meta.firstTime.push(`used:${id}`);
+  s.meta.stats.skills++;
+  s.meta.lastUsed.skill = s.playTime;
   bus?.emit('skill:use', { id, level: k.lvl });
   if (id === 'dynamite') dynamite(s, k.lvl, bus);
   else if (id === 'earthquake') earthquake(s, k.lvl, bus);
@@ -49,9 +52,12 @@ export function useSkill(s: IdleState, id: string, bus?: IdleBus): boolean {
   }
   rec[id] = s.time;
   if (SKILLS.every((d) => rec[d.id] !== undefined && s.time - rec[d.id] <= CATACLYSM.window)) {
-    s.run.frenzyEnd = Math.max(s.run.frenzyEnd, s.time + CATACLYSM.duration);
+    // Cataclysm: everything ×2 for 10 s, one full-screen flash (C), and the secret Feat.
+    s.run.cataclysmEnd = Math.max(s.run.cataclysmEnd, s.time + CATACLYSM.duration);
     for (const d of SKILLS) delete rec[d.id];
+    flagSecret(s, 'cataclysm');
     bus?.emit('skill:cataclysm', { duration: CATACLYSM.duration });
+    bus?.emit('boost:start', { id: 'cataclysm', until: s.run.cataclysmEnd, mult: CATACLYSM.mult });
   }
   return true;
 }
@@ -85,6 +91,7 @@ export function tickSkills(s: IdleState, bus?: IdleBus): void {
     if (!k) continue;
     if (k.cdEnd > 0 && s.time >= k.cdEnd) {
       k.cdEnd = 0;
+      k.readyAt = s.time;
       bus?.emit('skill:ready', { id: def.id });
     }
     if (k.activeEnd > 0 && s.time >= k.activeEnd) {

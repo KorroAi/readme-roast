@@ -9,8 +9,13 @@ import type { IdleBus } from '../bus';
 import { biomeAt } from '../config/biomes';
 import { CHEST_EVERY } from '../config/cells';
 import { addLog, goldPerHp, KAPPA, rowCostLog10, rowsForWork } from '../config/curves';
+import { mults } from './mult';
 import { crewDpsLog10 } from './run';
 import { cellHpLog10, nextSealDepth, resetWindow } from './shaft';
+import { welcomeBack } from './director';
+import { flagSecret } from './feats';
+import { returnHints } from './hints';
+import { holdSealOnReturn } from './seals';
 import { CELL, COLS, type IdleState, type OfflineResult } from './state';
 
 const L10 = Math.log10;
@@ -27,7 +32,7 @@ export function offlineEfficiency(s: IdleState): number {
   const e = s.meta.embersMax.toNumber();
   const nightShift = s.meta.loom.nightShift ?? 0;
   let eff = e >= 1e5 ? 1 : e >= 250 ? 0.75 : 0.5;
-  eff = Math.min(1, eff + 0.1 * nightShift);
+  eff = Math.min(1, eff + 0.1 * nightShift + mults(s).offline);
   return eff;
 }
 
@@ -149,9 +154,7 @@ function applyOffline(s: IdleState, r: OfflineResult, frac: number): void {
   }
   for (let i = 0; i < r.chests; i++) s.run.rack.push(0);
   // The crew waits at the seal: it is held until the player taps (after the feast).
-  if (r.sealBiome >= 0 && floor.kinds[0] === CELL.SEAL) {
-    s.seal = null;
-  }
+  if (r.sealBiome >= 0 && floor.kinds[0] === CELL.SEAL) holdSealOnReturn(s);
 }
 
 /**
@@ -164,7 +167,9 @@ export function returnFromAway(s: IdleState, savedAt: number, now: number, bus?:
   const r = computeOffline(s, a.counted, { apply: true, away: a.away, capped: a.capped });
   s.meta.stats.offlineHours += a.counted / 3600;
   s.offline = r;
+  if (a.away >= 8 * 3600) flagSecret(s, 'patience');
   bus?.emit('offline:ready', { seconds: a.counted, rows: r.toDepth - r.fromDepth, gold: r.gold.clone() });
+  returnHints(s, r.sealBiome >= 0, a.capped, bus);
   if (r.chests > 0) bus?.emit('chest:rack', { count: s.run.rack.length });
   return r;
 }
@@ -179,6 +184,7 @@ export function collectOffline(s: IdleState, bus?: IdleBus): Big {
   s.meta.lifetime.gold.addIn(r.gold);
   if (r.gold.gt(s.meta.records.bestOffline)) s.meta.records.bestOffline = r.gold.clone();
   bus?.emit('offline:collect', { gold: r.gold.clone(), chests: s.run.rack.length });
+  welcomeBack(s);
   bus?.emit('gold:gain', { amount: r.gold.clone(), source: 'offline', col: -1, depth: s.run.depth });
   return r.gold.clone();
 }

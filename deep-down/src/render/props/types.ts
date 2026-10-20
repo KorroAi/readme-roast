@@ -23,10 +23,24 @@ export type PropKind =
   | 'forge'
   | 'surveyTable'
   | 'relicShelf'
-  | 'runeStone';
+  | 'runeStone'
+  // W2 biome dressing (SPEC §11.3; render/props/biomeProps.ts)
+  | 'mushroom'
+  | 'stalagmite'
+  | 'root'
+  | 'urn'
+  | 'coral'
+  | 'bone'
+  | 'rib'
+  | 'gear'
+  | 'iceSpire'
+  | 'sunshard'
+  | 'nullShard'
+  | 'pebbles';
 
 /** What tapping a prop does in the descent (DescentScene.pickEntity reports it). */
-export type PropTap = 'chest' | 'gem' | 'fossil' | 'note' | 'crate' | 'crystal' | 'lantern';
+/** 'cache' is a cavern chest (W2.md §3.5 `cache:<n>`); 'chest' stays for chests popped out of cells. */
+export type PropTap = 'chest' | 'cache' | 'gem' | 'fossil' | 'note' | 'crate' | 'crystal' | 'lantern';
 
 export interface PropSpec {
   /** Stable id (a slab's props are `s<slab>:<n>`), used to remove a prop and to remember harvests. */

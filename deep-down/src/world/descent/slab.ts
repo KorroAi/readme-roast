@@ -1,4 +1,4 @@
-import { B, BIOME_BLOCKS, EMITTER, EMIT_B, EMIT_G, EMIT_R, SOLID } from '../../config/blocks';
+import { B, BIOME_BLOCKS, EMITTER, EMIT_B, EMIT_G, EMIT_R, SOLID, VALUE_CLASS } from '../../config/blocks';
 import { hash32 } from '../../core/math';
 import { Noise } from '../../core/noise';
 import { CELL } from '../../idle/model/state';
@@ -8,6 +8,7 @@ import { RING_SX, RING_SZ, SLAB_ROWS } from './RingWorld';
 import { kitOf, type BiomeKit } from './biomeKits';
 import { TUTORIAL_ROWS, tutorialFeatures } from './tutorialRows';
 import { breakthroughs } from '../../idle/model/shaft';
+import { carveGeodes, carveVista, dressCavern, finishCavern, inBigRoom, ledges, sealNiche, vistasNear } from './caverns';
 
 /**
  * One slab of the descent (SPEC §6.4): 64 x 16 x 64 voxels for depth rows 16k..16k+15, a pure function of
@@ -41,7 +42,7 @@ export interface SlabInput {
 /** A cavern the generator placed (fill-scan, Depth Ruler icons, harvest ids). */
 export interface CavernSpec {
   id: string;
-  kind: 'alcove' | 'pocket' | 'chamber' | 'grotto' | 'hall';
+  kind: 'alcove' | 'pocket' | 'chamber' | 'grotto' | 'hall' | 'vista' | 'geode';
   /** Depth rows [top, bottom] and the box. */
   top: number;
   bottom: number;
@@ -49,6 +50,53 @@ export interface CavernSpec {
   x1: number;
   z0: number;
   z1: number;
+  /** The carve's rounding (carve()'s `round`): with it, `carvedAt` tells which voxels of the box are open. */
+  round?: number;
+}
+
+/** A creature living in this slab (Creatures.ts draws it; id `creature:<kind>:<n>`). */
+export interface CreatureAnchor {
+  id: string;
+  kind: string;
+  biome: number;
+  x: number;
+  y: number;
+  z: number;
+  range: number;
+}
+
+/** An ambient particle emitter (fill rule 5: every cavern ≥ 50 m³ has one). */
+export interface MoteEmitter {
+  x: number;
+  y: number;
+  z: number;
+  /** Half extents of the emitting box. */
+  rx: number;
+  ry: number;
+  rz: number;
+  kind: 'dust' | 'spore' | 'ember' | 'bubble' | 'snow' | 'glint' | 'thread';
+  color: number;
+}
+
+/** A liquid surface on a cavern floor (LiquidPlane draws it). */
+export interface LiquidSpot {
+  id: string;
+  kind: 'water' | 'lava' | 'brass' | 'ice' | 'spore';
+  y: number;
+  x0: number;
+  x1: number;
+  z0: number;
+  z1: number;
+}
+
+/** A Vista or Reveal Hall opening onto the backdrop layers (W2.md §3.3). World y0 > y1. */
+export interface VistaSpot {
+  id: string;
+  biome: number;
+  top: number;
+  bottom: number;
+  x0: number;
+  x1: number;
 }
 
 export interface SlabData {
@@ -58,6 +106,12 @@ export interface SlabData {
   caverns: CavernSpec[];
   /** Emitter voxels in the slab (W6 light budget). */
   emitters: number;
+  creatures: CreatureAnchor[];
+  motes: MoteEmitter[];
+  liquids: LiquidSpot[];
+  vistas: VistaSpot[];
+  /** Rows (0..15) whose back is open onto the backdrops (a Vista, a Reveal Hall): the ring reads AIR behind z = 0. */
+  openBack: Uint8Array;
 }
 
 const idx = (x: number, r: number, z: number) => x + RING_SX * (r + SLAB_ROWS * z);
@@ -114,7 +168,7 @@ export function cellBlock(kind: number, host: number, kit: BiomeKit): number {
 export function generateSlab(input: SlabInput): SlabData {
   const { runSeed, k } = input;
   const blocks = new Uint8Array(SLAB_VOXELS);
-  const out: SlabData = { k, blocks, props: [], caverns: [], emitters: 0 };
+  const out: SlabData = { k, blocks, props: [], caverns: [], emitters: 0, creatures: [], motes: [], liquids: [], vistas: [], openBack: new Uint8Array(SLAB_ROWS) };
   if (k < 0) return out; // the sky
   noises(runSeed);
   const d0 = k * SLAB_ROWS;
@@ -141,6 +195,30 @@ export function generateSlab(input: SlabInput): SlabData {
         blocks[idx(x, r, z)] = hostAt(kit, x, d, z, runSeed);
       }
   }
+  // ---- pass 3b: a find on the cut face in every 4 rows (fill rule 6, the density's special cells): a 2-row seam in
+  // every 3-row block that has none, so no 4 consecutive rows lack one --------------------------------------------
+  for (let r0 = 0; r0 < SLAB_ROWS; r0 += 3) {
+    let any = false;
+    for (let r = r0; r < Math.min(SLAB_ROWS, r0 + 3) && !any; r++)
+      for (let x = SHAFT_X0 - 6; x <= SHAFT_X1 + 6 && !any; x++) {
+        if (x >= SHAFT_X0 - 1 && x <= SHAFT_X1 + 1) continue;
+        const id = blocks[idx(x, r, CUT - 1)];
+        if (id >= 64 && id < 176 && ((id - 64) % 8 === 4 || (id - 64) % 8 === 5 || (id - 64) % 8 === 6)) any = true;
+      }
+    if (any) continue;
+    // A short seam of the biome's ore, angled into the face beside the shaft (2 m clear of the shaft walls).
+    const r = r0 + Math.min(1, Math.floor(h01(r0, 7, d0, runSeed) * 2));
+    const d = d0 + r;
+    const kit = kitOf(baseBiome(biomeAt(d)));
+    const left = h01(r0, 8, d0, runSeed) < 0.5;
+    const x = left ? SHAFT_X0 - 2 - Math.floor(h01(r0, 9, d0, runSeed) * 4) : SHAFT_X1 + 2 + Math.floor(h01(r0, 9, d0, runSeed) * 4);
+    const rich = h01(r0, 10, d0, runSeed) < 0.25;
+    for (let i = 0; i < 3; i++) {
+      const rr = r + (i === 2 ? 1 : 0);
+      const xx = x + (left ? -i : i);
+      if (rr < SLAB_ROWS) for (let z = CUT - 2; z < CUT; z++) blocks[idx(xx, rr, z)] = rich && i === 1 ? kit.rich : kit.ore;
+    }
+  }
   // ---- pass 4: the shaft cells --------------------------------------------------------------------
   for (let r = 0; r < SLAB_ROWS; r++) {
     const d = d0 + r;
@@ -155,12 +233,21 @@ export function generateSlab(input: SlabInput): SlabData {
     }
   }
   // ---- pass 5: caverns and their contents -------------------------------------------------------
-  const ctx: Ctx = { input, out, d0, kitAt: (d) => kitOf(baseBiome(biomeAt(d))) };
+  const ctx: Ctx = { input, out, d0, kitAt: (d) => kitOf(baseBiome(biomeAt(d))), protect: new Set() };
   if (d0 < TUTORIAL_ROWS) tutorialFeatures(ctx);
+  for (const v of vistasNear(d0 - 2, d0 + SLAB_ROWS + 1)) carveVista(ctx, v, kitOf(v.biome), runSeed ^ (v.biome * 0x2f1));
   carveGrottos(ctx);
   carveAlcoves(ctx);
   carvePockets(ctx);
   carveChambers(ctx);
+  carveGeodes(ctx, runSeed ^ 0x6e0de);
+  for (let d = d0 - 8; d < d0 + SLAB_ROWS + 8; d++) {
+    const s = nextBiomeStart(Math.max(0, d));
+    if (s - 7 === d) sealNiche(ctx, s, kitOf(baseBiome(biomeAt(s))), kitOf(baseBiome(biomeAt(d))));
+  }
+  fillTapGaps(ctx);
+  fillMoving(ctx);
+  for (const v of out.vistas) for (let d = Math.max(v.top, d0); d <= Math.min(v.bottom, d0 + SLAB_ROWS - 1); d++) out.openBack[d - d0] = 1;
   // ---- pass 8: the seal frame at each biome start ---------------------------------------------------
   for (let r = 0; r < SLAB_ROWS; r++) {
     const d = d0 + r;
@@ -203,9 +290,6 @@ export function generateSlab(input: SlabInput): SlabData {
       }
   // The apron is always air.
   for (let z = CUT; z < RING_SZ; z++) for (let r = 0; r < SLAB_ROWS; r++) blocks.fill(B.AIR, idx(0, r, z), idx(0, r, z) + RING_SX);
-  let n = 0;
-  for (let i = 0; i < blocks.length; i++) if ((EMIT_R[blocks[i]] | EMIT_G[blocks[i]] | EMIT_B[blocks[i]]) !== 0) n++;
-  out.emitters = n;
   return out;
 }
 
@@ -259,6 +343,8 @@ export interface Ctx {
   out: SlabData;
   d0: number;
   kitAt(d: number): BiomeKit;
+  /** Emitter voxels that light a cavern (the budget drops them last). */
+  protect: Set<number>;
 }
 
 export function get(blocks: Uint8Array, x: number, r: number, z: number): number {
@@ -281,26 +367,32 @@ export const inFootprint = (x: number, z: number): boolean => x >= SHAFT_X0 && x
 export function carve(ctx: Ctx, top: number, bottom: number, x0: number, x1: number, z0: number, z1: number, round = 0): boolean {
   const { d0, out } = ctx;
   let any = false;
-  const cx = (x0 + x1) / 2;
-  const cy = (top + bottom) / 2;
-  const cz = (z0 + z1) / 2;
-  const rx = (x1 - x0) / 2 + 0.5;
-  const ry = (bottom - top) / 2 + 0.5;
-  const rz = (z1 - z0) / 2 + 0.5;
+  const box = { top, bottom, x0, x1, z0, z1, round };
   for (let d = Math.max(top, d0); d <= Math.min(bottom, d0 + SLAB_ROWS - 1); d++)
     for (let z = Math.max(0, z0); z <= Math.min(CUT - 1, z1); z++)
       for (let x = Math.max(0, x0); x <= Math.min(RING_SX - 1, x1); x++) {
-        if (inFootprint(x, z)) continue;
-        if (round > 0) {
-          // A cavern that reaches the cut stays open at it (its mouth shows in the section); deeper, it rounds.
-          const zt = z1 >= CUT - 1 ? 0.5 * ((z1 - z) / (z1 - z0 + 1)) ** 2 : ((z - cz) / rz) ** 2;
-          const e = ((x - cx) / rx) ** 2 + ((d - cy) / ry) ** 2 + zt;
-          if (e > 1 + round * 0.35 * noise.noise3(x * 0.3, d * 0.3, z * 0.3)) continue;
-        }
+        if (inFootprint(x, z) || (round > 0 && !carvedAt(box, x, d, z))) continue;
         out.blocks[idx(x, d - d0, z)] = B.AIR;
         any = true;
       }
   return any;
+}
+
+/** Does carve() open voxel (x, d, z) of this box (any slab: the test is pure, so a slab can ask about its neighbour's rows)? */
+export function carvedAt(c: { top: number; bottom: number; x0: number; x1: number; z0: number; z1: number; round?: number }, x: number, d: number, z: number): boolean {
+  if (d < c.top || d > c.bottom || x < c.x0 || x > c.x1 || z < c.z0 || z > c.z1) return false;
+  const round = c.round ?? 0;
+  if (round <= 0) return true;
+  const cx = (c.x0 + c.x1) / 2;
+  const cy = (c.top + c.bottom) / 2;
+  const cz = (c.z0 + c.z1) / 2;
+  const rx = (c.x1 - c.x0) / 2 + 0.5;
+  const ry = (c.bottom - c.top) / 2 + 0.5;
+  const rz = (c.z1 - c.z0) / 2 + 0.5;
+  // A cavern that reaches the cut stays open at it (its mouth shows in the section); deeper, it rounds.
+  const zt = c.z1 >= CUT - 1 ? 0.5 * ((c.z1 - z) / (c.z1 - c.z0 + 1)) ** 2 : ((z - cz) / rz) ** 2;
+  const e = ((x - cx) / rx) ** 2 + ((d - cy) / ry) ** 2 + zt;
+  return e <= 1 + round * 0.35 * noise.noise3(x * 0.3, d * 0.3, z * 0.3);
 }
 
 let propSeq = 0;
@@ -311,8 +403,11 @@ export function addProp(ctx: Ctx, kind: PropKind, x: number, floorRow: number, z
   const row = floorRow - 1;
   if (row < d0 || row >= d0 + SLAB_ROWS) return null;
   const seed = hash32(ctx.input.runSeed ^ hash32(Math.floor(x * 7) + floorRow * 131 + Math.floor(z * 13) * 7919));
+  // Tappables carry the model's ids (W2.md §3.5): `<kind>:<n>`, n stable per run seed and slab (k·100 + its index
+  // among the slab's tappables); dressing keeps a slab-local id.
+  const tapIndex = opts.tap ? out.props.filter((p) => p.tap).length : 0;
   const spec: PropSpec = {
-    id: `s${ctx.input.k}:${out.props.length}`,
+    id: opts.tap ? `${opts.tap}:${ctx.input.k * 100 + tapIndex}` : `s${ctx.input.k}:${out.props.length}`,
     kind,
     x,
     y: -floorRow,
@@ -356,6 +451,7 @@ function embedEmitter(ctx: Ctx, x: number, row: number, z: number, id: number): 
   if (r < 0 || r >= SLAB_ROWS || inFootprint(x, z)) return false;
   if (!SOLID[get(out.blocks, x, r, z)]) return false;
   set(out.blocks, x, r, z, id);
+  ctx.protect.add(idx(x, r, z));
   return true;
 }
 
@@ -372,9 +468,10 @@ function carveAlcoves(ctx: Ctx): void {
     const h = 2 + Math.floor(h01(n, 2, 0, seed) * 3);
     const bottom = top + h - 1;
     if (bottom < d0 - 1 || top > d0 + SLAB_ROWS) continue;
-    // Never across a seal frame.
+    // Never across a seal frame, a Reveal Hall or a Vista.
     const s = nextBiomeStart(top);
     if (bottom >= s - 2 && top <= s + 3) continue;
+    if (inBigRoom(top, bottom)) continue;
     const left = n % 2 === 0;
     const w = 3 + Math.floor(h01(n, 3, 0, seed) * 2);
     const x0 = left ? SHAFT_X0 + Math.floor(h01(n, 4, 0, seed) * 2) : SHAFT_X1 - w + 1 - Math.floor(h01(n, 4, 0, seed) * 2);
@@ -386,22 +483,27 @@ function carveAlcoves(ctx: Ctx): void {
     ctx.out.caverns.push({ id: `a${n}`, kind: 'alcove', top, bottom, x0, x1, z0, z1 });
     const kit = ctx.kitAt(top);
     const floor = bottom + 1;
-    // 2-4 props on its floor, one maybe tappable (a crate, 20 %).
-    const count = 2 + Math.floor(h01(n, 6, 0, seed) * 3);
+    // 2-6 props on its floor (≥ 1 per 6 m², rule 2); its first is the biome's tappable (rule 3).
+    const count = Math.min(6, Math.max(2 + Math.floor(h01(n, 6, 0, seed) * 3), Math.ceil((w * depth) / 6)));
     for (let i = 0; i < count; i++) {
       const px = x0 + 0.5 + ((i + 0.5) / count) * (w - 1);
       const pz = z0 + 0.6 + h01(n, 7, i, seed) * Math.max(0.2, depth - 1.6);
-      const tap = i === 0 && h01(n, 8, 0, seed) < 0.2;
-      addProp(ctx, tap ? 'crate' : pickProp(kit, h01(n, 9, i, seed)), px, floor, pz, tap ? { tap: 'crate', taps: 1 } : {});
+      const [tk, tap, taps] = kit.tappable;
+      if (i === 0) addProp(ctx, tk, px, floor, pz, { tap, taps, scale: tk === 'crystalCluster' ? 0.9 : 0.85 });
+      else addProp(ctx, pickProp(kit, h01(n, 9, i, seed)), px, floor, pz);
     }
-    // Its light: a hanging lantern (people) or the biome's own glow in its back wall.
-    if (kit.alcoveLight === 'lantern') {
-      const lx = Math.floor((x0 + x1) / 2);
-      addProp(ctx, 'hangingLantern', lx + 0.5, floor, z0 + 0.5, { emitter: [lx, -top - 1, z0 + 1] });
-    } else {
-      embedEmitter(ctx, Math.floor((x0 + x1) / 2), top + 1, z0 - 1, kit.emitter);
-      embedEmitter(ctx, x0 - 1, bottom, z0 + 1, kit.emitter);
+    // A creature in half of them (SPEC §6.6 asks 30 %: the density target of 4 moving things wants more).
+    if (h01(n, 10, 0, seed) < 0.5 && bottom >= ctx.d0 && bottom < ctx.d0 + SLAB_ROWS) {
+      const kind = kit.creatures[Math.floor(h01(n, 11, 0, seed) * kit.creatures.length)];
+      ctx.out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + ctx.out.creatures.length}`, kind, biome: baseBiome(biomeAt(top)), x: (x0 + x1 + 1) / 2, y: -floor, z: z0 + 1 + depth / 2, range: Math.max(0.5, w / 2 - 1) });
     }
+    // Its light: the biome's glow in its back wall (any of its rows in this slab), and a lantern where people worked.
+    const lx = Math.floor((x0 + x1) / 2);
+    let lit = false;
+    for (let d = top; d <= bottom && !lit; d++) lit = embedEmitter(ctx, lx, d, z0 - 1, kit.emitter) || embedEmitter(ctx, x0 - 1, d, z0 + 1, kit.emitter) || embedEmitter(ctx, x1 + 1, d, z0 + 1, kit.emitter);
+    if (!lit) lit = embedEmitter(ctx, lx, top - 1, z0 + 1, kit.emitter) || embedEmitter(ctx, lx, bottom + 1, z0 + 1, kit.emitter);
+    if (kit.alcoveLight === 'lantern') addProp(ctx, 'hangingLantern', lx + 0.5, floor, z0 + 0.5, { emitter: [lx, -top - 1, z0 + 1] });
+    finishCavern(ctx, ctx.out.caverns[ctx.out.caverns.length - 1], kit, seed ^ n);
   }
 }
 
@@ -420,6 +522,7 @@ function carvePockets(ctx: Ctx): void {
     if (bottom < d0 - 1 || top > d0 + SLAB_ROWS) continue;
     const s = nextBiomeStart(top);
     if (bottom >= s - 2 && top <= s + 3) continue;
+    if (inBigRoom(top, bottom)) continue;
     const left = m % 2 === 1;
     const w = 3 + Math.floor(h01(m, 3, 0, seed) * 3);
     const x0 = left ? SHAFT_X0 - w : SHAFT_X1 + 1;
@@ -428,17 +531,102 @@ function carvePockets(ctx: Ctx): void {
     const z1 = CUT - 1;
     const z0 = CUT - depth;
     carve(ctx, top, bottom, x0, x1, z0, z1, 1);
-    ctx.out.caverns.push({ id: `p${m}`, kind: 'pocket', top, bottom, x0, x1, z0, z1 });
+    ctx.out.caverns.push({ id: `p${m}`, kind: 'pocket', top, bottom, x0, x1, z0, z1, round: 1 });
     const kit = ctx.kitAt(top);
     const floor = bottom + 1;
     // The hero tappable: chest 40 %, gem cluster 40 %, fossil 20 %, near the shaft side so it is in view.
     const hx = left ? x1 - 0.2 : x0 + 0.2;
     const roll = h01(m, 5, 0, seed);
-    if (roll < 0.4) addProp(ctx, 'chest', hx, floor, CUT - 1.2, { tap: 'chest', taps: 1, rotY: left ? 0.6 : -0.6 });
+    if (roll < 0.4) addProp(ctx, 'chest', hx, floor, CUT - 1.2, { tap: 'cache', taps: 1, rotY: left ? 0.6 : -0.6 });
     else if (roll < 0.8) addProp(ctx, 'crystalCluster', hx, floor, CUT - 1.1, { tap: 'gem', taps: 3, scale: 0.8 });
     else addProp(ctx, 'tablet', hx, floor, CUT - 1.3, { tap: 'fossil', taps: 5, rotY: left ? 0.4 : -0.4 });
     addProp(ctx, pickProp(kit, h01(m, 6, 0, seed)), (x0 + x1) / 2 + 0.5, floor, z0 + 1.2);
-    embedEmitter(ctx, left ? x0 - 1 : x1 + 1, top + 1, CUT - 2, kit.emitter);
+    for (let d = top; d <= bottom; d++) if (embedEmitter(ctx, left ? x0 - 1 : x1 + 1, d, CUT - 2, kit.emitter)) break;
+    if (h01(m, 12, 0, seed) < 0.3 && bottom >= ctx.d0 && bottom < ctx.d0 + SLAB_ROWS) {
+      const kind = kit.creatures[Math.floor(h01(m, 13, 0, seed) * kit.creatures.length)];
+      ctx.out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + ctx.out.creatures.length}`, kind, biome: baseBiome(biomeAt(top)), x: (x0 + x1 + 1) / 2, y: -floor, z: CUT - depth / 2, range: Math.max(0.4, w / 2 - 1) });
+    }
+    finishCavern(ctx, ctx.out.caverns[ctx.out.caverns.length - 1], kit, seed ^ m);
+  }
+}
+
+// ---- nooks: the tappable guarantee (W1: a tappable within 6 rows ahead at every floor) -------------------
+
+/**
+ * The slab's floor rows fall in three blocks (d0+1..6, 7..12, 13..16); a block with no tappable gets a nook: a
+ * 2 × 2 × 2 hollow in the cut face beside the shaft holding a gem cluster and a biome light, so consecutive
+ * tappables are never more than 11 rows apart, inside a slab or across a slab boundary. Deterministic per slab.
+ */
+function fillTapGaps(ctx: Ctx): void {
+  const { d0, out, input } = ctx;
+  const seed = input.runSeed ^ 0x7a9;
+  const blocks: Array<[number, number]> = [[d0 + 1, d0 + 6], [d0 + 7, d0 + 12], [d0 + 13, d0 + 16]];
+  for (const [b0, b1] of blocks) {
+    if (out.props.some((p) => p.tap && -p.y >= b0 && -p.y <= b1)) continue;
+    const first = h01(b0, 1, 0, seed) < 0.5;
+    let done = false;
+    for (let f = Math.min(b1, d0 + SLAB_ROWS - 1); f >= Math.max(b0, d0 + 2) && !done; f--) {
+      if (f - 2 < TUTORIAL_ROWS) break;
+      const s0 = biomeStart(biomeAt(f));
+      if ((s0 > 0 && f - s0 <= 4) || nextBiomeStart(f) - f <= 8) continue;
+      for (const left of first ? [true, false] : [false, true]) {
+        const x1 = left ? SHAFT_X0 - 2 : SHAFT_X1 + 3;
+        const x0 = x1 - 1;
+        let ok = true;
+        for (let d = f - 2; d <= f && ok; d++)
+          for (let z = CUT - 3; z <= CUT - 1 && ok; z++)
+            for (let x = x0 - 1; x <= x1 + 1 && ok; x++) {
+              const id = get(out.blocks, x, d - d0, z);
+              if (!SOLID[id] || isEmitterId(id) || id === B.GATE_STONE || ctx.protect.has(idx(x, d - d0, z))) ok = false;
+            }
+        if (!ok) continue;
+        carve(ctx, f - 2, f - 1, x0, x1, CUT - 2, CUT - 1);
+        const cav: CavernSpec = { id: `n${f}`, kind: 'pocket', top: f - 2, bottom: f - 1, x0, x1, z0: CUT - 2, z1: CUT - 1 };
+        out.caverns.push(cav);
+        const kit = ctx.kitAt(f - 1);
+        addProp(ctx, 'crystalCluster', (x0 + x1 + 1) / 2, f, CUT - 1.3, { tap: 'gem', taps: 3, scale: 0.55 });
+        embedEmitter(ctx, left ? x0 - 1 : x1 + 1, f - 1, CUT - 2, kit.emitter);
+        finishCavern(ctx, cav, kit, seed ^ f);
+        done = true;
+        break;
+      }
+    }
+  }
+}
+
+// ---- the moving guarantee (W1: ≥ 4 animated things a screen) ------------------------------------------------
+
+/**
+ * Each half slab (8 rows) carries at least 2 moving things (creatures and ambient motes), so every 20 m window has
+ * at least 4 of its own. A short half gets a mote volume in the cavern that overlaps it most (its rows inside the
+ * half), else drifting dust in the shaft's own rows (lamp-lit motes over the dug cells).
+ */
+function fillMoving(ctx: Ctx): void {
+  const { d0, out } = ctx;
+  for (const h0 of [d0, d0 + 8]) {
+    const h1 = h0 + 7;
+    const inHalf = (y: number) => -y >= h0 && -y < h1 + 1;
+    let n = out.creatures.filter((c) => inHalf(c.y)).length + out.motes.filter((m) => inHalf(m.y)).length;
+    if (n >= 2) continue;
+    const kit = ctx.kitAt(h0);
+    const over = out.caverns
+      .filter((c) => c.kind !== 'geode' && c.bottom >= h0 && c.top <= h1)
+      .map((c) => ({ c, rows: Math.min(c.bottom, h1) - Math.max(c.top, h0) + 1 }))
+      .sort((a, b) => b.rows * (b.c.x1 - b.c.x0 + 1) - a.rows * (a.c.x1 - a.c.x0 + 1));
+    for (const { c } of over) {
+      if (n >= 2) break;
+      const top = Math.max(c.top, h0);
+      const bottom = Math.min(c.bottom, h1);
+      const y = -(top + bottom + 1) / 2;
+      if (out.motes.some((m) => Math.abs(m.y - y) < 1 && Math.abs(m.x - (c.x0 + c.x1 + 1) / 2) < 1)) continue;
+      out.motes.push({ x: (c.x0 + c.x1 + 1) / 2, y, z: (c.z0 + c.z1 + 1) / 2, rx: (c.x1 - c.x0) / 2, ry: (bottom - top + 1) / 2, rz: (c.z1 - c.z0) / 2, kind: kit.mote, color: kit.moteColor });
+      n++;
+    }
+    while (n < 2) {
+      // Dust in the shaft: over the cells (seen once they are dug, lit by the shaft's lamps).
+      out.motes.push({ x: (SHAFT_X0 + SHAFT_X1 + 1) / 2, y: -(h0 + 4 + (n % 2) * 0.5), z: (CELL_Z0 + CUT) / 2, rx: 3.2, ry: 3.6, rz: 1.4, kind: 'dust', color: 0xcab89a });
+      n++;
+    }
   }
 }
 
@@ -471,6 +659,7 @@ function carveChambers(ctx: Ctx): void {
     if (bottom < d0 - 1 || top > d0 + SLAB_ROWS + 1) continue;
     const s = nextBiomeStart(top);
     if (bottom >= s - 2 && top <= s + 3) continue;
+    if (inBigRoom(top, bottom)) continue;
     const w = 12 + Math.floor(h01(g, 3, 0, seed) * 12);
     const cx = 31 + Math.floor((h01(g, 4, 0, seed) - 0.5) * 8);
     const x0 = cx - (w >> 1);
@@ -481,12 +670,16 @@ function carveChambers(ctx: Ctx): void {
     chamber(ctx, `g${g}`, 'chamber', top, bottom, x0, x1, z0, z1, seed ^ g);
   }
   // The Reveal Hall under every biome's seal (CRITIQUE B10): the first rows of the biome open onto a hall.
-  for (let r = 0; r < SLAB_ROWS + 18; r++) {
+  // (Every slab the hall overlaps carves its rows: its top row s + 3 lies within 14 rows above this slab or in it.)
+  for (let r = -14; r < SLAB_ROWS; r++) {
+    if (d0 + r < 0) continue;
     const s = biomeStart(biomeAt(d0 + r));
     if (s === 0 || s + 3 !== d0 + r) continue;
     const top = s + 3;
     const bottom = top + 13;
-    chamber(ctx, `h${s}`, 'hall', top, bottom, 15, 48, 16, BACK_Z, seed ^ (s * 31));
+    // Its back opens onto the backdrop layers (CRITIQUE B10): the biome reveal's dive lands here.
+    chamber(ctx, `h${s}`, 'hall', top, bottom, 15, 48, 0, BACK_Z, seed ^ (s * 31));
+    if (bottom >= d0 - 1 && top <= d0 + SLAB_ROWS) ctx.out.vistas.push({ id: `hall:${s}`, biome: biomeAt(s), top, bottom, x0: 15, x1: 48 });
   }
 }
 
@@ -495,7 +688,7 @@ function chamber(ctx: Ctx, id: string, kind: CavernSpec['kind'], top: number, bo
   if (bottom < d0 - 1 || top > d0 + SLAB_ROWS) return;
   const kit = ctx.kitAt(top);
   carve(ctx, top, bottom, x0, x1, z0, z1, 1);
-  ctx.out.caverns.push({ id, kind, top, bottom, x0, x1, z0, z1 });
+  ctx.out.caverns.push({ id, kind, top, bottom, x0, x1, z0, z1, round: 1 });
   // Stalactites and stalagmites: cones of rock left standing.
   const cones = 6 + Math.floor(h01(1, 2, 3, seed) * 8);
   for (let i = 0; i < cones; i++) {
@@ -511,35 +704,20 @@ function chamber(ctx: Ctx, id: string, kind: CavernSpec['kind'], top: number, bo
       if (j < len - 1 || h01(i, 4, j, seed) < 0.5) set(ctx.out.blocks, x, r, z, kit.hostB);
     }
   }
-  // Floor props (instanced dressing in W2): 4-8 medium props and 2-3 tappable clusters, never in front of
-  // the shaft window (clear air within 1.5 m of the dig face).
-  const floor = bottom + 1;
-  const n = kind === 'hall' ? 10 : 4 + Math.floor(h01(5, 5, 5, seed) * 5);
-  for (let i = 0; i < n; i++) {
-    const x = x0 + 1 + h01(i, 7, 1, seed) * (x1 - x0 - 2);
-    const z = z0 + 1 + h01(i, 8, 1, seed) * (z1 - z0 - 3);
-    if (Math.abs(x - 31.5) < 5 && z > BACK_Z - 5) continue;
-    const tap = i < 3;
-    addProp(ctx, tap ? 'crystalCluster' : pickProp(kit, h01(i, 9, 1, seed)), x, floor, z, tap ? { tap: 'crystal', taps: 2 + (i % 3), scale: 1.1 + 0.5 * h01(i, 10, 1, seed) } : { scale: 1 + 0.4 * h01(i, 11, 1, seed) });
-  }
-  // Warm human light: hanging lanterns left by the Halden crews (the hall gets three), so no cavern is a void.
-  const lamps = kind === 'hall' ? 3 : 1;
-  for (let i = 0; i < lamps; i++) {
-    const lx = x0 + 2 + Math.floor(h01(i, 21, 3, seed) * Math.max(1, x1 - x0 - 4));
-    const lz = z0 + 2 + Math.floor(h01(i, 22, 3, seed) * Math.max(1, z1 - z0 - 4));
-    if (Math.abs(lx - 31.5) < 4 && lz > BACK_Z - 4) continue;
-    addProp(ctx, 'hangingLantern', lx + 0.5, floor, lz + 0.5, { emitter: [lx, -top - 1 - Math.min(2, bottom - top), lz] });
-  }
-  // 2-3 emitters in the walls in the key colour, one lamp if people worked here.
-  const e = kind === 'hall' ? 8 : 2 + Math.floor(h01(6, 6, 6, seed) * 2);
-  for (let i = 0; i < e; i++) {
-    const x = h01(i, 12, 2, seed) < 0.5 ? x0 - 1 : x1 + 1;
-    const d = top + Math.floor(h01(i, 13, 2, seed) * (bottom - top + 1));
-    const z = z0 + 1 + Math.floor(h01(i, 14, 2, seed) * (z1 - z0 - 1));
-    embedEmitter(ctx, x, d, z, kit.emitter);
-    embedEmitter(ctx, x0 + Math.floor(h01(i, 15, 2, seed) * (x1 - x0)), top - 1, z, kit.emitter);
-    embedEmitter(ctx, x0 + Math.floor(h01(i, 16, 2, seed) * (x1 - x0)), d, z0 - 1, kit.emitter);
-  }
+  // The fill (caverns.ts): medium props by floor area, the small scatter, tappables, creatures, lights, motes, a
+  // liquid in 30 % of them, veins on the walls; the Reveal Hall gets three tappables and three lamps.
+  const hall = kind === 'hall';
+  const spec = ctx.out.caverns[ctx.out.caverns.length - 1];
+  dressCavern(ctx, spec, kit, baseBiome(biomeAt(top)), seed, {
+    medium: hall ? 10 : 5,
+    tappables: hall ? 3 : 2 + Math.floor(h01(5, 6, 7, seed) * 2),
+    creatures: hall ? 3 : 1 + Math.floor(h01(5, 6, 8, seed) * 3),
+    lamps: hall ? 3 : 1,
+    emitters: hall ? 4 : 2,
+    liquid: h01(5, 6, 9, seed) < 0.3,
+    hero: hall || kind === 'grotto' || h01(5, 6, 10, seed) < 0.5,
+  });
+  if (hall) ledges(ctx, spec, kit, 5, seed);
 }
 
 /** Keep the emitter count inside the biome's budget: add fissures in visible rock, drop the excess. */
@@ -548,13 +726,11 @@ function budgetEmitters(ctx: Ctx): void {
   const b = baseBiome(biomeAt(d0 + 8));
   const [lo, hi] = EMITTER_BUDGET[Math.min(EMITTER_BUDGET.length - 1, b)];
   const blocks = out.blocks;
+  // The budget counts the biome's glowing stone outside the footprint; lamps (props' light) have their own count.
+  // Glowing valuables (ore, gem: their own glint) are not light fixtures: the budget leaves them alone.
+  const counted = (i: number) => isEmitterId(blocks[i]) && blocks[i] !== B.LIGHT_LAMP && (VALUE_CLASS[blocks[i]] ?? 0) < 2 && !inFootprint(i % RING_SX, Math.floor(i / (RING_SX * SLAB_ROWS)));
   let n = 0;
-  const footprint = (i: number) => {
-    const z = Math.floor(i / (RING_SX * SLAB_ROWS));
-    const x = i % RING_SX;
-    return inFootprint(x, z);
-  };
-  for (let i = 0; i < blocks.length; i++) if (isEmitterId(blocks[i]) && !footprint(i)) n++;
+  for (let i = 0; i < blocks.length; i++) if (counted(i)) n++;
   const kit = ctx.kitAt(d0 + 8);
   // Add: hairline fissures in the cut face beside the shaft and in the back wall.
   let tries = 0;
@@ -569,12 +745,25 @@ function budgetEmitters(ctx: Ctx): void {
     set(blocks, xx, r, z, kit.emitter);
     n++;
   }
-  // Drop the excess, furthest from the cut first (index grows with z: the back of the slab comes first).
+  // A slab mostly carved away (a Vista) has little face left beside the shaft: glow in any wall touching air.
+  for (let t = 0; n < lo && t < 3000; t++) {
+    const r = Math.floor(h01(t, 11, d0, ctx.input.runSeed) * SLAB_ROWS);
+    const x = 8 + Math.floor(h01(t, 12, d0, ctx.input.runSeed) * 48);
+    const z = 30 + Math.floor(h01(t, 13, d0, ctx.input.runSeed) * (CUT - 30));
+    const id = get(blocks, x, r, z);
+    if (!SOLID[id] || isEmitterId(id) || inFootprint(x, z)) continue;
+    if (get(blocks, x + 1, r, z) && get(blocks, x - 1, r, z) && get(blocks, x, r + 1, z) && get(blocks, x, r - 1, z) && get(blocks, x, r, z + 1) && get(blocks, x, r, z - 1)) continue;
+    set(blocks, x, r, z, kit.emitter);
+    n++;
+  }
+  // Drop the excess: glowing stone that lights no cavern (veins, the back of the slab before the front); a cavern's
+  // own lights stay (fill rule 3), so a slab of many caverns may sit above the range (fill-scan reports it).
   for (let i = 0; i < blocks.length && n > hi; i++) {
-    if (!isEmitterId(blocks[i]) || blocks[i] === B.LIGHT_LAMP || footprint(i)) continue;
+    if (!counted(i) || ctx.protect.has(i)) continue;
     blocks[i] = kit.hostA;
     n--;
   }
+  out.emitters = n;
 }
 
 const isEmitterId = (id: number) => (EMIT_R[id] | EMIT_G[id] | EMIT_B[id]) !== 0;

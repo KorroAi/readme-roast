@@ -29,10 +29,59 @@ function randomState(seed: number) {
   s.run.rack = Array.from({ length: Math.floor(rnd() * 10) }, () => 0);
   s.tap.surge = Math.floor(rnd() * 240);
   s.meta.tutorial = { step: Math.floor(rnd() * 12), done: rnd() < 0.5 };
+  // W2: facets, boosts, the run's counters and splits, the par, contracts, the Codex, Feats, rank, the Director.
+  s.run.facets = rnd() < 0.5 ? ['hotEdge@1', 'whistle@0', 'payday@2'] : [];
+  s.run.hands = Math.floor(rnd() * 3);
+  s.run.boosts = rnd() < 0.5 ? { crew2: { end: s.time + 30, mult: 2 } } : {};
+  s.run.used = ['crystal:3', 'fossil:12'];
+  s.run.lanterns = [1, 2];
+  s.run.splits = { '2': 190.5 };
+  s.run.par = Array.from({ length: 40 }, (_, i) => i * 12);
+  s.run.taps = Math.floor(rnd() * 1e5);
+  s.meta.contracts = [{ tpl: 'cells', target: 400, progress: 12, base: 900, arg: '', grand: false }, { tpl: 'gold', target: 41.5, progress: 39, base: 37, arg: 'log10', grand: true }];
+  s.meta.finds = { 'find:0:0': 3, 'find:4:5': 1 };
+  s.meta.bestiary = { glowMoth: 12 };
+  s.meta.lore = ['lore:1:note0'];
+  s.meta.feats = { delver: 4, breaker: 2 };
+  s.meta.secrets = ['lamplighter'];
+  s.meta.marks = 11;
+  s.meta.rank = { r: 1 + Math.floor(rnd() * 120), xp: Math.floor(rnd() * 500) };
+  s.meta.planted = [{ depth: 640, n: 1 }, { depth: 905, n: 2 }];
+  s.meta.swift600 = rnd() < 0.5 ? Infinity : 900;
+  s.meta.caught = { targets: 33, mothSwarm: 2 };
+  s.meta.rerolls = 2;
+  s.director.history = ['goldenVein', 'caveIn'];
+  s.director.since = { goldenVein: 1, caveIn: 0 };
+  s.director.wait = 33;
+  s.overrides = [{ depth: depth + 3, col: 2, kind: 8, floor: 0 }];
   return s;
 }
 
 describe('save v3 (SPEC §12.3, S1, S2)', () => {
+  it('W2 fields round-trip: facets, boosts, counters, splits, par, contracts, Codex, Feats, rank, planted, the Director', () => {
+    for (let i = 1; i <= 50; i++) {
+      const a = randomState(i * 7);
+      const b = saveToState(JSON.parse(JSON.stringify(stateToSave(a))), a.now);
+      expect(b.run.facets).toEqual(a.run.facets);
+      expect(b.run.hands).toBe(a.run.hands);
+      expect(Object.keys(b.run.boosts)).toEqual(Object.keys(a.run.boosts));
+      expect(b.run.splits).toEqual(a.run.splits);
+      expect(b.run.par).toEqual(a.run.par);
+      expect(b.run.taps).toBe(a.run.taps);
+      expect(b.meta.contracts).toEqual(a.meta.contracts);
+      expect(b.meta.finds).toEqual(a.meta.finds);
+      expect(b.meta.feats).toEqual(a.meta.feats);
+      expect(b.meta.rank).toEqual(a.meta.rank);
+      expect(b.meta.planted).toEqual(a.meta.planted);
+      expect(b.meta.swift600).toBe(a.meta.swift600);
+      expect(b.meta.rerolls).toBe(a.meta.rerolls);
+      expect(b.director.history).toEqual(a.director.history);
+      expect(b.director.wait).toBeCloseTo(a.director.wait, 6);
+      expect(b.overrides).toEqual(a.overrides);
+      expect(JSON.stringify(stateToSave(a)).length).toBeLessThanOrEqual(16 * 1024);
+    }
+  });
+
   it('S1: 500 random states round-trip through the two-slot store, each ≤ 16 KB', () => {
     const store = new MemoryStore();
     const saves = new SaveSystem(store);

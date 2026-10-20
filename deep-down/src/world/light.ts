@@ -458,6 +458,20 @@ export class LightField {
       }
   }
 
+  /** Write the openness (alpha) of `count` storage rows from y0: `src` holds one byte per voxel, x + sx (r + count z). */
+  writeOpenRows(src: Uint8Array, y0: number, count: number): void {
+    const w = this.world;
+    const d = this.data;
+    for (let z = 0; z < w.sz; z++)
+      for (let r = 0; r < count; r++) {
+        const y = (((y0 + r) % w.sy) + w.sy) % w.sy;
+        this.changedRows[y] = 1;
+        let o = w.index(0, y, z) * 4 + 3;
+        let s = w.sx * (r + count * z);
+        for (let x = 0; x < w.sx; x++, o += 4, s++) d[o] = src[s];
+      }
+  }
+
   /** Write RGBA rows (same layout as mergeMaxRows), replacing what is there. */
   writeRows(src: Uint8Array, y0: number, count: number): void {
     const w = this.world;
@@ -745,6 +759,103 @@ export class LightField {
           for (let x = 0; x < sx; x++, i++) d[i * 4 + 3] = SOLID[blocks[i]] ? 0 : Math.round(Math.min(1, plane[row + (x >> 1)] / total) * 255);
         }
       }
+    }
+  }
+
+  /**
+   * Recompute openness exactly (equal to `computeOpenness`) for every voxel whose half-resolution cell lies in the
+   * storage box [x0, x1] x [y0, y1] x [z0, z1] (y wraps with wrapY): what a break changes. The box is widened to
+   * whole half cells; the cost is the box plus the radius on each side (a break: ~0.1 ms).
+   */
+  computeOpennessBox(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number, radius = 6): void {
+    const w = this.world;
+    const { sx, sy, sz } = w;
+    const hx = Math.ceil(sx / 2);
+    const hy = Math.ceil(sy / 2);
+    const hz = Math.ceil(sz / 2);
+    const r = Math.max(1, Math.round(radius / 2));
+    const clampI = (v: number, n: number) => Math.min(n - 1, Math.max(0, v));
+    const hyIndex = (h: number): number => (this.wrapY ? ((h % hy) + hy) % hy : clampI(h, hy));
+    const px0 = clampI(x0 >> 1, hx);
+    const px1 = clampI(x1 >> 1, hx);
+    const qz0 = clampI(z0 >> 1, hz);
+    const qz1 = clampI(z1 >> 1, hz);
+    const h0 = Math.floor(y0 / 2);
+    const h1 = Math.floor(y1 / 2);
+    if (px1 < px0 || qz1 < qz0 || h1 < h0) return;
+    // Source ranges: every clamped index a target can reach.
+    const ax0 = Math.max(0, px0 - r);
+    const ax1 = Math.min(hx - 1, px1 + r);
+    const az0 = Math.max(0, qz0 - r);
+    const az1 = Math.min(hz - 1, qz1 + r);
+    const nx = ax1 - ax0 + 1;
+    const nz = az1 - az0 + 1;
+    const ny = h1 - h0 + 1 + 2 * r;
+    const blocks = w.blocks;
+    const occ = new Int32Array(ny * nz * nx);
+    for (let j = 0; j < ny; j++) {
+      const h = hyIndex(h0 - r + j);
+      for (let dy = 0; dy < 2; dy++) {
+        const y = 2 * h + dy;
+        if (y >= sy) continue;
+        for (let q = az0; q <= az1; q++)
+          for (let dz = 0; dz < 2; dz++) {
+            const z = 2 * q + dz;
+            if (z >= sz) continue;
+            const base = (j * nz + (q - az0)) * nx;
+            let i = sx * (y + sy * z) + 2 * ax0;
+            const xEnd = Math.min(sx, 2 * ax1 + 2);
+            for (let x = 2 * ax0; x < xEnd; x++, i++) if (!SOLID[blocks[i]]) occ[base + ((x >> 1) - ax0)]++;
+          }
+      }
+    }
+    // x pass for the target columns, z pass for the target slices (clamped like the full compute), then y.
+    const tx = px1 - px0 + 1;
+    const tz = qz1 - qz0 + 1;
+    const xs = new Int32Array(ny * nz * tx);
+    for (let line = 0; line < ny * nz; line++)
+      for (let p = px0; p <= px1; p++) {
+        let sum = 0;
+        for (let k = -r; k <= r; k++) sum += occ[line * nx + (clampI(p + k, hx) - ax0)];
+        xs[line * tx + (p - px0)] = sum;
+      }
+    const zs = new Int32Array(ny * tz * tx);
+    for (let j = 0; j < ny; j++)
+      for (let q = qz0; q <= qz1; q++)
+        for (let p = 0; p < tx; p++) {
+          let sum = 0;
+          for (let k = -r; k <= r; k++) sum += xs[(j * nz + (clampI(q + k, hz) - az0)) * tx + p];
+          zs[(j * tz + (q - qz0)) * tx + p] = sum;
+        }
+    const d = this.data;
+    const total = 8 * (2 * r + 1) ** 3;
+    for (let t = 0; t <= h1 - h0; t++) {
+      const hw = hyIndex(h0 + t);
+      for (let q = qz0; q <= qz1; q++)
+        for (let p = px0; p <= px1; p++) {
+          let sum = 0;
+          for (let k = -r; k <= r; k++) {
+            // Without wrapY the y neighbours clamp: map them back into the local band.
+            const hh = this.wrapY ? h0 + t + k : clampI(h0 + t + k, hy);
+            sum += zs[((hh - (h0 - r)) * tz + (q - qz0)) * tx + (p - px0)];
+          }
+          const v = Math.round(Math.min(1, sum / total) * 255);
+          for (let dy = 0; dy < 2; dy++) {
+            const y = 2 * hw + dy;
+            if (y >= sy) continue;
+            this.changedRows[y] = 1;
+            for (let dz = 0; dz < 2; dz++) {
+              const z = 2 * q + dz;
+              if (z >= sz) continue;
+              for (let dx = 0; dx < 2; dx++) {
+                const x = 2 * p + dx;
+                if (x >= sx) continue;
+                const i = x + sx * (y + sy * z);
+                d[i * 4 + 3] = SOLID[blocks[i]] ? 0 : v;
+              }
+            }
+          }
+        }
     }
   }
 }

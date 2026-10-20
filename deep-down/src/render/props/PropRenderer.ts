@@ -293,7 +293,8 @@ function setFx(mat: THREE.ShaderMaterial, tint: number, lift: number): void {
   mat.uniforms.uFlash.value = lift;
 }
 
-function modelOptions(spec: PropSpec): PropModelOptions {
+/** The model options of a prop spec (variant, hang height): shared with the batched dressing (CavernProps). */
+export function modelOptions(spec: PropSpec): PropModelOptions {
   // A chosen variant wins; the black stone sleeps (variant 0) unless the finale wakes it.
   const variant = spec.modelVariant !== undefined ? Math.max(0, Math.floor(spec.modelVariant)) % PROP_VARIANTS[spec.kind] : spec.kind === 'abyssMonolith' ? 0 : propVariant(spec.kind, spec.seed);
   if (spec.kind !== 'hangingLantern') return { variant };

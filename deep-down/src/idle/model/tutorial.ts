@@ -8,7 +8,7 @@ import type { IdleBus } from '../bus';
 import { SURGE } from '../config/upgrades';
 import { PICK } from '../config/upgrades';
 import { crewLine } from '../config/crew';
-import { best } from './run';
+import { best, buy } from './run';
 import { cooldownLeft } from './skills';
 import { applyHit, targetCell } from './shaft';
 import { openChest } from './chests';
@@ -37,6 +37,11 @@ export interface TutorialStep {
   skip?: (s: IdleState) => boolean;
   /** Seconds after which an unfinished step moves on anyway (the tutorial cannot be failed). */
   giveUpAfter?: number;
+  /**
+   * The fallback clock counts from the step's start even while the player taps (card steps: tapping the world is not
+   * doing the step). Default: any hit restarts the clock.
+   */
+  clockIgnoresTaps?: boolean;
 }
 
 /** A non-blocking beat (SPEC §8.2's informational lines): shown once when it happens, never holds the sequence. */
@@ -72,17 +77,25 @@ export const TUTORIAL_STEPS: readonly TutorialStep[] = [
     reveal: ['gold'],
   },
   {
+    // Fallback: the arrow bounces again after 8 s; the second time the ghost hand presses the card itself, with the
+    // player's own gold (MUST 0, G4: a player who never reads still feels the first upgrade).
     id: 'buyPick', text: 'idle.tut.buyPick', target: 'card:pick',
     start: (s) => s.run.gold.toNumber() >= pickCost - 1e-9 || s.run.pick >= 2,
     done: (s) => s.run.pick >= 2,
-    fallbackAfter: 8, fallbacks: 2, giveUpAfter: 30,
+    fallbackAfter: 6, fallbacks: 2, giveUpAfter: 30, clockIgnoresTaps: true,
+    act: (s, bus) => {
+      if (s.tutorial.fallbacks >= 2) buy(s, 'pick', 'x1', bus);
+    },
     reveal: ['depth', 'quick1', 'digTab'],
   },
   {
     id: 'hireShovel', text: 'idle.tut.hireShovel', target: 'card:crew:0',
     start: (s) => s.run.gold.toNumber() >= shovelCost - 1e-9 || (s.run.lines[0] ?? 0) >= 1,
     done: (s) => (s.run.lines[0] ?? 0) >= 1,
-    fallbackAfter: 8, fallbacks: 2, giveUpAfter: 30,
+    fallbackAfter: 6, fallbacks: 2, giveUpAfter: 30, clockIgnoresTaps: true,
+    act: (s, bus) => {
+      if (s.tutorial.fallbacks >= 2) buy(s, 'crew:0', 'x1', bus);
+    },
     reveal: ['quick3'],
   },
   {
@@ -164,21 +177,22 @@ export const TUTORIAL_BEATS: readonly TutorialBeat[] = [
 
 /**
  * Expected start time (s) of each step, at 5 and 3 taps/s, from the scripted bot of
- * `tools/econ-sim.ts tutorial` (CRITIQUE MUST 9). G1 asserts each within ±25 %.
+ * `tools/econ-sim.ts tutorial` (CRITIQUE MUST 9), regenerated in W2 (the softer soil of MUST 0, Feats and rank on). G1
+ * asserts each within ±25 %.
  */
 export const TUTORIAL_TIMES: Readonly<Record<string, readonly [number, number]>> = {
   tapRock: [0, 0],
   clearRow: [0.4, 0.4],
-  buyPick: [5.6, 9.1],
-  hireShovel: [9.8, 16.1],
-  chest: [10.1, 16.5],
-  crystals: [20.4, 34.1],
-  dynamite: [23.6, 43.1],
-  hatchNear: [31.8, 61.8],
-  hatch: [43.0, 75.1],
-  reveal: [48.4, 84.1],
-  gear: [52.0, 87.7],
-  surge: [52.7, 89.8],
+  buyPick: [6.0, 9.8],
+  hireShovel: [9.0, 14.8],
+  chest: [9.1, 15.0],
+  crystals: [15.6, 24.4],
+  dynamite: [17.6, 28.1],
+  hatchNear: [24.8, 36.8],
+  hatch: [30.2, 48.1],
+  reveal: [34.6, 53.4],
+  gear: [38.2, 57.0],
+  surge: [38.2, 57.0],
 }
 
 export function initTutorial(): TutorialState {
@@ -239,7 +253,7 @@ export function tickTutorial(s: IdleState, bus?: IdleBus): void {
     }
     // Fallback after inaction (a hit or a purchase resets the clock).
     if (step.fallbackAfter !== undefined && tu.fallbacks < (step.fallbacks ?? 1)) {
-      const idleSince = Math.max(tu.since, s.hints.lastHitAt);
+      const idleSince = step.clockIgnoresTaps ? tu.since : Math.max(tu.since, s.hints.lastHitAt);
       if (s.time - idleSince >= step.fallbackAfter && s.time >= tu.nextFallback - 1e-9) {
         tu.fallbacks++;
         tu.nextFallback = s.time + step.fallbackAfter;
@@ -275,6 +289,15 @@ const REVEAL_RULES: ReadonlyArray<readonly [string, (s: IdleState) => boolean]> 
   ['crewTab', (s) => s.meta.record >= 16],
   ['skills', (s) => !!s.run.skills.dynamite],
   ['combo', (s) => s.tap.combo >= 15],
+  // W2 (SPEC §8.3; CRITIQUE SHOULD 9: the Board, Codex and Feats tabs wait for the first Warden, the Root Knot).
+  ['rank', (s) => s.meta.rank.r >= 2],
+  ['featsTab', (s) => s.meta.marks >= 1 && s.meta.sealsOpened.includes(2)],
+  ['boardTab', (s) => s.meta.sealsOpened.includes(2)],
+  ['codexTab', (s) => s.meta.stats.finds + s.meta.lore.length + s.meta.stats.creatures >= 1 && s.meta.sealsOpened.includes(2)],
+  ['lanternTab', (s) => s.meta.record >= 400],
+  ['events', (s) => s.meta.stats.events >= 1 || !!s.event],
+  ['facets', (s) => s.run.hands > 0 || s.run.facets.length > 0],
+  ['daily', (s) => s.meta.dailyReady || s.meta.daily.lastDay > 0],
 ];
 
 /** Beats fire once each, whenever they happen (the UI shows them as a line under the prompt). */

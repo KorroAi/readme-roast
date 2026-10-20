@@ -28,8 +28,20 @@ export const GEAR_KINDS: readonly GearKind[] = ['tools', 'rigging', 'edge', 'lan
  * The four cards of biome k (k ≥ 1). As calibrated (m5.mjs), Tools multiply line k (the line the
  * previous biome brought, the one you are levelling) and Rigging line k − 1; Edge the pick; Lantern all.
  */
+const gearCache: GearDef[][] = [];
+const gearIndex = new Map<string, GearDef>();
+
 export function gearOf(k: number): GearDef[] {
   if (k < 1) return [];
+  const hit = gearCache[k];
+  if (hit) return hit;
+  const list = buildGear(k);
+  gearCache[k] = list;
+  for (const g of list) gearIndex.set(g.id, g);
+  return list;
+}
+
+function buildGear(k: number): GearDef[] {
   const u = biomeStart(k);
   return GEAR_KINDS.map((kind) => ({
     id: `${k}.${kind}`,
@@ -43,6 +55,8 @@ export function gearOf(k: number): GearDef[] {
 
 /** Parse a gear id. */
 export function gearById(id: string): GearDef | undefined {
+  const hit = gearIndex.get(id);
+  if (hit) return hit;
   const dot = id.indexOf('.');
   if (dot <= 0) return undefined;
   const k = Number(id.slice(0, dot));

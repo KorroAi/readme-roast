@@ -5,6 +5,7 @@
 import { Big } from '../core/big';
 import { createIdle } from '../idle/model/step';
 import { fillRow } from '../idle/model/shaft';
+import { wardenOf } from '../idle/model/seals';
 import { COLS, newMeta, newRow, SHAFT_WINDOW, type IdleState } from '../idle/model/state';
 import type { BigJSON, RowSave, SaveV3 } from './types';
 
@@ -45,9 +46,9 @@ export function stateToSave(s: IdleState): SaveV3 {
       lines: [...s.run.lines],
       gear: [...s.run.gear],
       skills,
-      facets: [],
-      pendingHands: 0,
-      freeReroll: true,
+      facets: [...s.run.facets],
+      pendingHands: s.run.hands,
+      freeReroll: s.run.freeReroll,
       surge: s.tap.surge,
       runTime: s.run.runTime,
       dmaxRun: s.run.dmax,
@@ -59,6 +60,15 @@ export function stateToSave(s: IdleState): SaveV3 {
       seal: s.seal ? { biome: s.seal.biome, left: s.seal.left, hp: bj(s.seal.hp) } : null,
       plantedBonus: s.run.plantedBonus,
       frenzyLeft: Math.max(0, s.run.frenzyEnd - t),
+      cataclysmLeft: Math.max(0, s.run.cataclysmEnd - t),
+      boosts: Object.fromEntries(Object.entries(s.run.boosts).filter(([, b]) => b.end > t).map(([k, b]) => [k, { left: b.end - t, mult: b.mult }])),
+      used: [...s.run.used],
+      lanterns: [...s.run.lanterns],
+      sealsBroken: s.run.sealsBroken,
+      splits: { ...s.run.splits },
+      par: s.run.par.map((v) => Math.round(v)),
+      ghostPassed: s.run.ghostPassed,
+      counters: { taps: s.run.taps, cells: s.run.cells, rows: s.run.rows, chests: s.run.chests, stars: s.run.stars },
     },
     meta: {
       embers: bj(m.embers),
@@ -108,7 +118,16 @@ export function stateToSave(s: IdleState): SaveV3 {
       toolForm: m.toolForm,
       markMax: m.markMax,
       blueprints: m.blueprints,
+      bestTier: m.bestTier,
+      bestLines: m.bestLines,
+      swift600: Number.isFinite(m.swift600) ? m.swift600 : -1,
+      caught: { ...m.caught },
+      lastUsed: { ...m.lastUsed },
+      dailyReady: m.dailyReady,
+      rerolls: m.rerolls,
     },
+    director: { wait: s.director.wait, history: [...s.director.history], since: { ...s.director.since }, dealt: s.director.dealt, codexQuiet: s.director.codexQuiet },
+    overrides: s.overrides.filter((o) => o.depth >= s.run.depth).map((o) => ({ ...o })),
     offline: st
       ? {
           seconds: st.seconds, away: st.away, capped: st.capped, fromDepth: st.fromDepth, toDepth: st.toDepth,
@@ -178,6 +197,13 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   m.toolForm = dm.toolForm;
   m.markMax = dm.markMax;
   m.blueprints = dm.blueprints;
+  m.bestTier = dm.bestTier;
+  m.bestLines = dm.bestLines;
+  m.swift600 = dm.swift600 >= 0 ? dm.swift600 : Infinity;
+  m.caught = { ...dm.caught };
+  m.lastUsed = { ...dm.lastUsed };
+  m.dailyReady = dm.dailyReady;
+  m.rerolls = Math.max(0, Math.floor(dm.rerolls));
   // The tutorial resumes at its step (waiting for the step's start).
   s.tutorial.index = dm.tutorial.step;
   s.tutorial.done = dm.tutorial.done;
@@ -201,6 +227,29 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   r.ghost = [...dr.ghost];
   r.plantedBonus = dr.plantedBonus;
   r.frenzyEnd = dr.frenzyLeft;
+  r.cataclysmEnd = dr.cataclysmLeft;
+  r.boosts = {};
+  for (const [k, b] of Object.entries(dr.boosts)) if (b && b.left > 0) r.boosts[k] = { end: b.left, mult: b.mult };
+  r.facets = dr.facets.filter((x) => typeof x === 'string');
+  r.hands = Math.max(0, Math.floor(dr.pendingHands));
+  r.freeReroll = dr.freeReroll;
+  r.used = [...dr.used];
+  r.lanterns = [...dr.lanterns];
+  r.sealsBroken = dr.sealsBroken;
+  r.splits = { ...dr.splits };
+  r.par = [...dr.par];
+  r.ghostPassed = dr.ghostPassed;
+  r.taps = dr.counters.taps;
+  r.cells = dr.counters.cells;
+  r.rows = dr.counters.rows;
+  r.chests = dr.counters.chests;
+  r.stars = dr.counters.stars;
+  s.director.wait = Math.max(0, d.director.wait);
+  s.director.history = [...d.director.history];
+  s.director.since = { ...d.director.since };
+  s.director.dealt = d.director.dealt;
+  s.director.codexQuiet = d.director.codexQuiet;
+  s.overrides = d.overrides.map((o) => ({ ...o }));
   s.tap.surge = dr.surge;
   s.tap.combo = 0;
   s.tap.rng = d.tap.rng >>> 0 || 1;
@@ -221,7 +270,10 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   }
   // A seal fight resumes held (the player starts it again with a tap; nothing lost).
   if (dr.seal) {
-    s.seal = { biome: dr.seal.biome, depth: r.depth, hp: fromBj(dr.seal.hp), left: Math.max(0, Math.min(1, dr.seal.left)), endsAt: 0, time: 30, phase: 'held', started: 0 };
+    s.seal = {
+      biome: dr.seal.biome, depth: r.depth, hp: fromBj(dr.seal.hp), left: Math.max(0, Math.min(1, dr.seal.left)), endsAt: 0, time: 30, phase: 'held', started: 0,
+      warden: wardenOf(dr.seal.biome), weakNext: 0, weakUntil: 0, weakIndex: 0, finisher: '', fails: 0,
+    };
   }
   if (d.offline) {
     const o = d.offline;

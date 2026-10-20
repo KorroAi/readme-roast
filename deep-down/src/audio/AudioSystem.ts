@@ -9,7 +9,8 @@ import { CampfireLoop, CaveBed, CrystalHum, LanternLoop, ParamTarget } from './l
 import { MusicPlayer } from './MusicPlayer';
 import { SFX, playSfx, type BusName, type SfxName, type SfxParams } from './sfx';
 import type { SynthTarget, Voice } from './synth';
-import { moodFor, volumeToGain, type MoodName } from './theory';
+import { biomeMood, moodFor, volumeToGain, type MoodName } from './theory';
+import { RhythmLayers } from './drums';
 import type { AudioVolumes, AudioWorldState, UiSound } from './types';
 import { RateGate, VoiceLimiter } from './voices';
 
@@ -62,6 +63,7 @@ interface Live {
   graph: MixGraph;
   targets: Record<BusName, SynthTarget>;
   music: MusicPlayer;
+  rhythm: RhythmLayers;
   lantern: LanternLoop;
   campfire: CampfireLoop;
   cave: CaveBed;
@@ -172,8 +174,11 @@ export class AudioSystem {
       }
       const now = live.ctx.currentTime;
 
-      this.mood = moodFor(s.depth, s.depth < 4, this.mood);
+      this.mood = s.music && s.biome !== undefined && s.depth >= 4 ? biomeMood(s.biome, s.music) : moodFor(s.depth, s.depth < 4, this.mood);
+      live.music.plucks = s.plucks ?? true;
       live.music.update(now, this.mood);
+      if (!this.paused && !s.inMenu) live.rhythm.update(now, dt, s.music?.bpm ?? 84, s.drums ?? 0, s.boss ?? 0);
+      else live.rhythm.update(now, dt, s.music?.bpm ?? 84, 0, 0);
       if (this.musicDuckUntil > 0 && now >= this.musicDuckUntil) {
         this.musicDuckUntil = 0;
         this.applyGains(0.8);
@@ -302,6 +307,11 @@ export class AudioSystem {
     w.nearCrystal = finiteOr(s.nearCrystal, w.nearCrystal);
     w.nearFire = finiteOr(s.nearFire, w.nearFire);
     w.inMenu = s.inMenu;
+    w.biome = s.biome;
+    w.music = s.music;
+    w.drums = finiteOr(s.drums ?? 0, 0);
+    w.boss = finiteOr(s.boss ?? 0, 0);
+    w.plucks = s.plucks;
     return w;
   }
 
@@ -328,6 +338,13 @@ export class AudioSystem {
         graph,
         targets,
         music: new MusicPlayer(targets.music, SEED),
+        rhythm: new RhythmLayers((name, t, gain) => {
+          try {
+            playSfx(targets.music, name, { gain }, t);
+          } catch (err) {
+            console.warn('[audio] rhythm', err);
+          }
+        }),
         lantern: new LanternLoop(ctx, noise, buses.sfx.input),
         campfire: new CampfireLoop(ctx, noise, buses.ambience.input),
         cave: new CaveBed(ctx, noise, buses.ambience.input, 1.5),

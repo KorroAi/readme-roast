@@ -2,6 +2,7 @@ import { B } from '../../config/blocks';
 import { HaloSystem, type HaloSource } from '../../game/effects/Halos';
 import type { LightingUniforms } from '../lighting';
 import type { DescentWorld } from './DescentWorld';
+import type { PropSpec } from '../props/types';
 import { SHAFT_CX } from './DescentCamera';
 
 /** Lamps every 6 m, lit once the floor is 4 m below them; brass plaques every 20 m (SPEC §6.8). */
@@ -19,6 +20,8 @@ export class ShaftDressing {
   private readonly lit = new Map<number, { x: number; y: number; z: number }>();
   private readonly plaques = new Set<number>();
   private dirty = true;
+  /** Slabs whose lamp batch must be rebuilt. */
+  private readonly lampSlabs = new Set<number>();
 
   constructor(private readonly world: DescentWorld, lighting: LightingUniforms) {
     this.halos = new HaloSystem(lighting, []);
@@ -40,9 +43,9 @@ export class ShaftDressing {
       const p = ShaftDressing.lampAt(r);
       if (w.ring.get(p.x, p.y, p.z) !== B.AIR) continue;
       w.setVoxel(p.x, p.y, p.z, B.LIGHT_LAMP);
-      w.props.add({ id: `lamp:${r}`, kind: 'hangingLantern', x: p.x + 0.5, y: p.y, z: p.z + 0.5, rotY: 0, scale: 0.9, anchor: [p.x, p.y + 1, p.z - 1], emitters: [], seed: r });
       this.lit.set(r, p);
       this.dirty = true;
+      this.lampSlabs.add(Math.floor(r / 16));
     }
     for (let r = Math.ceil(Math.max(PLAQUE_EVERY, top) / PLAQUE_EVERY) * PLAQUE_EVERY; r <= floor - 2 && r <= last * 16 + 15; r += PLAQUE_EVERY) {
       if (this.plaques.has(r)) continue;
@@ -52,10 +55,18 @@ export class ShaftDressing {
     // Forget what left the window (its voxels went with the slab).
     for (const [r] of this.lit)
       if (r < first * 16 || r > last * 16 + 15) {
-        w.props.remove(`lamp:${r}`);
         this.lit.delete(r);
         this.dirty = true;
+        this.lampSlabs.add(Math.floor(r / 16));
       }
+    // The lamp models are batched per slab (one body and one glow draw for a slab's lamps, P1).
+    for (const k of this.lampSlabs) {
+      const specs: PropSpec[] = [];
+      for (const [r, p] of this.lit)
+        if (Math.floor(r / 16) === k) specs.push({ id: `lamp:${r}`, kind: 'hangingLantern', x: p.x + 0.5, y: p.y, z: p.z + 0.5, rotY: 0, scale: 0.9, anchor: [p.x, p.y + 1, p.z - 1], emitters: [], seed: r });
+      w.cavernProps.setBatch(`lamps:${k}`, specs);
+    }
+    this.lampSlabs.clear();
     for (const r of this.plaques)
       if (r < first * 16 || r > last * 16 + 15) {
         w.props.remove(`plaque:${r}`);
@@ -72,7 +83,7 @@ export class ShaftDressing {
 
   /** A full reset (a jump). */
   reset(): void {
-    for (const [r] of this.lit) this.world.props.remove(`lamp:${r}`);
+    for (const [r] of this.lit) this.world.cavernProps.drop(`lamps:${Math.floor(r / 16)}`);
     for (const r of this.plaques) this.world.props.remove(`plaque:${r}`);
     this.lit.clear();
     this.plaques.clear();

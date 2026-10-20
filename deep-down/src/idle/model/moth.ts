@@ -5,7 +5,6 @@
 
 import { Big } from '../../core/big';
 import type { IdleBus } from '../bus';
-import { openChest } from './chests';
 import type { IdleState } from './state';
 import { rand } from './tap';
 
@@ -98,38 +97,5 @@ export function catchMoth(s: IdleState, bus?: IdleBus): boolean {
   return true;
 }
 
-/** An entity tap (SPEC §3.1 entity first): chests popped out, the Lucky Moth, tutorial crystals. */
-export function tapEntity(s: IdleState, id: string, bus?: IdleBus): boolean {
-  if (id.startsWith('moth:')) return s.moth?.id === id ? catchMoth(s, bus) : false;
-  if (id.startsWith('chest:')) {
-    const i = s.chests.findIndex((c) => c.id === id);
-    if (i < 0) return false;
-    const c = s.chests[i];
-    s.chests.splice(i, 1);
-    // The tutorial's first chest is scripted: Wood → Copper (SPEC §8.2 0:14).
-    const scripted = s.meta.stats.chests === 0;
-    openChest(s, id, c.floor, 'cell', bus, scripted);
-    return true;
-  }
-  if (id === 'rack') {
-    const floor = s.run.rack.shift();
-    if (floor === undefined) return false;
-    openChest(s, `rack:${s.nextId++}`, floor, 'rack', bus);
-    bus?.emit('chest:rack', { count: s.run.rack.length });
-    return true;
-  }
-  if (id.startsWith('crystal:')) {
-    // The tutorial grotto's three crystal clusters (B places them; the model pays and counts).
-    if (s.meta.firstTime.includes(id)) return false;
-    s.meta.firstTime.push(id);
-    const l = s.rates.goldPerSec.log10() + Math.log10(3);
-    const gold = Number.isFinite(l) ? Big.fromLog10(l) : Big.from(10);
-    s.run.gold.addIn(gold);
-    s.run.goldEarned.addIn(gold);
-    s.meta.lifetime.gold.addIn(gold);
-    bus?.emit('gold:gain', { amount: gold.clone(), source: 'tappable', col: -1, depth: s.run.depth });
-    s.tutorial.breaks++;
-    return true;
-  }
-  return false;
-}
+/** Entity taps moved to entities.ts (every tappable kind); kept as a re-export for older imports. */
+export { tapEntity } from './entities';

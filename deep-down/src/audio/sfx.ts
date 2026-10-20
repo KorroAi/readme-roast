@@ -467,6 +467,110 @@ export const SFX = {
     [1, 1.25, 1.5, 2].forEach((k, i) => blip(v, v.t + 0.04 + i * 0.05, 880 * k, 0.12, 0.4));
   }, 0.3),
 
+  // ----- Wave 2 (SPEC §10.10) ------------------------------------------------------------------------------
+
+  /** A chest roll-up step: a major third higher per step (p.pitch), a bright tick and a shimmer. */
+  'chest.step': def('sfx', 0.75, 0.45, 3, 1.0, (v, p) => {
+    const t = v.t;
+    const f = 659.25 * (p.pitch ?? 1);
+    thump(v, t, 260, 150, 0.35, 0.06);
+    pluck(v, t + 0.01, f, 0.16, 0.8);
+    ring(v, t + 0.02, f * 2, CRYSTAL, 0.35);
+    burst(v, t, 'white', 'highpass', 7000, 0.7, 0.06, 0.18);
+  }, 0.08),
+
+  /** A target caught (moths, crystals, boulders): a short bright pluck that climbs per catch (p.pitch). */
+  catch: def('sfx', 0.65, 0.4, 3, 0.7, (v, p) => {
+    const f = 1046.5 * (p.pitch ?? 1);
+    pluck(v, v.t, f, 0.14, 0.5);
+    blip(v, v.t + 0.03, f * 1.5, 0.1, 0.25);
+  }, 0.04),
+
+  /** A perfect Strike: an anvil ring and a rising fifth. */
+  'strike.perfect': def('sfx', 0.85, 0.5, 4, 1.4, (v) => {
+    const t = v.t;
+    thump(v, t, 220, 90, 0.6, 0.1);
+    ring(v, t, 1318.51, ANVIL, 0.8);
+    [1, 1.5, 2].forEach((k, i) => pluck(v, t + 0.05 + i * 0.06, 880 * k, 0.15, 1));
+  }, 0.15),
+
+  /** A Feat tier: a medal chime pitched by tier (p.pitch). */
+  feat: def('sfx', 0.8, 0.5, 4, 1.8, (v, p) => {
+    const t = v.t;
+    const f = 783.99 * (p.pitch ?? 1);
+    [1, 1.25, 1.5, 2].forEach((k, i) => pluck(v, t + i * 0.07, f * k, 0.15, 1.2));
+    ring(v, t + 0.28, f * 2, CRYSTAL, 0.6);
+  }, 0.3),
+
+  /** A rank-up: a warm three-note chime and a low bell. */
+  rank: def('sfx', 0.8, 0.5, 4, 1.6, (v) => {
+    const t = v.t;
+    [587.33, 739.99, 880].forEach((f, i) => pluck(v, t + i * 0.08, f, 0.16, 1.1));
+    ring(v, t, 293.66, ANVIL, 0.4);
+  }, 0.3),
+
+  /** A charted gate: a gate chord with a crack. */
+  gate: def('sfx', 0.85, 0.5, 4, 2.0, (v) => {
+    const t = v.t;
+    collapse(v, t, 900);
+    padChord(v, t + 0.05, [293.66, 440, 587.33], 'sawtooth', 0.04, 900, 0.2, 0.5, 1.0);
+  }, 0.5),
+
+  /** The Rekindle: a deep bell, then rushing wind. */
+  rekindle: def('sfx', 0.95, 0.7, 4, 4.4, (v) => {
+    const t = v.t;
+    ring(v, t, 146.83, ANVIL, 1);
+    thump(v, t, 90, 40, 0.8, 0.6);
+    sweep(v, t + 0.5, 400, 3200, 1.6, 1, 0.3, 0.25, 0.8);
+    padChord(v, t + 1.6, [146.83, 220, 293.66, 369.99], 'sawtooth', 0.04, 700, 0.6, 1.0, 1.8);
+  }, 2),
+
+  /** The Lantern Surge starts: a gong; the drum layer enters on the next bar. */
+  'surge.start': def('sfx', 0.9, 0.6, 4, 2.6, (v) => {
+    const t = v.t;
+    thump(v, t, 110, 50, 0.9, 0.4);
+    ring(v, t, 220, ANVIL, 0.9);
+    burst(v, t, 'white', 'highpass', 4000, 0.7, 0.3, 0.6);
+  }, 1),
+
+  /** The Surge ends: a soft falling sweep. */
+  'surge.end': def('sfx', 0.4, 0.4, 2, 1.0, (v) => {
+    sweep(v, v.t, 2400, 500, 0.6, 1, 0.02, 0.3, 0.5);
+  }, 1),
+
+  /** Earthquake: a long low boom with rubble. */
+  quake: def('sfx', 0.9, 0.4, 3, 2.4, (v) => {
+    const t = v.t;
+    thump(v, t, 60, 28, 1, 0.9);
+    collapse(v, t + 0.05, 600);
+    collapse(v, t + 0.4, 400);
+  }, 0.5),
+
+  /** An event begins: a bright two-note sting. */
+  'event.sting': def('sfx', 0.75, 0.45, 3, 1.2, (v) => {
+    pluck(v, v.t, 880, 0.16, 0.8);
+    pluck(v, v.t + 0.09, 1318.51, 0.16, 1);
+  }, 0.5),
+
+  /** A record broken: a two-note chime in the relic register. */
+  record: def('sfx', 0.7, 0.5, 3, 1.2, (v) => {
+    blip(v, v.t, 987.77, 0.14, 0.4);
+    blip(v, v.t + 0.08, 1479.98, 0.14, 0.5);
+  }, 0.5),
+
+  // ----- The score's rhythm layers (SPEC §10.10): drums at combo ≥ 25, in a Surge, events and the Plunge; the boss pulse
+  // under a Warden fight. Scheduled ahead on the music bus by src/audio/drums.ts; p.gain is the layer's level.
+  'drum.kick': def('music', 0.9, 0.15, 1, 0.5, (v) => thump(v, v.t, 120, 42, 0.9, 0.28), 0),
+  'drum.snare': def('music', 0.55, 0.3, 1, 0.4, (v) => {
+    burst(v, v.t, 'white', 'bandpass', 2200, 0.9, 0.5, 0.14);
+    thump(v, v.t, 220, 160, 0.25, 0.06);
+  }, 0),
+  'drum.hat': def('music', 0.3, 0.1, 1, 0.12, (v) => burst(v, v.t, 'white', 'highpass', 8000, 0.7, 0.35, 0.03), 0),
+  'boss.pulse': def('music', 0.7, 0.35, 1, 1.4, (v) => {
+    thump(v, v.t, 55, 38, 0.8, 0.5);
+    padChord(v, v.t, [55, 82.41], 'sawtooth', 0.05, 380, 0.05, 0.4, 0.6);
+  }, 0),
+
   /** The return feast's cash roll (p.count ticks). */
   'cash.roll': def('sfx', 0.7, 0.3, 3, 1.6, (v, p) => {
     const n = Math.max(4, Math.min(24, p.count ?? 12));

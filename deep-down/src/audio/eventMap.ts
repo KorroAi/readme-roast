@@ -106,9 +106,6 @@ export class SoundCues {
       case 'crew:crown':
         out.push({ name: 'buy.star', params: { pitch: this.lastBuyPitch * semis(7) * 0.5 } });
         break;
-      case 'pick:tier':
-        out.push({ name: 'tool.tier', params: {} });
-        break;
       case 'combo:tier': {
         const e = p as IdleEvents['combo:tier'];
         const step = e.tier >= 50 ? 7 : e.tier >= 25 ? 4 : 0;
@@ -121,23 +118,11 @@ export class SoundCues {
       case 'chest:exposed':
         out.push({ name: 'chest.creak', params: {} });
         break;
-      case 'chest:open': {
-        const e = p as IdleEvents['chest:open'];
-        const tiers = ['wood', 'copper', 'crystal', 'reliquary', 'lintel'];
-        out.push({ name: 'chest.open', params: { intensity: tiers.indexOf(e.tier) / 4, pitch: this.key } });
-        break;
-      }
       case 'seal:start':
         out.push({ name: 'seal.appear', params: {} });
         break;
       case 'seal:hit':
         out.push({ name: 'seal.hit', params: {} });
-        break;
-      case 'seal:break':
-        out.push({ name: 'seal.break', params: {} });
-        break;
-      case 'biome:reveal':
-        out.push({ name: 'reveal', params: {} });
         break;
       case 'moth:catch':
         out.push({ name: 'moth', params: {} });
@@ -148,6 +133,32 @@ export class SoundCues {
       case 'offline:collect':
         out.push({ name: 'cash.roll', params: { count: 16 } });
         break;
+      // Wave 2 (SPEC §10.10). Pick tiers, chests, seal breaks and reveals are timed by their ceremonies.
+      case 'surge:start':
+        out.push({ name: 'surge.start', params: {} });
+        break;
+      case 'surge:end':
+        out.push({ name: 'surge.end', params: {} });
+        break;
+      case 'skill:earthquake':
+        out.push({ name: 'quake', params: {} });
+        break;
+      case 'skill:cataclysm':
+        out.push({ name: 'boom', params: { intensity: 1 } });
+        out.push({ name: 'tool.tier', params: {} });
+        break;
+      case 'event:start':
+        out.push({ name: 'event.sting', params: {} });
+        break;
+      case 'record:new':
+        out.push({ name: 'record', params: {} });
+        break;
+      case 'seal:fail':
+        out.push({ name: 'combo.lost', params: {} });
+        break;
+      case 'facet:offer':
+        out.push({ name: 'chest.creak', params: {} });
+        break;
       default:
         break;
     }
@@ -156,8 +167,14 @@ export class SoundCues {
 }
 
 /** Every IdleEvent that makes a sound. */
+/** Events whose sounds their ceremonies play on their own beats (SPEC §10.8): no cue here, only the music duck. */
+export const CEREMONY_TIMED: ReadonlyArray<keyof IdleEvents> = ['biome:reveal', 'seal:break', 'pick:tier'];
+
 export const AUDIBLE_EVENTS: ReadonlyArray<keyof IdleEvents> = [
-  'tap:hit', 'cell:break', 'row:clear', 'row:crumble', 'buy:done', 'buy:fail', 'crew:star', 'crew:crown', 'pick:tier',
-  'combo:tier', 'combo:lost', 'chest:exposed', 'chest:open', 'seal:start', 'seal:hit', 'seal:break', 'biome:reveal',
+  'tap:hit', 'cell:break', 'row:clear', 'row:crumble', 'buy:done', 'buy:fail', 'crew:star', 'crew:crown',
+  'combo:tier', 'combo:lost', 'chest:exposed', 'seal:start', 'seal:hit',
   'moth:catch', 'skill:dynamite', 'offline:collect',
+  'surge:start', 'surge:end', 'skill:earthquake', 'skill:cataclysm', 'event:start', 'record:new', 'seal:fail', 'facet:offer',
+  // Silent here (their ceremonies time the sound), listened to for the music duck.
+  ...CEREMONY_TIMED,
 ];

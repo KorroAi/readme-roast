@@ -16,7 +16,9 @@ function fixedKinds(k: number): Uint8Array {
  * The shaft kinds are fixed here; the pins still depend on the biome ladder and the model's breakthrough rows
  * (src/idle/config/biomes.ts, src/idle/model/shaft.ts), which the slab generator reads.
  */
-const PINS: Record<number, number> = { 0: 1245615803, 1: 2858774509, 2: 1871048694, 5: 1108612413, 9: 3878239221, 15: 3329501831, 25: 586711926 };
+// W2 (2B): biome kits 4-13, Vistas, Reveal Halls across slabs, geodes, the fill pass, the cut-face seams, the
+// tappable nooks, the moving guarantee and bowl floors found across slab boundaries.
+const PINS: Record<number, number> = { 0: 3980826955, 1: 2796892291, 2: 438186702, 5: 1030667012, 9: 573281185, 15: 1037960096, 25: 3635469325 };
 
 describe('slab fingerprint', () => {
   it('matches the pinned slabs of run seed 7', () => {

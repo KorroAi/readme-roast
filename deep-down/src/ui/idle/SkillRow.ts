@@ -5,7 +5,7 @@
 import { t } from '../../i18n';
 import { h } from '../dom';
 import { spring } from '../fx/waapi';
-import { iconEl } from './icons';
+import { iconEl, type IconId } from './icons';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const RING_R = 24;
@@ -29,6 +29,18 @@ export class SkillRow {
   private readonly surgeArc: SVGCircleElement;
   private readonly skills = new Map<string, { el: HTMLButtonElement; sweep: SVGCircleElement; ready: boolean; label: string }>();
   private readonly holder: HTMLElement;
+  /** The Guide chip (CRITIQUE MUST 7): 48 px "?", the way to read first-time cards again. */
+  readonly guideEl: HTMLButtonElement;
+  private shownGuide = false;
+  onGuide: (() => void) | null = null;
+  /** The armed Surge (CRITIQUE critic 1 SHOULD 1): the ring waits up to 8 s for a tap. */
+  onSurge: (() => void) | null = null;
+  private armed = false;
+  /** The facet chip ("Facet ×2"): waiting hands (SPEC §5.10). */
+  readonly facetEl: HTMLButtonElement;
+  private readonly facetN: HTMLElement;
+  private facetS = -1;
+  onFacet: (() => void) | null = null;
   private comboS = '';
   private comboTier = -1;
   private surgeS = -1;
@@ -57,8 +69,17 @@ export class SkillRow {
     this.comboV = h('span', { class: 'dd-combo-v' });
     this.comboX = h('span', { class: 'dd-combo-x' });
     this.comboEl = h('div', { class: 'dd-combo hide', 'aria-hidden': 'true', 'data-hud': 'combo' }, svg, h('span', { class: 'dd-combo-text' }, this.comboV, this.comboX));
+    // The armed Surge takes a tap on its ring (pointerdown: the timing is the player's).
+    this.comboEl.addEventListener('pointerdown', (e) => {
+      if (!this.armed) return;
+      e.preventDefault();
+      this.onSurge?.();
+    });
+    this.facetN = h('span', { class: 'dd-facet-n' });
+    this.facetEl = h('button', { class: 'dd-facet-chip hide', type: 'button', 'data-hud': 'facetChip', onclick: () => this.onFacet?.() }, iconEl('facet', 'dd-facet-ico'), this.facetN);
     this.holder = h('div', { class: 'dd-skills' });
-    this.el = h('div', { class: 'dd-skillrow', 'data-hud': 'skillrow' }, this.comboEl, this.holder);
+    this.guideEl = h('button', { class: 'dd-guide-chip hide', type: 'button', 'data-hud': 'guide', 'aria-label': t('ui.guide.open'), onclick: () => this.onGuide?.() }, h('span', { class: 'dd-guide-q', 'aria-hidden': 'true', text: '?' }));
+    this.el = h('div', { class: 'dd-skillrow', 'data-hud': 'skillrow' }, this.comboEl, this.holder, this.facetEl, this.guideEl);
   }
 
   /** Reveal the combo counter (the first 15-combo) or the Surge ring (1:25). */
@@ -74,8 +95,21 @@ export class SkillRow {
     }
   }
 
+  /** Show the Guide chip (the first first-time card). */
+  revealGuide(instant = false): void {
+    if (this.shownGuide) return;
+    this.shownGuide = true;
+    this.guideEl.classList.remove('hide');
+    if (!instant) spring(this.guideEl, 'bounce', 0, 1, (v) => `scale(${v})`);
+  }
+
+  /** The Guide has something new: a dot on the chip until it is opened. */
+  guideDot(on: boolean): void {
+    this.guideEl.classList.toggle('dot', on);
+  }
+
   /** Add a skill button (once, when it unlocks). */
-  addSkill(id: string, label: string, icon: 'dynamite' | 'skill'): void {
+  addSkill(id: string, label: string, icon: IconId): void {
     if (this.skills.has(id)) return;
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', '0 0 52 52');
@@ -90,6 +124,31 @@ export class SkillRow {
     this.holder.appendChild(el);
     this.skills.set(id, { el, sweep, ready: false, label });
     spring(el, 'bounce', 0, 1, (v) => `scale(${v})`);
+  }
+
+  /** The Surge meter is full and waits for a tap on the ring ("TAP THE LANTERN"); false when it fired. */
+  setArmed(on: boolean): void {
+    if (on === this.armed) return;
+    this.armed = on;
+    this.comboEl.classList.toggle('armed', on);
+    this.comboEl.style.pointerEvents = on ? 'auto' : '';
+    if (on) spring(this.comboEl, 'jelly', 1.25, 1, (v) => `scale(${v})`);
+  }
+
+  /** Waiting facet hands (0 hides the chip). */
+  setFacets(n: number, label: string): void {
+    if (n === this.facetS) return;
+    this.facetS = n;
+    this.facetEl.classList.toggle('hide', n <= 0);
+    this.facetN.textContent = n > 1 ? `×${n}` : '';
+    this.facetEl.setAttribute('aria-label', label);
+    if (n > 0) spring(this.facetEl, 'bounce', 0.4, 1, (v) => `scale(${v})`);
+  }
+
+  /** A new run: every skill button goes (they come back as the depth unlocks them). */
+  clearSkills(): void {
+    for (const sk of this.skills.values()) sk.el.remove();
+    this.skills.clear();
   }
 
   skillEl(id: string): HTMLElement | null {

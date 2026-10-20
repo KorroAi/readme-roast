@@ -4,6 +4,8 @@ import { crewLine } from '../idle/config/crew';
 import { Renderer } from '../render/Renderer';
 import { DescentScene, type DescentSource } from '../render/descent/DescentScene';
 import { defaultLayout } from '../render/descent/DescentCamera';
+import { createIdleBus, type IdleBus } from '../idle/bus';
+import { biomeAt, nextBiomeStart } from '../idle/config/biomes';
 
 /**
  * The Biome Lab (SPEC §11.3, W1 minimal): the descent scene driven by a tiny stand-in shaft (A's pure row
@@ -128,6 +130,21 @@ export interface LabApi {
   /** Per-frame samples while `sampling` (missing chunks in view). */
   sampling: boolean;
   samples: number[];
+  /** Per-frame FX samples while `sampling`: live particles and shards, and the preset caps. */
+  fxSamples: Array<{ p: number; s: number }>;
+  /** The lab's own bus (DescentScene.bindBus): drive world events as the model would. */
+  bus: IdleBus;
+  /** Spawn `n` event targets of `kind` crossing the shaft (an `event:target` per target). */
+  event(kind: string, n: number): void;
+  /** Show the next seal's Warden fighting, its weak point `lit` (0..2, -1 none). */
+  seal(lit?: number): void;
+  /** Pop a chest of `tier` from the floor's centre cell, and open it after `openMs` (0: stay closed). */
+  chest(tier: string, openMs?: number): void;
+  /** The camera part of a biome reveal / the Vista dolly. */
+  reveal(): void;
+  dolly(): void;
+  /** FX clock scale (1 real time; 0.05 to hold a break's shards for a capture). */
+  fxScale: number;
 }
 
 export async function bootLab(canvas: HTMLCanvasElement): Promise<LabApi> {
@@ -147,7 +164,39 @@ export async function bootLab(canvas: HTMLCanvasElement): Promise<LabApi> {
   if (params.get('menu') === '1') scene.setMenu(true, true);
   if (params.get('motion') === 'reduced') scene.setMotion({ motion: 'reduced', shake: 1 });
   await scene.attach(shaft);
+  if (params.has('planted')) for (const [i, d] of (params.get('planted') ?? '').split(',').filter(Boolean).entries()) scene.plant(Number(d), i + 1);
+  if (params.has('ghost')) scene.ghost(Number(params.get('ghost')));
+  const bus = createIdleBus();
+  scene.bindBus(bus);
+  let ids = 0;
   const api: LabApi = {
+    bus,
+    fxScale: Number(params.get('fxslow') ?? 1),
+    fxSamples: [],
+    event(kind: string, n: number) {
+      const t = shaft.t;
+      for (let i = 0; i < n; i++) {
+        const id = `event:lab:${ids++}`;
+        const ltr = i % 2 === 0;
+        bus.emit('event:target', { event: 'lab', id, kind, t0: t + i * 0.25, t1: t + i * 0.25 + 3.5, taps: 1, path: { x0: ltr ? -0.6 : 6.6, y0: -2.2 + (i % 3) * 0.5, cx: 3, cy: -3.4, x1: ltr ? 6.8 : -0.8, y1: -1.4 } });
+      }
+    },
+    seal(lit = 0) {
+      const s = nextBiomeStart(shaft.floor - 1);
+      scene.seal(biomeAt(s), 'fighting', 0.7, shaft.floor);
+      if (lit >= 0) scene.weakPoint(lit, true);
+    },
+    chest(tier: string, openMs = 0) {
+      const id = `chest:${ids++}`;
+      bus.emit('chest:exposed', { id, col: 3, depth: shaft.floor - 1, floor: tier as 'wood' });
+      if (openMs > 0) setTimeout(() => bus.emit('chest:open', { id, floor: tier as 'wood', tier: tier as 'wood', steps: 0, gold: undefined as never, gems: 0, source: 'lab' }), openMs);
+    },
+    reveal() {
+      scene.reveal(biomeAt(shaft.floor));
+    },
+    dolly() {
+      scene.dolly(true);
+    },
     ready: false,
     frames: 0,
     scene,
@@ -200,7 +249,8 @@ export async function bootLab(canvas: HTMLCanvasElement): Promise<LabApi> {
   let rowAcc = 0;
   let tapCol = 3;
   const loop = (now: number) => {
-    const dt = Math.min(0.1, (now - last) / 1000);
+    const real = (now - last) / 1000;
+    const dt = Math.min(0.1, real);
     last = now;
     shaft.t += dt;
     if (taps > 0) {
@@ -212,7 +262,9 @@ export async function bootLab(canvas: HTMLCanvasElement): Promise<LabApi> {
       }
     }
     if (api.autoRows > 0) {
-      rowAcc += dt * api.autoRows;
+      // The descent envelope is in wall-clock rows per second: on a slow software renderer several rows land in
+      // one frame (a harsher streaming test, never a slower one).
+      rowAcc += Math.min(0.5, real) * api.autoRows;
       while (rowAcc >= 1) {
         rowAcc -= 1;
         shaft.clearRow();
@@ -224,8 +276,14 @@ export async function bootLab(canvas: HTMLCanvasElement): Promise<LabApi> {
       shaft.breaks.length = 0;
     }
     if (params.get('fx') === '1') api.crackAll(0.55 + 0.35 * Math.sin(shaft.t * 2));
-    scene.frame(dt, dt);
-    if (api.sampling) api.samples.push(scene.debug.missingChunks());
+    // The scene gets the real interval (up to 0.5 s): its camera steps slow frames in pieces and keeps up with
+    // rows cleared by wall-clock time.
+    const frameDt = Math.min(0.5, real);
+    scene.frame(frameDt, frameDt * api.fxScale);
+    if (api.sampling) {
+      api.samples.push(scene.debug.missingChunks());
+      api.fxSamples.push({ p: scene.debug.particles().live, s: scene.debug.shards().live });
+    }
     api.frames++;
     if (api.frames > 3) api.ready = true;
     requestAnimationFrame(loop);

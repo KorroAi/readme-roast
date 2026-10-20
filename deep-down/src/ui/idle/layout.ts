@@ -18,6 +18,11 @@ export interface HudLayout {
   safeTop: number;
   safeBottom: number;
   gold: Rect;
+  /** The gold plate once the rank badge shows (SPEC §9.1: rank 48 at the left, gold after it). */
+  goldR: Rect;
+  rank: Rect;
+  /** The XP bar under the gold plate (row B). */
+  xp: Rect;
   depth: Rect;
   menu: Rect;
   gems: Rect;
@@ -71,6 +76,9 @@ export function hudLayout(width: number, height: number, safeTop = 0, safeBottom
   const depth: Rect = { x: menu.x - GAP - depthW - 2, y: topA, w: depthW, h: barA };
   const gold: Rect = { x: colX + pad, y: topA, w: depth.x - GAP - (colX + pad) - 2, h: barA };
   const gems: Rect = { x: depth.x, y: topB, w: depthW, h: barB };
+  const rank: Rect = { x: colX + pad, y: topA, w: barA, h: barA };
+  const goldR: Rect = { x: rank.x + rank.w + GAP + 2, y: topA, w: depth.x - GAP - (rank.x + rank.w + GAP + 2) - 2, h: barA };
+  const xp: Rect = { x: goldR.x + 8, y: topB + Math.round(barB / 2) - 3, w: goldR.w - 16, h: 6 };
   const goal: Rect = { x: colX + 16, y: goalY, w: colW - 32, h: goalH };
   const toast: Rect = { x: colX + 24, y: regionTop, w: colW - 48, h: 52 };
   const ruler: Rect = { x: colX + colW - 24, y: regionTop + 8, w: 20, h: regionBottom - regionTop - 12 };
@@ -89,6 +97,9 @@ export function hudLayout(width: number, height: number, safeTop = 0, safeBottom
     safeTop,
     safeBottom,
     gold,
+    goldR,
+    rank,
+    xp,
     depth,
     menu,
     gems,

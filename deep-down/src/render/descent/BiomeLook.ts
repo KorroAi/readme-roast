@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { BIOME_LOOKS, LOOK_BLEND_ROWS, type BiomeLookDef } from '../../idle/config/biomeLooks';
-import { baseBiome, biomeAt, biomeStart, echoNumber } from '../../idle/config/biomes';
+import { baseBiome, biomeAt, biomeStart, echoHue, echoNumber } from '../../idle/config/biomes';
+import { lookShared, sectionUniforms } from '../look';
+import { LANTERN_COLOR, type LightingRig } from '../lighting';
+import type { PostParams } from '../PostFX';
+import type { TerrainUniforms } from '../terrainRig';
 import { hexToLinear } from '../../core/math';
 
 /** The look values the renderer consumes, in linear colour (blended between two biomes). */
@@ -15,6 +19,8 @@ export interface LookMix {
   bloomThreshold: number;
   bloomStrength: number;
   saturation: number;
+  /** The dig lantern's core colour (linear; warm biomes whiten it). */
+  lantern: THREE.Color;
   /** Biome index at the camera depth and the blend toward the next one (0..1). */
   biome: number;
   next: number;
@@ -54,7 +60,7 @@ function rotateHue(hex: number, deg: number): number {
 export class BiomeLook {
   readonly mix: LookMix = {
     accent: new THREE.Color(), accent2: new THREE.Color(), fog: new THREE.Color(), fogLow: new THREE.Color(), open: new THREE.Color(), deepTint: new THREE.Color(),
-    exposure: 2, bloomThreshold: 1, bloomStrength: 0.5, saturation: 1, biome: 0, next: 0, blend: 0,
+    lantern: new THREE.Color(), exposure: 2, bloomThreshold: 1, bloomStrength: 0.5, saturation: 1, biome: 0, next: 0, blend: 0,
   };
   /** Forced biome (the Biome Lab), -1 = by depth. */
   forced = -1;
@@ -97,6 +103,7 @@ export class BiomeLook {
     c(L0.fogLow, L1.fogLow, m.fogLow);
     c(L0.open, L1.open, m.open);
     c(L0.deepTint, L1.deepTint, m.deepTint);
+    c(L0.lantern, L1.lantern, m.lantern);
     m.exposure = L0.exposure + (L1.exposure - L0.exposure) * f;
     m.bloomThreshold = L0.bloomThreshold + (L1.bloomThreshold - L0.bloomThreshold) * f;
     m.bloomStrength = L0.bloomStrength + (L1.bloomStrength - L0.bloomStrength) * f;
@@ -105,7 +112,63 @@ export class BiomeLook {
     m.next = Math.max(0, k0 + 1);
     m.blend = f;
     void next;
+    this.share(depth, dt, m);
     return m;
+  }
+
+  private clock = 0;
+
+  /** The shared look state (look.ts): fog and clock for self-lit materials; the section's fallback biome and Echo hue. */
+  private share(depth: number, dt: number, m: LookMix): void {
+    const L = lookShared();
+    this.clock += Math.max(0, dt);
+    L.uLookTime.value = this.clock;
+    L.uLookFog.value.copy(m.fog);
+    L.uLookFogLow.value.copy(m.fogLow);
+    L.uLookAccent.value.copy(m.accent);
+    L.uLookGrade.value.set(m.biome, m.next, m.blend);
+    // The lantern colour is one shared uniform (lighting.ts), so the per-biome lantern holds without apply().
+    LANTERN_COLOR.value.copy(m.lantern).multiplyScalar(1.1);
+    const k = this.forced >= 0 ? this.forced : biomeAt(Math.max(0, depth));
+    const S = sectionUniforms();
+    // Above the next boundary the floor's biome, below it the next one (block ids carry the base biome).
+    S.uSecFallback.value.set(Math.min(13, baseBiome(k)), Math.min(13, baseBiome(k + 1)), this.forced >= 0 ? -1e9 : -biomeStart(k + 1), 0);
+    S.uSecHue.value = (echoHue(k) * Math.PI) / 180;
+  }
+
+  private readonly tmpA = new THREE.Color();
+  private readonly tmpB = new THREE.Color();
+
+  /**
+   * Apply the blended look to the renderer (owner 2D; DescentScene calls it once per frame after update()):
+   * the section's key, rim, camera fill and deep tint, the atmosphere (haze, fills, density from the glass
+   * plane), the dig lantern's colour (warm biomes whiten it) and the post chain's exposure and bloom.
+   * `floorTopY` is the floor's top world y and `cam` the camera position (the shine sweep's frame).
+   */
+  apply(m: LookMix, tu: TerrainUniforms, rig: LightingRig, post: PostParams, floorTopY: number, cam: THREE.Vector3Like): void {
+    const open = m.open;
+    tu.uSectionKey.value.copy(open).multiplyScalar(0.9 * 0.55);
+    tu.uRimColor.value.copy(m.accent).multiplyScalar(1.6 * 0.35);
+    tu.uCamFill.value.copy(open).multiplyScalar(0.25 * 0.5);
+    tu.uDeepTint.value.copy(m.deepTint);
+    tu.uSection.value.set(1, floorTopY, cam.x, cam.y);
+    rig.applyLook({
+      fog: m.fog,
+      fogLow: m.fogLow,
+      ambient: this.tmpA.copy(open).multiplyScalar(0.05),
+      open: this.tmpB.copy(open).multiplyScalar(0.7),
+      density: 0.0267,
+      fogStart: 15,
+      scatter: 0.12,
+      bounce: 0.1,
+      absorb: 0.6,
+      exposure: m.exposure,
+    });
+    rig.uniforms.uLanternColor.value.copy(m.lantern).multiplyScalar(1.1); // the shared LANTERN_COLOR
+    lookShared().uLookFogK.value.set(0.0267, 15);
+    post.zoneExposure = m.exposure;
+    post.threshold = m.bloomThreshold;
+    post.bloomStrength = m.bloomStrength;
   }
 
   get position(): number {

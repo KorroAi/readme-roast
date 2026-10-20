@@ -85,10 +85,4 @@ export const core = {
   'error.webviewOutdated': 'DEEP DOWN needs a newer browser engine. Please update Android System WebView (or Chrome) and try again.',
   'error.generic': 'Something went wrong. Please restart the game.',
 
-  'equip.ironPickaxe': 'Iron Pickaxe',
-  'equip.ironPickaxe.desc': 'Mining speed +140%. Breaks Echo crystal and Ironbound stone.',
-  'equip.glimmerPickaxe': 'Glimmer-edged Pickaxe',
-  'equip.glimmerPickaxe.desc': 'Mining speed +240%. The edge never dulls.',
-  'equip.attunedLantern': 'Attuned Lantern',
-  'equip.attunedLantern.desc': 'Burns for fifteen minutes. Its ember keeps the cold away.',
 } as const;

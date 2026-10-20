@@ -26,6 +26,23 @@ import { hexToLinear } from '../core/math';
  */
 export const SCENE_ENCODE: THREE.IUniform<number> = { value: 0 };
 
+/**
+ * Transient impact lights (CRITIQUE B14; owner 2D): up to 4 point lights with no visibility term, one shared
+ * uniform set for the terrain (both paths) and every entity material, so a crit, a break, a blast, a chest
+ * opening or a seal break lights the rock and the props around it alike. DescentScene writes them
+ * (position + radius, colour + intensity; intensity 0 = off). About 12 ALU each, uniform-driven.
+ */
+export const IMPACT_LIGHTS = {
+  uImpactPos: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) } as THREE.IUniform<THREE.Vector4[]>,
+  uImpactCol: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) } as THREE.IUniform<THREE.Vector4[]>,
+};
+
+/**
+ * The dig lantern's core colour (linear), one shared uniform for every rig and material: BiomeLook writes it
+ * per biome (warm biomes whiten it so the human amber stays apart from their accents, W2 §5 MUST 3).
+ */
+export const LANTERN_COLOR: THREE.IUniform<THREE.Color> = { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) };
+
 export interface LightingUniforms {
   [name: string]: THREE.IUniform;
   uLightTex: THREE.IUniform<THREE.Data3DTexture>;
@@ -73,6 +90,23 @@ uniform float uFogStart;
 uniform float uTime;
 uniform vec3 uDebug; // x: fullbright amount, y: clip height (discard above), z: unused
 uniform float uSceneEncode;
+uniform vec4 uImpactPos[4]; // xyz, radius (IMPACT_LIGHTS)
+uniform vec4 uImpactCol[4]; // rgb, intensity
+
+// The transient impact lights at a point with a normal (CRITIQUE B14).
+vec3 impactLight(vec3 p, vec3 n) {
+  vec3 sum = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec4 ip = uImpactPos[i];
+    vec4 ic = uImpactCol[i];
+    if (ic.a <= 0.0) continue;
+    vec3 d = ip.xyz - p;
+    float dl = length(d);
+    float att = max(0.0, 1.0 - dl / max(ip.w, 0.1));
+    sum += ic.rgb * (ic.a * att * att * (0.3 + 0.7 * max(dot(n, d / max(dl, 1e-3)), 0.0)));
+  }
+  return sum;
+}
 
 // Final write of a lit colour into the scene target (see SCENE_ENCODE).
 vec3 sceneOut(vec3 c) {
@@ -163,6 +197,12 @@ float lanternVisibility(vec3 samplePos) {
 // leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
 // in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
 // who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
+// The amber the flame deepens to; a whitened lantern (warm biomes, BiomeLook) deepens less, so the pool on a
+// warm host does not burn to saturated orange.
+vec3 lanternDeep() {
+  float white = smoothstep(0.62, 0.8, uLanternColor.b / max(uLanternColor.r, 1e-3));
+  return mix(vec3(1.0, 0.71, 0.4), vec3(1.0, 0.84, 0.66), white);
+}
 const float LANTERN_K = 6.0;
 const float LANTERN_GAIN = 1.6;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
@@ -180,7 +220,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float wrap = 0.05 + 0.2 * up;
   float diff = clamp(dot(n, l) * (1.0 - wrap) + wrap, 0.0, 1.0);
   diff *= 1.0 - 0.6 * up * (1.0 - smoothstep(2.5, 4.5, dist));
-  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, x));
+  vec3 tint = mix(vec3(1.0), lanternDeep(), smoothstep(0.05, 0.18, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
@@ -390,8 +430,8 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) },
+      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m). Shared (LANTERN_COLOR).
+      uLanternColor: LANTERN_COLOR,
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
@@ -406,6 +446,7 @@ export class LightingRig {
       uTime: { value: 0 },
       uDebug: { value: new THREE.Vector3(0, 9999, 0) },
       uSceneEncode: SCENE_ENCODE,
+      ...IMPACT_LIGHTS,
     };
     // Default until updateAtmosphere() runs (Visual Lab, viewer): the Hollow's colours and
     // distance fog without its height pool, whose level is a height in the game world.

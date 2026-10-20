@@ -53,6 +53,15 @@ export const CUES = {
   moth: { tier: 3, stop: 40, trauma: 0.2, bloom: [0.2, 200], fxSparks: 30, haptic: 'gem' },
   dynamite: { tier: 3, stop: 60, trauma: 0.45, bloom: [0.3, 150], dust: 40, sparks: 80, haptic: 'dynamite' },
   feast: { tier: 5, haptic: 'feast' },
+  // Wave 2 (SPEC §10.3)
+  quake: { tier: 3, stop: 60, trauma: 0.6, bloom: [0.3, 150], dust: 80, sparks: 40, haptic: 'dynamite' },
+  skill: { tier: 3, trauma: 0.12, bloom: [0.2, 300], glints: 30, haptic: 'skill' },
+  cataclysm: { tier: 4, stop: 80, trauma: 0.55, full: [0.3, 160], glints: 120, haptic: 'cataclysm' },
+  surge: { tier: 3, stop: 60, trauma: 0.35, full: [0.12, 200], bloom: [0.2, 600], sparks: 60, haptic: 'surge' },
+  creature: { tier: 2, stop: 40, trauma: 0.12, bloom: [0.1, 100], sparks: 12, glints: 12, haptic: 'creature' },
+  perfect: { tier: 3, stop: 40, trauma: 0.25, bloom: [0.3, 300], glints: 40, haptic: 'perfect' },
+  weak: { tier: 2, stop: 30, trauma: 0.2, bloom: [0.2, 150], sparks: 16, glints: 10, haptic: 'weak' },
+  facet: { tier: 2, bloom: [0.15, 200], glints: 24, haptic: 'facet' },
 } as const satisfies Record<string, Cue>;
 
 export type CueId = keyof typeof CUES;

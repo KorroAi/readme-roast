@@ -8,7 +8,8 @@ import { VoxBuilder } from '../voxModel';
 import { CUT_Z, SHAFT_X0 } from './DescentCamera';
 
 /**
- * Crew rigs on screen (SPEC §6.9, W1: lines 0-3). Each owned line shows 1 + floor(L / 25) figures (lines 0-2 up
+ * Crew rigs on screen (SPEC §6.9): lines 0-3 as figures and machines, lines 4-14 as wall machines (the 6 highest owned
+ * lines of 4-14 at once), crowned rigs wearing a gold circlet and growing 8 % per crown (W2 MUST 6). Each owned line shows 1 + floor(L / 25) figures (lines 0-2 up
  * to 4, line 3 up to 3) on the floor edges, a scaffold, the left wall's rail and a gantry over the centre,
  * striking on the model's impact frames (A's `CREW[line].rig`: phase = model time mod period). Rigs stand in
  * the z band behind the foreman (CRITIQUE B11: z 1-2.5 m behind the cut) and never cover the dig row.
@@ -48,6 +49,93 @@ function miner(tool: 'shovel' | 'pick'): { body: THREE.BufferGeometry; arm: THRE
   return { body: b.build(), arm: a.build() };
 }
 
+/** The deep lines' machines (4-14): where each mounts, its model and its moving part. */
+interface Machine {
+  line: number;
+  root: THREE.Group;
+  part: THREE.Group;
+  crown: THREE.Mesh;
+  /** Mount: side (-1 left wall, 1 right wall, 0 back wall top) and height above the floor (m). */
+  side: number;
+  up: number;
+}
+
+const DEEP = [
+  { name: 'blastTeam', body: 0x6a4a30, metal: 0x8a8c92, glow: 0xff9a40 },
+  { name: 'tunnelBorer', body: 0x5a5048, metal: 0xb8b0a0, glow: 0xffc070 },
+  { name: 'crystalResonator', body: 0x3a4a6a, metal: 0x8fe3ee, glow: 0x6fe8ff },
+  { name: 'magmaLance', body: 0x3a2a24, metal: 0x6a5a50, glow: 0xff7a2e },
+  { name: 'fossilGolem', body: 0xd8ccb0, metal: 0xb8a888, glow: 0xffb000 },
+  { name: 'rimeAuger', body: 0x6a8aa8, metal: 0xd8f0ff, glow: 0x7fd8ff },
+  { name: 'loomWeaver', body: 0x5a4a3a, metal: 0xe8dcc0, glow: 0xfff4d0 },
+  { name: 'gravityWell', body: 0x2a2440, metal: 0x8a7aff, glow: 0xb9a2ff },
+  { name: 'starForge', body: 0x5a4020, metal: 0xd8b064, glow: 0xfff1c2 },
+  { name: 'voidMaw', body: 0x1a1430, metal: 0x4a3a8a, glow: 0x6a5cff },
+  { name: 'gateEngine', body: 0x3a3048, metal: 0xe2b673, glow: 0x8fe3ee },
+];
+
+/** A deep line's machine: a wall mount, a body, and its moving part (a drill, an arm, a fist, a ring). */
+function machine(line: number): { body: THREE.BufferGeometry; part: THREE.BufferGeometry; crown: THREE.BufferGeometry } {
+  const d = DEEP[(line - 4) % DEEP.length];
+  const b = new VoxBuilder();
+  const p = new VoxBuilder();
+  // The wall mount: a brass plate bolted to the rock, a bracket arm.
+  b.box(-0.08, -0.5, -0.4, 0.08, 0.5, 0.4, 0x5a4a3a);
+  b.box(-0.05, -0.42, -0.32, 0.12, 0.42, 0.32, BRASS);
+  b.box(0.1, -0.12, -0.12, 0.6, 0.12, 0.12, d.metal);
+  switch (line) {
+    case 4: // Blast Team: a plunger box and a coil of fuse.
+      b.box(0.5, -0.3, -0.25, 1.0, 0.15, 0.25, d.body);
+      p.box(0.68, 0.15, -0.04, 0.82, 0.6, 0.04, d.metal).box(0.6, 0.55, -0.08, 0.9, 0.62, 0.08, d.metal);
+      p.box(0.62, -0.05, 0.25, 0.88, 0.05, 0.27, d.glow, 1);
+      break;
+    case 5: // Tunnel Borer: a drum and a toothed bit that spins.
+      b.box(0.5, -0.35, -0.35, 1.1, 0.35, 0.35, d.body);
+      for (let i = 0; i < 6; i++) p.push().rotateX((i / 6) * Math.PI * 2).box(1.1, -0.06, 0.12, 1.5, 0.06, 0.32, d.metal).pop();
+      p.box(1.1, -0.1, -0.1, 1.7, 0.1, 0.1, d.glow, 0.6);
+      break;
+    case 6: // Crystal Resonator: a tuning fork of crystal that rings.
+      b.box(0.5, -0.2, -0.2, 0.8, 0.2, 0.2, d.body);
+      p.box(0.75, -0.06, -0.3, 1.5, 0.06, -0.18, d.metal, 0.9).box(0.75, -0.06, 0.18, 1.5, 0.06, 0.3, d.metal, 0.9);
+      p.box(1.4, -0.1, -0.1, 1.6, 0.1, 0.1, d.glow, 1);
+      break;
+    case 7: // Magma Lance: a cannon with a glowing throat.
+      b.box(0.4, -0.3, -0.3, 1.0, 0.3, 0.3, d.body);
+      p.box(0.9, -0.16, -0.16, 1.9, 0.16, 0.16, d.metal).box(1.85, -0.12, -0.12, 1.95, 0.12, 0.12, d.glow, 1);
+      break;
+    case 8: // Fossil Golem: a bone fist on a bone arm.
+      p.box(0.5, -0.12, -0.12, 1.4, 0.12, 0.12, d.body).box(1.3, -0.3, -0.3, 1.8, 0.3, 0.3, d.metal);
+      p.box(1.55, -0.32, 0.28, 1.65, -0.22, 0.32, d.glow, 1);
+      break;
+    case 9: // Rime Auger: an ice screw that turns.
+      for (let i = 0; i < 8; i++) p.push().rotateX(i * 0.8).box(0.6 + i * 0.15, -0.05, -0.28, 0.72 + i * 0.15, 0.05, 0.28, d.metal, 0.5).pop();
+      p.box(0.6, -0.06, -0.06, 1.9, 0.06, 0.06, d.glow, 0.9);
+      break;
+    case 10: // Loom Weaver: a frame with glowing threads.
+      b.box(0.5, -0.6, -0.5, 0.6, 0.6, 0.5, d.body).box(1.4, -0.6, -0.5, 1.5, 0.6, 0.5, d.body);
+      for (let i = 0; i < 6; i++) p.box(0.6, -0.5 + i * 0.2, -0.02, 1.4, -0.48 + i * 0.2, 0.02, d.glow, 1);
+      break;
+    case 11: // Gravity Well: a ring that pulls.
+      for (let i = 0; i < 14; i++) p.push().translate(1.2, 0, 0).rotateX((i / 14) * Math.PI * 2).box(-0.06, 0.5, -0.08, 0.06, 0.62, 0.08, i % 2 ? d.metal : d.glow, i % 2 ? 0.3 : 1).pop();
+      break;
+    case 12: // Star Forge: a furnace with a star inside.
+      b.box(0.5, -0.5, -0.45, 1.4, 0.5, 0.45, d.body);
+      p.push().translate(0.95, 0, 0.46).rotateZ(0.78).box(-0.18, -0.18, 0, 0.18, 0.18, 0.06, d.glow, 1).pop();
+      break;
+    case 13: // Void Maw: a toothed mouth that opens.
+      for (let i = 0; i < 10; i++) p.push().translate(1.1, 0, 0).rotateX((i / 10) * Math.PI * 2).box(-0.05, 0.3, -0.06, 0.05, 0.55, 0.06, i % 2 ? d.metal : d.body).pop();
+      p.box(1.0, -0.15, -0.15, 1.2, 0.15, 0.15, d.glow, 1);
+      break;
+    default: // Gate Engine: a rune wheel.
+      b.box(0.5, -0.4, -0.4, 0.7, 0.4, 0.4, d.body);
+      for (let i = 0; i < 8; i++) p.push().translate(1.0, 0, 0).rotateX((i / 8) * Math.PI * 2).box(-0.05, 0.25, -0.1, 0.05, 0.6, 0.1, i % 2 ? d.metal : d.glow, i % 2 ? 0.2 : 1).pop();
+  }
+  // The crown: a gold circlet on the mount (shown from its first crown).
+  const c = new VoxBuilder();
+  for (let i = 0; i < 5; i++) c.box(-0.1, 0.5 + (i % 2) * 0.08, -0.3 + i * 0.15, 0.1, 0.62 + (i % 2) * 0.08, -0.22 + i * 0.15, 0xffd060, 0.8);
+  return { body: b.build(), part: p.build(), crown: c.build() };
+}
+
 export class CrewRenderer {
   readonly group = new THREE.Group();
   private readonly material: THREE.ShaderMaterial;
@@ -58,6 +146,9 @@ export class CrewRenderer {
   private readonly bit: THREE.Mesh;
   private readonly scaffold: THREE.Mesh;
   private levels: number[] = [];
+  private readonly machines: Machine[] = [];
+  /** Crowns per line (every 50 levels): the rigs glow and wear a circlet. */
+  crownsOf: (line: number) => number = (line) => Math.floor((this.levels[line] ?? 0) / 50);
   /** Impacts that landed this frame (line, figure): the scene puffs dust there. */
   readonly impacts: Array<{ line: number; x: number; y: number }> = [];
   private lastPhase: number[] = [];
@@ -100,6 +191,31 @@ export class CrewRenderer {
     const scaffold2 = this.scaffold.clone();
     scaffold2.name = 'scaffold2';
     this.group.add(this.rail, this.cart, this.gantry, this.scaffold, scaffold2);
+    // Lines 4-14: machines on the shaft walls (the side margins, 1.5 m behind the cut) and over the back wall,
+    // ≥ 1.6 m above the floor so the 1.5 m above it stays the foreman's (CRITIQUE B11).
+    const mounts: Array<[number, number]> = [[-1, 2.1], [1, 2.4], [-1, 3.4], [1, 3.7], [0, 4.2], [-1, 4.6], [1, 5.0], [0, 5.6], [-1, 2.8], [1, 3.1], [0, 4.9]];
+    for (let line = 4; line < 15; line++) {
+      const g = machine(line);
+      const root = new THREE.Group();
+      root.add(new THREE.Mesh(g.body, this.material));
+      const part = new THREE.Group();
+      part.add(new THREE.Mesh(g.part, this.material));
+      root.add(part);
+      const crown = new THREE.Mesh(g.crown, this.material);
+      crown.visible = false;
+      root.add(crown);
+      root.visible = false;
+      const [side, up] = mounts[line - 4];
+      this.group.add(root);
+      this.machines.push({ line, root, part, crown, side, up });
+    }
+  }
+
+  /** Lines drawn as machines now (the 6 highest owned lines of 4-14; SPEC §6.9). */
+  private shownDeep(): Set<number> {
+    const owned: number[] = [];
+    for (let l = 14; l >= 4; l--) if ((this.levels[l] ?? 0) > 0) owned.push(l);
+    return new Set(owned.slice(0, 6));
   }
 
   /** Owned levels per line (index = line). */
@@ -145,6 +261,32 @@ export class CrewRenderer {
       for (const t of rig.impacts) if (prev < t && phase >= t) this.impacts.push({ line: f.line, x: f.root.position.x, y: floorY });
       this.lastPhase[f.line * 8 + f.index] = phase;
     }
+    // The deep lines: each machine strikes on its line's impact frames (the part lunges, spins or rings).
+    const shown = this.shownDeep();
+    for (const m of this.machines) {
+      m.root.visible = shown.has(m.line);
+      if (!m.root.visible) continue;
+      const rig = rigOf(m.line);
+      const ph = phaseOf(m.line) % rig.period;
+      let hit = 0;
+      for (const t of rig.impacts) {
+        const d = ph - t;
+        if (d > -0.15 && d < 0.25) hit = Math.max(hit, d < 0 ? 1 + d / 0.15 : 1 - d / 0.25);
+      }
+      const x = m.side < 0 ? SHAFT_X0 - 0.75 : m.side > 0 ? SHAFT_X0 + 7.75 : SHAFT_X0 + 3.5;
+      m.root.position.set(x, floorY + m.up, m.side === 0 ? CUT_Z - 3.3 : CUT_Z - 1.4);
+      // Wall mounts point into the shaft; the back-wall ones point down at the floor.
+      m.root.rotation.set(0, m.side > 0 ? Math.PI : 0, m.side === 0 ? -Math.PI / 2 : -0.35);
+      const spin = m.line === 5 || m.line === 9 || m.line === 11 || m.line === 13 || m.line === 14;
+      if (spin) m.part.rotation.x = phaseOf(m.line) * (2 + 6 * hit);
+      else m.part.position.x = 0.35 * hit;
+      const crowns = this.crownsOf(m.line);
+      m.crown.visible = crowns > 0;
+      m.root.scale.setScalar(1 + Math.min(0.4, 0.08 * crowns));
+      const prev = this.lastPhase[m.line * 8 + 7] ?? ph;
+      for (const t of rig.impacts) if (prev < t && ph >= t) this.impacts.push({ line: m.line, x: SHAFT_X0 + 1 + ((m.line * 3) % 6), y: floorY });
+      this.lastPhase[m.line * 8 + 7] = ph;
+    }
     // Scaffolds under the Pick Crew.
     const pc = CrewRenderer.figuresFor(1, lv(1));
     const s2 = this.group.getObjectByName('scaffold2') as THREE.Mesh;
@@ -188,6 +330,6 @@ export class CrewRenderer {
 
   /** Figures and machines on screen (debug). */
   get visible(): number {
-    return this.figures.filter((f) => f.root.visible).length + (this.cart.visible ? 1 : 0) + (this.gantry.visible ? 1 : 0);
+    return this.figures.filter((f) => f.root.visible).length + (this.cart.visible ? 1 : 0) + (this.gantry.visible ? 1 : 0) + this.machines.filter((m) => m.root.visible).length;
   }
 }

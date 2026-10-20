@@ -12,13 +12,24 @@ import { SKILLS } from '../config/skills';
 import { ensureCrewClock, stepCrew } from './crew';
 import { tickGoals, initGoals } from './goals';
 import { tickHints } from './hints';
-import { tickMoth, tapEntity } from './moth';
-import { refreshRates } from './run';
+import { tickMoth } from './moth';
+import { tapEntity } from './entities';
+import { newDirector, tickDirector } from './director';
+import { tickContracts } from './contracts';
+import { tickDaily } from './daily';
+import { facetStats, tickFacets } from './facets';
+import { flagSecret, tickFeats } from './feats';
+import { invalidateMults } from './mult';
+import { tickPrestige } from './prestige';
+import { tickRank } from './rank';
+import { tickRecords } from './records';
+import { pickTier } from '../config/upgrades';
+import { comboCap, refreshRates } from './run';
 import { tickSeal } from './seals';
-import { resetWindow, tickCrumbles } from './shaft';
+import { resetWindow, tickCrumbles, weakestCell } from './shaft';
 import { tickSkills } from './skills';
 import { type IdleState, newMeta, runSeedOf } from './state';
-import { resolveTap, tickCombo, type ModelTap } from './tap';
+import { resolveTap, tickCombo, tickSurge, type ModelTap } from './tap';
 import { initTutorial, tickTutorial } from './tutorial';
 
 export type { ModelTap } from './tap';
@@ -40,7 +51,7 @@ export function createIdle(seed: number, now: number): IdleState {
     run: newRun(),
     meta: newMeta(),
     shaft: { rows: [] },
-    tap: { combo: 0, lastHit: -Infinity, decayAt: 0, tierShown: 0, surge: 0, surgeEnd: 0, surgeArmedAt: 0, rng: ((seed >>> 0) ^ 0xa5a5a5a5) >>> 0 || 1, hitsThisSecond: 0, secondStart: 0 },
+    tap: { combo: 0, lastHit: -Infinity, decayAt: 0, tierShown: 0, surge: 0, surgeEnd: 0, surgeArmedAt: 0, rng: ((seed >>> 0) ^ 0xa5a5a5a5) >>> 0 || 1, hitsThisSecond: 0, secondStart: 0, drum: 0, peak: 0 },
     seal: null,
     goals: initGoals(),
     tutorial: initTutorial(),
@@ -53,6 +64,16 @@ export function createIdle(seed: number, now: number): IdleState {
     crewT0: [],
     crewPending: [],
     rates: { crewDps: Big.zero(), tapDmg: Big.zero(), goldPerSec: Big.zero(), rowSec: Infinity, tapsPerSec: 0 },
+    director: newDirector(),
+    event: null,
+    widgets: [],
+    hand: null,
+    overrides: [],
+    hits: {},
+    xpPending: 0,
+    nextCheck: 0,
+    crewRows: 0,
+    opts: { autoFacets: false },
   };
   resetWindow(s, 0);
   refreshRates(s, 0);
@@ -76,6 +97,22 @@ export function newRun(): IdleState['run'] {
     ghost: [],
     plantedBonus: 0,
     frenzyEnd: 0,
+    cataclysmEnd: 0,
+    boosts: {},
+    facets: [],
+    hands: 0,
+    freeReroll: true,
+    used: [],
+    lanterns: [],
+    sealsBroken: 0,
+    splits: {},
+    par: [],
+    ghostPassed: -1,
+    taps: 0,
+    cells: 0,
+    rows: 0,
+    chests: 0,
+    stars: 0,
   };
 }
 
@@ -102,13 +139,17 @@ export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bu
   let counted = 0;
   for (const tp of taps) if (!tp.entity) counted++;
   const est = s.rates.tapsPerSec + (counted / Math.max(dt, 1e-6) - s.rates.tapsPerSec) * Math.min(1, dt / 3);
-  // 2. The crew, the crumble, the seal, skills, the combo, the moth.
+  // 2. The crew, the crumble, the seal, skills, the combo, the Surge, the moth, the Director, boosts.
   stepCrew(s, dt, bus);
   tickCrumbles(s, bus);
   tickSeal(s, bus);
   tickSkills(s, bus);
   tickCombo(s, bus);
+  tickSurge(s, bus);
+  tickDrum(s, dt, bus);
   tickMoth(s, dt, bus);
+  tickDirector(s, dt, bus);
+  tickBoosts(s, bus);
   // 3. Unlocks from depth.
   unlocks(s, bus);
   // 4. Rates (every step is cheap enough: a few logs), guidance.
@@ -116,6 +157,56 @@ export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bu
   tickTutorial(s, bus);
   tickGoals(s, bus);
   tickHints(s, bus);
+  // 5. Progression, four times a second: Feats, rank, contracts, records, the daily chest, prestige, facets.
+  if (s.time >= s.nextCheck) {
+    s.nextCheck = s.time + 0.25;
+    tickProgress(s, wall, bus);
+  }
+}
+
+/** The 0.25 s progression checks (also run by the sims at their own step). */
+export function tickProgress(s: IdleState, wallMs: number, bus?: IdleBus): void {
+  const tier = pickTier(s.run.pick);
+  if (tier > s.meta.bestTier) s.meta.bestTier = tier;
+  let hired = 0;
+  for (const lv of s.run.lines) if (lv > 0) hired++;
+  if (hired > s.meta.bestLines) s.meta.bestLines = hired;
+  tickFeats(s, bus);
+  tickRank(s, bus);
+  tickContracts(s, bus);
+  tickRecords(s, bus);
+  tickDaily(s, wallMs, bus);
+  tickPrestige(s, bus);
+  tickFacets(s, s.opts.autoFacets, bus);
+  if (s.meta.tutorial.done && (new Date(wallMs).getHours() < 4)) flagSecret(s, 'nightOwl');
+}
+
+/** Timed boosts end (Supply Rope picks, a Lantern Storm, Cataclysm, Lantern Oil): boost:end. */
+function tickBoosts(s: IdleState, bus?: IdleBus): void {
+  for (const id in s.run.boosts) {
+    if (s.run.boosts[id].end <= s.time) {
+      delete s.run.boosts[id];
+      invalidateMults(s);
+      bus?.emit('boost:end', { id });
+    }
+  }
+  if (s.run.cataclysmEnd > 0 && s.run.cataclysmEnd <= s.time) {
+    s.run.cataclysmEnd = 0;
+    bus?.emit('boost:end', { id: 'cataclysm' });
+  }
+}
+
+/** Drumline: +1 auto-tap a second per 25 combo (hits the floor's weakest cell as a hold). */
+function tickDrum(s: IdleState, dt: number, bus?: IdleBus): void {
+  const per = facetStats(s).drumPer;
+  if (per <= 0 || s.tap.combo < 25 || s.time - s.hints.lastHitAt > 1.2) return;
+  // Per 25 combo up to the run's combo cap (the count runs on past the cap; the drum, like the multiplier, does not).
+  s.tap.drum += per * Math.floor(Math.min(s.tap.combo, comboCap(s)) / 25) * dt;
+  while (s.tap.drum >= 1) {
+    s.tap.drum -= 1;
+    const c = weakestCell(s);
+    if (c >= 0) resolveTap(s, c, 'hold', bus);
+  }
 }
 
 /** What the depth unlocks: crew lines, gear cards, skills (SPEC §6.5 table, §8.3). */
@@ -151,6 +242,12 @@ export function startRun(s: IdleState): void {
   s.crewT0 = [];
   s.seal = null;
   s.chests = [];
+  s.event = null;
+  s.widgets = [];
+  s.hand = null;
+  s.overrides = [];
+  s.hits = {};
+  invalidateMults(s);
   resetWindow(s, 0);
 }
 

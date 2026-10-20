@@ -56,11 +56,33 @@ export const SHAKE_OFFSET_M = 0.4;
 export const SHAKE_ROLL_DEG = 1.2;
 export const SHAKE_HZ = 22;
 export const TRAUMA_DECAY = 1.6;
-/** Life: a slow yaw sway and bob keep the parallax of deep caverns alive. */
+/**
+ * Life: a slow sway and bob keep the parallax of deep caverns alive. They move the eye, not the cut plane: the
+ * window is shifted back by the same amount, so the section, the floor band and the column strips stay still to
+ * the pixel under a resting finger (W2 MUST 0) while the caverns behind the cut drift (a 0.6° yaw's worth at the
+ * backdrop layers).
+ */
 export const SWAY_DEG = 0.6;
+export const SWAY_M = 0.15;
 export const SWAY_PERIOD = 23;
 export const BOB_M = 0.12;
 export const BOB_PERIOD = 9;
+/** The breakthrough fall (SPEC §6.3): hold, then fall easing in to a cap, land with an overshoot and trauma. */
+export const FALL_MIN_ROWS = 3;
+export const FALL_HOLD_S = 0.25;
+export const FALL_ACCEL = 38;
+export const FALL_CAP = 30;
+export const FALL_OVERSHOOT_V = 3.5;
+export const FALL_TRAUMA = 0.35;
+/** The Vista dolly (SPEC §6.3): D 12.6 -> 24 m over 1,200 ms (inOutCubic), hold 1,600 ms, back in 900 ms. */
+export const DOLLY_DIST = 24;
+export const DOLLY_IN_S = 1.2;
+export const DOLLY_HOLD_S = 1.6;
+export const DOLLY_OUT_S = 0.9;
+/** The biome reveal's dive (SPEC §10.8): 120-600 ms the camera falls into the hall, lands with trauma 0.70. */
+export const DIVE_START_S = 0.12;
+export const DIVE_LAND_S = 0.6;
+export const DIVE_TRAUMA = 0.7;
 /** Reduced motion: the follow becomes outCubic over this long, with no overshoot. */
 export const REDUCED_FOLLOW_S = 0.22;
 /** Surface and menu: the eye 6 m above the ground, the shaft mouth at 62 % of the screen height. */
@@ -185,6 +207,23 @@ export class DescentCamera {
   private roll = 0;
   private yaw = 0;
   private bob = 0;
+  private sway = 0;
+  /** The breakthrough fall: -1 idle, else seconds since it began; the floor y it falls from and its speed. */
+  private fallT = -1;
+  private fallY = 0;
+  private fallV = 0;
+  /** Distance to the cut plane (the dolly moves it). */
+  private dist = CAM_DIST;
+  /** The dolly: -1 idle, else seconds into it; `dollyHold` its hold (the reveal holds longer). */
+  private dollyT = -1;
+  private dollyHold = DOLLY_HOLD_S;
+  private dollyDelay = 0;
+  /** The reveal's dive: -1 idle, else seconds into it; its depth (m) and the offset now. */
+  private diveT = -1;
+  private diveM = 0;
+  private dive = 0;
+  /** Landed this frame (the scene throws the dust skirt): 'fall' | 'dive' | ''. */
+  landed: '' | 'fall' | 'dive' = '';
   private readonly tmp = new THREE.Vector3();
   private readonly rest = new THREE.PerspectiveCamera();
   private restDirty = true;
@@ -202,11 +241,21 @@ export class DescentCamera {
   /** The floor row changed (a row cleared, a jump). `snap` places the camera at rest at once. */
   setFloor(depth: number, snap = false): void {
     if (depth === this.depth && !snap) return;
+    const from = this.depth;
     this.depth = depth;
     const y = -depth;
     if (snap) {
       this.follow.snap(y);
       this.tweenT = 1;
+      this.fallT = -1;
+    } else if (!this.motion.reduced && depth - from > FALL_MIN_ROWS && depth - from <= 64) {
+      // A breakthrough: the face falls more than 3 m into a cavern.
+      if (this.fallT < 0) {
+        this.fallT = 0;
+        this.fallY = this.follow.x;
+        this.fallV = 0;
+      }
+      this.follow.target = y;
     } else if (this.motion.reduced) {
       this.tweenFrom = this.follow.x;
       this.tweenT = 0;
@@ -265,6 +314,21 @@ export class DescentCamera {
   }
 
   update(dt: number): void {
+    // A slow frame (a software renderer, a busy phone) steps the springs in pieces of at most 0.1 s, up to 0.5 s in
+    // all, so the camera keeps up with a model that advanced by wall-clock time (a landing in any piece is reported).
+    let rest = Math.min(0.5, Math.max(0, dt));
+    if (rest <= 0) return this.stepOnce(0);
+    let landed: '' | 'fall' | 'dive' = '';
+    while (rest > 1e-9) {
+      const s = Math.min(0.1, rest);
+      this.stepOnce(s);
+      if (this.landed) landed = this.landed;
+      rest -= s;
+    }
+    this.landed = landed;
+  }
+
+  private stepOnce(dt: number): void {
     const step = Math.min(0.1, Math.max(0, dt));
     this.time += step;
     if (this.motion.reduced) {
@@ -280,7 +344,25 @@ export class DescentCamera {
       this.sheet.snap(this.sheet.target);
       this.menu.snap(this.menu.target);
     } else {
-      this.follow.step(step);
+      this.landed = '';
+      if (this.fallT >= 0) {
+        // Hold, then fall easing in to the cap; land on the target with an overshoot (the follow spring takes it).
+        this.fallT += step;
+        if (this.fallT > FALL_HOLD_S) {
+          this.fallV = Math.min(FALL_CAP, this.fallV + FALL_ACCEL * step);
+          this.fallY -= this.fallV * step;
+        }
+        if (this.fallY <= this.follow.target) {
+          this.fallT = -1;
+          this.follow.x = this.follow.target;
+          this.follow.v = -FALL_OVERSHOOT_V;
+          this.addTrauma(FALL_TRAUMA);
+          this.landed = 'fall';
+        } else {
+          this.follow.x = this.fallY;
+          this.follow.v = 0;
+        }
+      } else this.follow.step(step);
       this.kickX.step(step);
       this.kickY.step(step);
       this.sheet.step(step);
@@ -302,9 +384,98 @@ export class DescentCamera {
       this.roll = ((SHAKE_ROLL_DEG * Math.PI) / 180) * t2 * noise1(f, 0x7c);
     } else this.shakeX = this.shakeY = this.roll = 0;
     const life = this.motion.life && !this.motion.reduced;
-    this.yaw = life ? ((SWAY_DEG * Math.PI) / 180) * Math.sin((this.time * 2 * Math.PI) / SWAY_PERIOD) : 0;
+    this.yaw = 0;
+    this.sway = life ? SWAY_M * Math.sin((this.time * 2 * Math.PI) / SWAY_PERIOD) : 0;
     this.bob = life ? BOB_M * Math.sin((this.time * 2 * Math.PI) / BOB_PERIOD + 1.3) : 0;
+    this.stepDolly(step);
     this.restDirty = true;
+  }
+
+  /** The dolly and the reveal's dive (both off in Reduced motion: a crossfade does the job there). */
+  private stepDolly(step: number): void {
+    if (this.motion.reduced) {
+      this.dollyT = this.diveT = -1;
+      this.dollyDelay = 0;
+      this.dist = CAM_DIST;
+      this.dive = 0;
+      return;
+    }
+    if (this.dollyDelay > 0) {
+      // The reveal: the dolly waits for the dive to land.
+      this.dollyDelay -= step;
+      this.dist = CAM_DIST;
+    } else if (this.dollyT >= 0) {
+      this.dollyT += step;
+      const t = this.dollyT;
+      const inOut = (u: number) => (u < 0.5 ? 4 * u * u * u : 1 - (-2 * u + 2) ** 3 / 2);
+      let k: number;
+      if (t < DOLLY_IN_S) k = inOut(t / DOLLY_IN_S);
+      else if (t < DOLLY_IN_S + this.dollyHold) k = 1;
+      else if (t < DOLLY_IN_S + this.dollyHold + DOLLY_OUT_S) k = 1 - inOut((t - DOLLY_IN_S - this.dollyHold) / DOLLY_OUT_S);
+      else {
+        k = 0;
+        this.dollyT = -1;
+      }
+      this.dist = CAM_DIST + (DOLLY_DIST - CAM_DIST) * k;
+    } else this.dist = CAM_DIST;
+    if (this.diveT >= 0) {
+      this.diveT += step;
+      const t = this.diveT;
+      const back = DIVE_LAND_S + 0.1 + DOLLY_IN_S + this.dollyHold;
+      if (t < DIVE_START_S) this.dive = 0;
+      else if (t < DIVE_LAND_S) {
+        const u = (t - DIVE_START_S) / (DIVE_LAND_S - DIVE_START_S);
+        this.dive = -this.diveM * u * u;
+      } else if (t < back) {
+        if (this.dive !== -this.diveM && t - step < DIVE_LAND_S) {
+          this.addTrauma(DIVE_TRAUMA);
+          this.landed = 'dive';
+        }
+        // The landing's 0.18 m overshoot, damped.
+        const u = t - DIVE_LAND_S;
+        this.dive = -this.diveM - 0.18 * Math.exp(-u * 7) * Math.sin(u * 18);
+      } else if (t < back + DOLLY_OUT_S) {
+        const u = (t - back) / DOLLY_OUT_S;
+        this.dive = -this.diveM * (1 - u * u * (3 - 2 * u));
+      } else {
+        this.dive = 0;
+        this.diveT = -1;
+      }
+    }
+  }
+
+  /** The Vista dolly now (no-op under Reduced motion, where callers crossfade). */
+  startDolly(hold = DOLLY_HOLD_S): void {
+    // The biome reveal's dive owns its dolly (it follows the landing): a ceremony asking for one meanwhile is the same shot.
+    if (this.motion.reduced || this.diveT >= 0) return;
+    this.dollyHold = hold;
+    this.dollyDelay = 0;
+    if (this.dollyT < 0 || this.dollyT > DOLLY_IN_S) this.dollyT = 0;
+  }
+
+  /** The biome reveal's camera (SPEC §10.8): the dive `metres` into the hall (120-600 ms), the landing, the dolly out and back. */
+  startReveal(metres = 8): void {
+    if (this.motion.reduced) return;
+    this.diveM = Math.min(14, Math.max(6, metres));
+    this.diveT = 0;
+    this.dollyHold = 1.2;
+    this.dollyT = 0;
+    this.dollyDelay = DIVE_LAND_S + 0.1;
+  }
+
+  /** The dolly or the reveal is running. */
+  get shot(): boolean {
+    return this.dollyT >= 0 || this.diveT >= 0;
+  }
+
+  /** The breakthrough fall is running. */
+  get falling(): boolean {
+    return this.fallT >= 0;
+  }
+
+  /** Distance from the eye to the cut plane now (12.6 m at rest, 24 m at the dolly's peak). */
+  get distance(): number {
+    return this.dist;
   }
 
   pxPerMetre(): number {
@@ -325,13 +496,13 @@ export class DescentCamera {
   private eye(out: THREE.Vector3): number {
     const m = Math.min(1, Math.max(0, this.menu.x));
     const ppm = this.pxPerMetre();
-    // Play: the eye 3 m above the followed floor; the floor edge at floorTargetPx.
-    const playEyeY = this.follow.x + EYE_ABOVE_FLOOR + this.bob;
+    // Play: the eye 3 m above the followed floor (and the reveal's dive); the floor edge at floorTargetPx.
+    const playEyeY = this.follow.x + EYE_ABOVE_FLOOR + this.dive;
     const playLine = this.floorTargetPx() - EYE_ABOVE_FLOOR * ppm;
     // Menu: the eye 6 m above the ground (y = 0), the shaft mouth at 62 % of the screen height.
-    const menuEyeY = MENU_EYE + this.bob;
+    const menuEyeY = MENU_EYE;
     const menuLine = MENU_MOUTH_FRACTION * this.layout.height - MENU_EYE * ppm;
-    out.set(SHAFT_CX, playEyeY + (menuEyeY - playEyeY) * m, CUT_Z + CAM_DIST);
+    out.set(SHAFT_CX, playEyeY + (menuEyeY - playEyeY) * m, CUT_Z + this.dist);
     return playLine + (menuLine - playLine) * m;
   }
 
@@ -342,19 +513,24 @@ export class DescentCamera {
   apply(cam: THREE.PerspectiveCamera, shaken = true): void {
     const line = this.eye(cam.position);
     const { width, height } = this.layout;
-    const ppm = this.pxPerMetre();
+    // The dolly keeps the angular field: the window at the cut grows with the distance (16.9 m wide at 24 m).
+    const ppm = this.pxPerMetre() * (CAM_DIST / this.dist);
+    // The life sway and bob move the eye; the window moves back by the same amount, so the cut plane stays put
+    // (rest pose included: picking and the column strips never drift) and only what lies behind it parallaxes.
+    cam.position.x += this.sway;
+    cam.position.y += this.bob;
     // The window at the cut plane, in metres relative to the eye (+y up), shifted by kick and shake.
-    let ox = 0;
-    let oy = 0;
+    let ox = this.sway;
+    let oy = this.bob;
     if (shaken) {
-      ox = this.kickX.x + this.shakeX;
-      oy = this.kickY.x + this.shakeY;
+      ox += this.kickX.x + this.shakeX;
+      oy += this.kickY.x + this.shakeY;
     }
     const halfW = width / ppm / 2;
     const top = line / ppm;
     const bottom = -(height - line) / ppm;
     // The world image moves by (ox, oy): the window moves the other way.
-    const k = NEAR / CAM_DIST;
+    const k = NEAR / this.dist;
     cam.near = NEAR;
     cam.far = FAR;
     cam.aspect = width / height;
@@ -407,6 +583,6 @@ export class DescentCamera {
 
   /** True when the camera is at its rest pose (Reduced motion: every frame). */
   atRest(): boolean {
-    return this.trauma === 0 && this.kickX.x === 0 && this.kickY.x === 0 && this.yaw === 0 && this.roll === 0 && this.follow.x === this.follow.target;
+    return this.trauma === 0 && this.kickX.x === 0 && this.kickY.x === 0 && this.yaw === 0 && this.roll === 0 && this.follow.x === this.follow.target && this.dist === CAM_DIST && this.dive === 0;
   }
 }

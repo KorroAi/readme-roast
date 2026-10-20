@@ -10,6 +10,14 @@
 //                            [--taps 200] [--outDir dist] [--dev 1]
 // Spots: the descent at 0, 20, 60 and 150 m (Topsoil, the first marks, Halden Works, the Grotto), each sampled
 // still and during 5 taps/s on the floor (real CDP touches).
+//
+// The GPU cost model (W2 §5 MUST 1, CRITIQUE B16; owner 2D): SwiftShader cannot time a phone GPU, so the frame's
+// passes (window.__DD__.render.passes(): pixels written, texture fetches and ALU per pixel) are scaled to the
+// reference device (390 x 844 at DPR 2.75, capped by the preset's composite DPR) and priced with a mid-range
+// 2022 GPU's throughput (Adreno 642L / Mali-G68 class: ~0.057 ns per bilinear fetch, ~0.0024 ns per ALU op,
+// ~0.16 ns per 4 bytes written). The tool fails (exit 1) when a pass group exceeds SPEC §11.6: bloom 1.0 ms,
+// composite (resolve + FXAA + the native final) 1.9 ms (1.6 + the 0.3 ms CRITIQUE B13 granted FXAA), the
+// terrain estimate 4.5 ms, the whole modelled frame 12 ms, or the GPU memory estimate 80 MB (CRITIQUE B SHOULD 8).
 import { chromium } from '@playwright/test';
 import { createServer, preview } from 'vite';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -92,7 +100,40 @@ const sample = (seconds) => page.evaluate(async (s) => {
   };
 }, seconds);
 
-const results = { quality: opt.quality, viewport: opt.size, bootToFirstTapMs: bootMs, programs: { boot: programs0, end: 0 }, spots: {}, heap: null, errors };
+// ---- The GPU cost model ----
+const REF_DPR = 2.75;
+const NS = { fetch: 0.057, alu: 0.0024, write4: 0.16 };
+const BUDGET = { bloom: 1.0, composite: 1.9, terrain: 4.5, frame: 12, memoryMB: 80 };
+const gpuModel = await page.evaluate(() => {
+  const r = window.__DD__.render;
+  return { passes: r.passes(), dpr: r.dpr(), scale: r.scale(), memoryBytes: r.memoryBytes(), quality: r.quality() };
+});
+const CAPS = { battery: 2, balanced: 2.25, high: 3 };
+const refDpr = Math.min(REF_DPR, CAPS[gpuModel.quality] ?? 2.25);
+const k = (refDpr / gpuModel.dpr) ** 2;
+const priced = gpuModel.passes.map((p) => {
+  const px = p.px * k;
+  const bytes = p.name === 'bright' || p.name === 'down' || p.name === 'up' ? 8 : 4;
+  const ms = (px * (p.fetches * NS.fetch + p.alu * NS.alu + (bytes / 4) * NS.write4)) / 1e6;
+  return { ...p, px: Math.round(px), ms: +ms.toFixed(3) };
+});
+// The terrain estimate: about 80 % of the scene's pixels are terrain, at 1.6x overdraw, the HD section path
+// costing ~8 fetches and ~200 ALU per pixel (look.ts: 3 noise + 2 params + ramp + light + lantern; the patterns).
+const scenePx = (gpuModel.passes.find((p) => p.name === 'resolve')?.px ?? 0) * k;
+const terrainMs = (scenePx * 0.8 * 1.6 * (8 * NS.fetch + 200 * NS.alu + 2 * NS.write4)) / 1e6;
+const sum = (names) => priced.filter((p) => names.includes(p.name)).reduce((a, p) => a + p.ms, 0);
+const groups = { bloom: +sum(['bright', 'down', 'up']).toFixed(3), composite: +sum(['resolve', 'fxaa', 'final']).toFixed(3), terrain: +terrainMs.toFixed(3) };
+// Opaque besides terrain (props, crew, structures) and the transparent effects at their SPEC budgets.
+const frameMs = +(groups.bloom + groups.composite + groups.terrain + 2.0 + 1.2 + 0.8).toFixed(2);
+const memMB = +((gpuModel.memoryBytes * k) / 1048576 + 2.6 + 0.66 + 4.3 + 0.13 + 4 + 4).toFixed(1);
+const over = Object.entries(groups).filter(([g, v]) => v > BUDGET[g]).map(([g]) => g);
+if (frameMs > BUDGET.frame) over.push('frame');
+if (memMB > BUDGET.memoryMB) over.push('memory');
+const gpu = { refDpr, scale: gpuModel.scale, passes: priced, groups, frameMs, memoryMB: memMB, budget: BUDGET, over };
+console.log('gpu model', JSON.stringify({ refDpr, scale: gpuModel.scale, groups, frameMs, memoryMB: memMB, over }));
+for (const p of priced) console.log(`  ${p.name.padEnd(8)} ${String(p.px).padStart(8)} px  ${p.ms.toFixed(3)} ms`);
+
+const results = { quality: opt.quality, viewport: opt.size, bootToFirstTapMs: bootMs, programs: { boot: programs0, end: 0 }, gpu, spots: {}, heap: null, errors };
 for (const depth of [0, 20, 60, 150]) {
   if (depth > 0) await page.evaluate((d) => window.__DD__.idle.setDepth(d), depth);
   // Let the slabs and the light settle.
@@ -137,3 +178,7 @@ writeFileSync(opt.out, JSON.stringify(results, null, 2));
 console.log(`wrote ${opt.out}`);
 await browser.close();
 await server.close();
+if (over.length) {
+  console.log(`perf: the GPU cost model is over SPEC §11.6 in: ${over.join(', ')}`);
+  process.exitCode = 1;
+}

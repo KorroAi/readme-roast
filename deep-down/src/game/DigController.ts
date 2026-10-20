@@ -36,6 +36,8 @@ export interface TapRecord {
 }
 
 const RECORDS = 256;
+/** Entity ids the model routes (W2.md seam 5). */
+const MODEL_ID = /^(crystal|gem|fossil|crate|note|cache|creature|event|lantern|weak|chest|moth|find|widget):/;
 
 export class DigController {
   readonly cap = new TapCap();
@@ -83,6 +85,13 @@ export class DigController {
     if (entity) t.entity = entity;
     else delete t.entity;
     this.taps.push(t);
+  }
+
+  /** A tap the UI resolved itself (a Pick card, the Strike dial): straight to the model as an entity tap. */
+  entityTap(id: string, frame: number): void {
+    this.modelTap(-1, 'tap', id);
+    if (this.records.length >= RECORDS) this.records.shift();
+    this.records.push({ x: -1, y: -1, col: -1, raw: -1, row: -1, kind: 'tap', counted: true, entity: id, t: performance.now(), frame });
   }
 
   /** Start a frame: recycle last frame's taps. */
@@ -148,6 +157,9 @@ export class DigController {
    * clusters (B's props, `taps` hits each) become the model's `crystal:<n>` on their last hit.
    */
   private propEntity(p: PickedEntity, strips: { left: number; right: number }): string | null {
+    // W2.md seam 5: the scene's tappables carry the model's ids; they go to the model as they are (it counts the hits
+    // of multi-tap entities and answers with entity:hit / entity:done).
+    if (MODEL_ID.test(p.id)) return p.id;
     if (p.kind !== 'crystal') return null;
     const hits = (this.propHits.get(p.id) ?? 0) + 1;
     this.propHits.set(p.id, hits);

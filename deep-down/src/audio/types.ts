@@ -9,6 +9,16 @@ export interface AudioWorldState {
   /** 0..1, the camp fire at the surface. */
   nearFire: number;
   inMenu: boolean;
+  /** The biome index (its mode and tempo, SPEC §6.5); undefined keeps the depth bands. */
+  biome?: number;
+  /** The biome's music (mode, root, bpm). */
+  music?: { mode: string; root: string; bpm: number };
+  /** 0..1: the drum layer's target (combo ≥ 25, a Surge, an event, the Plunge). */
+  drums?: number;
+  /** 0..1: the boss layer's target (a Warden fight). */
+  boss?: number;
+  /** A tap in the last 5 s: the pluck melody plays (SPEC §10.10). */
+  plucks?: boolean;
 }
 
 /** Volume sliders, each 0..1. */

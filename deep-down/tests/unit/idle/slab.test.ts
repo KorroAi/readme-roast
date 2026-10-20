@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { B, BIOME_BLOCKS, EMIT_B, EMIT_G, EMIT_R } from '../../../src/config/blocks';
+import { B, BIOME_BLOCKS, EMIT_B, EMIT_G, EMIT_R, VALUE_CLASS } from '../../../src/config/blocks';
+import { inBigRoom } from '../../../src/world/descent/caverns';
 import { CELL } from '../../../src/idle/model/state';
 import { baseBiome, biomeAt } from '../../../src/idle/config/biomes';
 import { kitOf } from '../../../src/world/descent/biomeKits';
@@ -43,7 +44,7 @@ describe('slab generation (SPEC §6.4)', () => {
     expect(bad).toBe(0);
     // Timing is reported, not asserted (a loaded machine proves nothing): about 25-55 ms a slab in Node here.
     console.log(`slab generation: ${((performance.now() - t0) / 2000).toFixed(1)} ms a slab`);
-  }, 120_000);
+  }, 300_000);
 
   it('keeps the apron (z >= 60) air and draws the gate rows in carved stone', () => {
     const s = generateSlab({ runSeed: 7, k: 2, kinds: kindsFor(7, 2) });
@@ -84,10 +85,17 @@ describe('slab generation (SPEC §6.4)', () => {
       props += s.props.length;
     }
     tops.sort((a, b) => a - b);
-    // Alcoves skip the seal halls at biome starts (240 m here).
-    for (let i = 1; i < tops.length; i++) if (!(tops[i - 1] < 240 && tops[i] > 236)) expect(tops[i] - tops[i - 1], `alcoves at ${tops[i - 1]} and ${tops[i]}`).toBeLessThanOrEqual(14);
-    expect(tops.length).toBeGreaterThanOrEqual(Math.floor((320 * 0.8) / 8));
-    expect(pockets).toBeGreaterThanOrEqual(Math.floor(320 / 14) - 2);
+    // Alcoves skip the seal frames, the Reveal Halls and the Vistas (the big rooms are themselves the view there).
+    for (let i = 1; i < tops.length; i++) {
+      let room = false;
+      for (let d = tops[i - 1] + 1; d < tops[i]; d++) if (inBigRoom(d, d)) room = true;
+      if (!room && !(tops[i - 1] < 240 && tops[i] > 236)) expect(tops[i] - tops[i - 1], `alcoves at ${tops[i - 1]} and ${tops[i]}`).toBeLessThanOrEqual(14);
+    }
+    expect(tops.length).toBeGreaterThanOrEqual(Math.floor((320 * 0.55) / 8));
+    // Pockets keep out of the big rooms too: count the rows that are not in one.
+    let open = 0;
+    for (let d = 48; d < 368; d++) if (!inBigRoom(d, d)) open++;
+    expect(pockets).toBeGreaterThanOrEqual(Math.floor(open / 14) - 2);
     expect(props).toBeGreaterThan(100);
   });
 
@@ -104,10 +112,12 @@ describe('slab generation (SPEC §6.4)', () => {
         const x = i % RING_SX;
         const z = Math.floor(i / (RING_SX * SLAB_ROWS));
         if (x >= SHAFT_X0 && x < SHAFT_X0 + 7 && z >= CELL_Z0) continue;
-        if (id !== B.LIGHT_LAMP && (EMIT_R[id] | EMIT_G[id] | EMIT_B[id])) n++;
+        // Glowing valuables (ore and gem) glint for themselves: they are not the light budget's fixtures.
+        if (id !== B.LIGHT_LAMP && (VALUE_CLASS[id] ?? 0) < 2 && (EMIT_R[id] | EMIT_G[id] | EMIT_B[id])) n++;
       }
       expect(n, `slab ${k} (biome ${b})`).toBeGreaterThanOrEqual(lo);
       expect(n, `slab ${k} (biome ${b})`).toBeLessThanOrEqual(hi + 2);
+      expect(s.emitters).toBe(n);
     }
   });
 

@@ -135,4 +135,67 @@ describe('DescentCamera (SPEC §6.3)', () => {
     for (let i = 0; i < 30; i++) b.step(1 / 30);
     expect(a.x).toBeCloseTo(b.x, 9);
   });
+
+  it('W2 life sway moves the eye, not the cut: the cut plane stays within 1 px while the back of a cavern drifts', () => {
+    const c = cam(390, 844, 173, 610);
+    c.motion = { reduced: false, life: true, shake: 1 };
+    const p = new THREE.PerspectiveCamera();
+    const at = (x: number, y: number, z: number) => {
+      c.apply(p, false);
+      p.updateMatrixWorld(true);
+      const v = new THREE.Vector3(x, y, z).project(p);
+      return { x: (v.x * 0.5 + 0.5) * 390, y: (0.5 - v.y * 0.5) * 844 };
+    };
+    const cut0 = at(SHAFT_X0 + 3.5, -20, CUT_Z);
+    const far0 = at(SHAFT_X0 + 3.5, -20, CUT_Z - 30);
+    let cutMax = 0;
+    let farMax = 0;
+    for (let i = 0; i < 60 * 12; i++) {
+      c.update(1 / 60);
+      const a = at(SHAFT_X0 + 3.5, -20, CUT_Z);
+      const b = at(SHAFT_X0 + 3.5, -20, CUT_Z - 30);
+      cutMax = Math.max(cutMax, Math.hypot(a.x - cut0.x, a.y - cut0.y));
+      farMax = Math.max(farMax, Math.hypot(b.x - far0.x, b.y - far0.y));
+    }
+    expect(cutMax).toBeLessThanOrEqual(1);
+    expect(farMax).toBeGreaterThan(2);
+  });
+
+  it('W2 breakthrough fall: a drop of more than 3 rows falls (hold, accelerate, land with an overshoot) and reports the landing', () => {
+    const c = cam(390, 844, 173, 610, 20);
+    c.setFloor(40);
+    expect(c.falling).toBe(true);
+    let landed = '';
+    let t = 0;
+    let minY = Infinity;
+    for (; t < 4 && !landed; t += 1 / 60) {
+      c.update(1 / 60);
+      minY = Math.min(minY, c.followY);
+      if (c.landed) landed = c.landed;
+    }
+    expect(landed).toBe('fall');
+    expect(t).toBeGreaterThan(0.25);
+    expect(t).toBeLessThan(2);
+    // A one-row step is not a fall.
+    c.setFloor(41);
+    expect(c.falling).toBe(false);
+  });
+
+  it('W2 Vista dolly: the camera backs out to 24 m and returns to the 12.6 m shot; Reduced motion skips it', () => {
+    const c = cam(390, 844, 173, 610, 20);
+    const d0 = c.distance;
+    c.startDolly();
+    let far = 0;
+    for (let i = 0; i < 60 * 5; i++) {
+      c.update(1 / 60);
+      far = Math.max(far, c.distance);
+    }
+    expect(far).toBeGreaterThan(23);
+    expect(c.distance).toBeCloseTo(d0, 3);
+    const r = cam(390, 844, 173, 610, 20);
+    r.motion = { reduced: true, life: false, shake: 1 };
+    r.startDolly();
+    r.update(1);
+    expect(r.distance).toBeCloseTo(d0, 6);
+  });
 });

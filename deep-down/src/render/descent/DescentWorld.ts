@@ -3,9 +3,12 @@ import { B, BLOCKS, SOLID } from '../../config/blocks';
 import { LightField, LanternField } from '../../world/light';
 import { DEAD, RING_SX, RING_SY, RING_SZ, RingWorld, SLAB_ROWS, SLOTS, slotOfSlab, storageRow } from '../../world/descent/RingWorld';
 import { SlabLoader } from '../../world/descent/slabLoader';
-import { CONTEXT_ROWS } from '../../world/descent/slabLight';
+import { CONTEXT_ROWS, OPEN_CONTEXT_ROWS } from '../../world/descent/slabLight';
 import type { SlabResult } from '../../world/descent/slabWorker';
-import { CELL_Z0, CELL_Z1, SHAFT_X0 } from '../../world/descent/slab';
+import type { SlabData, VistaSpot } from '../../world/descent/slab';
+import { CELL_Z0, CELL_Z1, SHAFT_X0, cellBlock, isHost } from '../../world/descent/slab';
+import { kitOf } from '../../world/descent/biomeKits';
+import { baseBiome, biomeAt } from '../../idle/config/biomes';
 import type { PropSpec } from '../props/types';
 import { ChunkRenderer } from '../ChunkRenderer';
 import { LightingRig } from '../lighting';
@@ -13,6 +16,7 @@ import { TerrainRig } from '../terrainRig';
 import { createTerrainMaterial, createTileTexture } from '../terrainMaterial';
 import { generateTiles } from '../textures';
 import { PropRenderer } from '../props/PropRenderer';
+import { CavernProps } from './CavernProps';
 
 /** The shaft cell kinds of slab k (16 rows x 7, CELL values; AIR where dug or broken). */
 export type KindsFor = (k: number) => Uint8Array;
@@ -35,11 +39,19 @@ export class DescentWorld {
   readonly material: THREE.ShaderMaterial;
   readonly chunks: ChunkRenderer;
   readonly props: PropRenderer;
+  /** Static dressing merged per slab (2 draws a slab, P1). */
+  readonly cavernProps: CavernProps;
   readonly loader: SlabLoader;
   readonly group = new THREE.Group();
   /** Live props by id, and per slab. */
   readonly liveProps = new Map<string, PropSpec>();
   private readonly slabProps = new Map<number, string[]>();
+  /** Each live slab's generated extras (creatures, motes, liquids, vistas). */
+  readonly slabData = new Map<number, SlabData>();
+  /** A slab's extras arrived / left (DescentScene adds and drops its creatures and liquids). */
+  onSlab: (k: number, slab: SlabData) => void = () => {};
+  onDrop: (k: number, slab: SlabData | undefined) => void = () => {};
+  private readonly openVistas = new Set<string>();
   private runSeed = 1;
   private first = 0;
   private last = -1;
@@ -60,8 +72,10 @@ export class DescentWorld {
     this.chunks.viewDistance = 400;
     this.props = new PropRenderer(this.rig.uniforms);
     this.props.viewDistance = 120;
+    this.cavernProps = new CavernProps(this.rig.uniforms);
     this.loader = new SlabLoader();
-    this.group.add(this.chunks.group, this.props.group);
+    this.group.name = 'world';
+    this.group.add(this.chunks.group, this.props.group, this.cavernProps.group);
   }
 
   get window(): { first: number; last: number } {
@@ -88,8 +102,9 @@ export class DescentWorld {
     const t0 = performance.now();
     for (let k = first; k <= last; k++) {
       const r = this.loader.buildNow(runSeed, k, kindsFor(k), new Uint8Array(SLAB_BYTES * 2));
-      this.ring.writeSlab(k, r.slab.blocks);
+      this.ring.writeSlab(k, r.slab.blocks, r.slab.openBack);
       this.addProps(k, r.slab.props);
+      this.addExtras(k, r.slab);
     }
     this.stats.slabMs = performance.now() - t0;
     const t1 = performance.now();
@@ -175,16 +190,20 @@ export class DescentWorld {
     this.requested.delete(k);
     const slot = slotOfSlab(k);
     if (this.ring.slotSlab[slot] !== DEAD) return;
-    this.ring.writeSlab(k, r.slab.blocks);
+    this.ring.writeSlab(k, r.slab.blocks, r.slab.openBack);
     this.chunks.markStale(slot);
     const y0 = slot * SLAB_ROWS;
     this.light.writeRows(r.light, y0, SLAB_ROWS);
     this.light.mergeMaxRows(r.contextLight, y0 + SLAB_ROWS, CONTEXT_ROWS);
-    // The openness band and the props follow on the next frames (the slab apply budget, P4): the slab is
-    // 96 m below the floor, so nobody sees it for seconds.
-    this.deferred.push(() => this.light.computeOpennessRows(y0 - 8, SLAB_ROWS + 16));
+    // The openness band came from the worker (exact when the slot below is the dead bedrock slot, as it is for
+    // the window's newest slab); otherwise it is recomputed on a later frame (the slab apply budget, P4).
+    if (this.ring.slotSlab[slotOfSlab(k + 1)] === DEAD) this.light.writeOpenRows(r.contextOpen, y0 + SLAB_ROWS, OPEN_CONTEXT_ROWS);
+    else this.deferred.push(() => this.light.computeOpennessRows(y0 - 8, SLAB_ROWS + 16));
     this.deferred.push(() => {
-      if (this.ring.hasSlab(k)) this.addProps(k, r.slab.props);
+      if (this.ring.hasSlab(k)) {
+        this.addProps(k, r.slab.props);
+        this.addExtras(k, r.slab);
+      }
     });
     const ms = performance.now() - t0;
     this.stats.applied++;
@@ -201,6 +220,12 @@ export class DescentWorld {
       this.liveProps.delete(id);
     }
     this.slabProps.delete(k);
+    this.cavernProps.dropSlab(k);
+    this.cavernProps.drop(`t${k}`);
+    this.slabTaps.delete(k);
+    const data = this.slabData.get(k);
+    this.slabData.delete(k);
+    this.onDrop(k, data);
     if (this.ring.slotSlab[slot] !== k) return;
     const t0 = performance.now();
     this.ring.killSlot(slot);
@@ -218,14 +243,80 @@ export class DescentWorld {
     this.stats.maxKillMs = Math.max(this.stats.maxKillMs, ms);
   }
 
+  /** Taken harvests (tappables already used this run): a regenerated slab skips them. */
+  taken: (id: string) => boolean = () => false;
+
+  /** Each slab's live tappables (their own batch, rebuilt when one is used up). */
+  private readonly slabTaps = new Map<number, PropSpec[]>();
+
   private addProps(k: number, specs: readonly PropSpec[]): void {
     const ids: string[] = [];
+    const batch: PropSpec[] = [];
+    const taps: PropSpec[] = [];
     for (const spec of specs) {
+      if (CavernProps.batchable(spec)) {
+        batch.push(spec);
+        continue;
+      }
+      if (this.taken(spec.id)) continue;
       this.liveProps.set(spec.id, spec);
-      this.props.add(spec);
+      taps.push(spec);
       ids.push(spec.id);
     }
+    // Tappables are batched too (2 draws a slab, P1); the batch is rebuilt when one leaves.
+    this.cavernProps.setSlab(k, batch);
+    this.cavernProps.setBatch(`t${k}`, taps);
+    this.slabTaps.set(k, taps);
     this.slabProps.set(k, ids);
+  }
+
+  private addExtras(k: number, slab: SlabData): void {
+    this.slabData.set(k, slab);
+    this.onSlab(k, slab);
+  }
+
+  /**
+   * The Vistas and Reveal Halls whose rows are near the floor: `cb(o, true)` once as one comes within 30 m, `cb(o,
+   * false)` once it is 40 m behind (W2.md §3.3: 2D's VistaBackdrop shows its layers behind the opened back wall).
+   */
+  vistaCheck(floor: number, cb: (o: { id: string; biome: number; y0: number; y1: number; x0: number; x1: number }, enter: boolean) => void, inside?: (id: string) => void): void {
+    if (inside)
+      for (const data of this.slabData.values()) for (const v of data.vistas) if (floor >= v.top + 2 && floor <= v.bottom - 4) inside(v.id);
+    for (const data of this.slabData.values())
+      for (const v of data.vistas) {
+        const near = floor >= v.top - 30 && floor <= v.bottom + 40;
+        if (near && !this.openVistas.has(v.id)) {
+          this.openVistas.add(v.id);
+          cb(vistaOpening(v), true);
+        }
+      }
+    for (const id of [...this.openVistas]) {
+      let v: VistaSpot | null = null;
+      for (const data of this.slabData.values()) for (const w of data.vistas) if (w.id === id) v = w;
+      if (!v || floor < v.top - 30 || floor > v.bottom + 40) {
+        this.openVistas.delete(id);
+        cb(v ? vistaOpening(v) : { id, biome: 0, y0: 0, y1: 0, x0: 0, x1: 0 }, false);
+      }
+    }
+  }
+
+  /** Repaint shaft cells the model changed (`cells:change`): their voxels take the new kind's block. @returns any changed. */
+  repaintCells(cells: ReadonlyArray<{ depth: number; col: number; kind: number }>): boolean {
+    let any = false;
+    for (const c of cells) {
+      const x = SHAFT_X0 + c.col;
+      const y = -c.depth - 1;
+      const kit = kitOf(baseBiome(biomeAt(c.depth)));
+      for (let z = CELL_Z0; z <= CELL_Z1; z++) {
+        const old = this.ring.get(x, y, z);
+        if (old === B.AIR) continue;
+        const id = cellBlock(c.kind, isHost(old) ? old : kit.hostA, kit);
+        if (id === B.AIR || id === old) continue;
+        this.setVoxel(x, y, z, id);
+        any = true;
+      }
+    }
+    return any;
   }
 
   /** Remove a prop (a tappable used up). Its emitters go dark. */
@@ -234,6 +325,13 @@ export class DescentWorld {
     if (!spec) return;
     this.liveProps.delete(id);
     this.props.remove(id);
+    for (const [k, taps] of this.slabTaps) {
+      const i = taps.indexOf(spec);
+      if (i < 0) continue;
+      taps.splice(i, 1);
+      this.cavernProps.setBatch(`t${k}`, taps);
+      break;
+    }
     for (const [x, y, z] of spec.emitters) if (this.ring.get(x, y, z) === B.LIGHT_LAMP) this.setVoxel(x, y, z, B.AIR);
   }
 
@@ -278,6 +376,23 @@ export class DescentWorld {
         const sy = Math.floor(rem / RING_SX);
         this.light.onBlockChanged(rem - sy * RING_SX, sy, z, B.SLATE);
       }
+    // Openness equals a fresh compute after every break (W2 MUST 0): an exact local recompute around the cells.
+    if (cells.length) {
+      let r0 = Infinity;
+      let r1 = -Infinity;
+      let c0 = 7;
+      let c1 = -1;
+      for (const c of cells) {
+        r0 = Math.min(r0, c.row);
+        r1 = Math.max(r1, c.row);
+        c0 = Math.min(c0, c.col);
+        c1 = Math.max(c1, c.col);
+      }
+      if (r1 - r0 < 48) {
+        const yTop = storageRow(-r0 - 1 + 7);
+        this.light.computeOpennessBox(SHAFT_X0 + c0 - 7, SHAFT_X0 + c1 + 7, yTop - (r1 - r0) - 14, yTop, CELL_Z0 - 7, RING_SZ - 1);
+      }
+    }
     return ids;
   }
 
@@ -290,28 +405,36 @@ export class DescentWorld {
     return this.chunks.missing(rows);
   }
 
-  /** Debug: light texels (RGB) that differ from a fresh compute of the live window. */
-  lightCheck(): { checked: number; mismatched: number; maxDiff: number } {
+  /** Debug: light texels (RGB) and openness texels (A) that differ from a fresh compute of the live window. */
+  lightCheck(): { checked: number; mismatched: number; maxDiff: number; openMismatched: number; openMaxDiff: number } {
     const fresh = new LightField(this.ring, undefined, { wrapY: true });
     fresh.computeAll();
     const a = this.light.data;
     const b = fresh.data;
     let mismatched = 0;
     let maxDiff = 0;
+    let openMismatched = 0;
+    let openMaxDiff = 0;
     for (let i = 0; i < a.length; i += 4) {
       const d = Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2]));
       if (d) {
         mismatched++;
         if (d > maxDiff) maxDiff = d;
       }
+      const o = Math.abs(a[i + 3] - b[i + 3]);
+      if (o) {
+        openMismatched++;
+        if (o > openMaxDiff) openMaxDiff = o;
+      }
     }
-    return { checked: a.length / 4, mismatched, maxDiff };
+    return { checked: a.length / 4, mismatched, maxDiff, openMismatched, openMaxDiff };
   }
 
   dispose(): void {
     this.loader.dispose();
     this.chunks.dispose();
     this.props.dispose();
+    this.cavernProps.dispose();
     this.rig.dispose();
     this.terrain.dispose();
     this.material.dispose();
@@ -319,3 +442,5 @@ export class DescentWorld {
 }
 
 const isEmitter = (id: number) => BLOCKS[id]?.emission != null;
+
+const vistaOpening = (v: VistaSpot) => ({ id: v.id, biome: v.biome, y0: -v.top, y1: -v.bottom - 1, x0: v.x0, x1: v.x1 + 1 });

@@ -31,6 +31,8 @@
 .dd-feast-plate,
 .dd-rack,
 .dd-sealbar,
+.dd-guide-chip,
+.dd-facet-chip,
 .dd-mode {
   --cut: var(--oct-c);
   --fill: var(--plate);
@@ -66,19 +68,22 @@
 }
 
 /* The scrims: a 40 px gradient below the goal bar and above the quick-buy row (SPEC §9.1). */
+/* HUD weight ≤ 35 % of the screen at alpha ≥ 0.5 (W2.md §4, CRITIQUE SHOULD 10): the scrims are heavy only behind the
+   top bar's first row and from the quick-buy row down; the goal bar and the skill row are glass over the world. */
 .dd-scrim-top {
   left: 0;
   right: 0;
   top: 0;
   height: calc(var(--region-top) + 24px);
-  background: linear-gradient(rgba(7, 10, 15, 0.85), rgba(7, 10, 15, 0.55) calc(100% - 40px), transparent);
+  /* Under half alpha below the status bar (CRITIQUE SHOULD 10: the plates carry their own fills, the HD world shows). */
+  background: linear-gradient(rgba(7, 10, 15, 0.62), rgba(7, 10, 15, 0.4) var(--gems-y), rgba(7, 10, 15, 0.16) calc(var(--goal-y) + var(--goal-h)), transparent);
 }
 .dd-scrim-bottom {
   left: 0;
   right: 0;
   top: calc(var(--skill-y) - 40px);
   bottom: 0;
-  background: linear-gradient(transparent, rgba(7, 10, 15, 0.55) 40px, rgba(7, 10, 15, 0.86) calc(var(--quick-y) - var(--skill-y) + 40px));
+  background: linear-gradient(transparent, rgba(7, 10, 15, 0.2) calc(40px + var(--skill-h)), rgba(7, 10, 15, 0.36) calc(var(--quick-y) - var(--skill-y) + 40px), rgba(7, 10, 15, 0.46) calc(var(--quick-y) - var(--skill-y) + 40px + var(--quick-h)), rgba(7, 10, 15, 0.48));
 }
 .dd-menu-mode .dd-hud,
 .dd-menu-mode .dd-sheets,
@@ -254,7 +259,9 @@
   height: var(--goal-h);
   --cut: 9px;
   --rim: var(--brass-500);
-  --fill: rgba(12, 17, 24, 0.8);
+  /* Glass (CRITIQUE SHOULD 10): alpha ≤ 0.45, the text carve-outlined, so the world shows through. */
+  --fill: rgba(12, 17, 24, 0.42);
+  --face: linear-gradient(rgba(255, 214, 150, 0.07), rgba(255, 214, 150, 0) 60%);
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -476,7 +483,7 @@
 }
 .dd-surge-track,
 .dd-surge-arc {
-  fill: rgba(7, 10, 15, 0.55);
+  fill: rgba(7, 10, 15, 0.4);
   stroke-width: 4;
 }
 .dd-surge-track {
@@ -527,6 +534,59 @@
   gap: 8px;
   flex: 1;
 }
+/* The Guide chip (CRITIQUE MUST 7): a 48 px "?" at the row's outer end; first-time cards are read again from here. */
+.dd-guide-chip {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  --cut: 10px;
+  --fill: rgba(7, 42, 51, 0.42);
+  --rim: var(--rune-400);
+  display: grid;
+  place-items: center;
+  margin-left: auto;
+}
+.dd-lefty .dd-guide-chip {
+  margin-left: 0;
+  margin-right: auto;
+}
+.dd-guide-q {
+  font: 800 22px/1 var(--font-lintel);
+  color: var(--rune-200);
+  text-shadow: var(--carve-text);
+}
+.dd-guide-chip.dot::after {
+  content: '';
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 9px;
+  height: 9px;
+  clip-path: polygon(30% 0, 70% 0, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0 70%, 0 30%);
+  background: var(--rune-200);
+  box-shadow: 0 0 8px rgba(143, 227, 238, 0.95);
+}
+.dd-guide-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.dd-guide-row {
+  padding: 10px 12px;
+  border-left: 3px solid var(--rune-400);
+  background: rgba(7, 42, 51, 0.35);
+}
+.dd-guide-title {
+  margin: 0 0 4px;
+  font: 700 15px/1.2 var(--font);
+  color: var(--rune-200);
+}
+.dd-guide-body {
+  margin: 0;
+  font: 500 14px/1.35 var(--font);
+  color: var(--bone-300);
+}
 .dd-lefty .dd-skills {
   justify-content: flex-end;
 }
@@ -535,10 +595,12 @@
   width: 52px;
   height: 52px;
   --cut: 10px;
-  --fill: rgba(12, 17, 24, 0.6);
+  /* Glass over the world (CRITIQUE SHOULD 10). */
+  --fill: rgba(12, 17, 24, 0.4);
+  --face: linear-gradient(rgba(255, 214, 150, 0.08), rgba(255, 214, 150, 0) 70%);
   display: grid;
   place-items: center;
-  opacity: 0.75;
+  opacity: 0.8;
 }
 .dd-skill.ready {
   --rim: var(--amber-400);
@@ -961,6 +1023,11 @@
   padding: 4px 10px 0;
   box-sizing: border-box;
   pointer-events: none;
+}
+.dd-tabs-bar[data-count='5'],
+.dd-tabs-bar[data-count='6'] {
+  gap: 4px;
+  padding: 4px 6px 0;
 }
 .dd-tab-btn {
   position: relative;
@@ -1412,75 +1479,6 @@
   .dd-feast-collect.breathe {
     animation: none !important;
   }
-}
-
-/* ----- Popped chests (W1: the HUD draws them on the floor ledge; taps go through to the world) ----------------- */
-.dd-chests {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-}
-.dd-chest-mark {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 44px;
-  height: 44px;
-  margin: -30px 0 0 -22px;
-  pointer-events: none;
-}
-.dd-chest-mark.hide {
-  display: none;
-}
-.dd-chest-bob {
-  position: absolute;
-  inset: 0;
-  display: block;
-  animation: dd-chest-bob 1.4s cubic-bezier(0.37, 0, 0.63, 1) infinite;
-  filter: drop-shadow(0 3px 2px rgba(0, 0, 0, 0.65)) drop-shadow(0 0 8px rgba(255, 196, 92, 0.55));
-}
-.dd-chest-ico {
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-.dd-chest-glint {
-  position: absolute;
-  left: 58%;
-  top: 30%;
-  width: 6px;
-  height: 6px;
-  background: #fff6d8;
-  clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%);
-  animation: dd-chest-glint 1.4s ease-in-out infinite;
-}
-@keyframes dd-chest-bob {
-  0%,
-  100% {
-    transform: translateY(0px);
-  }
-  50% {
-    transform: translateY(-5px);
-  }
-}
-@keyframes dd-chest-glint {
-  0%,
-  60%,
-  100% {
-    opacity: 0;
-    transform: scale(0.4);
-  }
-  75% {
-    opacity: 1;
-    transform: scale(1.2);
-  }
-}
-.dd-motion-off .dd-chest-bob,
-.dd-motion-reduced .dd-chest-bob,
-.dd-motion-off .dd-chest-glint,
-.dd-motion-reduced .dd-chest-glint {
-  animation: none;
 }
 
 /* A quick-buy slot with nothing to offer this moment (BEST is the Pick or the crew card): no empty frame. */

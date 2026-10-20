@@ -10,7 +10,7 @@ import { EventBus } from '../core/events';
 import { AudioSystem } from '../audio/AudioSystem';
 import type { SfxName } from '../audio/sfx';
 import { createIdleBus, type BuyMode, type IdleBus, type IdleEvents } from '../idle/bus';
-import { biomeAt, biomeDef, biomeStart, nextBiomeStart } from '../idle/config/biomes';
+import { biomeAt, biomeDef, nextBiomeStart } from '../idle/config/biomes';
 import { SKILLS } from '../idle/config/skills';
 import { openRack } from '../idle/model/chests';
 import { collectOffline, returnFromAway, advanceIdle } from '../idle/model/offline';
@@ -19,7 +19,7 @@ import { nextSealDepth, rowAt, rowKinds } from '../idle/model/shaft';
 import { cooldownLeft, useSkill } from '../idle/model/skills';
 import { COLS, type IdleState } from '../idle/model/state';
 import { createIdle, stepIdle, STEP_DT } from '../idle/model/step';
-import { comboMult } from '../idle/model/run';
+import { comboMult, surgeDuration } from '../idle/model/run';
 import { currentGoal } from '../idle/model/goals';
 import { guideTarget, currentStep } from '../idle/model/tutorial';
 import { sealTimeLeft } from '../idle/model/seals';
@@ -36,9 +36,13 @@ import { TOKENS_IN_FLIGHT } from '../ui/fx/FxCanvas';
 import { setUiMotion } from '../ui/fx/waapi';
 import { Haptics } from '../ui/haptics';
 import { tr } from '../ui/idle/Card';
+import { cardIcon } from '../ui/idle/icons';
+import { fireSurge } from '../idle/model/tap';
+import { ghostDepth } from '../idle/model/records';
 import type { RulerMark } from '../ui/idle/DepthRuler';
 import type { GuideTarget } from '../ui/idle/GhostHand';
 import type { HudModel } from '../ui/idle/Hud';
+import type { SealView } from '../ui/idle/SealHud';
 import { hudLayout } from '../ui/idle/layout';
 import type { SkillView } from '../ui/idle/SkillRow';
 import { TapSurface, holdRate, inReach, type TapInput } from '../ui/idle/TapSurface';
@@ -51,7 +55,30 @@ import { DigController, type UiEntity } from './DigController';
 import { FrameGuard } from './FrameGuard';
 import { CameraFx } from './fx/CameraFx';
 import { JuiceDirector } from './fx/JuiceDirector';
-import { installIdleSurface } from '../debug/idle';
+import { installIdleSurface, type IdleCeremonyView, type IdleWidgetView } from '../debug/idle';
+import { CeremonyDirector } from './fx/ceremonies/CeremonyDirector';
+import { WidgetHost } from '../ui/idle/widgets/WidgetHost';
+import type { WidgetSource } from '../ui/idle/widgets/types';
+import { widgetById } from '../idle/model/widgets';
+import { widgetTap } from '../idle/model/entities';
+import { highlighted as facetHighlighted, parseFacet, reroll as facetReroll } from '../idle/model/facets';
+import { facetDef, REROLL_GEMS, AUTO_PICK_S } from '../idle/config/facets';
+import { FacetHand } from '../ui/idle/FacetHand';
+import { CeremonyHost } from './fx/ceremonies/CeremonyHost';
+import { roman } from './fx/ceremonies/Feat';
+import { lanternEdge, TOOL_FORMS } from '../idle/config/gear';
+import type { CeremonyStage } from './fx/ceremonies/stage';
+import { BoardSheet } from '../ui/idle/sheets/BoardSheet';
+import { FeatsSheet } from '../ui/idle/sheets/FeatsSheet';
+import { CodexSheet } from '../ui/idle/sheets/CodexSheet';
+import { LanternSheet } from '../ui/idle/sheets/LanternSheet';
+import * as views from './views';
+import { rekindle as modelRekindle, rekindleGain, canRekindle } from '../idle/model/prestige';
+import { REKINDLE_HOLD } from '../idle/config/prestige';
+import { claimDaily } from '../idle/model/daily';
+import { rerollContract } from '../idle/model/contracts';
+import { rankNeed } from '../idle/config/rank';
+import type { SheetId } from '../ui/idle/Sheet';
 import { debugMutationsAllowed } from '../debug/DebugApi';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row) or the shell saw an error. */
@@ -123,8 +150,18 @@ export class IdleGame implements IdleShell, HudModel {
   haptics!: Haptics;
   cam!: CameraFx;
   juice!: JuiceDirector;
+  /** T3–T5 ceremonies under the ladder's rules (SPEC §10.2, §10.8). */
+  ceremonies!: CeremonyDirector;
   dig!: DigController;
   taps!: TapSurface;
+  /** The five widget UIs (SPEC §7.3). */
+  widgets!: WidgetHost;
+  /** The facet hand (SPEC §5.10). */
+  facets!: FacetHand;
+  /** Which ceremony each event plays (SPEC §10.8). */
+  ceremonyHost!: CeremonyHost;
+  /** Entity taps the UI resolved itself this frame (Pick cards, the Strike dial). */
+  private readonly uiTaps: string[] = [];
   readonly gold = new DisplayLedger<Big>(BIG_OPS, 64);
   readonly gems = new DisplayLedger<number>(NUMBER_OPS, 32);
   readonly frameGuard = new FrameGuard((err) => this.crash(err));
@@ -147,6 +184,8 @@ export class IdleGame implements IdleShell, HudModel {
   private fpsT = 0;
   private readonly downFrames: number[] = [];
   private readonly entities: UiEntity[] = [];
+  private readonly entitiesOut: UiEntity[] = [];
+  private readonly weakEntity: UiEntity = { id: '', x: 0, y: 0, r: 34 };
   private readonly rowScratch = new Uint8Array(COLS);
   private rowScratchDepth = -1;
   private lastBackgroundSave = -Infinity;
@@ -196,6 +235,8 @@ export class IdleGame implements IdleShell, HudModel {
     this.haptics = new Haptics(() => this.settings.vibration && this.settings.hapticStrength !== 'off' && this.mode === 'playing' && !document.hidden);
     this.scene = new DescentScene(this.renderer);
     await this.scene.attach(this.source());
+    // W2: the scene follows the model's world events itself (targets, chests, seals, lanterns, the reveal camera).
+    this.disposers.push(this.scene.bindBus(this.events));
     this.ui = new UI(this.uiRoot, this.actions(), this, {
       settings: { get: () => this.settings, set: (p) => this.updateSettings(p), drag: (p) => this.updateSettings(p) },
       toMenu: () => this.toMenu(),
@@ -224,6 +265,9 @@ export class IdleGame implements IdleShell, HudModel {
     });
     this.ui.applySettings(this.settings);
     this.cam = new CameraFx(this.renderer, this.scene);
+    this.ceremonies = new CeremonyDirector(this.cam.budget);
+    // Toasts and first-time cards share the plate under the goal bar: one at a time, each waits for the other.
+    this.ceremonies.toastBlock = () => this.ui.hud.first.visible;
     this.applySettings();
     const fx = this.ui.fx;
     fx.format = (b) => format(b);
@@ -262,17 +306,111 @@ export class IdleGame implements IdleShell, HudModel {
       cardName: (id) => this.cardName(id),
     });
     this.dig = new DigController(this.events, this.scene, () => this.state);
-    this.dig.entities = () => this.uiEntities();
+    this.widgets = new WidgetHost(this.widgetSource(), this.events);
+    this.ui.hud.mountCeremony(this.widgets.el);
+    this.facets = new FacetHand({
+      hand: () => this.state.hand,
+      highlighted: () => facetHighlighted(this.state),
+      tagCount: (tag) => this.state.run.facets.reduce((n, k) => n + (facetDef(parseFacet(k).id)?.tag === tag ? 1 : 0), 0),
+      reroll: () => {
+        const free = this.state.run.freeReroll || this.state.meta.rerolls > 0;
+        return { free, gems: REROLL_GEMS, can: free || this.state.meta.gems >= REROLL_GEMS };
+      },
+      autoIn: () => {
+        const h = this.state.hand;
+        return h && this.settings.autoFacets && this.state.meta.embersMax.toNumber() >= 250 ? AUTO_PICK_S - (this.state.time - h.at) : Number.NaN;
+      },
+      text: (key, params) => tr(key, params),
+      pick: (i) => this.uiTaps.push(`facet:${i}`),
+      doReroll: () => {
+        if (!facetReroll(this.state, this.events)) {
+          this.audio.ui('no');
+          this.haptics.play('no');
+        }
+      },
+    });
+    this.ui.hud.mountCeremony(this.facets.el);
+    this.ceremonyHost = new CeremonyHost(
+      {
+        bus: this.events,
+        stage: this.stage(),
+        director: this.ceremonies,
+        state: () => this.state,
+        chestPoint: (id) => {
+          const e = this.entities.find((x) => x.id === id);
+          return e ? { x: e.x, y: e.y } : null;
+        },
+        popRank: () => this.ui.hud.top.popRank(),
+        gearArrived: () => this.ui.hud.tabDot('dig', true),
+        toolName: (tier) => tr('idle.tool.tier', { tier }),
+        formName: (form) => (form < TOOL_FORMS.length ? tr(`idle.tool.${TOOL_FORMS[Math.max(0, form)].id}`) : tr('idle.tool.edge', { n: roman(lanternEdge(form)) })),
+      },
+      this.ui.hud.toastEl,
+    );
+    this.ui.hud.tabFocus = (id) => {
+      const f = this.ceremonyHost.lastFeat;
+      return id === 'feats' && performance.now() - f.at < 30_000 ? f.family : '';
+    };
+    const sh = this.ui.hud.sheets;
+    sh.register(new BoardSheet({
+      contracts: () => views.boardContracts(this.state),
+      rerollContract: (slot) => {
+        if (!rerollContract(this.state, slot, this.events)) this.audio.ui('no');
+      },
+      nextGrand: () => views.nextGrand(this.state),
+      daily: () => views.daily(this.state),
+      claimDaily: () => {
+        claimDaily(this.state, Date.now(), this.events);
+        sh.close();
+      },
+      rack: () => this.state.run.rack.length,
+      openRack: () => {
+        this.uiTaps.push('rack');
+        sh.close();
+      },
+      crystals: () => this.state.meta.timeCrystals,
+      warp: () => this.audio.ui('no'),
+      gems: () => this.state.meta.gems,
+    }));
+    sh.register(new FeatsSheet({
+      feats: () => views.feats(this.state),
+      secrets: () => views.secrets(this.state),
+      marks: () => this.state.meta.marks,
+      rank: () => views.rank(this.state),
+    }));
+    sh.register(new CodexSheet({
+      pages: () => views.codexPages(this.state),
+      nextChest: () => views.codexNext(this.state),
+      percent: () => views.codexPct(this.state),
+      openGuide: () => sh.show('guide'),
+    }));
+    sh.register(new LanternSheet({
+      lantern: () => views.lantern(this.state, views.lanternProjection(this.state)),
+      perks: () => views.perks(this.state),
+      stats: () => views.stats(this.state),
+      rekindle: () => this.startRekindle(),
+      holdSeconds: REKINDLE_HOLD,
+    }));
+    this.dig.entities = () => {
+      const t = this.widgets.targets();
+      const e = this.uiEntities();
+      return t.length ? [...t, ...e] : e;
+    };
     this.taps = new TapSurface(this.canvas, {
       region: () => this.tapRegion(),
       strips: () => (this.mode === 'playing' ? this.scene.columns() : null),
     });
     this.ui.hud.worldTarget = (id) => this.worldTarget(id);
+    this.ui.hud.skill.onSurge = () => {
+      if (fireSurge(this.state, this.events)) this.lastInput = performance.now();
+    };
+    this.ui.hud.skill.onFacet = () => this.facets.resume();
     this.wireEvents();
     this.wireLifecycle();
     this.layout();
     // What this save already revealed shows at once; the rest reveals as the tutorial goes.
     for (const id of this.state.meta.revealed) this.ui.hud.reveal(id, true);
+    if (this.guideEntries().length) this.ui.hud.reveal('guide', true);
     if (this.state.meta.tutorial.done) for (const id of ['gold', 'depth', 'quick1', 'quick2', 'quick3', 'digTab', 'crewTab', 'ruler', 'buyMode', 'combo', 'surge', 'skills']) this.ui.hud.reveal(id, true);
     if (this.state.meta.gems > 0) this.ui.hud.reveal('gems', true);
     if (this.state.meta.stats.stars > 0) this.setBuyMode('star');
@@ -299,6 +437,7 @@ export class IdleGame implements IdleShell, HudModel {
   }
 
   private pendingFeast = false;
+  private readonly audioWorld: import('../audio/types').AudioWorldState = { depth: 0, openness: 0.35, nearCrystal: 0, nearFire: 1, inMenu: false };
 
   /** The model as the scene reads it. */
   private source(): DescentSource {
@@ -323,13 +462,30 @@ export class IdleGame implements IdleShell, HudModel {
       crew: () => this.state.run.lines,
       pickLevel: () => this.state.run.pick,
       time: () => this.state.time,
+      record: () => this.state.meta.record,
+      planted: () => this.state.meta.planted,
+      ghostDepth: () => (this.state.run.par.length ? ghostDepth(this.state) : null),
+      sealView: () => {
+        const st = this.state.seal;
+        return st ? { biome: st.biome, depth: st.depth, phase: st.phase, left: st.left } : null;
+      },
+      taken: (id) => this.state.run.used.includes(id),
     };
   }
 
   private wireEvents(): void {
     const ev = this.events;
     const on = <K extends keyof IdleEvents>(k: K, fn: (p: IdleEvents[K]) => void) => this.disposers.push(ev.on(k, fn));
-    on('ui:reveal', (p) => this.ui.hud.reveal(p.id));
+    on('ui:reveal', (p) => this.revealNow(p.id));
+    on('rank:up', () => this.revealNow('rank'));
+    on('event:announce', (p) => (this.announced = { type: p.type, at: this.state.time, until: this.state.time + p.inSeconds }));
+    on('event:start', () => (this.announced = null));
+    on('feat:tier', () => this.ui.hud.tabDot('feats', true));
+    on('codex:new', () => this.ui.hud.tabDot('codex', true));
+    on('contract:done', () => this.ui.hud.tabDot('board', true));
+    on('daily:ready', () => this.ui.hud.tabDot('board', true));
+    on('prestige:ready', () => this.ui.hud.tabDot('lantern', true));
+    on('gear:new', () => this.ui.hud.tabDot('dig', true));
     on('skill:unlock', (p) => this.addSkill(p.id));
     on('buy:done', () => {
       this.saveSoon = 2;
@@ -344,12 +500,18 @@ export class IdleGame implements IdleShell, HudModel {
       if (title) this.ui.hud.firstTime(title, body);
     });
     on('seal:break', () => (this.saveSoon = 1));
-    on('biome:reveal', (p) => this.ui.hud.stamp(tr(`idle.biome.${biomeDef(p.biome).id}`).toUpperCase(), tr('idle.biome.revealSub', { depth: biomeStart(p.biome) }), 'rune'));
+    on('seal:start', (p) => (this.sealEstimate = p.estimate ?? Number.NaN));
+    // A biome's name is the T5 reveal's title card (CeremonyHost), never a second stamp.
     on('chest:exposed', (p) => this.addChestEntity(p.id, p.col, p.depth));
     on('chest:open', (p) => this.removeEntity(p.id));
     on('goal:done', () => this.ui.hud.goal.complete());
     // The recent-events ring (the debug surface).
-    const all: Array<keyof IdleEvents> = ['tap:hit', 'cell:break', 'row:clear', 'buy:done', 'buy:fail', 'crew:star', 'pick:tier', 'gold:gain', 'gems:gain', 'chest:exposed', 'chest:open', 'seal:start', 'seal:break', 'biome:reveal', 'tutorial:step', 'tutorial:fallback', 'tutorial:done', 'goal:change', 'goal:done', 'ui:reveal', 'offline:ready', 'offline:collect', 'combo:tier', 'skill:use', 'skill:dynamite', 'firsttime', 'depth:mark'];
+    const all: Array<keyof IdleEvents> = ['tap:hit', 'cell:break', 'row:clear', 'buy:done', 'buy:fail', 'crew:star', 'pick:tier', 'gold:gain', 'gems:gain', 'chest:exposed', 'chest:open', 'seal:start', 'seal:break', 'biome:reveal', 'tutorial:step', 'tutorial:fallback', 'tutorial:done', 'goal:change', 'goal:done', 'ui:reveal', 'offline:ready', 'offline:collect', 'combo:tier', 'skill:use', 'skill:dynamite', 'firsttime', 'depth:mark',
+      // Wave 2
+      'seal:hit', 'seal:fail', 'seal:weak', 'seal:finisher', 'gate:break', 'event:announce', 'event:start', 'event:hit', 'event:miss', 'event:end',
+      'widget:start', 'widget:input', 'widget:end', 'entity:hit', 'entity:done', 'feat:tier', 'feat:secret', 'rank:up', 'codex:new', 'contract:done',
+      'contract:new', 'daily:claim', 'facet:hand', 'facet:offer', 'facet:pick', 'surge:start', 'surge:armed', 'surge:end', 'prestige:done',
+      'lantern:planted', 'boost:start', 'record:new', 'depth:card', 'moth:spawn', 'moth:catch'];
     const keep = (name: string, payload: unknown) => {
       this.recent.push({ name, payload, t: performance.now(), mt: this.state?.time ?? 0 });
       if (this.recent.length > 512) this.recent.shift();
@@ -403,6 +565,8 @@ export class IdleGame implements IdleShell, HudModel {
       () => {
         const now = performance.now();
         this.cam?.pointerDown(now);
+        // A tap skips the running ceremony from 400 ms, and still digs (never dropped: F6).
+        this.ceremonies?.pointerDown(now);
         this.downFrames.push(this.frames);
       },
       { passive: true, capture: true },
@@ -602,7 +766,11 @@ export class IdleGame implements IdleShell, HudModel {
         this.dig.input(tp, this.frames, now);
         this.lastInput = now;
       });
+      for (const id of this.uiTaps) this.dig.entityTap(id, this.frames);
+      if (this.uiTaps.length) this.lastInput = now;
+      this.routeWidgetTaps();
     } else this.taps.drain(() => {});
+    this.uiTaps.length = 0;
     // 2. The model: fixed 1/60 s steps, ≤ 4 a frame; a frame with taps always steps (the hit shows now, F1).
     if (playing || this.mode === 'menu') {
       this.acc += dt * this.modelScale;
@@ -618,6 +786,7 @@ export class IdleGame implements IdleShell, HudModel {
     }
     // 3. The juice: the FX clock (hit-stops), flashes and bloom.
     this.cam.frame(dt, now);
+    this.ceremonies.frame(now, dt);
     const fxDt = this.cam.fxDt(dt, now);
     // 4. The world: this frame's breaks, the floor.
     this.dig.flushBreaks();
@@ -629,8 +798,15 @@ export class IdleGame implements IdleShell, HudModel {
     this.updateSockets();
     this.ui.fx.frame(now, dt);
     // 8. The DOM.
-    this.ui.hud.update(dt, now, this.cam.budget.exclusive(now));
-    this.ui.hud.chests.update(this.mode === 'playing' ? this.uiEntities() : []);
+    this.widgets.frame(now, dt);
+    this.facets.frame(now);
+    this.juice.frame();
+    this.ui.hud.skill.setArmed(s.tap.surgeArmedAt > 0 && s.tap.surgeEnd <= s.time);
+    this.ui.hud.skill.setFacets(s.hand && !this.facets.open ? Math.max(1, s.run.hands) : 0, tr('ui.facet.chip', { n: Math.max(1, s.run.hands) }));
+    const rk = s.meta.rank;
+    this.ui.hud.top.setRank(rk.r, rk.xp / Math.max(1, rankNeed(rk.r)));
+    if (this.frames % 6 === 0) this.ui.hud.bubbles.update(this.bubbleViews());
+    this.ui.hud.update(dt, now, this.cam.budget.exclusive(now) || this.ceremonies.toastShowing);
     this.dig.drawn(this.frames, this.downFrames);
     this.downFrames.length = 0;
     // Autosave.
@@ -642,7 +818,23 @@ export class IdleGame implements IdleShell, HudModel {
       }
       if (this.autosave <= 0) this.saveNow('auto');
     }
-    this.audio.update(dt, { depth: s.run.depth, openness: 0.35, nearCrystal: biomeAt(s.run.depth) === 2 ? 0.5 : 0, nearFire: Math.max(0, 1 - s.run.depth / 12), inMenu: this.mode === 'menu' });
+    {
+      // The score's layers (SPEC §10.10): pad always, plucks while tapping, drums at combo ≥ 25 / Surge / events, the
+      // boss pulse under a Warden fight, per-biome mode and tempo.
+      const b = biomeAt(s.run.depth);
+      const surge = s.tap.surgeEnd > s.time;
+      const ev = !!s.event && s.time < s.event.ends && !!s.event.widget;
+      this.audioWorld.depth = s.run.depth;
+      this.audioWorld.nearCrystal = b === 2 ? 0.5 : 0;
+      this.audioWorld.nearFire = Math.max(0, 1 - s.run.depth / 12);
+      this.audioWorld.inMenu = this.mode === 'menu';
+      this.audioWorld.biome = b;
+      this.audioWorld.music = biomeDef(b).music;
+      this.audioWorld.drums = surge || ev || s.tap.combo >= 25 ? 1 : s.tap.combo >= 15 ? 0.35 : 0;
+      this.audioWorld.boss = s.seal && s.seal.phase === 'fight' ? 1 : 0;
+      this.audioWorld.plucks = now - this.lastInput < 5000;
+      this.audio.update(dt, this.audioWorld);
+    }
     this.keepAwake(now);
     this.frameMs = performance.now() - t0;
     this.frameTimes.push(this.frameMs);
@@ -775,7 +967,7 @@ export class IdleGame implements IdleShell, HudModel {
   }
 
   private addSkill(id: string): void {
-    this.ui.hud.skill.addSkill(id, tr(`idle.skill.${id}`), id === 'dynamite' ? 'dynamite' : 'skill');
+    this.ui.hud.skill.addSkill(id, tr(`idle.skill.${id}`) || tr(`ui.skill.${id}`), cardIcon(`skill:${id}`));
   }
 
   // ----------------------------------------------------------------------------------------------------------
@@ -802,6 +994,17 @@ export class IdleGame implements IdleShell, HudModel {
     }
     // Chests the model opened by itself (the tutorial's fallback) leave the list.
     for (let i = this.entities.length - 1; i >= 0; i--) if (!this.state.chests.some((c) => c.id === this.entities[i].id)) this.entities.splice(i, 1);
+    // The seal's weak point while it is lit (×5): a world target over the floor.
+    const wp = this.weakPoint();
+    const st = this.state.seal;
+    if (wp && st) {
+      this.weakEntity.id = `weak:${st.biome}:${st.weakIndex ?? 0}`;
+      this.weakEntity.x = wp.x;
+      this.weakEntity.y = wp.y;
+      this.entitiesOut.length = 0;
+      this.entitiesOut.push(this.weakEntity, ...this.entities);
+      return this.entitiesOut;
+    }
     return this.entities;
   }
 
@@ -847,6 +1050,23 @@ export class IdleGame implements IdleShell, HudModel {
   cards(sheet: 'dig' | 'crew', mode: BuyMode): CardView[] {
     return sheetCards(this.state, sheet, mode);
   }
+
+  /** The Guide: every first-time card seen that has words (the model's idle.first.*, else the UI's ui.first.*). */
+  guideEntries(): ReadonlyArray<{ id: string; title: string; body: string }> {
+    const ids = this.state.meta.firstTime;
+    if (ids.length !== this.guideN) {
+      this.guideN = ids.length;
+      this.guideList.length = 0;
+      for (const id of ids) {
+        const title = tr(`idle.first.${id}.title`) || tr(`ui.first.${id}.title`);
+        if (!title) continue;
+        this.guideList.push({ id, title, body: tr(`idle.first.${id}.body`) || tr(`ui.first.${id}.body`) });
+      }
+    }
+    return this.guideList;
+  }
+  private guideN = -1;
+  private readonly guideList: Array<{ id: string; title: string; body: string }> = [];
 
   shownGoldLog10(): number {
     const shown = this.gold.shown(this.state.run.gold);
@@ -935,7 +1155,10 @@ export class IdleGame implements IdleShell, HudModel {
 
   combo() {
     const s = this.state;
-    return { combo: s.tap.combo, mult: comboMult(s.tap.combo), surge: s.tap.surge / SURGE.meterMax, surgeOn: s.tap.surgeEnd > s.time };
+    const on = s.tap.surgeEnd > s.time;
+    // During a Surge the ring drains with its time left (the meter itself restarts at 0).
+    const surge = on ? Math.min(1, (s.tap.surgeEnd - s.time) / Math.max(0.1, surgeDuration(s))) : s.tap.surge / SURGE.meterMax;
+    return { combo: s.tap.combo, mult: comboMult(s.tap.combo), surge, surgeOn: on };
   }
 
   private readonly skillViews: SkillView[] = [];
@@ -964,17 +1187,57 @@ export class IdleGame implements IdleShell, HudModel {
     return { target: guideTarget(this.state), text: step?.text ?? '' };
   }
 
-  seal() {
+  private sealEstimate = Number.NaN;
+  private readonly sealViewObj: SealView = { left: 1, time: 0, total: 30, held: false, warden: '', weakLit: false, weakId: '', weakPoint: 0, estimate: Number.NaN };
+  seal(): SealView | null {
     const st = this.state.seal;
     if (!st) return null;
-    return { left: st.left, time: sealTimeLeft(this.state), total: st.time, held: st.phase === 'held' };
+    const v = this.sealViewObj;
+    v.left = st.left;
+    v.time = sealTimeLeft(this.state);
+    v.total = st.time;
+    v.held = st.phase === 'held';
+    v.warden = st.warden ? tr(`idle.warden.${st.warden}`) : tr(`idle.warden.${biomeDef(Math.max(0, st.biome - 1)).warden}`);
+    v.weakLit = (st.weakUntil ?? 0) > this.state.time;
+    v.weakPoint = st.weakIndex ?? 0;
+    v.weakId = `weak:${st.biome}:${v.weakPoint}`;
+    v.estimate = this.sealEstimate;
+    return v;
   }
 
+  /** The weak point's screen point while lit: on the seal's face, one of three points (columns 1, 3, 5). */
+  weakPoint(): { x: number; y: number } | null {
+    const st = this.state.seal;
+    if (!st || !((st.weakUntil ?? 0) > this.state.time) || st.phase !== 'fight') return null;
+    const col = [1, 3, 5][st.weakIndex ?? 0] ?? 3;
+    return this.shaftPoint(col, 0.5, this.state.run.depth);
+  }
+
+  /** The goal bar's tap-to-go (SPEC §8.4): open the right sheet at the right row, or point at the thing itself. */
   go(go: string): void {
-    if (go.startsWith('sheet:')) this.ui.hud.sheets.show(go.slice(6) as 'dig' | 'crew');
-    else if (go.startsWith('card:')) {
+    const hud = this.ui.hud;
+    this.audio.ui('tap');
+    if (go.startsWith('sheet:')) {
+      const id = go.slice(6) as SheetId;
+      hud.sheets.show(id);
+      hud.tabDot(id, false);
+    } else if (go.startsWith('card:')) {
       const id = go.slice(5);
-      this.ui.hud.sheets.show(id.startsWith('crew:') ? 'crew' : 'dig');
+      // A card already in the quick-buy row pings where the thumb is; any other opens its sheet at its row.
+      if (hud.quick.slotOf(id) >= 0) hud.pingCard(id);
+      else hud.sheets.show(id.startsWith('crew:') ? 'crew' : 'dig', id);
+    } else if (go === 'seal') {
+      // The seal on screen (a fight, or its row in reach): ring it; further down, the ruler's seal mark.
+      if (!(this.state.seal && hud.ping('seal'))) hud.pulse('ruler');
+    } else if (go === 'ruler') hud.pulse('ruler');
+    else if (go === 'surge') hud.pulse('surge');
+    else if (go === 'rank') hud.sheets.show('feats');
+    else if (go === 'codex') hud.sheets.show('codex');
+    else if (go === 'feast') hud.feast.skip();
+    else if (go.startsWith('skill:') || go === 'cell' || go === 'crystal' || go === 'chest' || go.startsWith('chest:')) {
+      // A thing on screen: a ring pulses on it (the tutorial's hand already points at the same target).
+      const id = go === 'chest' ? (this.state.chests[0]?.id ?? 'cell') : go;
+      if (!hud.ping(id)) hud.ping('cell');
     }
   }
 
@@ -987,6 +1250,229 @@ export class IdleGame implements IdleShell, HudModel {
 
   // ----------------------------------------------------------------------------------------------------------
   // The debug surface's helpers
+
+  ceremonyView(): IdleCeremonyView {
+    const c = this.ceremonies;
+    return { live: c.live(), log: c.log.map((e) => ({ ...e })), waiting: c.waiting, exclusive: c.exclusive };
+  }
+
+  /** The capture hook: play a ceremony by id (a representative payload) and hold it at `t` ms when given. */
+  debugCeremony(id: string, t?: number): boolean {
+    const now = performance.now();
+    const dir = this.ceremonies;
+    if (id === '') {
+      dir.latest?.timeline.release(now);
+      return true;
+    }
+    const ev = this.events;
+    const s = this.state;
+    switch (id) {
+      case 'pickTier':
+        ev.emit('pick:tier', { tier: Math.max(2, (s.meta.bestTier || 1) + 1), from: 1, tiers: 1, level: 25 });
+        break;
+      case 'chest':
+        ev.emit('chest:open', { id: 'debug:chest', floor: 'wood', tier: 'crystal', steps: 2, gold: Big.from(1234), gems: 9, source: 'debug', path: ['wood', 'copper', 'crystal'], extras: ['find:2:0'] });
+        break;
+      case 'feat':
+        ev.emit('feat:tier', { family: 'delver', tier: 3, gems: 15 });
+        break;
+      case 'rankUp':
+        ev.emit('rank:up', { rank: s.meta.rank.r + 1 });
+        break;
+      case 'sealBreak':
+        ev.emit('seal:break', { biome: 2, depth: s.run.depth, time: 14 });
+        break;
+      case 'biomeReveal':
+        ev.emit('biome:reveal', { biome: Math.max(1, biomeAt(s.run.depth)) });
+        break;
+      case 'chartedGate':
+        ev.emit('gate:break', { biome: 2, depth: s.run.depth, split: 192, best: 472, green: true });
+        break;
+      case 'rekindle':
+        this.ceremonyHost.rekindle(Big.from(25), () => {});
+        break;
+      default:
+        return false;
+    }
+    if (t !== undefined && t >= 0 && dir.latest) dir.latest.timeline.seek(t, now);
+    return true;
+  }
+
+  widgetView(): IdleWidgetView | null {
+    const w = this.widgets.current();
+    return w ? { kind: w.kind, eventId: w.widgetId, targets: w.targets } : null;
+  }
+
+  /**
+   * Taps on UI-drawn widget parts (`widget:<n>` a Strike's dial, `widget:<n>:<i>` a Sequence mark or a Pick card, and
+   * `facet:<i>` a facet card) go to the model's widgetTap in this frame, before the step; the rest stay model taps.
+   */
+  private routeWidgetTaps(): void {
+    const taps = this.dig.taps;
+    for (let i = taps.length - 1; i >= 0; i--) {
+      const id = taps[i].entity;
+      if (!id) continue;
+      if (id.startsWith('widget:')) {
+        const parts = id.split(':');
+        const wid = `${parts[0]}:${parts[1]}`;
+        widgetTap(this.state, wid, parts.length > 2 ? Number(parts[2]) : 0, this.events);
+        taps.splice(i, 1);
+      } else if (id.startsWith('facet:')) {
+        widgetTap(this.state, 'facet', Number(id.slice(6)), this.events);
+        taps.splice(i, 1);
+      }
+    }
+  }
+
+  private readonly bubbleList: Array<import('../ui/idle/EventBubbles').BubbleView> = [];
+  private announced: { type: string; at: number; until: number } | null = null;
+  /** The event bubbles: the announced event (10 s ahead) and the live one with its window. */
+  private bubbleViews(): ReadonlyArray<import('../ui/idle/EventBubbles').BubbleView> {
+    const s = this.state;
+    const out = this.bubbleList;
+    out.length = 0;
+    const ev = s.event;
+    if (ev && Number.isFinite(ev.ends) && s.time < ev.ends) out.push({ id: ev.id, icon: eventIcon(ev.type), left: (ev.ends - s.time) / Math.max(1, ev.ends - ev.born), tone: 'live', label: tr(`idle.event.${ev.type}`) });
+    const a = this.announced;
+    if (a && s.time < a.until && (!ev || ev.type !== a.type || ev.born < a.at)) out.push({ id: `soon:${a.type}:${a.at}`, icon: eventIcon(a.type), left: (a.until - s.time) / Math.max(1, a.until - a.at), tone: 'soon', label: tr('ui.event.soon', { name: tr(`idle.event.${a.type}`), s: Math.ceil(a.until - s.time) }) });
+    return out;
+  }
+
+  /** Reveal a HUD element (progressive reveal, SPEC §8.3) and its first-time card for the W2 tabs. */
+  private revealNow(id: string): void {
+    if (this.ui.hud.isRevealed(id)) return;
+    if (id === 'rank') {
+      this.ui.hud.top.revealRank();
+      this.ui.hud.reveal('rank');
+      return;
+    }
+    this.ui.hud.reveal(id);
+    // A new tab gets its "new" dot; its first-time card is the model's (hints H10 emits `firsttime` once per tab).
+    if (/^(board|feats|codex|lantern)Tab$/.test(id)) this.ui.hud.tabDot(id.slice(0, -3) as SheetId, true);
+  }
+
+  /**
+   * The progressive reveal of the W2 tabs when the model has not named them (SPEC §8.3, CRITIQUE critic 1 SHOULD 9:
+   * the Board, Codex and Feats tabs wait for the first Warden, so the first 3 minutes teach only the dig).
+   */
+  /** The Rekindle (SPEC §5.9, §10.8): the T5 iris hides the run's reset; the world rebuilds behind it. */
+  startRekindle(): void {
+    const s = this.state;
+    if (!canRekindle(s)) {
+      this.audio.ui('no');
+      return;
+    }
+    const gain = rekindleGain(s);
+    this.ui.hud.sheets.close();
+    this.ceremonyHost.rekindle(gain, () => {
+      modelRekindle(this.state, this.events);
+      this.gold.settle();
+      this.ui.hud.top.gold.snap(this.state.run.gold.isZero() ? -Infinity : this.state.run.gold.log10());
+      this.ui.hud.skill.clearSkills();
+      for (const sk of SKILLS) if (this.state.run.skills[sk.id]) this.addSkill(sk.id);
+      this.entities.length = 0;
+      void this.scene.jump(this.state.run.depth);
+      // MAX becomes the default after the first Rekindle (SPEC §5.5).
+      this.setBuyMode('max');
+      this.saveSoon = 0.5;
+    });
+  }
+
+  /** The ceremonies' stage: everything a ceremony may touch, through the budgets. */
+  private stage(): CeremonyStage {
+    const hud = this.ui.hud;
+    const rectOf = (el: Element | null) => {
+      // A part not shown yet (the rank badge before rank 2) has no rect: no sparks fly from an empty spot.
+      if (!el || el.closest('.hide')) return null;
+      const r = el.getBoundingClientRect();
+      return r.width > 0 ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+    };
+    return {
+      post: this.cam,
+      trauma: (add, tier, big) => this.cam.trauma(add, tier, big),
+      stop: (ms, tier, heavy) => this.cam.stop(ms, tier, performance.now(), this.juiceStopCtx(), heavy),
+      bloom: (add, ms) => this.cam.bloom(add, ms, performance.now()),
+      restPost: () => this.cam.restCeremony(),
+      fx: this.ui.fx,
+      audio: { play: (name, params) => this.audio.play(name as SfxName, params) },
+      haptics: this.haptics,
+      layer: hud.ceremonyEl,
+      hud: {
+        fade: (v, keep) => hud.fade(v, keep),
+        stamp: (text, sub, tone) => hud.stamp(text, sub, tone === 'violet' ? 'rune' : tone),
+        holdStamp: () => hud.holdStamp(),
+        announce: (text) => hud.announce(text),
+        rect: (id) => {
+          if (id === 'pick') {
+            const r = hud.cardRect('pick');
+            return r ? { x: r.left, y: r.top, w: r.width, h: r.height } : null;
+          }
+          if (id === 'rank') return rectOf(hud.top.rankEl);
+          if (id === 'depth') return rectOf(hud.top.depthEl);
+          if (id === 'gold') return rectOf(hud.top.coin);
+          if (id === 'gems') return rectOf(hud.top.gemIcon);
+          if (id.startsWith('tab:')) return rectOf(this.ui.el.querySelector(`[data-tab="${id.slice(4)}"]`));
+          return null;
+        },
+        tabDot: (id, on) => hud.tabDot(id as SheetId, on),
+      },
+      scene: {
+        trauma: (t) => this.scene.trauma(t),
+        burst: (kind, row, col, n) => this.scene.burst(kind, row, col, n),
+        impactLight: (row, col, r, hex, i, ms) => this.scene.impactLight(row, col, r, hex, i, ms),
+        screenOf: (row, col) => this.scene.screenOf(row, col),
+        dolly: (on) => this.scene.dolly(on),
+      },
+      motion: () => this.settings.motion,
+      region: () => this.ui.hud.layoutNow?.region ?? { top: 0, bottom: innerHeight, left: 0, right: innerWidth },
+      centre: () => {
+        const l = this.ui.hud.layoutNow;
+        return l ? { x: l.column.x + l.column.w / 2, y: (l.region.top + l.region.bottom) / 2 } : { x: innerWidth / 2, y: innerHeight / 2 };
+      },
+      depth: () => this.state.run.depth,
+      releaseHeld: (x, y) => this.juice.releaseHeld(x, y),
+      stopCtx: () => this.juiceStopCtx(),
+      text: (key, params) => tr(key, params),
+    };
+  }
+
+  private juiceStopCtx() {
+    const s = this.state;
+    return { breakRate: 0, holding: this.taps.holding, surge: s.tap.surgeEnd > s.time };
+  }
+
+  /** What the widget UIs read (the model's widgets, the shaft's screen mapping). */
+  private widgetSource(): WidgetSource {
+    return {
+      widget: (id) => widgetById(this.state, id),
+      screen: (x, y, floorDepth) => this.shaftPoint(x, y, floorDepth),
+      floor: () => this.state.run.depth,
+      region: () => {
+        const l = this.ui.hud.layoutNow;
+        return l ? l.region : { top: 0, bottom: innerHeight, left: 0, right: innerWidth };
+      },
+      time: () => this.state.time,
+      text: (key, params) => tr(key, params),
+      tap: (id) => {
+        this.cam.pointerDown(performance.now());
+        this.uiTaps.push(id);
+      },
+      drawn: (id) => this.scene.entities.has(id),
+      motion: () => this.settings.motion,
+    };
+  }
+
+  /**
+   * A shaft position on screen (CSS px): `x` in columns (0 = the left cell's centre), `y` in rows below the top of the
+   * floor at `floorDepth` (negative: above). The world point stays put as the floor drops.
+   */
+  shaftPoint(x: number, y: number, floorDepth: number): { x: number; y: number } {
+    const a = this.scene.screenOf(floorDepth, 0);
+    const b = this.scene.screenOf(floorDepth, 6);
+    const c = this.scene.screenOf(floorDepth + 1, 0);
+    const rowPx = c.y - a.y || 44;
+    return { x: a.x + ((b.x - a.x) * x) / 6, y: a.y - rowPx / 2 + y * rowPx };
+  }
 
   recentEvents(name?: string): Array<{ name: string; payload: unknown; t: number; mt: number }> {
     return name ? this.recent.filter((e) => e.name === name) : [...this.recent];
@@ -1012,6 +1498,8 @@ export class IdleGame implements IdleShell, HudModel {
   dispose(): void {
     for (const d of this.disposers) d();
     this.juice.dispose();
+    this.ceremonyHost.dispose();
+    this.widgets.dispose();
     this.dig.dispose();
     this.taps.dispose();
     this.audio.dispose();
@@ -1041,3 +1529,28 @@ export class IdleGame implements IdleShell, HudModel {
 }
 
 const NO_TAPS: [] = [];
+
+/** The icon of an event type (bubbles). */
+function eventIcon(type: string): import('../ui/idle/icons').IconId {
+  switch (type) {
+    case 'mothSwarm':
+      return 'moth';
+    case 'glimmerfall':
+    case 'geode':
+      return 'gem';
+    case 'goldenVein':
+      return 'coin';
+    case 'treasureMole':
+      return 'creature';
+    case 'caveIn':
+      return 'quake';
+    case 'supplyRope':
+    case 'mimic':
+    case 'treasureMap':
+      return 'chest';
+    case 'ancientEcho':
+      return 'codex';
+    default:
+      return 'star';
+  }
+}

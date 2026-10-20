@@ -17,6 +17,8 @@ export interface SlabResult {
   slab: SlabData;
   light: Uint8Array;
   contextLight: Uint8Array;
+  /** Exact openness (alpha) of the OPEN_CONTEXT_ROWS rows just above the slab. */
+  contextOpen: Uint8Array;
   ms: number;
 }
 
@@ -28,7 +30,7 @@ export function buildSlab(req: Omit<SlabRequest, 'type'>): SlabResult {
   const slab = generateSlab({ runSeed: req.runSeed, k: req.k, kinds: req.kinds });
   const light = slabLight(slab.blocks, req.context);
   const ms = (typeof performance !== 'undefined' ? performance.now() : 0) - t0;
-  return { id: req.id, slab, light: light.slab, contextLight: light.context, ms };
+  return { id: req.id, slab, light: light.slab, contextLight: light.context, contextOpen: light.contextOpen, ms };
 }
 
 const scope = globalThis as unknown as { WorkerGlobalScope?: unknown };
@@ -38,7 +40,7 @@ if (typeof scope.WorkerGlobalScope === 'function' && globalThis instanceof (scop
     const req = e.data;
     try {
       const result = buildSlab(req);
-      ctx.postMessage({ type: 'slab', result } satisfies SlabResponse, [result.slab.blocks.buffer, result.light.buffer, result.contextLight.buffer]);
+      ctx.postMessage({ type: 'slab', result } satisfies SlabResponse, [result.slab.blocks.buffer, result.light.buffer, result.contextLight.buffer, result.contextOpen.buffer, result.slab.openBack.buffer]);
     } catch (err) {
       ctx.postMessage({ type: 'error', id: req.id, message: String((err as Error)?.stack ?? err) } satisfies SlabResponse);
     }

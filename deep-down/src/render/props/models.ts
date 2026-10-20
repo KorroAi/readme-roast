@@ -8,6 +8,7 @@ import { CAMP_LANTERN, Layers, beam, buildLantern, buildPickaxe, disc, ring, sha
 import { buildMonolith } from './monolith';
 import { haldenNote, hoistWinch, satchel } from './featureModels';
 import { forge, plotStake, relicShelf, runeStone, surveyTable } from './progressionModels';
+import { bone, coral, gear, iceSpire, mushroom, nullShard, pebbles, rib, root, stalagmite, sunshard, urn } from './biomeProps';
 
 /**
  * Procedural prop models. Every model stands on y = 0 centered on the origin and faces +Z.
@@ -83,6 +84,18 @@ export const PROP_VARIANTS: Record<PropKind, number> = {
   surveyTable: 1,
   relicShelf: 256,
   runeStone: 8,
+  mushroom: 4,
+  stalagmite: 4,
+  root: 3,
+  urn: 3,
+  coral: 3,
+  bone: 3,
+  rib: 2,
+  gear: 3,
+  iceSpire: 3,
+  sunshard: 3,
+  nullShard: 3,
+  pebbles: 4,
 };
 
 export const PROP_KINDS = Object.keys(PROP_VARIANTS) as PropKind[];
@@ -153,6 +166,18 @@ const BUILDERS: Record<PropKind, KindBuilder> = {
   surveyTable,
   relicShelf,
   runeStone,
+  mushroom,
+  stalagmite,
+  root,
+  urn,
+  coral,
+  bone,
+  rib,
+  gear,
+  iceSpire,
+  sunshard,
+  nullShard,
+  pebbles,
 };
 
 /** Variant index for a prop seed. */

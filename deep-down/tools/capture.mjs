@@ -116,7 +116,194 @@ async function earlyGame(page, touch, depth) {
   }
 }
 
+/** W2 set-up: the tutorial done, a depth, a fixed clock speed. */
+async function w2(page, depth, scale = 1) {
+  await mode(page, 'playing');
+  await page.evaluate(
+    ([d, k]) => {
+      const i = window.__DD__.idle;
+      i.skipTutorial();
+      if (d > 0) i.setDepth(d);
+      i.timeScale(k);
+      i.give({ gold: '1e12', gems: 120 });
+    },
+    [depth, scale],
+  );
+  await waitFrames(page, 8);
+  await page.waitForTimeout(700);
+}
+
+/** Hold a ceremony at `t` ms (the capture hook) and wait for it to draw. */
+async function ceremonyAt(page, id, t) {
+  await page.evaluate(([c, at]) => window.__DD__.idle.ceremony(c, at), [id, t]);
+  await waitFrames(page, 4);
+  await page.waitForTimeout(500);
+  return async () => page.evaluate(() => window.__DD__.idle.ceremony('', -1));
+}
+
+/** Wait for an open widget of `kind`. */
+async function widgetOf(page, kind) {
+  await page.waitForFunction((k) => window.__DD__.idle.widget()?.kind === k, kind, { timeout: 60_000, polling: 100 });
+}
+
+const W2 = {
+  async skillrow(page, touch) {
+    await w2(page, 650);
+    for (let i = 0; i < 12; i++) await touch.tapColumn(2 + (i % 3));
+    await waitFrames(page, 6);
+  },
+  async surge(page, touch) {
+    await w2(page, 200);
+    // A meter one tap from full (the Surge revealed and used once before, so a full meter waits on the ring), then
+    // real taps fill it, and a real tap on the armed ring fires it (CRITIQUE SHOULD 1).
+    await page.evaluate(() => {
+      const s = window.__DD__.internals.game.state;
+      if (!s.meta.revealed.includes('surge')) s.meta.revealed.push('surge');
+      if (!s.meta.firstTime.includes('used:surge')) s.meta.firstTime.push('used:surge');
+      s.tap.surge = 236;
+    });
+    for (let i = 0; i < 8; i++) await touch.tapColumn(2 + (i % 3));
+    await waitFrames(page, 3);
+    const ring = await page.evaluate(() => {
+      const el = document.querySelector('.dd-combo');
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, armed: el.classList.contains('armed') };
+    });
+    console.log(`surge: ring armed ${ring.armed}`);
+    if (ring.armed) await touch.tap(ring.x, ring.y);
+    // The Surge runs on the model clock: slow it so the shot lands inside it on a software renderer.
+    await page.evaluate(() => window.__DD__.idle.timeScale(0.2));
+    for (let i = 0; i < 4; i++) await touch.tapColumn(2 + (i % 3));
+    await waitFrames(page, 3);
+    console.log(`surge: on ${await page.evaluate(() => { const s = window.__DD__.idle.state(); return s.tap.surgeEnd > s.time; })}`);
+  },
+  async 'seal-hud'(page, touch) {
+    await w2(page, 0);
+    await page.evaluate(() => window.__DD__.idle.toSeal());
+    await waitFrames(page, 4);
+    // The pick bought with real taps on its card (gold from w2), then real taps across the floor down to the seal.
+    for (let i = 0; i < 4; i++) {
+      const h = await page.evaluate(() => window.__DD__.idle.hud());
+      if (h.quick[0]?.state !== 'ready' || h.quick[0].level >= 30) break;
+      await touch.tapRect('quick:0');
+      await page.waitForTimeout(120);
+    }
+    for (let i = 0; i < 80; i++) {
+      await touch.tapColumn(i % 7);
+      if (await page.evaluate(() => window.__DD__.idle.state().seal?.phase === 'fight')) break;
+    }
+    for (let i = 0; i < 3; i++) await touch.tapColumn(2 + (i % 3));
+    await waitFrames(page, 4);
+  },
+  async 'chest-crystal-step'(page) {
+    await w2(page, 60);
+    return ceremonyAt(page, 'chest', 590);
+  },
+  async 'chest-reveal-card'(page) {
+    await w2(page, 60);
+    // The debug chest rolls wood → copper → crystal (open at 1,360 ms); its card has turned in by 1,940 ms.
+    return ceremonyAt(page, 'chest', 2100);
+  },
+  async 'facet-hand'(page) {
+    await w2(page, 130);
+    await page.evaluate(() => window.__DD__.idle.facetHand());
+    await waitFrames(page, 6);
+    await page.waitForTimeout(900);
+  },
+  async 'feat-toast'(page) {
+    await w2(page, 30);
+    return ceremonyAt(page, 'feat', 900);
+  },
+  async rankup(page) {
+    await w2(page, 30);
+    return ceremonyAt(page, 'rankUp', 300);
+  },
+  async 'pick-tier'(page) {
+    await w2(page, 30);
+    return ceremonyAt(page, 'pickTier', 1100);
+  },
+  async 'widget-catch'(page) {
+    await w2(page, 60, 0.35);
+    // A Glimmerfall (the e2e's Catch): crystals cross on their curves; held while two are on screen.
+    await page.evaluate(() => window.__DD__.idle.forceEvent('glimmerfall'));
+    await widgetOf(page, 'catch');
+    await page.waitForFunction(() => (window.__DD__.idle.widget()?.targets.length ?? 0) >= 2, null, { timeout: 120_000 });
+    await waitFrames(page, 3);
+  },
+  async 'widget-mash'(page, touch) {
+    await w2(page, 10, 0.3);
+    await page.evaluate(() => window.__DD__.idle.forceEvent('signature'));
+    await widgetOf(page, 'mash');
+    await page.waitForFunction(() => (window.__DD__.idle.widget()?.targets.length ?? 0) > 0, null, { timeout: 60_000 });
+    const t = await page.evaluate(() => window.__DD__.idle.widget().targets[0]);
+    for (let i = 0; i < 18; i++) await touch.tap(t.x, t.y);
+    await waitFrames(page, 3);
+  },
+  async 'widget-strike'(page) {
+    await w2(page, 130, 0.2);
+    await page.evaluate(() => window.__DD__.idle.forceEvent('geode'));
+    await widgetOf(page, 'strike');
+    await waitFrames(page, 4);
+  },
+  async 'widget-sequence'(page) {
+    await w2(page, 410, 0.3);
+    await page.evaluate(() => window.__DD__.idle.forceEvent('ancientEcho'));
+    await widgetOf(page, 'sequence');
+    await page.waitForTimeout(900);
+  },
+  async board(page, touch) {
+    await w2(page, 260);
+    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:board']?.visible, null, { timeout: 30_000 });
+    await touch.tapRect('tab:board');
+    await waitFrames(page, 6);
+    await page.waitForTimeout(700);
+  },
+  async feats(page, touch) {
+    await w2(page, 260);
+    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:feats']?.visible, null, { timeout: 30_000 });
+    await touch.tapRect('tab:feats');
+    await waitFrames(page, 6);
+    await page.waitForTimeout(700);
+  },
+  async codex(page, touch) {
+    await w2(page, 260);
+    await page.evaluate(() => {
+      const s = window.__DD__.internals.game.state;
+      s.meta.finds['find:0:0'] = 2;
+      s.meta.finds['find:2:2'] = 1;
+      s.meta.bestiary.rootGrub = 3;
+      // The stats the model's reveal rule reads (the Codex tab opens with the first entry, after the first Warden).
+      s.meta.stats.finds = Math.max(s.meta.stats.finds, 3);
+      s.meta.stats.creatures = Math.max(s.meta.stats.creatures, 1);
+    });
+    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:codex']?.visible, null, { timeout: 30_000 });
+    await touch.tapRect('tab:codex');
+    await waitFrames(page, 6);
+    await page.waitForTimeout(700);
+  },
+  async lantern(page, touch) {
+    await w2(page, 820);
+    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:lantern']?.visible, null, { timeout: 30_000 });
+    await touch.tapRect('tab:lantern');
+    await waitFrames(page, 8);
+    await page.waitForTimeout(900);
+  },
+  async 'reveal-title'(page) {
+    await w2(page, 125);
+    return ceremonyAt(page, 'biomeReveal', 1700);
+  },
+  async 'rekindle-iris'(page) {
+    await w2(page, 650);
+    return ceremonyAt(page, 'rekindle', 1100);
+  },
+  async 'charted-gate'(page) {
+    await w2(page, 125);
+    return ceremonyAt(page, 'chartedGate', 500);
+  },
+};
+
 const SCENES = {
+  ...W2,
   /** The first frame of a new game: the shaft at the surface, the goal bar, the ghost hand on the rock. */
   async 'first-launch'(page) {
     await mode(page, 'playing');
@@ -296,7 +483,7 @@ try {
         after = await fn(page, await Touch.attach(page));
       } else await page.waitForTimeout(Number(opt.wait));
       const file = `${opt.out}/${name}.png`;
-      await page.screenshot({ path: file });
+      await page.screenshot({ path: file, timeout: 180_000 });
       if (after) await after();
       const perf = await page.evaluate(() => window.__DD__.idle.perf());
       console.log(`[${name}] ${file} ${Date.now() - t0} ms (${perf.fps} fps)`);

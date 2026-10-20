@@ -7,10 +7,13 @@
 
 import { Big } from '../../core/big';
 import { biomeAt, biomeStart } from '../config/biomes';
-import { KINDS } from '../config/cells';
+import { KINDS, kindGoldLog10, kindHpLog10 } from '../config/cells';
 import { goldPerHp, hpLog10, KAPPA } from '../config/curves';
 import { CRIT, holdRateOf } from '../config/upgrades';
-import { tickGoals } from '../model/goals';
+import { pathStep, tickGoals } from '../model/goals';
+
+/** Path steps the pacing sim cannot progress (their systems are not played here). */
+const SIM_SKIPS: ReadonlySet<string> = new Set(['contract', 'facet', 'catch', 'rank', 'finds', 'crystalChest', 'creature', 'page', 'rekindle', 'planted', 'crown']);
 import { activeDpsLog10, crewDpsLog10, critChance, edgeOf, goldPerDmgLog10, refreshRates, tapBaseLog10 } from '../model/run';
 import { isOpenRow, rowKinds } from '../model/shaft';
 import { CELL, COLS, type IdleState } from '../model/state';
@@ -101,8 +104,8 @@ export function rowEconomy(s: IdleState, d: number, kinds: Uint8Array): { cost: 
   let goldSum = 0;
   for (let c = 0; c < COLS; c++) {
     const k = KINDS[kinds[c]];
-    hpSum += k.hp;
-    goldSum += k.gold;
+    hpSum += kinds[c] === CELL.AIR ? 0 : Math.pow(10, kindHpLog10(kinds[c], d));
+    goldSum += k.gold > 0 ? Math.pow(10, kindGoldLog10(kinds[c], d)) : 0;
   }
   const gate = kinds[0] === CELL.GATE;
   return { cost: h + L10(hpSum * KAPPA), gold: goldSum > 0 ? h + L10(goldSum * goldPerHp()) : -Infinity, open: false, gate };
@@ -280,6 +283,8 @@ export function simFirstRun(partial: Partial<PacingOpts> = {}): PacingResult {
       if (s.run.dmax >= 30 && !s.meta.firstTime.includes('used:dynamite')) s.meta.firstTime.push('used:dynamite');
       if (s.meta.sealsOpened.includes(1) && t > (sealOneAt ??= t) + 40 && !s.meta.firstTime.includes('used:surge')) s.meta.firstTime.push('used:surge');
       if (t >= o.mothFirst && !s.meta.firstTime.includes('moth:caught')) s.meta.firstTime.push('moth:caught');
+      // Path steps of systems this sim does not play (W2: rank, Finds, events, facets…) count as done when reached.
+      for (let p = pathStep(s); p && SIM_SKIPS.has(p.kind); p = pathStep(s)) s.meta.path.step = p.n + 1;
       refreshRates(s, taps);
       tickGoals(s);
       const g = s.goals.current;

@@ -119,6 +119,34 @@ export interface IdleDebug {
   guidePoint(): { id: string; x: number; y: number } | null;
   /** The model clock's speed against the wall clock (1: real time); sets it when given. @returns the speed. */
   timeScale(k?: number): number;
+  /** Ceremonies (SPEC §10.8): what runs now (id, tier, local ms), every one started so far, and how many wait. */
+  ceremonies(): IdleCeremonyView;
+  /**
+   * The capture hook (debug only): play ceremony `id` now (with a representative payload) and, when `t` is given, hold
+   * it at `t` ms so a screenshot shows a fixed frame. `ceremony('', -1)` releases a held one. @returns false when unknown.
+   */
+  ceremony(id: string, t?: number): boolean;
+  /** The open widget (SPEC §7.3): its kind, event id and tappable targets in CSS px (null when none). */
+  widget(): IdleWidgetView | null;
+  /** Set-up helpers (debug only): end the tutorial; queue a facet hand (as a broken seal would). */
+  skipTutorial(): void;
+  facetHand(): boolean;
+}
+
+/** The ceremony director's state. */
+export interface IdleCeremonyView {
+  live: Array<{ id: string; tier: number; t: number }>;
+  log: Array<{ id: string; tier: number; t: number; demoted: boolean }>;
+  waiting: number;
+  /** A T4/T5 runs (toasts wait, particles at 50 %). */
+  exclusive: boolean;
+}
+
+/** The open widget. */
+export interface IdleWidgetView {
+  kind: string;
+  eventId: string;
+  targets: Array<{ id: string; x: number; y: number; r: number }>;
 }
 
 /** Install `window.__DD__.idle` (and keep `window.__DD__` itself as the container). */
@@ -137,6 +165,9 @@ import { currentStep } from '../idle/model/tutorial';
 import { biomeAt } from '../idle/config/biomes';
 import { format } from '../idle/num/notation';
 import { stateToSave } from '../save/saveData';
+import { forceEvent as modelForceEvent } from '../idle/model/director';
+import { skipTutorial as modelSkipTutorial } from '../idle/model/tutorial';
+import { queueHand } from '../idle/model/facets';
 import type { IdleGame } from '../game/IdleGame';
 import { debugMutationsAllowed } from './DebugApi';
 
@@ -239,8 +270,20 @@ export function installIdleSurface(g: IdleGame): void {
       g.give(gold, p.gems ?? 0);
       if (p.embers) g.state.meta.embers.addIn(p.embers);
     }, undefined),
-    forceEvent: gate(() => false, false),
-    forceChest: gate(() => false, false),
+    forceEvent: gate((id: string) => {
+      const ok = modelForceEvent(g.state, id, g.events);
+      if (ok) g.state.time += 0;
+      return ok;
+    }, false),
+    forceChest: gate((tier: string) => {
+      // A chest pops out on the floor and waits for a real tap (its roll-up starts at `tier`).
+      const floor = Math.max(0, ['wood', 'copper', 'crystal', 'reliquary', 'lintel'].indexOf(tier));
+      const s = g.state;
+      const id = `chest:${s.nextId++}`;
+      s.chests.push({ id, col: 3, depth: s.run.depth, floor, at: s.time });
+      g.events.emit('chest:exposed', { id, col: 3, depth: s.run.depth, floor: (['wood', 'copper', 'crystal', 'reliquary', 'lintel'] as const)[floor] });
+      return true;
+    }, false),
     toSeal: gate(() => {
       const d = nextSealDepth(g.state, g.state.run.depth);
       if (Number.isFinite(d)) setDepth(Math.max(0, d - 2));
@@ -276,6 +319,17 @@ export function installIdleSurface(g: IdleGame): void {
       if (allowed && k !== undefined && Number.isFinite(k) && k > 0) g.modelScale = Math.min(4, k);
       return g.modelScale;
     },
+    ceremonies: () => g.ceremonyView(),
+    ceremony: gate((id: string, t?: number) => g.debugCeremony(id, t), false),
+    widget: () => g.widgetView(),
+    skipTutorial: gate(() => {
+      modelSkipTutorial(g.state, g.events);
+      for (const id of ['gold', 'depth', 'quick1', 'quick2', 'quick3', 'digTab', 'crewTab', 'ruler', 'buyMode', 'combo', 'surge']) g.ui.hud.reveal(id, true);
+    }, undefined),
+    facetHand: gate(() => {
+      queueHand(g.state, g.events);
+      return !!g.state.hand;
+    }, false),
     guidePoint: () => {
       const gh = g.ui.hud.guide;
       const c = gh.current;

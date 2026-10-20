@@ -51,7 +51,9 @@ const model: HudModel = {
   useSkill: () => {},
   guide: () => ({ target: '', text: '' }),
   seal: () => null,
+  weakPoint: () => null,
   go: () => {},
+  guideEntries: () => [],
 };
 
 const ui = new UI(
@@ -98,7 +100,8 @@ const grd = g.createLinearGradient(0, 0, 0, innerHeight);
 grd.addColorStop(0, '#1d2632');
 grd.addColorStop(0.5, '#3a2a1c');
 grd.addColorStop(1, '#131a24');
-g.fillStyle = grd;
+// ?white=1: a white world, so tools/ui-check.mjs can measure the HUD's weight (pixels the HUD darkens past 50 %).
+g.fillStyle = q.get('white') ? '#ffffff' : grd;
 g.fillRect(0, 0, innerWidth, innerHeight);
 let last = performance.now();
 const frame = (now: number) => {

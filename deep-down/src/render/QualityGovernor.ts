@@ -141,3 +141,67 @@ function select(a: Float32Array, l: number, r: number, k: number): number {
   }
   return a[k];
 }
+
+/**
+ * The fine resolution controller (SPEC §11.3; owner 2D), on top of the preset steps above: the median frame
+ * interval over 1 s; above 17.5 ms the scene scale steps -0.05, below 14.5 ms held for 4 s it steps +0.05,
+ * at most one change per 2 s. The Renderer clamps the result to the preset's range, through a sub-viewport
+ * (no reallocation). Pure and allocation-free while sampling.
+ */
+export const FINE = {
+  windowMs: 1000,
+  downAboveMs: 17.5,
+  upBelowMs: 14.5,
+  upHoldMs: 4000,
+  minGapMs: 2000,
+  step: 0.05,
+  /** Longer intervals are gaps (a stall, a hidden tab), not frames. */
+  maxGapMs: 250,
+} as const;
+
+export class FineScaleController {
+  private readonly ring = new Float32Array(256);
+  private readonly scratch = new Float32Array(256);
+  private count = 0;
+  private elapsed = 0;
+  private lastChangeAt = -Infinity;
+  private goodMs = 0;
+  /** The last window's median (diagnostics, tests). */
+  lastMedianMs = 0;
+
+  reset(): void {
+    this.count = 0;
+    this.elapsed = 0;
+    this.goodMs = 0;
+  }
+
+  /** One frame interval at time `nowMs`: returns the scale step to apply now (-0.05, +0.05 or 0). */
+  sample(intervalMs: number, nowMs: number): number {
+    if (!(intervalMs > 0) || intervalMs > FINE.maxGapMs) return 0;
+    if (this.count < this.ring.length) this.ring[this.count++] = intervalMs;
+    this.elapsed += intervalMs;
+    if (this.elapsed < FINE.windowMs) return 0;
+    const n = this.count;
+    for (let i = 0; i < n; i++) this.scratch[i] = this.ring[i];
+    const k = n >> 1;
+    const median = select(this.scratch, 0, n - 1, k);
+    this.lastMedianMs = median;
+    const windowMs = this.elapsed;
+    this.count = 0;
+    this.elapsed = 0;
+    if (median < FINE.upBelowMs) this.goodMs += windowMs;
+    else this.goodMs = 0;
+    if (nowMs - this.lastChangeAt < FINE.minGapMs) return 0;
+    if (median > FINE.downAboveMs) {
+      this.lastChangeAt = nowMs;
+      this.goodMs = 0;
+      return -FINE.step;
+    }
+    if (this.goodMs >= FINE.upHoldMs) {
+      this.lastChangeAt = nowMs;
+      this.goodMs = 0;
+      return FINE.step;
+    }
+    return 0;
+  }
+}

@@ -253,6 +253,27 @@ for (const s of Object.values(BLOCK_SURFACES)) {
   GEO_SIDE_OF[top] = GEO_SIDE_OF[side] = side;
 }
 
+/**
+ * The section look's guess of a block from its material layer (src/render/look.ts), used until the exact
+ * cut-plane ids (SectionIds) are bound and for the 3D faces of biome blocks (cavern walls, ledges), which
+ * take their biome's ramp: < 0 means "the biome at this depth, slot -v - 1"; > 0 a special block id; 0 none.
+ */
+/** Kits per biome (BLOCK_SURFACES: biome b uses KIT_SURFACES[b % KITS]); LAYER_FALLBACK is per kit. */
+export const KITS = KIT_SURFACES.length;
+/** Per kit k: LAYER_FALLBACK[k * layers + layer] (a layer like stoneSide is hostB in one kit and hostA in another). */
+export const LAYER_FALLBACK = new Int16Array(KITS * MATERIAL_NAMES.length);
+KIT_SURFACES.forEach((kit, k) => {
+  const base = k * MATERIAL_NAMES.length;
+  kit.forEach((s, slot) => {
+    for (const l of [MAT[s.side], MAT[s.top], MAT[s.bottom]]) if (LAYER_FALLBACK[base + l] === 0) LAYER_FALLBACK[base + l] = -(slot + 1);
+  });
+  LAYER_FALLBACK[base + MAT.chestShell] = B.CHEST_SHELL;
+  LAYER_FALLBACK[base + MAT.gateStone] = B.GATE_STONE;
+  LAYER_FALLBACK[base + MAT.fossilBone] = B.FOSSIL;
+  LAYER_FALLBACK[base + MAT.goldLeaf] = B.GOLDEN;
+  LAYER_FALLBACK[base + MAT.turf] = B.TOPSOIL;
+});
+
 export interface MaterialAtlas {
   size: number;
   layers: number;

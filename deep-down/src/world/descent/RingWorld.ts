@@ -43,6 +43,9 @@ export const slabBottomY = (k: number): number => -SLAB_ROWS * k - SLAB_ROWS;
 export class RingWorld extends VoxelWorld {
   /** The slab index each storage slot holds (DEAD when the slot is a barrier or not generated yet). */
   readonly slotSlab = new Int32Array(SLOTS).fill(DEAD);
+  /** Storage rows whose back is open (a Vista, a Reveal Hall): reads behind z = 0 are AIR there, so the room shows
+   *  2D's backdrop layers instead of a wall (W2.md §3.3). */
+  readonly openBack = new Uint8Array(RING_SY);
 
   constructor() {
     super(RING_SX, RING_SY, RING_SZ, 16);
@@ -88,9 +91,10 @@ export class RingWorld extends VoxelWorld {
   override get(x: number, y: number, z: number): number {
     // The sky above the surface and the apron (and everything in front of it) are open air.
     if (y >= 0 || z >= RING_CUT_Z) return B.AIR;
-    if (x < 0 || z < 0 || x >= RING_SX) return B.BEDROCK;
+    if (x < 0 || x >= RING_SX) return B.BEDROCK;
     const k = Math.floor(-(y + 1) / SLAB_ROWS);
     if (this.slotSlab[slotOfSlab(k)] !== k) return B.BEDROCK;
+    if (z < 0) return this.openBack[storageRow(y)] ? B.AIR : B.BEDROCK;
     return this.blocks[x + RING_SX * (storageRow(y) + RING_SY * z)];
   }
 
@@ -134,10 +138,11 @@ export class RingWorld extends VoxelWorld {
    * Write slab k (64 x 16 x 64 blocks, index x + 64 (row + 16 z), row 0 = the slab's top row, i.e. depth 16k)
    * into its slot. The slot must be dead (call `killSlot` first when it held another slab).
    */
-  writeSlab(k: number, slab: Uint8Array): void {
+  writeSlab(k: number, slab: Uint8Array, openBack?: ArrayLike<number>): void {
     if (slab.length !== RING_SX * SLAB_ROWS * RING_SZ) throw new Error('slab size mismatch');
     const slot = slotOfSlab(k);
     const b = this.blocks;
+    for (let r = 0; r < SLAB_ROWS; r++) this.openBack[storageRow(-SLAB_ROWS * k - r - 1)] = openBack ? (openBack[r] ? 1 : 0) : 0;
     for (let z = 0; z < RING_SZ; z++)
       for (let r = 0; r < SLAB_ROWS; r++) {
         // Slab row r is depth 16k + r: world y = -16k - r - 1.
@@ -156,6 +161,7 @@ export class RingWorld extends VoxelWorld {
   killSlot(slot: number): void {
     const b = this.blocks;
     for (let z = 0; z < RING_SZ; z++) b.fill(B.BEDROCK, RING_SX * (slot * SLAB_ROWS + RING_SY * z), RING_SX * (slot * SLAB_ROWS + SLAB_ROWS + RING_SY * z));
+    this.openBack.fill(0, slot * SLAB_ROWS, slot * SLAB_ROWS + SLAB_ROWS);
     this.slotSlab[slot] = DEAD;
     this.revision++;
     this.markRowDirty(slot);
@@ -196,8 +202,12 @@ export class RingWorld extends VoxelWorld {
           out.fill(B.AIR, row, row + P);
           continue;
         }
-        if (wz < 0 || !this.liveY(wy)) {
+        if (!this.liveY(wy)) {
           out.fill(B.BEDROCK, row, row + P);
+          continue;
+        }
+        if (wz < 0) {
+          out.fill(this.openBack[storageRow(wy)] ? B.AIR : B.BEDROCK, row, row + P);
           continue;
         }
         const src = RING_SX * (storageRow(wy) + RING_SY * wz);

@@ -12,6 +12,10 @@ import { AUTHORED_LINES, CROWN_EVERY, crewLine, lineCostLog10, lineOutLog10, lin
 import { gearById, gearOf, type GearDef } from '../config/gear';
 import { SKILLS, skillDef } from '../config/skills';
 import { COMBO, CRIT, PICK, pickTier, SURGE, UPGRADES, upgradeDef } from '../config/upgrades';
+import { XP } from '../config/rank';
+import { facetStats } from './facets';
+import { addXp } from './gain';
+import { mults } from './mult';
 import type { IdleState } from './state';
 
 const L10 = Math.log10;
@@ -62,16 +66,25 @@ export interface CardView {
 
 /** log10 of M_all (SPEC §5.6) for W1: Embers, planted lanterns, the Moth Frenzy and boosts. */
 export function mAllLog10(s: IdleState): number {
-  let l = L10(1 + 0.1 * Math.max(0, s.meta.embers.toNumber()));
+  const kindle = 0.1 + ((s.meta.feats.emberborn ?? 0) >= 10 ? 0.01 : 0) + 0.01 * (s.meta.loom.kindling ?? 0);
+  let l = embersLog10(s.meta.embers.log10(), kindle);
   if (s.run.plantedBonus > 0) l += L10(1 + s.run.plantedBonus);
   if (s.meta.boostEnd > s.now) l += L10(2);
-  return l;
+  return l + mults(s).power;
 }
 
-/** log10 of the active skill multiplier on all damage (Moth Frenzy ×7; Cataclysm in W2). */
+/** log10(1 + kindle × Embers), exact for any Ember count (Embers past 1e300 stay finite in log space). */
+function embersLog10(eLog10: number, kindle: number): number {
+  if (eLog10 === -Infinity) return 0;
+  const x = eLog10 + L10(kindle);
+  return x > 15 ? x : L10(1 + Math.pow(10, x));
+}
+
+/** log10 of the active skill multiplier on all damage (Moth Frenzy ×7, Cataclysm ×2). */
 export function skillMultLog10(s: IdleState): number {
   let l = 0;
   if (s.run.frenzyEnd > s.time) l += L10(7);
+  if (s.run.cataclysmEnd > s.time) l += L10(2);
   return l;
 }
 
@@ -93,7 +106,16 @@ function gearMults(s: IdleState): { line: number[]; pick: number; all: number } 
 /** log10 of line i's DPS with every multiplier (−Infinity when not hired). */
 export function lineDpsLog10(s: IdleState, i: number, level = s.run.lines[i] ?? 0, gm = gearMults(s)): number {
   if (level <= 0) return -Infinity;
-  return lineOutLog10(i, level) + (gm.line[i] ?? 0) + gm.all + mAllLog10(s) + skillMultLog10(s);
+  let l = lineOutLog10(i, level) + (gm.line[i] ?? 0) + gm.all + mAllLog10(s) + skillMultLog10(s) + mults(s).crew;
+  const fs = facetStats(s);
+  if (fs.newestX > 1 && i === newestHired(s)) l += L10(fs.newestX);
+  return l;
+}
+
+/** The newest hired line (−1 none). */
+export function newestHired(s: IdleState): number {
+  for (let i = s.run.lines.length - 1; i >= 0; i--) if (s.run.lines[i] > 0) return i;
+  return -1;
 }
 
 /** log10 of the overdrive multiplier on the crew (W1: the Overdrive skill when active). */
@@ -121,35 +143,55 @@ export function edgeRefLevel(depth: number): number {
 }
 
 /** The pick's edge: the share of the crew's DPS every tap carries (CRITIQUE MUST 2). */
-export function edgeOf(level: number, depth: number): number {
+export function edgeOf(level: number, depth: number, bonus = 0): number {
   const e = PICK.edgeBase * Math.pow(PICK.edgeStep, level - edgeRefLevel(depth));
-  return Math.min(PICK.edgeMax, Math.max(PICK.edgeMin, e));
+  return Math.min(PICK.edgeMax, Math.max(PICK.edgeMin, e)) + bonus;
 }
 
 /** log10 of the pick's own damage at level L (100 × L × 2.5^tier × gear × M_all). */
 export function pickDmgLog10(s: IdleState, level = s.run.pick): number {
   const gm = gearMults(s);
-  return L10(PICK.dmg * Math.max(1, level)) + pickTier(level) * L10(PICK.tierX) + gm.pick + gm.all + mAllLog10(s) + skillMultLog10(s);
+  return L10(PICK.dmg * Math.max(1, level)) + pickTier(level) * L10(PICK.tierX) + gm.pick + gm.all + mAllLog10(s) + skillMultLog10(s) + mults(s).pick;
 }
 
 /** log10 of a tap's base damage (before combo, crit and the Surge): pick + edge × crew DPS. */
 export function tapBaseLog10(s: IdleState, level = s.run.pick, crewLog10 = crewDpsLog10(s)): number {
-  return addLog(pickDmgLog10(s, level), L10(edgeOf(level, s.run.depth)) + crewLog10);
+  return addLog(pickDmgLog10(s, level), L10(edgeOf(level, s.run.depth, facetStats(s).edgePts)) + crewLog10);
 }
 
 /** Crit chance (SPEC §3.2). */
 export function critChance(s: IdleState, lucky = s.run.ups.lucky ?? 0): number {
-  return Math.min(CRIT.max, CRIT.base + CRIT.perLevel * lucky);
+  return Math.min(0.95, Math.min(CRIT.max, CRIT.base + CRIT.perLevel * lucky) + mults(s).critP);
 }
 
-/** The combo multiplier for a combo count. */
-export function comboMult(combo: number): number {
-  return 1 + COMBO.perCombo * Math.min(Math.max(0, combo), COMBO.cap);
+/** The crit multiplier (×5; Overcharge and crit Finds raise it). */
+export function critMult(s: IdleState): number {
+  return CRIT.mult + mults(s).critX;
+}
+
+/** The combo multiplier for a combo count (the Crescendo facet raises the cap; pass `cap`). */
+export function comboMult(combo: number, cap: number = COMBO.cap): number {
+  return 1 + COMBO.perCombo * Math.min(Math.max(0, combo), cap);
+}
+
+/** The combo cap of this run (50; Crescendo +25 per facet). */
+export function comboCap(s: IdleState): number {
+  return COMBO.cap + mults(s).comboCap;
+}
+
+/** The combo window of this run (0.6 s; Tempo +0.3, the Rhythm perk +0.2). */
+export function comboWindow(s: IdleState): number {
+  return COMBO.window + mults(s).comboWindow;
 }
 
 /** Surge duration (s). */
 export function surgeDuration(s: IdleState): number {
-  return SURGE.duration + SURGE.perBellows * (s.run.ups.bellows ?? 0);
+  return SURGE.duration + SURGE.perBellows * (s.run.ups.bellows ?? 0) + facetStats(s).surgeSecs;
+}
+
+/** The Surge's tap multiplier (×3; ×4 with the Rhythm 4 set). */
+export function surgeMult(s: IdleState): number {
+  return Math.max(SURGE.mult, facetStats(s).surgeX);
 }
 
 /**
@@ -159,7 +201,7 @@ export function surgeDuration(s: IdleState): number {
 export function activeDpsLog10(s: IdleState, tapsPerSec: number, crewLog10 = crewDpsLog10(s), level = s.run.pick, lucky = s.run.ups.lucky ?? 0, cap = true): number {
   if (tapsPerSec <= 0) return crewLog10;
   const p = critChance(s, lucky);
-  const tap = tapBaseLog10(s, level, crewLog10) + L10(1.5 * (1 + p * (CRIT.mult - 1)));
+  const tap = tapBaseLog10(s, level, crewLog10) + L10(1.5 * (1 + p * (critMult(s) - 1)));
   const cell = hpLog10(s.run.depth);
   return addLog(crewLog10, (cap ? Math.min(tap, cell) : tap) + L10(tapsPerSec));
 }
@@ -173,8 +215,8 @@ export function gameDpsLog10(s: IdleState, tapsPerSec: number, crewLog10 = crewD
 }
 
 /** log10 of gold per damage (gold per HP over the row's κ: the crumble pays the whole row). */
-export function goldPerDmgLog10(): number {
-  return L10(goldPerHp() / KAPPA);
+export function goldPerDmgLog10(s?: IdleState): number {
+  return L10(goldPerHp() / KAPPA) + (s ? mults(s).gold : 0);
 }
 
 // ----- costs and purchases ----------------------------------------------------------------------------
@@ -191,6 +233,15 @@ interface Priced {
 }
 
 function priced(s: IdleState, id: string): Priced | null {
+  const p = pricedBase(s, id);
+  if (p && p.kind !== 'gear') {
+    const c = mults(s).cost;
+    if (c !== 0) p.c += c;
+  }
+  return p;
+}
+
+function pricedBase(s: IdleState, id: string): Priced | null {
   const d = s.run.dmax;
   if (id === 'pick') return { kind: 'pick', level: s.run.pick, max: Infinity, c: L10(PICK.c0) + (s.run.pick - 1) * L10(PICK.r), r: PICK.r, locked: false, unlockDepth: 0 };
   if (id.startsWith('up:')) {
@@ -211,6 +262,7 @@ function priced(s: IdleState, id: string): Priced | null {
     const g = gearById(id.slice(5));
     if (!g) return null;
     const owned = s.run.gear.includes(g.id);
+    // A biome's gear arrives past its gate (after the seal and the reveal, SPEC §8.2 1:18), not during the fight.
     return { kind: 'gear', level: owned ? 1 : 0, max: 1, c: g.costLog10, r: 1, locked: d < biomeStart(g.biome), unlockDepth: biomeStart(g.biome) };
   }
   if (id.startsWith('skill:')) {
@@ -298,6 +350,10 @@ export function buy(s: IdleState, id: string, mode: BuyMode, bus?: IdleBus): Buy
   applyLevels(s, id, p, to, bus);
   s.meta.stats.purchases++;
   s.meta.stats.levels += n;
+  s.meta.lastUsed.buy = s.playTime;
+  addXp(s, XP.purchase);
+  if (p.kind === 'pick' && pickTier(to) > pickTier(from)) addXp(s, XP.pickTier * (pickTier(to) - pickTier(from)));
+  if (p.kind === 'crew') addXp(s, XP.star * (Math.floor(to / STAR_EVERY) - Math.floor(from / STAR_EVERY)));
   bus?.emit('buy:done', { id, mode, levels: n, from, to, cost: cost.clone() });
   return { ok: true, levels: n, cost };
 }
@@ -323,6 +379,7 @@ function applyLevels(s: IdleState, id: string, p: Priced, to: number, bus?: Idle
     const st1 = Math.floor(to / STAR_EVERY);
     if (st1 > st0) {
       s.meta.stats.stars += st1 - st0;
+      s.run.stars += st1 - st0;
       bus?.emit('crew:star', { line: i, level: to, stars: st1 });
       const c0 = Math.floor(from / CROWN_EVERY);
       const c1 = Math.floor(to / CROWN_EVERY);
@@ -463,7 +520,8 @@ export function card(s: IdleState, id: string, mode: BuyMode = 'x1', bestId: str
     if (u === 'lucky') {
       const c0 = critChance(s, p.level);
       const c1 = critChance(s, p.level + n);
-      v.delta = (1 + c1 * (CRIT.mult - 1)) / (1 + c0 * (CRIT.mult - 1)) - 1;
+      const cm = critMult(s);
+      v.delta = (1 + c1 * (cm - 1)) / (1 + c0 * (cm - 1)) - 1;
       v.descParams = { pct: Math.round(c1 * 100) };
     } else v.delta = 0.1;
   } else if (p.kind === 'skill') {
@@ -503,7 +561,7 @@ export const BEST_CREW_BIAS = 1.3;
 
 /** log10 of gold/s at the current rates. */
 export function incomeLog10(s: IdleState, tapsPerSec = BEST_TAPS): number {
-  return gameDpsLog10(s, tapsPerSec) + goldPerDmgLog10();
+  return gameDpsLog10(s, tapsPerSec) + goldPerDmgLog10(s);
 }
 
 /** The candidates BEST and the bot compare: one level of every unlocked, buyable card. */
@@ -548,7 +606,7 @@ export function gainLog10(s: IdleState, id: string, tapsPerSec = BEST_TAPS, crew
 function tapPartLog10(s: IdleState, tapsPerSec: number, crewLog10: number, level = s.run.pick, lucky = s.run.ups.lucky ?? 0): number {
   if (tapsPerSec <= 0) return -Infinity;
   const p = critChance(s, lucky);
-  const tap = tapBaseLog10(s, level, crewLog10) + L10(1.5 * (1 + p * (CRIT.mult - 1)));
+  const tap = tapBaseLog10(s, level, crewLog10) + L10(1.5 * (1 + p * (critMult(s) - 1)));
   return tap + L10(tapsPerSec);
 }
 
@@ -558,7 +616,7 @@ export function paybackOf(s: IdleState, id: string): number {
   if (!p || p.locked || p.level >= p.max) return Infinity;
   const g = gainLog10(s, id, BEST_TAPS, BEST_CREW_BIAS);
   if (g === -Infinity) return Infinity;
-  const dIncome = g + goldPerDmgLog10();
+  const dIncome = g + goldPerDmgLog10(s);
   const inc = incomeLog10(s);
   const gold = s.run.gold.log10();
   const wait = p.c > gold ? Math.pow(10, subLog(p.c, gold) - inc) : 0;
@@ -598,9 +656,9 @@ export function refreshRates(s: IdleState, tapsPerSec: number): void {
   const crew = crewDpsLog10(s);
   s.rates.crewDps.setLog10(crew);
   const p = critChance(s);
-  s.rates.tapDmg.setLog10(tapBaseLog10(s, s.run.pick, crew) + L10(comboMult(s.tap.combo)) + 0 * p);
+  s.rates.tapDmg.setLog10(tapBaseLog10(s, s.run.pick, crew) + L10(comboMult(s.tap.combo, comboCap(s))) + 0 * p);
   const act = gameDpsLog10(s, tapsPerSec, crew);
-  s.rates.goldPerSec.setLog10(act + goldPerDmgLog10());
+  s.rates.goldPerSec.setLog10(act + goldPerDmgLog10(s));
   s.rates.rowSec = act === -Infinity ? Infinity : Math.pow(10, L10(KAPPA * 7) + hpLog10(s.run.depth) - act);
   s.rates.tapsPerSec = tapsPerSec;
 }

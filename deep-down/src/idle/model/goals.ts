@@ -15,6 +15,12 @@ import { price } from './run';
 import { nextSealDepth } from './shaft';
 import { type GoalState, type GoalView, type IdleState } from './state';
 import { currentStep } from './tutorial';
+import { Big } from '../../core/big';
+import { rankGems, rankNeed } from '../config/rank';
+import { format } from '../num/notation';
+import { nearestContract } from './contracts';
+import { featView } from './feats';
+import { powerAfter, recommend, rekindleGain } from './prestige';
 
 /** Re-evaluation period and hysteresis (s). */
 export const GOAL_EVAL = 0.5;
@@ -94,7 +100,18 @@ export function pathDone(s: IdleState, p: PathStep): boolean {
     case 'surge': return s.meta.firstTime.includes('used:surge');
     case 'moth': return s.meta.firstTime.includes('moth:caught');
     case 'hireLine': return (s.run.lines[p.arg] ?? 0) >= 1;
-    case 'contract': return false;
+    case 'contract': return s.meta.stats.contracts >= 1;
+    case 'facet': return s.run.facets.length >= 1 || s.meta.firstTime.includes('used:facet');
+    case 'catch': return (s.meta.caught.targets ?? 0) >= p.arg;
+    case 'rank': return s.meta.rank.r >= p.arg;
+    case 'finds': return s.meta.stats.finds >= p.arg;
+    case 'pickLevel': return s.run.pick >= p.arg || s.meta.bestTier >= 1;
+    case 'crystalChest': return s.meta.stats.crystalPlus >= p.arg;
+    case 'crown': return s.run.lines.some((l) => l >= p.arg);
+    case 'creature': return s.meta.stats.creatures >= p.arg;
+    case 'page': return s.meta.biomeSeals.length >= p.arg;
+    case 'rekindle': return s.meta.stats.rekindles >= p.arg;
+    case 'planted': return s.meta.stats.passed >= p.arg;
   }
 }
 
@@ -168,6 +185,65 @@ function pathGoal(s: IdleState, p: PathStep): GoalView {
       go = 'surge';
       break;
     }
+    case 'rank': {
+      fill = (s.meta.rank.r - 1 + Math.min(1, s.meta.rank.xp / rankNeed(s.meta.rank.r))) / Math.max(1, p.arg - 1);
+      eta = (rankNeed(s.meta.rank.r) - s.meta.rank.xp) / 4;
+      params = { n: p.arg };
+      go = 'rank';
+      break;
+    }
+    case 'pickLevel': {
+      fill = s.run.pick / p.arg;
+      const pr = price(s, 'pick', 'star');
+      eta = etaGold(s, pr.costLog10);
+      params = { n: p.arg };
+      go = 'card:pick';
+      break;
+    }
+    case 'catch':
+    case 'finds':
+    case 'creature':
+    case 'crystalChest': {
+      const have = p.kind === 'catch' ? (s.meta.caught.targets ?? 0) : p.kind === 'finds' ? s.meta.stats.finds : p.kind === 'creature' ? s.meta.stats.creatures : s.meta.stats.crystalPlus;
+      fill = have / p.arg;
+      eta = 60;
+      params = { n: p.arg };
+      go = p.kind === 'finds' || p.kind === 'creature' ? 'sheet:codex' : '';
+      break;
+    }
+    case 'crown': {
+      let lv = 0;
+      let line = 0;
+      s.run.lines.forEach((l, i) => {
+        if (l > lv) {
+          lv = l;
+          line = i;
+        }
+      });
+      fill = lv / p.arg;
+      eta = 90;
+      params = { line: `idle.crew.${crewLine(line).id}`, n: p.arg };
+      go = `card:crew:${line}`;
+      break;
+    }
+    case 'rekindle':
+      fill = Math.min(1, s.run.dmax / 600);
+      eta = recommend(s).ok ? 5 : 600;
+      go = 'sheet:lantern';
+      break;
+    case 'contract':
+      fill = nearestContract(s)?.fill ?? NEAR_MIN_FILL;
+      eta = nearestContract(s)?.eta ?? 120;
+      go = 'sheet:board';
+      break;
+    case 'planted': {
+      const next = s.meta.planted.filter((x) => x.depth > s.run.depth && !s.run.lanterns.includes(x.n)).sort((a, b) => a.depth - b.depth)[0];
+      fill = next ? 1 - Math.min(1, (next.depth - s.run.depth) / 120) : NEAR_MIN_FILL;
+      eta = next ? etaRows(s, next.depth - s.run.depth) : Infinity;
+      params = { m: next ? next.depth - s.run.depth : 0 };
+      go = 'ruler';
+      break;
+    }
     default:
       fill = NEAR_MIN_FILL;
       eta = 30;
@@ -226,7 +302,22 @@ function nearGoals(s: IdleState): GoalView[] {
     out.push(view('near:pickTier', 'idle.goal.pickTier', { level: (Math.floor(s.run.pick / PICK.tierEvery) + 1) * PICK.tierEvery }, goldFill(s, pr.costLog10), etaGold(s, pr.costLog10), 'card:pick', 'pick', 'idle.reward.mult', { x: PICK.tierX }));
   }
   out.push(markGoal(s));
+  // The contract nearest completion.
+  const nc = nearestContract(s);
+  if (nc) out.push(view(`near:contract:${nc.slot}`, `idle.contract.${nc.c.tpl}`, { n: nc.c.arg === 'log10' ? format(Big.fromLog10(nc.c.target)) : nc.c.target }, nc.fill, nc.eta, 'sheet:board', 'contract', 'idle.reward.gems', { n: 3 }));
+  // The next Feat tier (the closest family) and the next rank.
+  const fv = featView(s)[0];
+  if (fv && s.meta.revealed.includes('featsTab')) out.push(view(`near:feat:${fv.id}`, 'idle.goal.feat', { feat: `idle.feat.${fv.id}`, tier: fv.tier + 1 }, fv.progress, 60, 'sheet:feats', 'feat', 'idle.reward.gems', { n: 5 * Math.min(10, fv.tier + 1) }));
+  if (s.meta.revealed.includes('rank')) {
+    const need = rankNeed(s.meta.rank.r);
+    out.push(view('near:rank', 'idle.goal.rank', { n: s.meta.rank.r + 1 }, s.meta.rank.xp / need, (need - s.meta.rank.xp) / Math.max(1, xpRate(s)), 'rank', 'rank', 'idle.reward.gems', { n: rankGems(s.meta.rank.r + 1) }));
+  }
   return out;
+}
+
+/** XP per second lately (for the rank goal's ETA): about the cells broken per second below the record. */
+function xpRate(s: IdleState): number {
+  return Number.isFinite(s.rates.rowSec) && s.rates.rowSec > 0 ? 7 / s.rates.rowSec : 1;
 }
 
 // ----- selection --------------------------------------------------------------------------------------
@@ -255,11 +346,19 @@ export function selectGoal(s: IdleState): GoalView {
       return view('seal:near', 'idle.goal.seal', { warden: `idle.warden.${w}`, m: dist }, 1 - dist / 40, eta, 'seal', 'seal');
     }
   }
+  // 4. Rekindle recommended.
+  const rk = recommend(s);
+  if (rk.ok) {
+    const gain = rekindleGain(s);
+    const pw = powerAfter(s);
+    return view('rekindle', 'idle.goal.rekindle', { n: format(gain), x: +(pw.after / pw.before).toFixed(1) }, 0.95, 5, 'sheet:lantern', 'rekindle', 'idle.reward.mult', { x: +(pw.after / pw.before).toFixed(1) });
+  }
   // 5. The Path step when close.
+  // (L5 wins over §8.4's "ETA ≤ 120 s or half done": a Path step shows only while it is ≤ 90 s away.)
   const p = pathStep(s);
   if (p) {
     const g = pathGoal(s, p);
-    if (g.eta <= PATH_MAX_ETA || g.fill >= 0.5) return g;
+    if (g.eta <= NEAR_MAX_ETA && (g.eta <= PATH_MAX_ETA || g.fill >= 0.5)) return g;
   }
   // 6. The best near goal.
   let best: GoalView | null = null;
@@ -270,7 +369,7 @@ export function selectGoal(s: IdleState): GoalView {
   if (best) return best;
   // 7. The fallback: the next 20 m mark; when walled, upgrade (Rekindle from W2).
   const m = markGoal(s);
-  if (m.eta > 240) return view('walled', 'idle.goal.walled', {}, Math.max(NEAR_MIN_FILL, m.fill), m.eta, 'sheet:dig', 'up');
+  if (m.eta > 240) return view('walled', s.run.dmax >= 600 ? 'idle.goal.walledRekindle' : 'idle.goal.walled', {}, Math.max(NEAR_MIN_FILL, m.fill), m.eta, s.run.dmax >= 600 ? 'sheet:lantern' : 'sheet:dig', 'up');
   return { ...m, id: 'fallback', fill: Math.max(m.fill, 0) };
 }
 
@@ -339,6 +438,10 @@ function completed(s: IdleState, g: GoalView): boolean {
   if (g.id.startsWith('path:')) return s.meta.path.step > Number(g.id.slice(5));
   if (g.id === 'seal' || g.id === 'seal:near') return !s.seal && g.id === 'seal';
   if (g.id === 'claim:offline') return !s.offline || s.offline.collected;
+  if (g.id === 'rekindle') return !recommend(s).ok;
+  if (g.id === 'near:rank') return s.meta.rank.r >= Number(g.params.n);
+  if (g.id.startsWith('near:feat:')) return (s.meta.feats[g.id.slice(10)] ?? 0) >= Number(g.params.tier);
+  if (g.id.startsWith('near:contract:')) return !s.meta.contracts[Number(g.id.slice(14))] || s.meta.contracts[Number(g.id.slice(14))].tpl !== g.key.slice(14);
   return false;
 }
 

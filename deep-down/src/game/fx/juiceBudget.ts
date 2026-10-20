@@ -194,6 +194,11 @@ export class JuiceBudget {
    * T3 rate limit: one per 1.5 s; the excess merges ("×3 ★"). @returns 0 to play now, or the merge count
    * (≥ 1) when it merged into the last one.
    */
+  /** A T3 would be admitted now (no side effect: a waiting ceremony asks before it takes the slot). */
+  t3Free(now: number): boolean {
+    return now - this.lastT3 >= 1500;
+  }
+
   admitT3(now: number): number {
     if (now - this.lastT3 >= 1500) {
       this.lastT3 = now;

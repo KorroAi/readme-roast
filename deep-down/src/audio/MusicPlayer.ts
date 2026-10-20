@@ -21,6 +21,8 @@ export class MusicPlayer {
   private readonly batch: MusicNote[] = [];
   private generation = 0;
   private now = 0;
+  /** The pluck melody plays only while there was a tap in the last 5 s (SPEC §10.10); the pad always. */
+  plucks = true;
 
   constructor(private readonly target: SynthTarget, seed: number) {
     this.scheduler = new MusicScheduler(seed);
@@ -45,6 +47,7 @@ export class MusicPlayer {
     }
     for (let i = 0; i < n; i++) {
       const note = this.batch[i];
+      if (note.voice === 'pluck' && !this.plucks) continue;
       const priority = MUSIC_PRIORITY[note.voice];
       if (!this.voices.admit(now, priority)) continue;
       const v = playMusicNote(this.target, note);

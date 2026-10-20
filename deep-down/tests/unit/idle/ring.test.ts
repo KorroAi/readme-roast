@@ -60,24 +60,8 @@ describe('RingWorld (SPEC §6.2)', () => {
     expect(last).toBe(200 + 6);
     const check = world.lightCheck();
     expect(check.mismatched, `max diff ${check.maxDiff}`).toBe(0);
-    // Openness: band recomputes equal a full one (edits keep their neighbour's openness, as before).
-    const fresh = new LightField(world.ring, undefined, { wrapY: true });
-    fresh.computeAll();
-    let open = 0;
-    let edited = 0;
-    for (let i = 3; i < fresh.data.length; i += 4) {
-      if (fresh.data[i] !== world.light.data[i]) {
-        const v = (i - 3) / 4;
-        const z = Math.floor(v / (64 * RING_SY));
-        const x = v % 64;
-        if (x >= SHAFT_X0 - 7 && x <= SHAFT_X0 + 13 && z >= CELL_Z0 - 7) edited++;
-        else open++;
-      }
-    }
-    expect(open).toBe(0);
-    // Near the 30 broken cells the old rule holds: an opened voxel takes its most open neighbour, the
-    // neighbourhood is not re-blurred (a soft fill; refreshed when its slab next changes).
-    expect(edited).toBeLessThan(2000);
+    // Openness (W2 MUST 0): the worker's band, the drops and the 30 broken cells all equal a full compute.
+    expect(check.openMismatched, `openness max diff ${check.openMaxDiff}`).toBe(0);
   }, 180_000);
 
   it('a break sets the cell to air and lights it like a fresh compute', async () => {
@@ -86,6 +70,22 @@ describe('RingWorld (SPEC §6.2)', () => {
     const ids = world.breakCells([{ row: 30, col: 0 }, { row: 30, col: 1 }, { row: 31, col: 1 }]);
     expect(ids.length).toBe(3);
     for (const [row, col] of [[30, 0], [30, 1], [31, 1]]) for (let z = CELL_Z0; z <= CELL_Z1; z++) expect(world.ring.get(SHAFT_X0 + col, -row - 1, z)).toBe(B.AIR);
-    expect(world.lightCheck().mismatched).toBe(0);
+    const c = world.lightCheck();
+    expect(c.mismatched).toBe(0);
+    expect(c.openMismatched, `openness after breaks (max diff ${c.openMaxDiff})`).toBe(0);
   }, 60_000);
+
+  it('computeOpennessBox equals the full compute inside its box (wrapping rows included)', () => {
+    const ring = ringAt(5, 40);
+    const a = new LightField(ring, undefined, { wrapY: true });
+    a.computeAll();
+    // Carve a hole, then recompute a box around it; the result must equal a fresh full compute everywhere.
+    for (let x = 20; x < 30; x++) for (let z = 40; z < 60; z++) for (let y = -45; y < -38; y++) ring.set(x, y, z, B.AIR);
+    a.computeOpennessBox(20 - 7, 29 + 7, storageRow(-45) - 7, storageRow(-45) - 7 + 7 + 7 + 7, 40 - 7, 63);
+    const b = new LightField(ring, undefined, { wrapY: true });
+    b.computeAll();
+    let diff = 0;
+    for (let i = 3; i < a.data.length; i += 4) if (a.data[i] !== b.data[i]) diff++;
+    expect(diff).toBe(0);
+  });
 });

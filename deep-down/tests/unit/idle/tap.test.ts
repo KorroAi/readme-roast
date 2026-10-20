@@ -108,6 +108,12 @@ describe('the tap (SPEC §3.2)', () => {
       const before = s.tap.surge;
       const kind = i % 2 ? 'hold' : 'tap';
       const r = resolveTap(s, 3, kind);
+      if (s.tap.surgeArmedAt > 0) {
+        // A full meter waits for the ring (CRITIQUE SHOULD 1): empty it and go on measuring.
+        s.tap.surgeArmedAt = 0;
+        s.tap.surge = 0;
+        continue;
+      }
       if (s.tap.surge < before) continue; // a Surge fired
       const gain = s.tap.surge - before;
       if (!r.crit) {

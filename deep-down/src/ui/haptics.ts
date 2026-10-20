@@ -29,17 +29,32 @@ export const HAPTIC_PATTERNS = {
   feast: [20, 40, 20, 40, 40],
   no: [14],
   ui: [6],
+  // Wave 2 (SPEC §10.3, §10.11)
+  rank: [16, 40, 24],
+  feat: [12, 40, 18],
+  gate: [20, 40, 30],
+  event: [12, 40, 12],
+  creature: [16],
+  sealHit: [8],
+  weak: [14, 20, 14],
+  strike: [22],
+  perfect: [30, 30, 50],
+  facet: [12],
+  skill: [24],
+  cataclysm: [40, 30, 60],
+  catch: [12],
 } as const satisfies Record<string, readonly number[]>;
 
 export type HapticKind = keyof typeof HAPTIC_PATTERNS;
 
 /** Minimum gap between two plays of one pattern (ms). */
-const MIN_GAP: Partial<Record<HapticKind, number>> = { tap: 60, break: 70, ore: 90, crit: 120, row: 150, gem: 200, purchase: 80, star: 200, ready: 400, ui: 60, no: 120 };
+const MIN_GAP: Partial<Record<HapticKind, number>> = { tap: 60, break: 70, ore: 90, crit: 120, row: 150, gem: 200, purchase: 80, star: 200, ready: 400, ui: 60, no: 120, sealHit: 70, catch: 80, creature: 120 };
 
 /** Priority (higher wins a contested window): biome > seal > chest > crit > row > break > tap. */
 const PRIORITY: Record<HapticKind, number> = {
   biome: 9, rekindle: 9, seal: 8, plungeLand: 7, chestBig: 7, chestOpen: 6, chestStep: 6, pickTier: 7, crown: 6, star: 5, surge: 5, dynamite: 5, feast: 5,
   crit: 4, gem: 4, ore: 3, row: 3, combo: 3, break: 2, purchase: 2, ready: 1, no: 1, ui: 1, tap: 0,
+  rank: 5, feat: 5, gate: 6, event: 5, creature: 3, sealHit: 2, weak: 6, strike: 5, perfect: 7, facet: 2, skill: 5, cataclysm: 8, catch: 4,
 };
 
 export type HapticStrength = 'off' | 'light' | 'normal' | 'strong';

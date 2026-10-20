@@ -18,6 +18,14 @@ export class TopBar {
   readonly depthEl: HTMLElement;
   readonly gemsEl: HTMLElement;
   readonly menuBtn: HTMLButtonElement;
+  /** The rank badge (an octagon plate with the rank and its XP as an octagonal stroke) and the XP bar under gold. */
+  readonly rankEl: HTMLElement;
+  readonly xpEl: HTMLElement;
+  private readonly rankV: HTMLElement;
+  private readonly xpFill: HTMLElement;
+  private readonly rankRing: SVGPolygonElement;
+  private rankS = -1;
+  private xpS = -1;
   readonly coin: HTMLElement;
   readonly gemIcon: HTMLElement;
   readonly gold: Ticker;
@@ -47,6 +55,52 @@ export class TopBar {
     this.gemIcon = iconEl('gem', 'dd-gem-ico');
     this.gemsEl = h('div', { class: 'dd-chip dd-gems hide', 'data-hud': 'gems' }, this.gemIcon, this.gems.el);
     this.menuBtn = h('button', { class: 'dd-menu-btn', type: 'button', 'aria-label': t('ui.hud.menu'), 'data-hud': 'menu', onclick: () => this.onMenu?.() }, iconEl('menu', 'dd-menu-ico'));
+    const NS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 48 48');
+    svg.setAttribute('class', 'dd-rank-svg');
+    const oct = '14,3 34,3 45,14 45,34 34,45 14,45 3,34 3,14 14,3';
+    const track = document.createElementNS(NS, 'polygon');
+    track.setAttribute('points', oct);
+    track.setAttribute('class', 'dd-rank-track');
+    this.rankRing = document.createElementNS(NS, 'polygon');
+    this.rankRing.setAttribute('points', oct);
+    this.rankRing.setAttribute('class', 'dd-rank-ring');
+    this.rankRing.setAttribute('pathLength', '100');
+    svg.append(track, this.rankRing);
+    this.rankV = h('span', { class: 'dd-rank-v' });
+    this.rankEl = h('div', { class: 'dd-rank hide', 'data-hud': 'rank', role: 'text' }, svg, this.rankV);
+    this.xpFill = h('i', { class: 'dd-xp-fill' });
+    this.xpEl = h('div', { class: 'dd-xp hide', 'aria-hidden': 'true' }, this.xpFill);
+  }
+
+  /** The rank and its XP (0..1 toward the next). Writes only on change. */
+  setRank(rank: number, xpFrac: number): void {
+    if (rank !== this.rankS) {
+      this.rankS = rank;
+      this.rankV.textContent = String(rank);
+      this.rankEl.setAttribute('aria-label', t('ui.rank.label', { rank }));
+    }
+    const f = Math.round(Math.max(0, Math.min(1, xpFrac)) * 200) / 200;
+    if (f !== this.xpS) {
+      this.xpS = f;
+      this.xpFill.style.transform = `scaleX(${f})`;
+      this.rankRing.style.strokeDasharray = `${(f * 100).toFixed(1)} 100`;
+    }
+  }
+
+  /** Show the rank badge and the XP bar (Rank 2 or the first Feat, SPEC §8.3); the gold plate moves over. */
+  revealRank(instant = false): void {
+    if (!this.rankEl.classList.contains('hide')) return;
+    this.rankEl.classList.remove('hide');
+    this.xpEl.classList.remove('hide');
+    this.goldEl.classList.add('ranked');
+    if (!instant) spring(this.rankEl, 'bounce', 0, 1, (v) => `scale(${v})`);
+  }
+
+  /** The rank-up pop (jelly 1 → 1.25). */
+  popRank(): void {
+    spring(this.rankEl, 'jelly', 1.25, 1, (v) => `scale(${v})`);
   }
 
   /** Reveal a plate (snap drop-in) once. */

@@ -17,7 +17,9 @@ for (let i = 0; i < args.length; i++) {
   if (a.startsWith('--')) opt[a.slice(2)] = args[++i];
   else {
     const eq = a.indexOf('=');
-    shots.push({ name: a.slice(0, eq), query: a.slice(eq + 1) });
+    // name=query[::js[::waitMs]]: js runs on window.__DD__.lab (as `lab`) once ready, the shot follows waitMs later.
+    const [query, js, waitMs] = a.slice(eq + 1).split('::');
+    shots.push({ name: a.slice(0, eq), query, js, waitMs: Number(waitMs ?? 0) });
   }
 }
 if (opt.biome !== undefined) shots.push({ name: `biome-${String(opt.biome).padStart(2, '0')}`, query: `depth=${opt.depth ?? 0}&look=${opt.biome}` });
@@ -48,6 +50,37 @@ try {
     // Let the meshes settle, then the requested extra time.
     await page.evaluate(() => window.__DD__.lab.scene.world.chunks.flush());
     await page.waitForTimeout(Number(opt.wait));
+    if (shot.js) {
+      await page.evaluate((code) => new Function('lab', code)(window.__DD__.lab), shot.js);
+      await page.waitForTimeout(shot.waitMs || 300);
+    }
+    if (opt.draws) {
+      // Per top-level group draw calls in one frame (the P1 budget by owner).
+      const per = await page.evaluate(() => {
+        const lab = window.__DD__.lab;
+        const scene = lab.scene.scene;
+        const gl = lab.scene.renderer.gl;
+        const orig = gl.renderBufferDirect.bind(gl);
+        const name = (o) => {
+          let p = o;
+          let child = o;
+          while (p.parent && p.parent !== scene) {
+            child = p;
+            p = p.parent;
+          }
+          const top = p.name || p.type;
+          return top === 'world' && child !== p ? `world/${child.name || child.type}` : top;
+        };
+        const per = {};
+        gl.renderBufferDirect = function (camera, sc, geometry, material, object, group) {
+          const k = sc === scene ? name(object) : 'post:' + (object.name || object.type);
+          per[k] = (per[k] ?? 0) + 1;
+          return orig(camera, sc, geometry, material, object, group);
+        };
+        return new Promise((res) => requestAnimationFrame(() => requestAnimationFrame(() => { gl.renderBufferDirect = orig; res(Object.fromEntries(Object.entries(per).map(([k, v]) => [k, v / 2]))); })));
+      });
+      console.log(`[${shot.name}] draws ${JSON.stringify(per)}`);
+    }
     const file = `${opt.out}/${shot.name}.png`;
     await page.screenshot({ path: file, timeout: Number(opt.timeout) });
     const info = await page.evaluate(() => {

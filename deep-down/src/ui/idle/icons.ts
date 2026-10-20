@@ -15,7 +15,8 @@ const RUNE = '#8fe3ee';
 export type IconId =
   | 'pick' | 'shovel' | 'crew' | 'cart' | 'drill' | 'blast' | 'borer' | 'lucky' | 'steady' | 'shock' | 'bellows'
   | 'gear' | 'edge' | 'lantern' | 'rigging' | 'dynamite' | 'coin' | 'gem' | 'depth' | 'menu' | 'lock' | 'dig' | 'goal'
-  | 'seal' | 'chest' | 'star' | 'crown' | 'flag' | 'skill';
+  | 'seal' | 'chest' | 'star' | 'crown' | 'flag' | 'skill' | 'board' | 'medal' | 'codex' | 'rush' | 'overdrive' | 'quake'
+  | 'facet' | 'rank' | 'ember' | 'moth' | 'contract' | 'calendar' | 'rack' | 'warp' | 'creature' | 'lore' | 'find' | 'question';
 
 const ICONS: Record<IconId, string> = {
   pick: `<path d="M5 19 L15 9" stroke="${DARK}" stroke-width="3.2"/><path d="M5 19 L15 9" stroke="${BRASS}" stroke-width="1.6"/><path d="M8 6 C12 3.5 17 3.5 20.5 7 L18.6 8.4 C16 6.3 12.7 6 10 7.6 Z" fill="${BONE}" stroke="${DARK}" stroke-width="1"/>`,
@@ -47,6 +48,24 @@ const ICONS: Record<IconId, string> = {
   crown: `<path d="M4 17 L5 8 L9 12 L12 5 L15 12 L19 8 L20 17 Z" fill="${AMBER}" stroke="${DARK}" stroke-width="1.1"/><path d="M4 19 H20" stroke="${BRASS}" stroke-width="1.6"/>`,
   flag: `<path d="M6 21 V4" stroke="${BRASS}" stroke-width="1.6"/><path d="M6 5 H17 L14.5 8.5 L17 12 H6" fill="${AMBER}" stroke="${DARK}" stroke-width="1"/>`,
   skill: `<circle cx="12" cy="12" r="7" stroke="${AMBER}" stroke-width="2"/><path d="M12 8 V12 L15 14" stroke="${BONE}" stroke-width="1.6"/>`,
+  board: `<rect x="4" y="4" width="16" height="17" rx="1" fill="${DARK}" stroke="${BRASS}" stroke-width="1.3"/><rect x="9" y="2.5" width="6" height="3" fill="${BRASS}"/><path d="M7.5 10 H16.5 M7.5 13.5 H16.5 M7.5 17 H13" stroke="${BONE}" stroke-width="1.4"/>`,
+  medal: `<path d="M8 3 L12 9 L16 3" stroke="#b9a2ff" stroke-width="2"/><circle cx="12" cy="14.5" r="6" fill="${AMBER}" stroke="${DARK}" stroke-width="1.2"/><path d="M12 11 L13.1 13.4 L15.6 13.6 L13.7 15.2 L14.3 17.7 L12 16.4 L9.7 17.7 L10.3 15.2 L8.4 13.6 L10.9 13.4 Z" fill="#fff6d8"/>`,
+  codex: `<path d="M4 5 C7 4 10 4.5 12 6 C14 4.5 17 4 20 5 V19 C17 18 14 18.5 12 20 C10 18.5 7 18 4 19 Z" fill="${DARK}" stroke="${BRASS}" stroke-width="1.3"/><path d="M12 6 V20" stroke="${BRASS}" stroke-width="1"/><path d="M8 9.5 L9.5 8 L11 9.5 L9.5 11 Z" fill="${RUNE}"/>`,
+  rush: `<circle cx="12" cy="12" r="7.5" fill="#ffcf5a" stroke="${DARK}" stroke-width="1.4"/><path d="M13 6 L9 13 H12 L11 18 L15 11 H12 Z" fill="${DARK}"/>`,
+  overdrive: `<circle cx="12" cy="12" r="6" stroke="${BRASS}" stroke-width="2.4" stroke-dasharray="3 2.2"/><circle cx="12" cy="12" r="2.6" fill="${AMBER}"/><path d="M17 4 L20 7 M19 3 L21 5" stroke="${AMBER}" stroke-width="1.6"/>`,
+  quake: `<path d="M3 15 L7 11 L10 15 L13 9 L16 14 L18 12 L21 15" stroke="${AMBER}" stroke-width="2"/><path d="M4 19 H20" stroke="${BRASS}" stroke-width="1.6"/><path d="M9 4 L10 7 M14 3 L13.5 6.5" stroke="${BONE}" stroke-width="1.4"/>`,
+  facet: `<path d="M12 3 L19 8 L17 18 H7 L5 8 Z" fill="#8fe3ee" stroke="#04070b" stroke-width="1.2"/><path d="M5 8 H19 M9 8 L12 18 L15 8 M12 3 L9 8 M12 3 L15 8" stroke="#2fb6cc" stroke-width="0.9"/>`,
+  rank: `<path d="M12 2.5 L20 7 V17 L12 21.5 L4 17 V7 Z" fill="${DARK}" stroke="${BRASS}" stroke-width="1.4"/><path d="M8 13 L12 9 L16 13 M8 16.5 L12 12.5 L16 16.5" stroke="${AMBER}" stroke-width="1.8"/>`,
+  ember: `<path d="M12 3 C15 7 18 9.5 18 14 C18 18 15 21 12 21 C9 21 6 18 6 14 C6 11 8 9 9 7 C9.5 9 10.5 10 11.5 10.5 C11 8 11.2 5.5 12 3 Z" fill="#ff8a3d" stroke="${DARK}" stroke-width="1.1"/><path d="M12 12 C13.5 14 14 15.5 14 16.6 C14 18 13 19 12 19 C11 19 10 18 10 16.6 C10 15.4 11 14 12 12 Z" fill="#ffe08a"/>`,
+  moth: `<path d="M12 8 C9 3 3 4 4 9 C5 12 9 12 12 11 C15 12 19 12 20 9 C21 4 15 3 12 8 Z" fill="#ffd56b" stroke="${DARK}" stroke-width="1"/><path d="M12 11 C10 14 7 18 8 19 C10 19.5 11 16 12 13 C13 16 14 19.5 16 19 C17 18 14 14 12 11 Z" fill="#ffb35c" stroke="${DARK}" stroke-width="1"/><path d="M12 7 V15" stroke="${DARK}" stroke-width="1.4"/>`,
+  contract: `<path d="M6 3 H15 L19 7 V21 H6 Z" fill="${BONE}" stroke="${DARK}" stroke-width="1.2"/><path d="M15 3 V7 H19" stroke="${DARK}" stroke-width="1"/><path d="M9 11 H16 M9 14 H16 M9 17 H13" stroke="${DARK}" stroke-width="1.2"/><circle cx="16" cy="18" r="2.4" fill="${AMBER}" stroke="${DARK}" stroke-width="0.8"/>`,
+  calendar: `<rect x="4" y="5" width="16" height="15" rx="1" fill="${DARK}" stroke="${BRASS}" stroke-width="1.3"/><path d="M4 9 H20 M8 3 V7 M16 3 V7" stroke="${BRASS}" stroke-width="1.5"/><path d="M12 11 C13.4 13 13.6 14.5 12 17 C10.4 14.5 10.6 13 12 11 Z" fill="${AMBER}"/>`,
+  rack: `<path d="M3 20 H21 M5 20 V9 M19 20 V9 M3 9 H21" stroke="${BRASS}" stroke-width="1.6"/><path d="M7 14 C7 12 11 12 11 14 V17 H7 Z M13 14 C13 12 17 12 17 14 V17 H13 Z" fill="${AMBER}" stroke="${DARK}" stroke-width="0.9"/>`,
+  warp: `<path d="M7 3 H17 M7 21 H17 M8 3 C8 9 16 9 16 12 C16 15 8 15 8 21 M16 3 C16 9 8 9 8 12" stroke="${BRASS}" stroke-width="1.5"/><path d="M10 18.5 C10 17 14 17 14 18.5 V20 H10 Z" fill="${RUNE}"/>`,
+  creature: `<ellipse cx="12" cy="14" rx="7" ry="5.5" fill="${BONE}" stroke="${DARK}" stroke-width="1.2"/><circle cx="9.5" cy="12.5" r="1.3" fill="${DARK}"/><circle cx="14.5" cy="12.5" r="1.3" fill="${DARK}"/><path d="M7 9 L5 5 M17 9 L19 5" stroke="${DARK}" stroke-width="1.3"/>`,
+  lore: `<path d="M6 4 H18 V20 H6 Z" fill="#d9c9a8" stroke="${DARK}" stroke-width="1.2"/><path d="M9 8 H15 M9 11 H15 M9 14 H13" stroke="#5e4220" stroke-width="1.2"/><path d="M6 4 C4 4 4 7 6 7" stroke="${DARK}" stroke-width="1"/>`,
+  find: `<path d="M12 3 L18 9 L12 21 L6 9 Z" fill="#b9a2ff" stroke="#04070b" stroke-width="1.2"/><path d="M6 9 H18 M12 3 L10 9 L12 21 L14 9 Z" stroke="#7f63d6" stroke-width="0.9"/>`,
+  question: `<path d="M9 9 C9 6.5 10.5 5 12 5 C14 5 15.5 6.5 15.5 8.5 C15.5 11 12 11 12 14" stroke="${RUNE}" stroke-width="2.2"/><circle cx="12" cy="18" r="1.5" fill="${RUNE}"/>`,
 };
 
 /** The SVG markup of an icon. */
@@ -103,6 +122,9 @@ export function cardIcon(id: string): IconId {
     const k = id.split('.').pop() ?? '';
     return k === 'tools' ? 'gear' : k === 'rigging' ? 'rigging' : k === 'edge' ? 'edge' : k === 'lantern' ? 'lantern' : 'gear';
   }
-  if (id.startsWith('skill:')) return id === 'skill:dynamite' ? 'dynamite' : 'skill';
+  if (id.startsWith('skill:')) {
+    const k = id.slice(6);
+    return k === 'dynamite' ? 'dynamite' : k === 'goldRush' || k === 'rush' ? 'rush' : k === 'overdrive' ? 'overdrive' : k === 'earthquake' || k === 'quake' ? 'quake' : 'skill';
+  }
   return 'goal';
 }

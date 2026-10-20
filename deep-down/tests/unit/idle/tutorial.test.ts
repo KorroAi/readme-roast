@@ -4,7 +4,7 @@ import { createIdleBus } from '../../../src/idle/bus';
 import { buy } from '../../../src/idle/model/run';
 import { createIdle, stepIdle } from '../../../src/idle/model/step';
 import { currentStep, guideTarget, TUTORIAL_STEPS, TUTORIAL_TIMES } from '../../../src/idle/model/tutorial';
-import { simTutorial } from '../../../src/idle/sim/tutorialSim';
+import { simRandomTapper, simTutorial } from '../../../src/idle/sim/tutorialSim';
 
 const DT = 1 / 60;
 
@@ -83,4 +83,23 @@ describe('the tutorial (SPEC §8.2)', () => {
       }
     }
   });
+
+  it('G4 (W2 MUST 0): a random tapper at 3 taps/s who never buys reaches 20 m within 60 s (seed 7, six tap streams)', () => {
+    for (const tapSeed of [4242, 1, 2, 3, 5, 8]) {
+      const r = simRandomTapper(3, 60, 7, tapSeed);
+      expect(r.depth, `tap seed ${tapSeed}`).toBeGreaterThanOrEqual(20);
+      expect(r.at20).toBeLessThanOrEqual(58);
+    }
+  }, 30000);
+
+  it('the card steps press the card themselves after two bounces, with the player’s own gold (G4)', () => {
+    const s = createIdle(7, 0);
+    const bus = createIdleBus();
+    const bought: string[] = [];
+    bus.on('buy:done', (e) => bought.push(e.id));
+    // Tap steadily (taps do not reset the card steps' fallback clock), never buy.
+    for (let t = 0; t < 40; t += DT) stepIdle(s, DT, Math.floor(t * 3) !== Math.floor((t - DT) * 3) ? [{ col: Math.floor(t * 7) % 7, kind: 'tap' }] : [], bus);
+    expect(bought[0]).toBe('pick');
+    expect(s.run.pick).toBeGreaterThanOrEqual(2);
+  }, 30000);
 });

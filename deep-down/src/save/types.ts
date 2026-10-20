@@ -104,6 +104,16 @@ export interface SaveV3 {
     seal: null | { biome: number; left: number; hp: BigJSON };
     plantedBonus: number;
     frenzyLeft: number;
+    /** W2: Cataclysm and the run boosts (seconds left), and the run's counters. */
+    cataclysmLeft: number;
+    boosts: Record<string, { left: number; mult: number }>;
+    used: string[];
+    lanterns: number[];
+    sealsBroken: number;
+    splits: Record<string, number>;
+    par: number[];
+    ghostPassed: number;
+    counters: { taps: number; cells: number; rows: number; chests: number; stars: number };
   };
   meta: {
     embers: BigJSON;
@@ -138,7 +148,7 @@ export interface SaveV3 {
       bestEmbers: BigJSON;
     };
     planted: Array<{ depth: number; n: number }>;
-    contracts: Array<{ tpl: string; target: number; progress: number }>;
+    contracts: Array<{ tpl: string; target: number; progress: number; base: number; arg: string; grand: boolean }>;
     contractCount: number;
     daily: { lastDay: number; calendarDay: number; claimedToday: boolean };
     pity: { crystal: number; reliquary: number; lintel: number };
@@ -153,7 +163,18 @@ export interface SaveV3 {
     toolForm: number;
     markMax: number;
     blueprints: number;
+    bestTier: number;
+    bestLines: number;
+    /** Fastest run seconds to 600 m (−1: never). */
+    swift600: number;
+    caught: Record<string, number>;
+    lastUsed: Record<string, number>;
+    dailyReady: boolean;
+    rerolls: number;
   };
+  /** The Director (W2): its clock and deck memory; and the cells the model changed after generation. */
+  director: { wait: number; history: string[]; since: Record<string, number>; dealt: number; codexQuiet: number };
+  overrides: Array<{ depth: number; col: number; kind: number; floor: number }>;
   /** The pending return feast (null when none or collected). */
   offline: null | {
     seconds: number; away: number; capped: boolean; fromDepth: number; toDepth: number;

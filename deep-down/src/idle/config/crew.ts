@@ -73,7 +73,7 @@ const RIGS: readonly CrewRig[] = [
 /** Authored line count. */
 export const AUTHORED_LINES = 15;
 
-/** Unlock depth of line i: 0, 16 m, then the start of biome i − 1; Echo lines with their strata. */
+/** Unlock depth of line i: 0, 16 m, then the start of biome i − 1; Echo lines with their strata (the W1 calibration). */
 export function lineUnlock(i: number): number {
   if (i <= 0) return 0;
   if (i === 1) return 16;

@@ -6,12 +6,19 @@
 import { CELL, type CellKind, CELL_KIND_COUNT } from '../model/state';
 import { GOLD_PER_HP } from './curves';
 
-/** HP × of the soil rows 1–19 (a calibration knob: the first 20 m take 2–4 taps a cell). */
-export const SOIL_HP = 2;
+/**
+ * HP × of the soil rows 1–19 (a calibration knob). W2 MUST 0 (G4): 1.1, not W1's 2, so a player who only taps (3 taps/s,
+ * never buying) still reaches 20 m within a minute (the Node twin of the e2e: `simRandomTapper`, 50–52 s).
+ */
+export const SOIL_HP = 1.1;
 /** Rows of soil under the surface row. */
 export const SOIL_ROWS = 20;
-/** Gold × of a soil cell (rock pays 0.6; the soil a little more, for the tutorial's first purchases). */
-export const SOIL_GOLD = 0.8;
+/**
+ * Gold × of a soil cell. W2: 0.25 (W1 0.8): with the softer soil, less gold keeps the buyer's first 20 m in its band
+ * (`tools/econ-sim.ts first`: 20 m at 0:24, first purchase 4.5 s, first crew 9 s) while the copper of the tutorial
+ * rows (×2.5) stands out even more.
+ */
+export const SOIL_GOLD = 0.25;
 
 export interface CellKindDef {
   kind: CellKind;
@@ -48,6 +55,27 @@ export const KINDS: readonly CellKindDef[] = (() => {
   set(CELL.SOIL, SOIL_GOLD, SOIL_HP);
   return t;
 })();
+
+/**
+ * The soil's HP shape (MUST 0, G4): rows 1–19 are packed earth whose HP grows more gently than the rock below
+ * (`SOIL_HP × slope^(−SOIL_FLATTEN × d)` on HP(d)), so a player who only taps still reaches 20 m in a minute while the
+ * first purchases stay the fast track. A live knob for the calibration tools (SOIL_SHAPE).
+ */
+export const SOIL_SHAPE = { hp: SOIL_HP, flatten: 0, gold: SOIL_GOLD, goldFlatten: 0 };
+
+/** log10 of a kind's gold multiplier at row d (the soil's shape; every other kind its constant; −Infinity: pays none). */
+export function kindGoldLog10(kind: number, d: number): number {
+  if (kind === CELL.SOIL) return Math.log10(SOIL_SHAPE.gold) - SOIL_SHAPE.goldFlatten * Math.max(0, d) * Math.log10(1.14);
+  const g = KINDS[kind].gold;
+  return g > 0 ? Math.log10(g) : -Infinity;
+}
+
+/** log10 of a kind's HP multiplier at row d (the soil's shape; every other kind its constant). */
+export function kindHpLog10(kind: number, d: number): number {
+  if (kind === CELL.SOIL) return Math.log10(SOIL_SHAPE.hp) - SOIL_SHAPE.flatten * Math.max(0, d) * Math.log10(1.14);
+  const h = KINDS[kind].hp;
+  return Math.log10(h > 0 ? h : 1);
+}
 
 /** Shares of the random row mix (SPEC §5.3): rock 84 %, ore 10 %, rich 4 %, rare 1 % (+ the rest rock). */
 export interface CellMix {

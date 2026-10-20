@@ -10,10 +10,20 @@
 import { Big } from '../../core/big';
 import type { HitSource, IdleBus } from '../bus';
 import { AUTHORED_BIOMES, biomeAt, biomeStart } from '../config/biomes';
-import { CHEST_EVERY, KINDS, mixFor, SOIL_ROWS } from '../config/cells';
+import { CHEST_EVERY, KINDS, kindGoldLog10, kindHpLog10, mixFor, SOIL_ROWS } from '../config/cells';
 import { toolFormForBiome } from '../config/gear';
 import { CRUMBLE_AT, CRUMBLE_DELAY, goldPerHp, hpLog10, KAPPA, rowCostLog10, rowsForWork, subLog } from '../config/curves';
 import { CELL, CENTRE_COL, COLS, type CellKind, type IdleState, newRow, type RowState, SHAFT_WINDOW } from './state';
+import { DEPTH_CARDS } from '../config/biomes';
+import { XP } from '../config/rank';
+import { rackChest } from './chests';
+import { mapChestFound, noteSpecial, openGeode, overrideFloor, pityFind } from './director';
+import { facetStats } from './facets';
+import { addXp } from './gain';
+import { mults } from './mult';
+import { collectPassed } from './records';
+import { currentPage, rollFind } from './codex';
+import { chartedGate } from './seals';
 
 const L10 = Math.log10;
 
@@ -167,10 +177,39 @@ export function rowKinds(runSeed: number, d: number, out: Uint8Array = new Uint8
 export function fillRow(s: IdleState, row: RowState, d: number): void {
   row.depth = d;
   rowKinds(s.runSeed, d, row.kinds);
-  for (let c = 0; c < COLS; c++) row.left[c] = row.kinds[c] === CELL.AIR ? 0 : 1;
   row.crumbleMask = 0;
   row.crumbleAt = 0;
   if (sealPending(s, d)) row.kinds.fill(CELL.SEAL);
+  else {
+    decorate(s, row, d);
+    for (const o of s.overrides) if (o.depth === d && row.kinds[o.col] !== CELL.AIR && row.kinds[o.col] !== CELL.SEAL) row.kinds[o.col] = o.kind;
+  }
+  for (let c = 0; c < COLS; c++) row.left[c] = row.kinds[c] === CELL.AIR ? 0 : 1;
+}
+
+/**
+ * The run's facets reshape rows as they enter the window (below the visible section; B repaints from cells:change):
+ * Treasure Nose puts a chest cell every 17 rows, Geode Sense and Fortune 2 add rare cells.
+ */
+function decorate(s: IdleState, row: RowState, d: number): void {
+  if (s.run.facets.length === 0 || d < TUTORIAL_ROWS || isGateRow(d)) return;
+  const fs = facetStats(s);
+  if (fs.chestEvery > 0 && d % fs.chestEvery === fs.chestEvery - 1 && row.kinds[CENTRE_COL] !== CELL.AIR && row.kinds[CENTRE_COL] !== CELL.CHEST) {
+    row.kinds[CENTRE_COL] = CELL.CHEST;
+    s.overrides.push({ depth: d, col: CENTRE_COL, kind: CELL.CHEST, floor: 0 });
+  }
+  if (fs.rareX > 1) {
+    const p = 0.01 * (fs.rareX - 1);
+    for (let c = 0; c < COLS; c++) {
+      if (row.kinds[c] !== CELL.ROCK) continue;
+      const u = u01(s.runSeed ^ 0x5eed, c + 911, d);
+      if (u < p) {
+        row.kinds[c] = u < p * 0.4 ? CELL.GEM : u < p * 0.7 ? CELL.FOSSIL : CELL.GEODE;
+        s.overrides.push({ depth: d, col: c, kind: row.kinds[c], floor: 0 });
+      }
+    }
+  }
+  if (s.overrides.length > 64) s.overrides.splice(0, s.overrides.length - 64);
 }
 
 /** True when row d is a never-opened seal (the first row of a biome whose seal was never broken). */
@@ -263,8 +302,7 @@ export function columnTops(s: IdleState, out: Float64Array = new Float64Array(CO
 
 /** log10 of a cell's full HP at its row (kind HP × row HP). */
 export function cellHpLog10(kind: number, d: number): number {
-  const k = KINDS[kind];
-  return hpLog10(d) + L10(k.hp > 0 ? k.hp : 1);
+  return hpLog10(d) + kindHpLog10(kind, d);
 }
 
 /** Options for one application of damage. */
@@ -389,14 +427,14 @@ export function crackStage(left: number): number {
 
 /** The cell's gold (log10) at its depth: HP(d) × goldPerHp × kind gold × the multipliers. */
 export function cellGoldLog10(kind: number, d: number, extraLog10 = 0): number {
-  const g = KINDS[kind].gold;
-  if (g <= 0) return -Infinity;
-  return hpLog10(d) + L10(goldPerHp() * g) + extraLog10;
+  const g = kindGoldLog10(kind, d);
+  if (g === -Infinity) return -Infinity;
+  return hpLog10(d) + L10(goldPerHp()) + g + extraLog10;
 }
 
 /** A cell broke: pay it, count it, pop a chest. `pay` is the loot fraction (crumbled valuables pay ½). */
 function breakCell(s: IdleState, row: RowState, c: number, kind: CellKind, source: HitSource, bus: IdleBus | undefined, chainIndex: number, crit: boolean, goldLog10: number, pay: number): void {
-  const gl = cellGoldLog10(kind, row.depth, goldLog10 + goldMultLog10(s) + (pay !== 1 ? L10(pay) : 0));
+  const gl = cellGoldLog10(kind, row.depth, goldLog10 + goldMultLog10(s) + facetKindGoldLog10(s, kind) + (pay !== 1 ? L10(pay) : 0));
   const gold = Big.fromLog10(gl);
   if (gl > -Infinity) {
     s.run.gold.addIn(gold);
@@ -407,22 +445,55 @@ function breakCell(s: IdleState, row: RowState, c: number, kind: CellKind, sourc
   if (gems > 0) s.meta.gems += gems;
   const belowRecord = row.depth >= s.meta.record;
   s.meta.stats.cells++;
-  if (belowRecord) s.meta.stats.cellsNew++;
+  s.run.cells++;
+  if (belowRecord) {
+    s.meta.stats.cellsNew++;
+    // XP counts only cells below the record (CRITIQUE MUST 5): ore and rare 3, the rest 1.
+    addXp(s, kind === CELL.ORE || kind === CELL.RICH || kind === CELL.GEM || kind === CELL.FOSSIL || kind === CELL.GEODE ? XP.ore : XP.cell);
+  }
+  if (kind === CELL.ORE || kind === CELL.RICH) {
+    s.meta.stats.ores++;
+    s.meta.lastUsed.ore = s.playTime;
+  }
+  noteSpecial(s, kind);
   bus?.emit('cell:break', { col: c, depth: row.depth, kind, source, gold, gems, chainIndex, belowRecord, crit });
   if (gl > -Infinity) bus?.emit('gold:gain', { amount: gold.clone(), source: source === 'crumble' ? 'crumble' : 'cell', col: c, depth: row.depth });
   if (gems > 0) bus?.emit('gems:gain', { amount: gems, source: 'cell', col: c, depth: row.depth });
   if (kind === CELL.CHEST) {
     const id = `chest:${s.nextId++}`;
-    s.chests.push({ id, col: c, depth: row.depth, floor: 0, at: s.time });
-    bus?.emit('chest:exposed', { id, col: c, depth: row.depth, floor: 'wood' });
+    const floor = Math.max(0, overrideFloor(s, row.depth, c));
+    if (floor > 0) mapChestFound(s);
+    s.chests.push({ id, col: c, depth: row.depth, floor, at: s.time });
+    bus?.emit('chest:exposed', { id, col: c, depth: row.depth, floor: (['wood', 'copper', 'crystal', 'reliquary', 'lintel'] as const)[floor] });
+  }
+  // Rare cells: Finds (gems and geodes give minerals, fossils give fossils), a geode's Strike, the Codex pity's sure find.
+  if (kind === CELL.GEM || kind === CELL.FOSSIL || kind === CELL.GEODE) {
+    if (overrideFloor(s, row.depth, c) === -2) pityFind(s, kind, bus);
+    else if (belowRecord || source !== 'analytic') rollFind(s, kind === CELL.FOSSIL ? 'fossil' : 'rare', currentPage(s), bus);
+    if (kind === CELL.GEODE && source !== 'crumble') openGeode(s, row.depth, c, bus);
   }
 }
 
-/** log10 of the run's gold multipliers (Gold Rush while active; W2 adds Finds and facets). */
+/** log10 of the run's gold multipliers (Gold Rush while active; Finds, the Bestiary, Marks, Biome Seals, facets). */
 export function goldMultLog10(s: IdleState): number {
-  let l = 0;
+  let l = mults(s).gold;
   const gr = s.run.skills.goldRush;
   if (gr && gr.activeEnd > s.time) l += L10(Math.min(15, 4 + Math.max(1, gr.lvl)));
+  return l;
+}
+
+/** log10 of a kind's extra gold from facets and boosts (Assay and the ore boost on ore, Golden Hour on golden cells). */
+function facetKindGoldLog10(s: IdleState, kind: number): number {
+  const fs = facetStats(s);
+  let l = 0;
+  if (kind === CELL.ORE || kind === CELL.RICH) {
+    if (fs.oreGoldX > 1) l += L10(fs.oreGoldX);
+    const b = s.run.boosts.ores3;
+    if (b && b.end > s.time) l += L10(3);
+  }
+  if (kind === CELL.GOLDEN && fs.goldenX > 1) l += L10(fs.goldenX);
+  // Greed 4: every 50th cell broken pays as golden.
+  if (fs.goldenEvery > 0 && (s.run.cells + 1) % fs.goldenEvery === 0) l += L10(20);
   return l;
 }
 
@@ -500,6 +571,8 @@ export function settleFloor(s: IdleState, bus: IdleBus | undefined, source: HitS
   }
   if (dropped > 0) {
     if (s.run.depth > s.run.dmax) s.run.dmax = s.run.depth;
+    s.run.rows += dropped;
+    s.overrides = s.overrides.filter((o) => o.depth >= s.run.depth);
     if (open >= 3) bus?.emit('cavern:breakthrough', { from, to: s.run.depth, fall: open });
     bus?.emit('row:clear', { depth: s.run.depth, rows: dropped, source });
     onDepth(s, from, bus);
@@ -514,8 +587,13 @@ export function onDepth(s: IdleState, from: number, bus?: IdleBus): void {
   const k1 = biomeAt(d);
   for (let k = k0 + 1; k <= k1; k++) {
     const first = !s.meta.biomesSeen.includes(k);
-    if (first) s.meta.biomesSeen.push(k);
+    if (first) {
+      s.meta.biomesSeen.push(k);
+      addXp(s, XP.firstBiome);
+    }
     bus?.emit('biome:enter', { biome: k, first, depth: biomeStart(k) });
+    // A charted gate crossed while digging (a first-time seal's break records its own split).
+    if (s.run.splits[String(k)] === undefined) chartedGate(s, k, bus);
     // A new named tool form with every new biome or stratum ever reached (CRITIQUE MUST 10).
     const form = toolFormForBiome(k);
     if (form > s.meta.toolForm) {
@@ -547,6 +625,16 @@ export function onDepth(s: IdleState, from: number, bus?: IdleBus): void {
     s.meta.records.deepest = d;
   }
   if (d > s.meta.cycleRecord) s.meta.cycleRecord = d;
+  // Swift (the fastest run to 600 m) and the depth cards (CRITIQUE MUST 11).
+  // (A Head Start's Plunge does not count: the run must dig its own way to 600 m.)
+  if (from < 600 && d >= 600 && s.run.runTime > 5 && !s.run.splits.hs && s.run.runTime < s.meta.swift600) s.meta.swift600 = s.run.runTime;
+  for (const card of DEPTH_CARDS) {
+    if (d >= card.metres && from < card.metres && !s.meta.firstTime.includes(`depth:${card.id}`)) {
+      s.meta.firstTime.push(`depth:${card.id}`);
+      bus?.emit('depth:card', { id: card.id, metres: card.metres });
+    }
+  }
+  s.meta.lastUsed.dig = s.playTime;
   // The glow below: 40 m above a never-opened seal.
   const seal = nextSealDepth(s, from + 1);
   if (Number.isFinite(seal) && from < seal - 40 && d >= seal - 40) bus?.emit('biome:glow', { biome: biomeAt(seal), depth: seal });
@@ -574,16 +662,9 @@ export function analyticRows(s: IdleState, work: number, bus: IdleBus | undefine
   // Chest cells passed.
   let racked = 0;
   const chestRows = Math.max(0, Math.floor((to - 1 - (CHEST_EVERY - 1)) / CHEST_EVERY) - Math.floor((from - 1 - (CHEST_EVERY - 1)) / CHEST_EVERY));
-  for (let i = 0; i < chestRows; i++) {
-    if (s.run.rack.length < 10) {
-      s.run.rack.push(0);
-      racked++;
-    } else {
-      // A full rack: the chest becomes its gold (about 30 s of income).
-      const g = Big.fromLog10(s.rates.goldPerSec.log10() + L10(30));
-      s.run.gold.addIn(g);
-    }
-  }
+  for (let i = 0; i < chestRows; i++) if (rackChest(s, 0)) racked++;
+  // Planted lanterns passed are collected (CRITIQUE MUST 5).
+  collectPassed(s, from, to, bus);
   const cellsPassed = res.rows * COLS;
   s.meta.stats.cells += cellsPassed;
   if (to > s.meta.record) s.meta.stats.cellsNew += Math.min(cellsPassed, (to - Math.max(from, s.meta.record)) * COLS);

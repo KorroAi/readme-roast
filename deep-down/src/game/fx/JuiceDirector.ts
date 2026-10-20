@@ -7,7 +7,7 @@
 import { Big } from '../../core/big';
 import type { IdleBus, IdleEvents } from '../../idle/bus';
 import { CELL, type IdleState } from '../../idle/model/state';
-import { t } from '../../i18n';
+import { hasText, t } from '../../i18n';
 import type { DescentScene } from '../../render/descent/DescentScene';
 import type { DisplayLedger } from '../../ui/fx/displayLedger';
 import type { FxCanvas, SparkKind } from '../../ui/fx/FxCanvas';
@@ -90,16 +90,136 @@ export class JuiceDirector {
     on('buy:done', (p) => this.onBuy(p));
     on('crew:star', (p) => this.onStar(`crew:${p.line}`, false));
     on('crew:crown', (p) => this.onStar(`crew:${p.line}`, true));
-    on('pick:tier', (p) => this.onPickTier(p));
     on('combo:tier', (p) => this.onComboTier(p));
     on('chest:exposed', (p) => this.play(CUES.chestExposed, p.depth, p.col));
-    on('chest:open', () => this.play(CUES.chestOpen, this.d.state().run.depth, 3));
     on('seal:start', (p) => this.play(CUES.sealAppear, p.depth, 3));
-    on('seal:hit', () => this.onSealHit());
-    on('seal:break', (p) => this.onSealBreak(p));
+    on('seal:hit', (p) => this.onSealHit(p.weak));
     on('cavern:breakthrough', () => this.play(CUES.breakthrough, this.d.state().run.depth, 3));
     on('moth:catch', () => this.play(CUES.moth, this.d.state().run.depth, 3));
-    on('skill:dynamite', (p) => this.play(CUES.dynamite, p.from, 3));
+    on('skill:dynamite', (p) => {
+      this.play(CUES.dynamite, p.from, 3);
+      this.d.scene.impactLight(p.from, 3, 6, 0xffa050, 2, 250);
+    });
+    // One-time depth cards (CRITIQUE critic 1 MUST 11): "Deeper than the Burj Khalifa is tall · 828 m".
+    on('depth:card', (p) => {
+      const k = `idle.depthCard.${p.id}`;
+      if (hasText(k)) this.d.hud.stamp(t(k).toUpperCase(), `${p.metres.toLocaleString('en-US')} m`, 'rune');
+    });
+    // Wave 2 (SPEC §10.3).
+    on('skill:earthquake', () => this.play(CUES.quake, this.d.state().run.depth, 3));
+    on('skill:use', (p) => this.onSkill(p.id));
+    on('skill:cataclysm', () => this.onCataclysm());
+    on('surge:start', () => this.onSurge());
+    on('surge:end', () => this.d.cam.bloomPulse(0));
+    on('event:hit', (p) => this.onEventHit(p.caught));
+    on('event:end', (p) => this.onEventEnd(p.result));
+    on('entity:done', (p) => this.onEntityDone(p.kind));
+    on('entity:hit', () => this.d.haptics.play('tap'));
+    on('widget:input', (p) => this.onWidgetInput(p.kind, p.grade));
+    on('facet:pick', () => this.play(CUES.facet, this.d.state().run.depth, 3));
+    on('crew:crown', (p) => this.d.hud.stamp(t('ui.ceremony.crowned', { name: this.d.cardName(`crew:${p.line}`).toUpperCase() }), '', 'amber'));
+    on('record:new', (p) => this.onRecord(p.id));
+    on('lantern:tap', (p) => this.onLantern(p.bonus));
+    on('codex:new', () => this.onCodexNew());
+    on('ghost:pass', (p) => this.onGhost(p.ahead));
+  }
+
+  // ----- held gains (a chest's contents fly at its open moment) ------------------------------------------------
+
+  private readonly held: Array<{ kind: 'gold' | 'gems'; id: number; at: number }> = [];
+
+  /** Gains held for a ceremony fly now from (x, y) (the chest's open, the toast's reward chip). */
+  releaseHeld(x: number, y: number): void {
+    const now = this.now();
+    let i = 0;
+    for (const hd of this.held) {
+      const ok = this.d.fx.token(hd.kind === 'gems' ? 'gem' : 'coin', x + ((i % 5) - 2) * 6, y, hd.kind === 'gems' ? 'gems' : 'gold', hd.id, i, now);
+      if (!ok) (hd.kind === 'gems' ? this.d.gems : this.d.gold).land(hd.id);
+      i++;
+    }
+    this.held.length = 0;
+  }
+
+  /** Per frame: held gains older than 4 s fly by themselves (no ceremony claimed them). */
+  frame(): void {
+    if (this.held.length && this.now() - this.held[0].at > 4000) {
+      const c = this.d.centre();
+      this.releaseHeld(c.x, c.y);
+    }
+  }
+
+  // ----- wave 2 cues ----------------------------------------------------------------------------------------
+
+  private onSkill(id: string): void {
+    if (id === 'goldRush' || id === 'overdrive') {
+      this.play(CUES.skill, this.d.state().run.depth, 3);
+      const pt = this.d.hud.comboPoint();
+      if (pt) this.d.fx.ring(pt.x, pt.y, 20, 120, 520, id === 'goldRush' ? '255,207,90' : '226,182,115', this.now(), 3);
+    }
+  }
+
+  private onCataclysm(): void {
+    this.play(CUES.cataclysm, this.d.state().run.depth, 3);
+    this.d.hud.stamp(t('ui.ceremony.cataclysm'), '', 'white');
+  }
+
+  private onSurge(): void {
+    if (this.d.cam.budget.admitT3(this.now()) > 0) return;
+    this.play(CUES.surge, this.d.state().run.depth, 3);
+    this.d.cam.bloomPulse(0.35);
+    this.d.hud.stamp(t('ui.ceremony.surge'), '', 'amber');
+    const pt = this.d.hud.comboPoint();
+    if (pt) this.d.fx.sparksAt(pt.x, pt.y, 40, 'amber', this.now(), 160, 460, 900, Math.PI, Math.PI * 2, 200, 'star');
+  }
+
+  private onEventHit(caught: boolean): void {
+    this.d.haptics.play(caught ? 'catch' : 'tap');
+    if (caught) this.d.audio.play('catch', { pitch: 1 + 0.06 * (this.catchN++ % 8) });
+  }
+  private catchN = 0;
+
+  private onEventEnd(result: string): void {
+    this.catchN = 0;
+    if (result === 'done') this.play(CUES.moth, this.d.state().run.depth, 3);
+  }
+
+  private onEntityDone(kind: string): void {
+    if (kind === 'creature') this.play(CUES.creature, this.d.state().run.depth, 3);
+  }
+
+  private onWidgetInput(kind: string, grade: string): void {
+    if (kind === 'strike') {
+      if (grade === 'perfect') this.play(CUES.perfect, this.d.state().run.depth, 3);
+      else this.d.haptics.play('strike');
+      this.d.audio.play(grade === 'perfect' ? 'strike.perfect' : 'seal.hit', {});
+    } else if (kind === 'mash') this.d.audio.play('combo.tier', { pitch: 1.12 });
+    else if (kind === 'sequence') this.d.audio.play(grade === 'wrong' ? 'ui.no' : 'catch', { pitch: 1.2 });
+  }
+
+  private onRecord(id: string): void {
+    const dp = this.d.hud.depthPoint();
+    if (id === 'deepest' && dp) this.d.fx.label(dp.x, dp.y + 34, t('ui.ceremony.record'), 'xp', 16, this.now());
+  }
+
+  private onLantern(bonus: number): void {
+    const c = this.d.centre();
+    this.d.fx.label(c.x, c.y - 40, `+${Math.round(bonus * 100)} %`, 'gold', 26, this.now());
+    this.play(CUES.facet, this.d.state().run.depth, 3);
+  }
+
+  /** Past the ghost lantern (the par run, CRITIQUE MUST 6): a rune label at the depth, a chime, a tick. */
+  private onGhost(ahead: number): void {
+    const dp = this.d.hud.depthPoint();
+    const c = dp ?? this.d.centre();
+    this.d.fx.label(c.x, c.y + 34, t('ui.ceremony.ghost', { m: Math.max(1, Math.round(ahead)) }), 'xp', 16, this.now());
+    this.d.audio.play('record', { pitch: 1.2 });
+    this.d.haptics.play('event');
+  }
+
+  private onCodexNew(): void {
+    const c = this.d.centre();
+    this.d.fx.label(c.x, c.y - 70, t('ui.codex.newFind'), 'gem', 22, this.now());
+    this.d.audio.play('gem.ring', { pitch: 1.5 });
   }
 
   private now(): number {
@@ -211,6 +331,9 @@ export class JuiceDirector {
     else if (k === CELL.ORE || k === CELL.RICH || k === CELL.GOLDEN) this.play(CUES.ore, p.depth, p.col, accent);
     else this.play(CUES.break, p.depth, p.col, accent);
     if (k === CELL.ORE || k === CELL.RICH || k === CELL.GOLDEN || k === CELL.GEM) scene.burst(k === CELL.GEM ? 'gem' : 'gold', p.depth, p.col, 10);
+    // Transient impact lights (CRITIQUE critic 2 MUST 14): ore 2.5 m, gems in rune cyan.
+    if (k === CELL.ORE || k === CELL.RICH || k === CELL.GOLDEN) scene.impactLight(p.depth, p.col, 2.5, 0xffc860, 1.2, 160);
+    else if (k === CELL.GEM || k === CELL.GEODE) scene.impactLight(p.depth, p.col, 2.5, 0x8fe3ee, 1.4, 200);
     // E2: the pierce chain counter "×N" and +0.04 trauma per cell.
     if (p.chainIndex >= 1) {
       this.play(CUES.pierce, p.depth, p.col);
@@ -236,6 +359,17 @@ export class JuiceDirector {
     const now = this.now();
     const fx = this.d.fx;
     if (p.amount.isZero()) return;
+    // A chest's (and a Feat's) contents fly at its open moment: reserve them in the ledger now (shown stays put), and
+    // let the ceremony release them (releaseHeld), or the frame after 4 s.
+    if (p.source === 'chest' || p.source === 'feat' || p.source === 'rank') {
+      const n = p.source === 'chest' ? 8 : 3;
+      const share = this.tmpBig.set(p.amount).divIn(n);
+      for (let i = 0; i < n; i++) {
+        const id = this.d.gold.launch(share.clone());
+        if (id) this.held.push({ kind: 'gold', id, at: now });
+      }
+      return;
+    }
     let x: number;
     let y: number;
     let n: number;
@@ -250,7 +384,7 @@ export class JuiceDirector {
       const c = this.d.centre();
       x = c.x;
       y = c.y;
-      n = p.source === 'offline' ? 24 : p.source === 'chest' ? 8 : 5;
+      n = p.source === 'offline' ? 24 : p.source === 'contract' || p.source === 'event' ? 8 : 5;
     }
     // Split the amount into n tokens; each reserves its share in the ledger and credits it on landing.
     const share = this.tmpBig.set(p.amount).divIn(n);
@@ -266,6 +400,14 @@ export class JuiceDirector {
 
   private onGems(p: IdleEvents['gems:gain']): void {
     const now = this.now();
+    if (p.source === 'chest' || p.source === 'feat' || p.source === 'rank') {
+      const n = Math.max(1, Math.min(6, Math.round(p.amount)));
+      for (let i = 0; i < n; i++) {
+        const id = this.d.gems.launch(p.amount / n);
+        if (id) this.held.push({ kind: 'gems', id, at: now });
+      }
+      return;
+    }
     let x: number;
     let y: number;
     if (p.col >= 0) ({ x, y } = this.d.scene.screenOf(p.depth, p.col));
@@ -320,15 +462,6 @@ export class JuiceDirector {
     this.d.hud.announce(this.d.cardName(id));
   }
 
-  private onPickTier(p: IdleEvents['pick:tier']): void {
-    const now = this.now();
-    if (!this.d.cam.budget.beginExclusive(1600, now)) return;
-    this.play(CUES.pickTier, this.d.state().run.depth, 3);
-    const r = this.d.hud.cardRect('pick');
-    if (r) this.d.fx.sparksAt(r.left + r.width / 2, r.top + r.height / 2, 40, 'gold', now, 250, 600, 900, 0, Math.PI * 2, 300, 'star');
-    this.d.hud.stamp(this.d.cardName(`tool:${p.tier}`), p.tiers > 1 ? `+${p.tiers}` : '×2.5', 'amber');
-  }
-
   private onComboTier(p: IdleEvents['combo:tier']): void {
     const now = this.now();
     if (this.d.cam.budget.admitT3(now) > 0) return;
@@ -340,17 +473,16 @@ export class JuiceDirector {
     }
   }
 
-  private onSealHit(): void {
+  private onSealHit(weak: boolean): void {
     const s = this.d.state();
     this.d.cam.kick(0, 1, false);
-    for (let c = 0; c < 7; c++) this.d.scene.cellFx(s.run.depth, c, CUES.sealHit.flash * 0.6, c === 3 ? CUES.sealHit.pop : 0, 0);
-  }
-
-  private onSealBreak(p: IdleEvents['seal:break']): void {
-    const now = this.now();
-    this.d.cam.budget.beginExclusive(1200, now);
-    this.play(CUES.sealBreak, p.depth, 3);
-    this.d.hud.stamp(t('ui.stamp.sealBroken'), '', 'white');
+    for (let c = 0; c < 7; c++) this.d.scene.cellFx(s.run.depth, c, CUES.sealHit.flash * (weak ? 1.4 : 0.6), c === 3 ? CUES.sealHit.pop : 0, 0);
+    this.d.haptics.play(weak ? 'weak' : 'sealHit');
+    if (weak) {
+      this.play(CUES.weak, s.run.depth, 3);
+      const c = this.d.centre();
+      this.d.fx.label(c.x, this.d.scene.floorScreenY() - 40, t('ui.seal.weak'), 'crit', 30, this.now());
+    }
   }
 
   dispose(): void {

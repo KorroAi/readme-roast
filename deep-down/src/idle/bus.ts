@@ -24,6 +24,32 @@ export type ChestTier = 'wood' | 'copper' | 'crystal' | 'reliquary' | 'lintel';
 /** Buy modes (SPEC §5.4–§5.5). */
 export type BuyMode = 'x1' | 'x10' | 'star' | 'max';
 
+/** The five mini-game widgets (SPEC §7.3). */
+export type WidgetKind = 'catch' | 'mash' | 'strike' | 'sequence' | 'pick';
+
+/** Strike grades (SPEC §7.3): perfect ×5 (×10 for a seal finisher), good ×2, else ×1. */
+export type StrikeGrade = 'perfect' | 'good' | 'miss';
+
+/**
+ * Where an event target travels, in shaft coordinates relative to the floor at spawn: `x` in columns (0 = the left
+ * cell's centre, 6 the right one's; −0.8 and 6.8 are the walls), `y` in rows below the floor's top (negative = above).
+ * The point at time t ∈ [t0, t1] is the quadratic Bézier (x0, y0) → (cx, cy) → (x1, y1) at u = (t − t0)/(t1 − t0).
+ * Paths stay inside the reach band (CRITIQUE MUST 8: −4 ≤ y ≤ 4) and the lower 65 % of the world region (y ≥ −2.5).
+ */
+export interface EventPath {
+  x0: number; y0: number; cx: number; cy: number; x1: number; y1: number;
+}
+
+/** A facet card as offered (SPEC §5.10). */
+export interface FacetCardView {
+  id: string;
+  tag: string;
+  rarity: 'common' | 'rare' | 'relic';
+  duo: boolean;
+  /** The value multiplier of the rarity (×1, ×1.5, ×2.5). */
+  value: number;
+}
+
 export interface IdleEvents {
   // ----- the tap (SPEC §3) ---------------------------------------------------------------------------
   /**
@@ -124,33 +150,76 @@ export interface IdleEvents {
   'chest:seen': { col: number; depth: number };
   /** A chest cell broke: the chest pops out and waits for a tap (entity id `chest:<n>`). */
   'chest:exposed': { id: string; col: number; depth: number; floor: ChestTier };
-  /** A chest opened: the honest roll-up from `floor` to `tier` (`steps` taken), its contents already credited. */
-  'chest:open': { id: string; floor: ChestTier; tier: ChestTier; steps: number; gold: Big; gems: number; source: string };
+  /**
+   * A chest opened: the honest roll-up from `floor` to `tier` (`steps` taken; the reveal plays exactly these steps:
+   * `path` is every tier it passed, floor first), its contents already credited. `extras` lists the rest of the haul
+   * as reward codes: 'levels:<line>:<n>', 'find:<id>', 'findLevel:<id>', 'reroll:<n>', 'cosmetic:<id>', 'crystal:<n>'
+   * (Time Crystals), 'storm:<s>' (a Lantern Storm), 'card' (the Lockpick perk's extra card).
+   */
+  'chest:open': { id: string; floor: ChestTier; tier: ChestTier; steps: number; gold: Big; gems: number; source: string; path?: ChestTier[]; extras?: string[] };
   /** The Chest Rack changed (offline, analytic rows). */
   'chest:rack': { count: number };
 
   // ----- seals and Wardens (SPEC §7.1; the Halden Hatch in W1) ---------------------------------------
-  /** A never-opened seal is the floor now: the fight starts (timer `time` s, HP as Big). */
-  'seal:start': { biome: number; depth: number; hp: Big; time: number };
-  /** A hit on the seal (fraction left). */
-  'seal:hit': { biome: number; left: number; dmg: Big; weak: boolean };
-  /** The seal broke (first time ever for this biome). */
-  'seal:break': { biome: number; depth: number; time: number };
-  /** The timer ran out: the seal keeps `kept` of the damage (50 %); tapping starts again. */
-  'seal:fail': { biome: number; left: number; kept: number };
-  /** A charted gate (a seal opened in a previous run) broke like a hard row. */
-  'gate:break': { biome: number; depth: number; split: number };
-  /** The weak point lit (W2). */
-  'seal:weak': { biome: number; lit: boolean };
+  /**
+   * A never-opened seal is the floor now: the fight starts (timer `time` s, HP as Big). `warden` is the Warden's id
+   * (i18n `idle.warden.<id>`); `estimate` the seconds an active player needs at the current rates (H5's colour).
+   * Emitted again when a held seal is restarted by a tap.
+   */
+  'seal:start': { biome: number; depth: number; hp: Big; time: number; warden?: string; estimate?: number; retry?: boolean };
+  /** A hit on the seal (fraction left). `weak` when it struck the lit weak point (×5); `finisher` for the Strike finisher. */
+  'seal:hit': { biome: number; left: number; dmg: Big; weak: boolean; finisher?: boolean };
+  /**
+   * The seal broke (first time ever for this biome). Its rewards are already credited: `gems`, the Warden's relic Find
+   * (`relic`, '' when the page already has it: it levels instead), a Crystal-floor chest (opened: see chest:open with
+   * source 'seal'), `xp`, and `hand` true when a facet hand was queued (from the second seal of a run).
+   */
+  'seal:break': { biome: number; depth: number; time: number; gems?: number; relic?: string; xp?: number; hand?: boolean };
+  /** The timer ran out: the seal keeps `kept` of the damage (50 %); tapping starts again. `pct` the HP left in %. */
+  'seal:fail': { biome: number; left: number; kept: number; pct?: number };
+  /**
+   * A charted gate (a seal opened in a previous run) broke like a hard row. `split` the run time (s) to it, `best` the
+   * best split before (Infinity when none), `par` the ghost's time to it (Infinity before the first Rekindle), `green`
+   * when it beat par by ≥ 5 % (CRITIQUE MUST 6: it paid 5 gems).
+   */
+  'gate:break': { biome: number; depth: number; split: number; best?: number; par?: number; green?: boolean };
+  /**
+   * The Warden's weak point lit (`lit` true) or went dark. `id` is the tappable `weak:<sealId>:<i>` (sealId = the biome
+   * the seal opens, i = 0..2: which of the Warden's three points), `until` the model time it goes dark.
+   */
+  'seal:weak': { biome: number; lit: boolean; id?: string; point?: number; until?: number };
+  /** The Strike finisher appeared at 25 % HP (`widget` the widget id: tap it to stop the needle; perfect = a ×10 hit). */
+  'seal:finisher': { biome: number; widget: string };
 
   // ----- events and widgets (SPEC §7.2–§7.3; W2 except the Lucky Moth) -------------------------------
   /** The Lucky Moth appeared (entity id `moth:<n>`), crossing for `life` s. */
   'moth:spawn': { id: string; life: number; scripted: boolean };
   'moth:catch': { id: string; outcome: 'gold' | 'frenzy' | 'gems' | 'refresh'; gold: Big; gems: number };
   'moth:gone': { id: string };
+  /** The next event shows on the Depth Ruler `inSeconds` ahead (SPEC §7.2 "Announced"). `id` the event to come. */
   'event:announce': { id: string; type: string; inSeconds: number };
-  'event:start': { id: string; type: string; widget: string; life: number };
-  'event:end': { id: string; type: string; result: 'done' | 'partial' | 'missed'; gold: Big; gems: number };
+  /**
+   * An event began (`id` its event id: entity ids are `event:<id>:<n>`; `type` from config/events.ts; `widget` the
+   * widget kind or '' for passive ones such as the Golden Vein; `life` its window in s, Infinity for waiting events).
+   * `first` when this type was never dealt before (its first-time card follows as 'firsttime').
+   */
+  'event:start': { id: string; type: string; widget: string; life: number; first?: boolean; depth?: number };
+  /** A target of an event entered the world (B spawns it; C may draw its widget chrome). `taps` hits to take it. */
+  'event:target': { event: string; id: string; kind: string; t0: number; t1: number; path: EventPath; taps: number };
+  /** A target was hit: `left` taps still needed (0: taken), `caught` it counted. */
+  'event:hit': { event: string; id: string; left: number; caught: boolean };
+  /** A target left the world uncaught (it flew off, shattered on the floor, hid). */
+  'event:miss': { event: string; id: string };
+  /** An event ended with its result, rewards already credited. `caught`/`of` how many targets were taken. */
+  'event:end': { id: string; type: string; result: 'done' | 'partial' | 'missed'; gold: Big; gems: number; caught?: number; of?: number; extras?: string[] };
+  /** The find guarantee (SPEC §7.2): a micro-surfacing to tap (`id` an event entity), gone after `life` s. */
+  'find:surface': { id: string; kind: 'gem' | 'critter' | 'pebble'; col: number; depth: number; life: number };
+  /** A widget opened (SPEC §7.3). `owner`: 'seal', 'geode', 'event:<id>', 'rope', 'facet'. `life` its window (s). */
+  'widget:start': { id: string; kind: WidgetKind; owner: string; life: number };
+  /** A widget input resolved (a Strike needle stopped, a Sequence mark, a Mash tier, a Pick choice). */
+  'widget:input': { id: string; kind: WidgetKind; grade: string; value: number };
+  /** A widget closed: `result` 'done' | 'partial' | 'missed' | 'skipped', `score` its graded value. */
+  'widget:end': { id: string; kind: WidgetKind; owner: string; result: string; score: number };
 
   // ----- guidance (SPEC §8) --------------------------------------------------------------------------
   /** The goal on the bar changed (`id` the goal id). */
@@ -179,18 +248,80 @@ export interface IdleEvents {
   /** The return feast's Collect: the haul was credited. */
   'offline:collect': { gold: Big; chests: number };
 
-  // ----- progression (W2–W3, declared now) -----------------------------------------------------------
-  'feat:tier': { family: string; tier: number };
+  // ----- tappables (W2.md §3.5) ---------------------------------------------------------------------
+  /** A multi-tap entity took a hit (`hits` of `need`). */
+  'entity:hit': { id: string; kind: string; hits: number; need: number };
+  /** An entity was used up (caught, opened, read, collected): B removes it. `reward` a reward code ('' none). */
+  'entity:done': { id: string; kind: string; reward: string };
+  /**
+   * The model changed cells that are already generated (Golden Vein, the boredom breaker, Codex pity, Treasure Map,
+   * Cave-in boulders): B repaints them. Kinds are CellKind; rowKinds() stays the generator's base.
+   */
+  'cells:change': { cells: Array<{ depth: number; col: number; kind: CellKind }>; reason: string };
+
+  // ----- progression (SPEC §7.4–§7.7) ----------------------------------------------------------------
+  /**
+   * A Feat family reached a tier (I–X, then endless). Rewards credited: +1 Mark, `gems`, 30 XP; `cosmetic` at tier V
+   * ('' otherwise); `perk` true at tier X (the family's permanent perk is now on).
+   */
+  'feat:tier': { family: string; tier: number; gems?: number; marks?: number; cosmetic?: string; perk?: boolean };
+  /** A secret Feat was found (5 Marks and 25 gems credited). */
   'feat:secret': { id: string };
-  'rank:up': { rank: number };
-  'codex:new': { id: string; section: 'find' | 'bestiary' | 'lore' };
-  'contract:done': { id: string; grand: boolean };
+  /** A rank was reached: rewards credited (`gems`, a Copper chest every 5 ranks, `title` every 25, '' otherwise). */
+  'rank:up': { rank: number; gems?: number; chest?: boolean; title?: string; cosmetic?: string };
+  /** XP was earned (throttled: at most every 0.25 s, summed). */
+  'xp:gain': { amount: number; xp: number; need: number };
+  /** A Codex entry was found for the first time (`biome` its page, `level` 1). */
+  'codex:new': { id: string; section: 'find' | 'bestiary' | 'lore'; biome?: number };
+  /** A duplicate Find levelled it up (+1 %), or a Bestiary tier was reached. */
+  'codex:level': { id: string; level: number };
+  /** A biome page is complete: its Biome Seal (+10 % gold and power) is stamped. */
+  'codex:page': { biome: number };
+  /** Every 10 entries: a Codex chest (Crystal floor; opened as chest:open with source 'codex'). */
+  'codex:chest': { entries: number };
+  /** A lore entry was read (a Halden note on the back wall, a mural, a seal card). */
+  'lore:read': { id: string; biome: number };
+  /** A new contract filled `slot` (0..2, or 3 with the Contractor perk). */
+  'contract:new': { slot: number; tpl: string; target: number; grand: boolean };
+  /** A contract's progress crossed a quarter. */
+  'contract:progress': { slot: number; progress: number; target: number };
+  /** A contract was completed (rewards credited: `gems`, 2 min of income; a Grand one adds a Crystal chest and a Time Crystal). */
+  'contract:done': { id: string; grand: boolean; slot?: number; gems?: number; gold?: Big };
+  /** The Daily Lantern Chest is waiting (first launch of a local day). */
+  'daily:ready': { day: number };
+  /** The daily chest (and the calendar's day) were claimed. `reward` the calendar's reward code. */
+  'daily:claim': { day: number; calendarDay: number; reward: string };
+  /** A facet hand is queued (`pending` hands waiting, including the one on offer). */
   'facet:hand': { pending: number };
-  'facet:pick': { id: string };
+  /** A hand of three is on offer now. */
+  'facet:offer': { cards: FacetCardView[]; rerollFree: boolean; rerollGems: number };
+  /** A facet was kept. */
+  'facet:pick': { id: string; tag?: string; rarity?: string; duo?: boolean };
+  /** A set bonus of a tag became active (2, 4 or 6 facets). */
+  'facet:set': { tag: string; count: number };
+  'facet:reroll': { free: boolean; gems: number };
+  /** The Surge meter is full and waits up to 8 s for a tap on the ring (CRITIQUE SHOULD 1). */
+  'surge:armed': { until: number };
   'prestige:ready': { layer: 'rekindle' | 'weave' | 'breach'; gain: Big };
-  'prestige:done': { layer: 'rekindle' | 'weave' | 'breach'; gain: Big };
-  'record:new': { id: string };
+  'prestige:done': { layer: 'rekindle' | 'weave' | 'breach'; gain: Big; total?: Big; depth?: number };
+  /** Your lantern was planted where this run ended (`n` the Rekindle number). Entity id `lantern:<n>`. */
+  'lantern:planted': { depth: number; n: number };
+  /** A planted lantern was tapped as you passed it: +2 % damage for the run (`bonus` the run's total). */
+  'lantern:tap': { id: string; n: number; bonus: number };
+  /** You overtook the ghost lantern (the par run, CRITIQUE MUST 6). `ahead` metres ahead of par. */
+  'ghost:pass': { depth: number; ahead: number };
+  /** A biome reached in this run: its split against par and the best (`green`: ≥ 5 % under par, 5 gems paid). */
+  'split': { biome: number; time: number; par: number; best: number; green: boolean };
+  /** A personal record broke (`id`: 'deepest', 'bestHit', 'bestCombo', 'bestTapCells', 'bestChest', 'bestOffline', 'bestEmbers', 'split:<biome>', 'mark500:<m>'). */
+  'record:new': { id: string; value?: number; old?: number };
   'milestone:number': { suffix: string };
+  /** Gems spent on a sink (SPEC §5.7). */
+  'gems:spend': { amount: number; sink: string };
+  /** A timed boost began (Lantern Oil, a Lantern Storm, a Supply Rope boost, Cataclysm): `mult` on its stat. */
+  'boost:start': { id: string; until: number; mult: number };
+  'boost:end': { id: string };
+  /** A Time Crystal was spent: an hour of crew output now. */
+  'warp': { seconds: number; gold: Big };
 }
 
 export type IdleBus = EventBus<IdleEvents>;

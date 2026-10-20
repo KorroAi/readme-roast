@@ -10,7 +10,18 @@ import { closeBtn } from '../screens/widgets';
 import { tween } from '../fx/waapi';
 import { Spring, SPRINGS } from '../../core/spring';
 
-export type SheetId = 'dig' | 'crew' | 'settings';
+/** Every sheet (the six tabs of SPEC §9.4 and ≡'s Settings; the Ladder opens from the depth plate in W3). */
+export type SheetId = 'dig' | 'crew' | 'board' | 'feats' | 'codex' | 'lantern' | 'settings' | 'guide';
+
+/** The tab bar's order and each tab's reveal id (SPEC §8.3; CRITIQUE SHOULD 9: Board, Codex, Feats after the first Warden). */
+export const TABS: ReadonlyArray<{ id: Exclude<SheetId, 'settings' | 'guide'>; reveal: string; label: TextKey; icon: string }> = [
+  { id: 'dig', reveal: 'digTab', label: 'ui.tab.dig', icon: 'dig' },
+  { id: 'crew', reveal: 'crewTab', label: 'ui.tab.crew', icon: 'crew' },
+  { id: 'board', reveal: 'boardTab', label: 'ui.tab.board', icon: 'board' },
+  { id: 'feats', reveal: 'featsTab', label: 'ui.tab.feats', icon: 'medal' },
+  { id: 'codex', reveal: 'codexTab', label: 'ui.tab.codex', icon: 'codex' },
+  { id: 'lantern', reveal: 'lanternTab', label: 'ui.tab.lantern', icon: 'lantern' },
+];
 
 export interface SheetBody {
   readonly id: SheetId;
@@ -21,8 +32,10 @@ export interface SheetBody {
   readonly modes: boolean;
   /** Called every frame while open (`now` ms). */
   refresh(now: number): void;
-  /** Called when the sheet opens (rows may be rebuilt here). */
-  opened(): void;
+  /** Called when the sheet opens (rows may be rebuilt here). `focus` names a row to scroll to ('' none). */
+  opened(focus?: string): void;
+  /** The element of a row by id (the goal bar's tap-to-go and the ghost hand point at it), null when none. */
+  rowOf?(id: string): HTMLElement | null;
 }
 
 const MODES: Array<{ id: BuyMode; key: TextKey }> = [
@@ -103,7 +116,8 @@ export class Sheets {
     else this.show(id);
   }
 
-  show(id: SheetId): void {
+  /** Open a sheet; `focus` names a row to scroll into view and flash (the goal bar's tap-to-go). */
+  show(id: SheetId, focus = ''): void {
     const b = this.bodies.get(id);
     if (!b) return;
     const wasOpen = this.current && !this.closing;
@@ -114,13 +128,30 @@ export class Sheets {
     this.seg.classList.toggle('hide', !(b.modes && this.modesShown));
     this.panel.style.display = '';
     this.panel.dataset.sheet = id;
-    b.opened();
+    b.opened(focus);
     this.spring.target = 1;
     if (this.reduced) this.spring.set(1);
     if (!wasOpen) this.stagger();
     else tween(this.scroll, [{ transform: 'translateX(24px)', opacity: 0 }, { transform: 'translateX(0px)', opacity: 1 }], 180, 'outCubic');
     this.scroll.scrollTop = 0;
+    if (focus) this.focusRow(focus);
     this.onChange?.(id);
+  }
+
+  /** Scroll a row of the open sheet into view and flash it once. */
+  focusRow(id: string): void {
+    const row = this.current?.rowOf?.(id);
+    if (!row || !row.isConnected) return;
+    for (const el of this.scroll.querySelectorAll('[data-focused]')) el.removeAttribute('data-focused');
+    row.dataset.focused = '1';
+    const top = row.offsetTop - this.scroll.offsetTop - 12;
+    this.scroll.scrollTop = Math.max(0, top);
+    tween(row, [{ filter: 'brightness(1.9)' }, { filter: 'brightness(1)' }], 600, 'outCubic', { delay: 180 });
+  }
+
+  /** The registered body of a sheet. */
+  body(id: SheetId): SheetBody | undefined {
+    return this.bodies.get(id);
   }
 
   close(): void {

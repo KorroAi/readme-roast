@@ -4,6 +4,7 @@
 // 1 row = 1 m (SPEC §6.2). The shaft is 7 cells wide; each cell stores its remaining HP as a fraction.
 
 import { Big } from '../../core/big';
+import type { EventPath, FacetCardView, StrikeGrade, WidgetKind } from '../bus';
 
 // ----- cells ------------------------------------------------------------------------------------------
 
@@ -76,6 +77,8 @@ export interface SkillState {
   activeEnd: number;
   /** Free charges (the tutorial's first Dynamite). */
   charges: number;
+  /** Model time the skill last became ready (H3), not saved. */
+  readyAt?: number;
 }
 
 export interface RunState {
@@ -105,6 +108,38 @@ export interface RunState {
   plantedBonus: number;
   /** Lucky Moth frenzy ends (model s; 0 inactive). */
   frenzyEnd: number;
+  /** Cataclysm (all four skills within 5 s): everything ×2 until (model s; 0 inactive). */
+  cataclysmEnd: number;
+  /** Timed run boosts (Supply Rope picks, a Lantern Storm): id → { end (model s), mult }. */
+  boosts: Record<string, { end: number; mult: number }>;
+  /** Facets kept this run (ids from config/facets.ts), in the order picked. */
+  facets: string[];
+  /** Facet hands waiting (the one on offer included). */
+  hands: number;
+  /** The free reroll of this run is unused. */
+  freeReroll: boolean;
+  /** Entity ids used up this run (the last 96), so a tappable pays once. */
+  used: string[];
+  /** Planted lanterns tapped this run (their n). */
+  lanterns: number[];
+  /** Seals and charted gates broken this run (the facet hand comes from the second on). */
+  sealsBroken: number;
+  /** Run time (s) at which each biome index was first reached in this run. */
+  splits: Record<string, number>;
+  /** The par run (CRITIQUE MUST 6): projected depth every 30 s of run time at this run's starting power. */
+  par: number[];
+  /** The ghost has been overtaken at this sample index (−1: not yet). */
+  ghostPassed: number;
+  /** Counted taps this run (facets: every 10th tap, every 8th…). */
+  taps: number;
+  /** Cells broken this run (Greed 4: every 50th cell golden). */
+  cells: number;
+  /** Rows cleared this run (Foreman's Luck: a chest per 40 crew rows). */
+  rows: number;
+  /** Chests opened this run (Fortune 6: every 10th chest Reliquary+). */
+  chests: number;
+  /** ★ earned this run (the Starwright perk: +1 % gold each). */
+  stars: number;
 }
 
 // ----- the tap layer (combo, crit rng, the Surge) -----------------------------------------------------
@@ -129,6 +164,10 @@ export interface TapState {
   /** Counted hits this second (a model-side guard; the input layer caps at 8/s). */
   hitsThisSecond: number;
   secondStart: number;
+  /** Drumline's auto-taps owed (fractional). */
+  drum: number;
+  /** The streak's peak combo (H8). */
+  peak: number;
 }
 
 // ----- seals (SPEC §7.1; W1: the Halden Hatch and first-time seals, minimal) --------------------------
@@ -145,6 +184,139 @@ export interface SealState {
   /** 'fight' while the timer runs; 'held' after a fail (tap to start again). */
   phase: 'fight' | 'held';
   started: number;
+  /** The Warden's id (i18n `idle.warden.<id>`). */
+  warden: string;
+  /** The weak point: the next window starts at `weakNext`, it is lit until `weakUntil` (0 dark), point `weakIndex`. */
+  weakNext: number;
+  weakUntil: number;
+  weakIndex: number;
+  /** The Strike finisher's widget id ('' none yet; it appears once per fight at 25 % HP). */
+  finisher: string;
+  /** Fails so far (H6). */
+  fails: number;
+}
+
+// ----- widgets and events (SPEC §7.2–§7.3) --------------------------------------------------------------
+
+/** A target of a Catch, a Mash or an event (entity id `event:<eventId>:<n>`). */
+export interface EventTarget {
+  id: string;
+  /** What B draws: 'moth', 'crystal', 'boulder', 'mole', 'crate', 'mimic', 'rune', 'bubble', 'star', 'root', 'gem', 'critter', 'pebble', 'meteor'… */
+  kind: string;
+  /** On screen from t0 to t1 (model s). */
+  t0: number;
+  t1: number;
+  path: EventPath;
+  /** Taps it takes, and taken so far. */
+  need: number;
+  hits: number;
+  /** 'live' | 'caught' | 'missed'. */
+  state: 'live' | 'caught' | 'missed';
+}
+
+interface WidgetBase {
+  /** `widget:<n>`. */
+  id: string;
+  kind: WidgetKind;
+  /** 'seal' | 'geode' | 'event:<eventId>' | 'rope' | 'facet'. */
+  owner: string;
+  born: number;
+  /** Seconds it stays open (Infinity: until answered). */
+  life: number;
+  /** Closed (its result is final). */
+  done: boolean;
+  result: '' | 'done' | 'partial' | 'missed' | 'skipped';
+}
+
+export interface CatchWidget extends WidgetBase { kind: 'catch'; targets: EventTarget[] }
+export interface MashWidget extends WidgetBase { kind: 'mash'; target: string; taps: number; tiers: readonly number[] }
+export interface StrikeWidget extends WidgetBase {
+  kind: 'strike';
+  /** Needles to stop (1–3), each sweeps the arc in `period` s (there and back: position = triangle wave). */
+  needles: number;
+  period: number;
+  /** The zones: centre of the perfect zone on the arc (0..1) and the zone widths (fractions of the arc). */
+  zone: number;
+  perfect: number;
+  good: number;
+  /** Model time the current needle started sweeping. */
+  needleStart: number;
+  grades: StrikeGrade[];
+}
+export interface SequenceWidget extends WidgetBase {
+  kind: 'sequence';
+  /** How many marks the UI lays out (the board) and the order they light (indices into the board). */
+  board: number;
+  order: number[];
+  /** Each mark is shown for `showEach` s from `showFrom`; input opens after the last. */
+  showEach: number;
+  showFrom: number;
+  /** Marks entered correctly so far. */
+  pos: number;
+  /** Restarts used (one allowed). */
+  restarts: number;
+}
+export interface PickWidget extends WidgetBase { kind: 'pick'; cards: string[]; picked: number }
+export type WidgetState = CatchWidget | MashWidget | StrikeWidget | SequenceWidget | PickWidget;
+
+/** A live event dealt by the Director. */
+export interface ActiveEvent {
+  /** The event id (entity ids `event:<id>:<n>`). */
+  id: string;
+  type: string;
+  born: number;
+  /** The window ends (model s; Infinity: waits). */
+  ends: number;
+  /** Its widget (null for passive events such as the Golden Vein). */
+  widget: WidgetState | null;
+  /** Per-type counters (rows left of a Golden Vein, the crate's state, the mole's niche…). */
+  n: number;
+  /** Targets taken, of all; gold credited (log10) and gems. */
+  caught: number;
+  of: number;
+  goldLog10: number;
+  gems: number;
+}
+
+/** The Director (SPEC §7.2). */
+export interface DirectorState {
+  /** Seconds of active play until the next event. */
+  wait: number;
+  /** The type dealt next (chosen when announced), '' none yet. */
+  next: string;
+  announced: boolean;
+  /** Types dealt, newest last (≤ 12). */
+  history: string[];
+  /** Events dealt since each type was last dealt. */
+  since: Record<string, number>;
+  dealt: number;
+  /** Model time of the last beat (an event, a chest, a ceremony), of the last special cell broken, and of the last new find in view. */
+  lastBeat: number;
+  lastSpecial: number;
+  lastFind: number;
+  /** Active play seconds since the last new find (the find guarantee counts active time only). */
+  findQuiet: number;
+  specialQuiet: number;
+  /** Nothing is dealt before this model time (ceremonies, the first seconds of a Surge). */
+  holdUntil: number;
+  /** The Codex pity clock: active seconds without a new entry on the current page. */
+  codexQuiet: number;
+}
+
+/** A cell the model changed after generation (events, pity, the boredom breaker). `floor` for chest cells. */
+export interface CellOverride {
+  depth: number;
+  col: number;
+  kind: number;
+  floor: number;
+}
+
+/** A facet hand on offer. */
+export interface FacetHand {
+  cards: FacetCardView[];
+  /** Model time it was offered (auto-pick after 6 s with the perk). */
+  at: number;
+  rerolls: number;
 }
 
 // ----- meta (kept across runs) ------------------------------------------------------------------------
@@ -185,7 +357,8 @@ export interface MetaState {
     bestEmbers: Big;
   };
   planted: Array<{ depth: number; n: number }>;
-  contracts: Array<{ tpl: string; target: number; progress: number }>;
+  /** The Board (SPEC §7.4): `base` the counter's value when the contract was made; progress = counter − base. */
+  contracts: Array<{ tpl: string; target: number; progress: number; base: number; arg: string; grand: boolean }>;
   contractCount: number;
   daily: { lastDay: number; calendarDay: number; claimedToday: boolean };
   pity: { crystal: number; reliquary: number; lintel: number };
@@ -200,6 +373,10 @@ export interface MetaState {
   stats: {
     taps: number; cells: number; cellsNew: number; crits: number; chests: number; events: number; creatures: number;
     purchases: number; stars: number; rekindles: number; weaves: number; offlineHours: number; levels: number;
+    /** Ore and rich ore broken (below the record), skills used, seals broken (first time), charted gates, Finds found,
+     * perfect Strikes, planted lanterns passed, contracts done, chests by tier (crystal+, reliquary+, lintel). */
+    ores: number; skills: number; seals: number; gates: number; finds: number; perfects: number; passed: number;
+    contracts: number; crystalPlus: number; reliquaryPlus: number; lintels: number; reveals: number;
   };
   lifetime: { gold: Big; embersEver: Big };
   /** Highest named tool form unlocked (CRITIQUE MUST 10). */
@@ -208,6 +385,19 @@ export interface MetaState {
   markMax: number;
   /** Crew line blueprints kept (lines unlocked once). */
   blueprints: number;
+  /** Lifetime-best pick tier in one run and crew lines hired in one run (Forgemaster, Foreman). */
+  bestTier: number;
+  bestLines: number;
+  /** Fastest run time (s) to 600 m (Swift), Infinity when never. */
+  swift600: number;
+  /** Lifetime events caught by type (Moth Friend, contracts). */
+  caught: Record<string, number>;
+  /** Contract slot state: a template's base counter at creation, and a cooldown of guidance (the last-used mechanics). */
+  lastUsed: Record<string, number>;
+  /** Daily: the local day number of the last chest claimed and the claim waiting. */
+  dailyReady: boolean;
+  /** Stored free facet rerolls (Crystal chests, the calendar). */
+  rerolls: number;
 }
 
 // ----- guidance ---------------------------------------------------------------------------------------
@@ -326,6 +516,25 @@ export interface IdleState {
   crewPending: Big[];
   /** Last computed rates (cached by step for the UI, goals and BEST). */
   rates: { crewDps: Big; tapDmg: Big; goldPerSec: Big; rowSec: number; tapsPerSec: number };
+  /** The Director and its live event (SPEC §7.2). */
+  director: DirectorState;
+  event: ActiveEvent | null;
+  /** Widgets open outside events (the seal finisher, a geode's Strike). */
+  widgets: WidgetState[];
+  /** The facet hand on offer (null when none). */
+  hand: FacetHand | null;
+  /** Cells changed after generation (events, pity), applied whenever a row is filled. */
+  overrides: CellOverride[];
+  /** Hits taken by multi-tap entities (creatures, fossils, the mole), by id. */
+  hits: Record<string, number>;
+  /** XP earned since the last xp:gain event (throttle). */
+  xpPending: number;
+  /** Model time of the next 0.25 s progression check (Feats, rank, contracts). */
+  nextCheck: number;
+  /** Rows the crew cleared toward Foreman's Luck's next chest. */
+  crewRows: number;
+  /** Options the UI sets (Settings → auto-pick facets). */
+  opts: { autoFacets: boolean };
 }
 
 // ----- constructors ---------------------------------------------------------------------------------
@@ -380,12 +589,20 @@ export function newMeta(): MetaState {
     cosmetics: { owned: [], equipped: {} },
     stats: {
       taps: 0, cells: 0, cellsNew: 0, crits: 0, chests: 0, events: 0, creatures: 0, purchases: 0, stars: 0,
-      rekindles: 0, weaves: 0, offlineHours: 0, levels: 0,
+      rekindles: 0, weaves: 0, offlineHours: 0, levels: 0, ores: 0, skills: 0, seals: 0, gates: 0, finds: 0, perfects: 0,
+      passed: 0, contracts: 0, crystalPlus: 0, reliquaryPlus: 0, lintels: 0, reveals: 0,
     },
     lifetime: { gold: Big.zero(), embersEver: Big.zero() },
     toolForm: 0,
     markMax: 0,
     blueprints: 0,
+    bestTier: 0,
+    bestLines: 0,
+    swift600: Infinity,
+    caught: {},
+    lastUsed: {},
+    dailyReady: false,
+    rerolls: 0,
   };
 }
 
