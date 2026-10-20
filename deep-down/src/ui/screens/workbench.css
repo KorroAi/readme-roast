@@ -536,11 +536,16 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) 46%;
   }
+  /* The tree sits centred above the sheet (auto margins never clip an overflowing scroll). */
   .dd-tree-board {
+    display: flex;
+    flex-direction: column;
     padding: 8px 4px 6px;
   }
   .dd-tree-grid {
     grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-top: auto;
+    margin-bottom: auto;
   }
   .dd-tree-col-label {
     letter-spacing: 0.02em;

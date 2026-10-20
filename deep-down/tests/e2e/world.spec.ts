@@ -156,6 +156,12 @@ test('every discovery triggers; a black-out leaves a cache, respawns at camp, is
   expect(saved.progression.cache.items).toEqual(carried);
   await page.getByRole('button', { name: /Wake Up at Camp/i }).tap();
   await waitMode(page, 'playing');
+  // Back at camp the Expedition Report shows the black-out (what waits in the pack): close it.
+  const closeReport = page.locator('[data-key="summary-close"]');
+  await closeReport.waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+  await expect(page.getByRole('dialog', { name: /Expedition \d+ report/ }).getByText(/Your pack lies at -\d+ m/).first()).toBeVisible();
+  await closeReport.tap();
+  await page.waitForFunction(() => window.__DD__.state().screen === 'none', null, { timeout: LOADED_CEILING_MS });
   let s = await page.evaluate(() => window.__DD__.state());
   expect(s.atCamp).toBe(true);
   expect(s.backpack.filter(Boolean).length).toBe(0);
