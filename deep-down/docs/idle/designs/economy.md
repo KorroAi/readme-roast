@@ -24,13 +24,14 @@ the surface carrying Embers, which make the next descent faster and deeper. The 
    or contract. Sim: the longest gap is 27.5 s and the median is under 1 s.
 2. **The goal on screen is always at least 15 % done and at most 90 s away** (goal selector, §7.3).
 3. **A tap always matters.** Taps deal about half of active damage (the tap carries 14 % of crew DPS,
-   §2.2). Sim: over the first 45 minutes a cell takes 2.9 / 7.4 / 16 taps (p10 / p50 / p90), before
+   §2.2). Sim: over the first 45 minutes a cell takes 2.2 / 5.7 / 9.4 taps (p10 / p50 / p90), before
    Shockwave and Frenzy, which cut those numbers further.
 4. **Harder rock is richer rock.** A cell's gold equals its HP / 100 times its cell multiplier, so
    income depends only on damage dealt, never on depth. That makes offline progress an exact closed
    form (§3.3).
-5. **A reset always pays.** After a recommended Rekindle, the new run passes the old record in at most
-   25 % of the old run's active time (§4.8).
+5. **A reset always pays.** After a recommended Rekindle (×2), the new run passes the old record within
+   7 minutes of play or 30 % of the previous run, whichever is larger (§4.8). Sim, day 1: 11 of 12
+   Rekindles pass it, in 31–381 s.
 6. **No dead ends, no store, no ads.** Gems are earned by playing. Nothing can be bought with money.
    Nothing expires or punishes absence.
 
@@ -43,17 +44,17 @@ the surface carrying Embers, which make the next descent faster and deeper. The 
 | Beat | Numbers (first 30 min, sim) |
 |---|---|
 | Taps | 5 per second (the model's average; bursts reach 8–10) |
-| Cell breaks | a cell takes 3–7 taps; the floor row has 7 cells; one row every 1.4–8 s |
+| Cell breaks | a cell takes 2–9 taps (median 5.7); the floor row has 7 cells; one row every 1.4–8 s |
 | Burst | 6–14 chunks and 1–5 coins per cell; coins reach the counter in 0.45 s |
 | Purchase | the first at 4 s, the first crew at 5.5 s; then one about every 4–15 s |
 | Combo | taps less than 0.7 s apart raise the combo; ×1.0 → ×2.0 at 50 |
 
 ### 1.2 Three minutes: a biome slice
 
-**The first three minutes (sim):**
-- Reach 60 m.
+**The first three minutes** (depth and purchases from the sim; the rest is the tutorial script in §7.1):
+- Reach 91 m.
 - Two biome reveals: Glowroot Caverns at 0:40 and Crystal Grotto at 2:06.
-- About 90 purchases across 4 crew lines and 3 gear cards.
+- About 200 purchases across 4 crew lines and 7 gear cards.
 - 3 chests (one every 15 rows).
 - The first Lucky Moth at 1:40.
 - Dynamite unlocked at 15 m and used twice.
@@ -75,15 +76,19 @@ the surface carrying Embers, which make the next descent faster and deeper. The 
 - Then a 6-minute session every 2 h while awake (08:00–24:00).
 - Offline at 50 % efficiency, capped at 3 h (6 h at 25 Embers, 12 h at 250).
 
-| Time | Record depth (sim) | Biomes seen | Gold (display) | Rekindles |
+| Time | Record depth (sim) | Biomes seen | Gold in the bank (display) | Rekindles / Weaves so far |
 |---|---|---|---|---|
-| 0:22 | 300 m (Rekindle unlocks) | 6 | 2e12 | 0 |
-| {{T1}} |
-| {{T2}} |
-| {{T3}} |
-| {{T4}} |
-| {{T5}} |
-| {{T6}} |
+| 0:22 | 300 m (Rekindle unlocks) | 6 | 1e12 | 0 / 0 |
+| 1:00 | 1,399 m | 10 | 1e53 | 3 / 0 |
+| 4:00 | 1,535 m | 10 | 2e58 | 4 / 0 |
+| 12:00 | 2,125 m | 12 | 2e80 | 7 / 1 |
+| day 1 (24 h) | 2,623 m | 13 | 1e99 (1e100 at about 25 h) | 8 / 3 |
+| day 2 | 3,384 m | 14 | 3e127 | 15 / 6 |
+| day 3 | 3,855 m | 15 | 1e145 | 20 / 9 |
+| day 7 | 4,407 m | 16 | 2e165 | 29 / 12 |
+
+Breach (Layer 3, from 2,900 m at about 29.5 h) is **not** in this sim, so these days 2–7 figures
+are a floor (§4.10).
 
 ### 1.4 What keeps it endless
 
@@ -217,10 +222,10 @@ On Collect:
 | 0–19 m (Topsoil) | 1.30 | the tutorial: the pick lags, so each upgrade is felt |
 | 20–119 m | 1.09 | the comfort zone: crew lines arrive every 40–60 m |
 | 120–449 m | 1.08 | the long first push; Rekindle unlocks at 300 m |
-| 450–1199 m | 1.085 | the first run walls here (sim: 450 m at 31 min, 650 m at 1:52) |
+| 450–1199 m | 1.085 | the first run walls here (sim: 650 m at 42 min, 900 m at 1:42) |
 | 1200 m + | 1.09 | the deep game, pushed by prestige |
 
-| Biome start | Depth | HP per cell | Gold per plain-average cell | Row HP (×7) |
+| Biome start | Depth | HP per cell | Gold per average cell | Row HP (×7) |
 |---|---|---|---|---|
 | Topsoil Roots | 0 m | 100 | 1 | 700 |
 | Glowroot Caverns | 20 m | 1.90e4 | 190 | 1.33e5 |
@@ -239,8 +244,8 @@ On Collect:
 | Echo I / II | 3,450 / 4,000 m | 6.8e129 / 2.6e150 | ÷100 | ×7 |
 | (6,000 m / 10,000 m) | | 1.9e225 / 9.5e374 | | |
 
-The **1e100 gold milestone** is reached at about 2,850 m of depth. That milestone is the "démesure"
-banner, the Vigintillion fanfare (§9).
+The **1e100 gold milestone** (the bank, not a cell) is reached at about 2,650–2,700 m of depth.
+It is the "démesure" banner, the Googol fanfare (§9).
 
 ### 4.3 The cell mix (what a row is made of)
 Each biome draws cells from a table whose expected multiplier is exactly 1.0, so the curves above hold.
@@ -249,7 +254,7 @@ Biomes differ in what appears, not in average value.
 | Cell kind | Share | Gold × | HP × | Notes |
 |---|---|---|---|---|
 | Rock (biome family) | 84 % | 0.6 | 1 | the background; crack tint per family |
-| Common ore (copper → star shard, per biome) | 10 % | 2.5 | 1 | shows a vein glyph in the next 8 rows ("preview") |
+| Common ore (copper → star shard, per biome) | 10 % | 2.5 | 1 | glints through the depth fog in the next 6 rows ("preview") |
 | Rich ore | 4 % | 4 | 1.5 | glows; its break is the "jackpot" burst |
 | Rare (gem / fossil / geode) | 1 % | 8 | 2 | gem: +1 gem; fossil: 5 % relic roll; geode: 5-tap mini burst, 1–3 gems |
 | Chest | 1 per 15 rows | – | 3 | pays 30 s of income (rack offline); 8 % relic, 25 % 1–3 gems |
@@ -277,15 +282,43 @@ gems (counted separately). The HP multipliers on rich and rare cells are offset 
 
 #### 4.4.3 The crew (15 authored lines, then Echo lines)
 A line unlocks when you first reach its depth. The blueprint is kept forever after (Ember perk at 1 Ember).
-- **Cost:** `c0 = 186 × goldPerCell(u) × E_c`, where 186 rows ≈ 26.6 rows of 7 cells, `u` is the unlock
-  depth and E_c = 1 for lines 0–5, {{EC}} for lines 6+.
-- **Output:** `b = HP(u) / 44.4 × E_b` per level, with E_b = 1 for lines 0–5, {{EB}} for lines 6+.
+
+**Lines 0–5 are priced fairly at their unlock depth `u`:**
+- Cost: `c0 = 186 × goldPerCell(u)`, about 26.6 rows of gold.
+- Output: `b = HP(u) / 44.4` per level.
 - In words: at its unlock depth, a level-1 line breaks one cell every 44 s. At level 10 (with the ★)
   it breaks one cell every 2.2 s.
-- `r = 1.10` for every line. The asymptotic DPS-per-gold exponent is `ln 2 / (10 ln 1.10) = 0.73`.
 - Line 0 is the exception: it costs 50.
 
-{{LINES}}
+**Lines 6+ continue geometrically:** each costs ×1e4 and produces ×1e4 the previous line. They are
+*not* indexed to HP.
+- This is the most important structural rule in the economy. Lines priced fairly at every depth form a
+  self-sustaining ladder: in calibration, once any multiplier passed about ×300, a single run swept
+  through all 24 lines to 8,800 m in under 30 minutes.
+- With the geometric ladder, depth past 300 m is pushed by multipliers (Embers, gear, relics,
+  Threads, Sigils) at a steady 110–170 m per decade of multiplier (measured). The shallow lines still
+  make early re-runs fly (the first ×10 is worth about 685 m).
+
+`r = 1.10` for every line. The asymptotic DPS-per-gold exponent is `ln 2 / (10 ln 1.10) = 0.73`.
+
+| # | Line | Unlock | c0 (gold) | Damage/s per level | Rig |
+|---|---|---|---|---|---|
+| 0 | Shovel Hand | 0 m | 50 | 2.25 | miners at the floor edge |
+| 1 | Pick Crew | 8 m | 1.52e3 | 18.4 | two miners on a ledge |
+| 2 | Mine Cart | 20 m | 3.54e4 | 428 | rail and cart |
+| 3 | Steam Drill | 60 m | 1.11e6 | 1.34e4 | gantry drill |
+| 4 | Blast Team | 120 m | 1.96e8 | 2.36e6 | floor charges |
+| 5 | Tunnel Borer | 200 m | 9.23e10 | 1.12e9 | side-mounted borer |
+| 6 | Crystal Resonator | 300 m | 9.23e14 | 1.12e13 | tuning forks |
+| 7 | Magma Lance | 450 m | 9.23e18 | 1.12e17 | heat beam |
+| 8 | Fossil Golem | 650 m | 9.23e22 | 1.12e21 | a bone fist |
+| 9 | Rime Auger | 900 m | 9.23e26 | 1.12e25 | ice drill |
+| 10 | Loom Weaver | 1,200 m | 9.23e30 | 1.12e29 | light threads |
+| 11 | Gravity Well | 1,550 m | 9.23e34 | 1.12e33 | a lensing sphere |
+| 12 | Star Forge | 1,950 m | 9.23e38 | 1.12e37 | a star furnace |
+| 13 | Void Maw | 2,400 m | 9.23e42 | 1.12e41 | a void mouth |
+| 14 | Gate Engine | 2,900 m | 9.23e46 | 1.12e45 | the Gate's engine |
+| 15+ | Echo line *n* (Mk II…) | 3,450 + 550·(n−15) m | ×1e4 per line | ×1e4 per line | Echo recolour of line n−15 |
 
 #### 4.4.4 Gear (one-shot gold cards, four per biome)
 Gear appears on reaching each biome start `u`. Costs are in rows of gold at `u` (one row of gold =
@@ -340,9 +373,10 @@ cellGold = HP/100 · cellMult · relicsGold · goldWeave · goldRush · boostGol
 ```
 
 - Groups multiply with each other. Inside a group, bonuses add (relic +3 % each, summed).
-- **Embers multiply DPS, not gold.** This is deliberate: a multiplier on both doubled the depth gain
-  per decade of multiplier (250 m instead of about 125 m), and that made Rekindle chain into runs a few
-  seconds long (seen in calibration).
+- **Embers multiply DPS, not gold.** This is deliberate: a multiplier on both gold and DPS roughly
+  doubles the depth bought per decade of multiplier (measured 250 m against 125 m in an earlier
+  configuration), and that made Rekindle chain into runs a few seconds long. Gold multipliers exist
+  (relics, Golden Vein, Gold Rush, Boost), but they are bounded or slow.
 
 ### 4.7 Gems (earned only)
 
@@ -369,26 +403,39 @@ cellGold = HP/100 · cellMult · relicsGold · goldWeave · goldRush · boostGol
 ### 4.8 Prestige
 
 #### 4.8.1 Layer 1: Rekindle → Embers (unlocks at 300 m, the Ember Shrine in the Drowned Ruins)
-- **Gain:** `Embers = floor(25 × 3^((dmax − 300)/100))` for a run's deepest point `dmax ≥ 300`.
-  - Examples: 300 m → 25, 400 m → 75, 450 m → 130, 650 m → 1,169, 900 m → 1.8e4, 1,200 m → 4.9e5,
-    1,550 m → 2.4e7, 2,000 m → 3.2e9.
+- **Total, a function of the record:** `EmbersTotal(R) = floor(25 × 2^((R − 300)/100))`, where `R`
+  is the deepest point reached since the last Weave (lifetime, not per run). A Rekindle pays
+  `EmbersTotal(R) − EmbersOwned`, the Cookie-Clicker rule.
+  - Examples of the total: 300 m → 25, 400 m → 50, 500 m → 100, 650 m → 282, 900 m → 1,600,
+    1,200 m → 1.28e4, 1,550 m → 1.45e5, 2,000 m → 3.2e6, 3,000 m → 3.3e9.
+  - The rule a player can repeat: **"every new 100 m of record doubles your Embers."**
 - **Effect:** each Ember gives +10 % DPS (crew and taps), additively. 25 Embers = ×3.5. Embers are
   never spent.
 - **Reset:** depth, gold, levels, gear and skill levels. **Kept:** blueprints, relics, bestiary,
   gems, records, perks and the Album.
-- **Why base 3 per 100 m:** a ×10 DPS multiplier buys about 125 m of depth (measured), so the run
-  after a doubling Rekindle reaches about +38 m. With base 3, the Embers at that depth grow ×1.5, less
-  than the ×2 needed to chain. Each Rekindle therefore needs some real pushing, and chains cannot run
-  away. Calibration with base 4 produced chains of 1–3-minute runs; base 2.5 stalls on day 2.
-- **The "recommend" rule** (the button pulses, and the goal bar shows it): gain ≥ current Embers
-  (×2 or better), **or** the run is walled (rows slower than 45 s, after more than 10 min) and
-  gain ≥ 25 % of current Embers.
+- **Why base 2 per 100 m, on the record:**
+  - A ×10 DPS multiplier buys 110–250 m of depth (measured; the most at 1,000–2,000 m). Stability
+    needs `gain per decade × log10(base) / 100 < 1`.
+  - At base 2 the worst case is 0.75: a Rekindle that doubles power carries the next run 42–75 m past
+    the record, and the remaining 25–58 m must be pushed, so runs lengthen naturally.
+  - Calibration of the alternatives:
+    - Base 3 (1.19): chains of 17–34 s runs through 1,000–2,000 m.
+    - Embers per run instead of per record: chains of 15–80 s.
+    - Base 1.8: day 1 ends 150 m shallower, with no gain in stability.
+- **The "recommend" rule** (the button pulses, and the goal bar shows it) fires in two cases:
+  - gain ≥ Embers owned (×2 or better) **and** the descent has slowed (rows slower than 8 s), or the
+    gain is ≥ 10× owned;
+  - the run is walled (rows slower than 45 s, after more than 10 min) and gain ≥ 25 % of Embers owned.
+  - The "slowed" condition matters: without it (and without the live re-climb, §4.8.2), the re-climb
+    after a Weave triggers a Rekindle at every new 100 m, a chain of up to 15 runs shorter than 3
+    minutes (seen in calibration). With both rules, the 7-day sim has no such chain, and a fast run is
+    simply left running.
 - **The Rekindle screen** shows: deepest m, Embers +N, "Power ×A → ×B", "You will pass {record} m in
   about {eta}" (from the sim function, §10), the perks unlocked by the new total, and one big
   [Rekindle] button that needs a 0.6 s hold.
 
-**Ember perks** (thresholds, never spent; the Lantern Tree shows them as a vertical vine with the
-next one lit):
+**Ember perks** (thresholds on the **highest Ember total ever held**, so a Weave never takes them
+away; never spent; the Lantern Tree shows them as a vertical vine with the next one lit):
 
 | Embers | Perk |
 |---|---|
@@ -406,9 +453,21 @@ next one lit):
 | 1e8 | Head Start 30 % |
 
 #### 4.8.2 Layer 2: Weave → Threads (unlocks at 1,550 m, the heart of the Loom)
-- **Gain:** `Threads = floor(10 × 2^((dmaxSinceLastWeave − 1550)/200))`.
+- **Gain:** `Threads = floor(10 × 2^((cycleRecord − 1550)/150))`, where `cycleRecord` is the deepest
+  point since the last Weave. Each Weave adds this to the Threads owned.
+- **Recommended** when the gain is ≥ the Threads owned (doubling).
+- **Why doubling every 150 m:** calibration over 7 days (the Loom spend modelled as Crew Weave, ×3 per
+  doubling of Threads):
+  - Every 200 m: the record flattened at 3,380 m from day 4, with no new biome after day 2.
+  - ×2 per doubling instead of ×3: 2,740 m by day 7.
+  - Every 150 m with ×3: 4,407 m by day 7 and a new stratum on days 2, 3 and 5.
+  - Without Weave at all: 1,950 m by day 3, a drought.
 - **Reset:** everything Rekindle resets, plus Embers to 0. **Kept:** perks (quality of life is never
   taken away), relics, bestiary, gems, records.
+- **Live re-climb:** after a Weave, until you pass your previous best depth, Embers kindle *live*
+  during the run (each new 100 m doubles them at once, no Rekindle needed). The first run of a cycle is
+  one long snowball back to the record, not a chore of 7 Rekindles in 2 minutes (what calibration
+  showed without this rule).
 - **Spending:** Threads buy **Loom nodes** (choices, the long-term build). Node level costs grow ×2.
 
 | Node | Per level | Max |
@@ -424,10 +483,10 @@ next one lit):
 | Skill Weave | cooldowns −8 % | 5 |
 | Ember Forge | Ember gain ×1.5 | ∞ |
 
-Deep Lungs is the strongest late lever. At 10 levels it reduces HP at 6,000 m by a factor of about
-1e1.3 per 1,000 m.
+Deep Lungs is the strongest late lever. At 10 levels it divides HP by 100 for every 1,000 m of depth
+(log10(1.09/1.085) = 0.002 per metre).
 
-#### 4.8.3 Layer 3: Breach → Sigils (unlocks at 3,450 m, beyond the Gate)
+#### 4.8.3 Layer 3: Breach → Sigils (unlocks at 2,900 m, the Last Gate)
 Eight challenge runs. Each starts a fresh Weave cycle with a rule. Tier n requires reaching
 `goal_n = base + 250·(n−1)` m. Each tier gives that challenge's Sigil +1, and each Sigil is a
 permanent ×2 on its stat, kept forever.
@@ -470,19 +529,41 @@ no daily timers.
 | 120 m | Halden Works | 5–8 min | 5:30 |
 | 200 m | Fungal Deep | 10–15 min | 12:18 |
 | 300 m | Drowned Ruins (Rekindle) | 18–28 min | 21:54 |
-| 450 m | Magma Veins | 28–45 min | 31:18 |
-| 650 m | Fossil Halls | > 90 min (the first wall) | 1:52 |
+| 450 m | Magma Veins | 25–40 min | 30:36 |
+| 650 m | Fossil Halls | 35–60 min | 41:30 |
+| 900 m | Frost Hollow | > 90 min (the first wall) | 1:42 |
 
 **First run, inside the shape (sim):**
 - First purchase at 4 s, first crew at 5.5 s.
-- 1,300+ purchases in 2 h.
-- Taps per cell 2.9 / 7.4 / 16.0 (p10 / p50 / p90) over the first 45 min.
+- Depth 990 m and gold 2e37 at 2 h.
+- Taps per cell 2.2 / 5.7 / 9.4 (p10 / p50 / p90) over the first 45 min.
 - The longest gap between rewards in the first 30 min is 27.5 s.
 
 A human buys less optimally than the bot. **Target band:** a tester at 3–5 taps/s reaches every first-run
 mark within ×1.0–×1.6 of the sim time.
 
-{{PRESTIGE_TABLE}}
+**Prestige cadence** (sim, 7 days, Rekindle and Weave only; Breach not modelled):
+
+| Day | Rekindles | Weaves | Typical run | Record at the end of the day | New biomes that day |
+|---|---|---|---|---|---|
+| 1 | 8 | 3 | 2 h (one session gap) | 2,623 m | 13 (Topsoil → Void Sea) |
+| 2 | 7 | 3 | 2 h | 3,384 m | 1 (The Gate, at 29.5 h) |
+| 3 | 5 | 3 | 2 h | 3,855 m | 1 (Echo I) |
+| 4 | 2 | 1 | 4 h | 3,923 m | 0 |
+| 5 | 4 | 1 | 2 h | 4,223 m | 1 (Echo II) |
+| 6 | 2 | 1 | 6 h | 4,299 m | 0 |
+| 7 | 1 | 0 | 8 h | 4,407 m | 0 |
+
+**What the table says:**
+- **Rekindle chains:** zero runs of under 3 minutes in a row over 7 days (E9). After a recommended
+  Rekindle, the next run passes the old record in 33–381 s (15 of 15 over 2 days, law 5).
+- **The first session is the fireworks:** Rekindles at 22.5 min (300 m), 33.9 min (646 m) and
+  40 min (1,079 m), so 10 biomes in 42 minutes, one about every 4 minutes. This is deliberate (the
+  first Rekindle should feel like magic). The knob is the 25 in the Ember formula: 10 slows the
+  first session to about 650 m.
+- **The long tail must come from Breach.** Without Sigils, the record flattens to +70–300 m a day on
+  days 4–7. **Target with Breach:** at least +300 m a day and one new Echo stratum at least every
+  2 days in week 2. Verify it by adding Sigils to the same harness before shipping.
 
 ### 4.11 Why the curves have this shape (the design math)
 - Gold per cell is proportional to HP, so **income = damage per second / 100**, whatever the depth.
@@ -493,12 +574,16 @@ mark within ×1.0–×1.6 of the sim time.
   staircase: wall → new biome → gear and blueprint → burst.
 - Comfortable taps per cell (3–6) need a row every 2.5–5 s (§2.2). The run is lively while
   content arrives, then turns stiff (the cue to Rekindle).
-- Prestige stability: Embers ∝ 3^(d/100), and a ×10 DPS multiplier gives about 125 m. A Rekindle
-  that doubles power earns ×1.5 Embers at the new depth, so there is no runaway, and the time spent
-  pushing still counts.
-- Deep crew lines (6+) carry a constant penalty (E_c, E_b) rather than a compounding one. The
-  compounding version (×100 per line) made every line past 450 m worthless, and days 2–3 stalled in
-  calibration.
+- Prestige stability: total Embers are 2^(record/100), and a ×10 DPS multiplier gives 110–250 m. A
+  Rekindle that doubles power lands the next run 42–75 m past the record, against the 100 m needed for
+  the next doubling. There is no runaway, and the time spent pushing always counts.
+- **Deep crew lines (6+) are a geometric ladder (×1e4 per line), not HP-indexed:**
+  - Lines priced fairly at their unlock depth make a self-sustaining ladder: past a ×300 multiplier, a
+    single run swept to 8,800 m.
+  - A compounding penalty (×100 cost and ÷10 output per line) made deep lines worthless, and days 2–3
+    stalled.
+  - A constant penalty (×30 / ÷3) still ran away.
+  - Only the geometric ladder gives a steady 110–170 m per decade.
 
 ---
 
@@ -514,9 +599,11 @@ mark within ×1.0–×1.6 of the sim time.
 - The camera distance follows from the aspect so that the width is constant.
 
 **Vertical placement and follow**
-- The floor sits at **42 %** of the world viewport from its top. You see about 9 m of dug shaft
-  above (rigs, the explorer, wall plaques) and about 12 m of rock below.
-- The next 8 rows are fully readable: ores glint and chests show their silhouettes. Rows 9–16 fade
+- The floor sits at **42 %** of the visible world band (between the goal bar and the sheet).
+  - Sheet at its normal detent (band y 94–620, 526 px = 13.5 m): 5.7 m of dug shaft above (rigs,
+    the explorer, wall plaques) and 7.8 m of rock below.
+  - Mini detent (band 94–732): 6.9 m above and 9.5 m below.
+- The next 6 rows are fully readable: ores glint and chests show their silhouettes. Further rows fade
   into a depth fog. This is anticipation: you always see the next reward coming.
 - Follow: a critically damped spring on y, half-life 0.18 s. A row break never jerks the frame.
 
@@ -596,7 +683,7 @@ blend per biome.
 | 10 | Iron Core | 1550 | ironbound, deep slate | magnetic blue | mythril / magnetite | iron mite, core ray | the Lodestone | Gravity Well |
 | 11 | Star Heart | 1950 | crystal, ember | white-gold plasma | star shard / plasma pearl | star sprite, nova moth | the Buried Star | Star Forge |
 | 12 | Void Sea | 2400 | bedrock, echo crystal | violet abyss | void pearl / null glass | void ray, drift jelly | the Floating Islands | Void Maw |
-| 13 | The Gate | 2900 | glyph, bedrock | abyss violet and gold | gate stone / sigil ore | gatekeeper, echo of you | the Last Gate | Gate Engine; **Breach at 3,450 m** |
+| 13 | The Gate | 2900 | glyph, bedrock | abyss violet and gold | gate stone / sigil ore | gatekeeper, echo of you | the Last Gate | Gate Engine; **Breach** |
 | 14+ | Echo strata I, II… | +550 each | biome k mod 13 with a hue shift and roman numerals | shifted | tier-scaled | recombined | a recombined Wonder | an Echo line (Mk II…) |
 
 Biome themes reuse the existing material layers and prop kinds (crystal, glyph, monolith, fire,
@@ -703,24 +790,25 @@ One per biome, in its start Hall:
 All text comes from `src/i18n/en/idle.ts`. A hint never blocks: it is a pulsing ring plus one line.
 It disappears on the first correct action, and returns after 6 s of doing nothing.
 
-| t (sim) | Trigger | Screen | Text key / English |
+| t (sim depth times) | Trigger | Screen | Text key / English |
 |---|---|---|---|
 | 0:00 | boot | the surface: grass, a sign, the shaft mouth; a pulsing hand on the centre cell | `tut.tap` "Tap to dig" |
 | 0:01 | first tap | the cell bursts (100 HP, 100 damage); 1 gold flies; the counter appears | – |
 | 0:02 | combo hits 5 | the combo ring appears | `tut.combo` "Keep tapping for a combo!" |
 | 0:04 | 30 gold | the bottom sheet rises with **one** card: Pick; the arrow pulses | `tut.pick` "Upgrade your pick" |
 | 0:05 | 50 gold | the Shovel Hand card appears; the rig drops in on hire | `tut.crew` "Hire a Shovel Hand: digs even while you're away" |
-| 0:08 | 3 m | an ore vein in the next row is highlighted | `tut.ore` "Ore! Worth 2.5×" |
-| 0:12 | row 6 | a chest in the floor | `tut.chest` "A chest! Break it open" (+5 gems; the gem counter appears) |
-| 0:15 | 8 m | Pick Crew card; **the goal bar appears** | `goal.depth` "Reach 20 m: a new cavern" |
-| 0:20 | 15 m | the Dynamite button lights; a ring on it | `tut.dynamite` "Dynamite: blast 3 rows" |
+| 0:06 | 3 m | an ore vein in the next row is highlighted | `tut.ore` "Ore! Worth 2.5×" |
+| 0:09 | row 6 | a chest in the floor | `tut.chest` "A chest! Break it open" (+5 gems; the gem counter appears) |
+| 0:12 | 8 m | Pick Crew card; **the goal bar appears** | `goal.depth` "Reach 20 m: a new cavern" |
+| 0:25 | 15 m | the Dynamite button lights; a ring on it | `tut.dynamite` "Dynamite: blast 3 rows" |
 | 0:40 | 20 m | **Reveal: Glowroot Caverns.** Gear tab unlocks; a blueprint card flies into Crew | `biome.glowroot` / `tut.gear` "New gear: one tap, big boost" |
 | 0:50 | after the reveal | the arrow points at the side cavern (relic shrine) | `tut.swipe` "Swipe to look around" → tap the shrine → Relic 1/6 |
-| 1:10 | 30 m | Rally card | `tut.rally` "Rally: your taps hit as hard as your crew" |
+| 0:55 | first gear bought (Rally unlocks at 20 m) | Rally card | `tut.rally` "Rally: each tap adds 14 % of your crew's power" |
+| 1:09 | 40 m | Frenzy lights | `tut.frenzy` "Frenzy: the floor shakes for 15 s" |
 | 1:40 | scripted | **the first Lucky Moth** crosses slowly (10 s) | `tut.moth` "Catch the moth!" |
 | 2:00 | 2 contracts possible | the contract board slides in (3 cards) | `tut.contracts` "Contracts: goals with gem rewards" |
-| 2:06 | 60 m | **Reveal: Crystal Grotto.** Shockwave unlocks | – |
-| 2:30 | 40 m+ | Frenzy lights | `tut.frenzy` "Frenzy: the floor shakes for 15 s" |
+| 2:06 | 60 m | **Reveal: Crystal Grotto.** Shockwave unlocks | `tut.shock` "Shockwave: every tap hits its neighbours" |
+| 2:54 | 90 m | Gold Rush lights | `tut.goldrush` "Gold Rush: ×5 gold for 20 s" |
 | 3:00 | – | tutorial done; contextual hints only from now on | – |
 
 The tutorial introduces one new thing every 10–25 s for three minutes, then lets the loop breathe.
@@ -773,7 +861,7 @@ in from the right within 0.3 s.
  +64    │ [▮▮▮▮▮▮▮▯▯] Reach 150 m: Halden Works        ▸ 72 %      │ 30 px goal bar (16 px gutters)
  +94    │                                                          │
         │          WORLD (full-bleed underneath everything)        │ tappable: +94 … 560
-        │    rigs · explorer · floor at 42 % · 8-row preview       │
+        │    rigs · explorer · floor at 42 % · 6-row preview       │
  560    │  ( Dyn )( Frz )( Gold )( Ovr )( Qk )      combo ×1.6 ◯   │ 60 px skill dock, 52 px buttons
  620    ├──────────────────────────────────────────────────────────┤
         │ Pick │ Crew │ Gear │ Skills │ Album │ ⋯      ×1 ×10 Max  │ 40 px tab strip
@@ -953,18 +1041,19 @@ no skills or events (so these are conservative):
 | E1 | the first tap breaks the first cell | HP(0) = pick(1) = 100 |
 | E2 | first purchase | ≤ 6 s |
 | E3 | first crew hire | ≤ 10 s |
-| E4 | first-run depth times | 20 m ≤ 1:15; 60 m 2:00–3:30; 120 m 5–8 min; 200 m 10–15 min; 300 m 18–28 min; 650 m > 90 min |
+| E4 | first-run depth times | 20 m ≤ 1:15; 60 m 2:00–3:30; 120 m 5–8 min; 200 m 10–15 min; 300 m 18–28 min; 650 m 35–60 min; 900 m > 90 min |
 | E5 | the longest gap between rewards (purchase, chest, biome, moth) in the first 30 min | ≤ 30 s |
-| E6 | taps per cell over the first 45 min | p50 ≤ 8, p90 ≤ 16 |
+| E6 | taps per cell over the first 45 min | p50 ≤ 7, p90 ≤ 12 |
 | E7 | offline closed form vs 1 s steps (7 cases, 1–24 h, depth 0–3,000 m) | depth error ≤ 1e-6 m, gold error ≤ 1e-9 in log10 |
-| E8 | after a recommended Rekindle, the next run passes the old record | in ≤ 25 % of the previous run's active time |
+| E8 | after a recommended (×2) Rekindle, the next run passes the old record | within max(7 min of active play, 30 % of the previous run) |
 | E9 | no Rekindle chains | over 3 sim days, no 3 consecutive Rekindles with runs < 3 min |
-| E10 | 3-day session sim | record ≥ {{E10}}; ≥ 1 new biome on day 2 |
-| E11 | 1e100 gold | reached by day 7 in the session sim (or 2,850 m), whichever comes first |
+| E10 | 3-day session sim | record ≥ 3,500 m (sim 3,855 m); ≥ 1 new biome on each of days 2 and 3 |
+| E11 | 1e100 gold | reached by day 3 in the session sim (sim: about 25 h, near 2,650 m) |
 | E12 | the goal bar always has a goal ≥ 15 % done with an ETA ≤ 90 s, or the 10 m fallback | 100 % of 0.5 s samples over a 2 h sim |
 | E13 | the cell mix's expected multiplier | 1.00 ± 0.01 for every biome table |
 | E14 | Big arithmetic | add, mul and pow round-trip vs log10 within 1e-12 relative; formats match the notation table up to 1e3000 |
 | E15 | the save round-trips | v3 ↔ JSON identical; v2 migrates; a corrupt slot falls back (existing two-slot rule) |
+| E16 | law 6: no store, no ads, nothing timed against absence | a static scan of `src/` finds no payment or ad API; Playwright's request log is empty during 10 min of play; no reward depends on wall-clock days |
 
 **Run in Playwright** (390 × 844, touch, SwiftShader):
 
@@ -982,11 +1071,13 @@ no skills or events (so these are conservative):
 
 ## Appendix A: the calibration model (what the numbers above come from)
 
-- **Files** (scratch, to be ported to `src/idle/econ/sim.ts`):
-  - the model: `m4.mjs`
+- **Files** (scratch, to be ported to `src/idle/econ/sim.ts`), all in
+  `/tmp/claude-0/-home-user-readme-roast/3412eae4-0c86-53a0-90ba-d33f6a9f42b3/scratchpad/idle/economy/`:
+  - the model: `m4.mjs`, with the final configuration in `k_g4.json`
   - the runner and table printer: `showk.mjs`, `tables.mjs`
-  - prestige and sessions: `prestige.mjs`
+  - Rekindle and Weave over days: `weave.mjs`, plus `weave_pass.mjs` for law 5
   - offline verification: `offline.mjs`
+  - multiplier leverage: `cmeasure2.mjs`
 - **State per run:** depth, row progress, gold, pick level, line levels, gear bought.
 - **Step:** 0.5–1 s active, 60 s offline.
 - **Damage:**
@@ -999,19 +1090,28 @@ no skills or events (so these are conservative):
   - every step it buys the item with the best `ΔDPS / cost` among items affordable within 60 s of
     income, with crew valued at 1.3× (they work offline);
   - it hires the first Shovel Hand as soon as possible after 15 s (the tutorial);
-  - it Rekindles at the start of a session when gain ≥ current Embers, or when walled (rows > 45 s,
-    run > 10 min, gain ≥ 25 %).
+  - it follows the §4.8.1 recommend rule exactly: gain ≥ owned with rows > 8 s (or gain ≥ 10×), or
+    walled (rows > 45 s, run > 10 min, gain ≥ 25 %). It never Rekindles in the last 3 minutes of a
+    session (a player would not reset just before leaving);
+  - it Weaves when the cycle's Thread gain is at least the Threads owned (and ≥ 6 h after the last
+    Weave). The Loom spend is modelled as Crew Weave only: ×3 per doubling of Threads.
 - **Session schedule:** 40 min, then 6 min every 2 h from 08:00 to 24:00. Offline 50 % with the
   3 / 6 / 12 h cap.
 - **Knobs that were tuned** (coordinate descent against the §4.10 targets plus comfort, then by hand):
   slopes 1.30 / 1.09 / 1.08 / 1.085 / 1.09, Q = 0.01 gold per HP (display), pick c0 30 and r 1.2,
-  tier ×2.5, Rally 14 %, line r 1.10, line cost 26.6 rows and output HP/44.4 at unlock, gear 2.5–7.5
-  rows, the deep-line penalty, and the Ember formula 25·3^((d−300)/100).
+  tier ×2.5, Rally 14 %, line r 1.10, line cost 26.6 rows and output HP/44.4 at unlock (lines 0–5),
+  the ×1e4 geometric ladder for lines 6+, gear 2.5–7.5 rows, total Embers 25·2^((record−300)/100), and
+  Threads.
 - **Rejected along the way** (the reasons are kept so nobody re-tries them):
   1. Gold growing faster than HP: a runaway to 300 m in 3 min, then a hard wall.
   2. The pick at ×2 per 10 levels: the first 2 min were limited by tap rate at 1 tap per cell, with no
      crack feel.
   3. Crew lines too generous at unlock (HP/2.5): a runaway to 8,800 m in 10 min.
-  4. Compounding deep-line escalation: days 2–3 stalled.
-  5. Embers on gold as well as DPS, or base ≥ 4: Rekindle chains.
-  6. A first Rekindle of 5 Embers: the second run was slower than the first, and no new biome for 24 h.
+  4. Deep lines priced fairly at their unlock depth: a phase transition, sweeping all lines once the
+     multiplier passes ×300.
+  5. A compounding penalty on deep lines: days 2–3 stalled.
+  6. A constant penalty: runaway on day 1.
+  7. Embers on gold as well as DPS, or Embers computed per run: Rekindle chains of 15–80 s runs.
+  8. A first Rekindle of 5 Embers: the second run was slower than the first, and no new biome for 24 h.
+  9. A bot that saves for the "best ratio" item regardless of price: purchases froze for days. Real
+     players buy what they can afford (60 s horizon).
