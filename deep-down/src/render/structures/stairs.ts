@@ -1,6 +1,6 @@
 import { Rng } from '../../core/rng';
-import type { StructureSpec } from '../../world/gen/types';
-import { BAY_RING, STAIR_COPING, bayIntrados } from '../../world/gen/architecture';
+import type { StructureSpec } from './types';
+import { BAY_RING, STAIR_COPING, bayIntrados } from './geometry';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
 import { newel } from './parts';
@@ -33,7 +33,7 @@ const Z: V3 = [0, 0, 1];
  * the head.
  *
  * Local frame: x = s (metres down the flight from its head), y up, z = c (across, walk centred).
- * The walking plane is y = top - s (PlayerController walks it on the B.RAMP_* cells); every tread
+ * The walking plane is y = top - s (the B.RAMP_* cells under it); every tread
  * is within RISER / 2 of it.
  */
 export function buildStairFlight(b: StructureBuilder, f: Flight): void {

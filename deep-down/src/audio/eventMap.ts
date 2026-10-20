@@ -1,65 +1,163 @@
-import { PLAYER } from '../config/balance';
-import { blockDef, type SoundKind } from '../config/blocks';
-import { ITEMS } from '../config/items';
-import type { GameEvents } from '../core/events';
-import { saturate } from '../core/math';
-import type { SfxName, SfxParams, StepKind } from './sfx';
+import type { SoundKind } from '../config/blocks';
+import { biomeAt } from '../idle/config/biomes';
+import type { IdleEvents } from '../idle/bus';
+import { CELL } from '../idle/model/state';
+import type { SfxName, SfxParams } from './sfx';
 
-// Which sound each gameplay event makes. Pure data mapping, unit tested in Node.
+// Which sound each IdleEvent makes (SPEC §10.10), with the ladders that make a spree sound like music: breaks climb a
+// 2-octave major pentatonic (reset after 1 s without a break; a row clear plays a chord on the current step);
+// purchases climb the arpeggio (reset 1.5 s after the last; the 10th note jumps an octave); pierce chains +2
+// semitones per cell; combo tiers a step per tier; taps +1 semitone per 5 combo (cap +12). Every ladder sits in
+// the biome's key, so they harmonise. Pure apart from the ladder clocks (`now` in seconds); unit tested in Node.
 
 export interface SfxRequest {
   name: SfxName;
   params: SfxParams;
 }
 
-export const soundKindOf = (block: number): SoundKind => blockDef(block).sound;
+/** Major pentatonic offsets over two octaves (semitones). */
+export const PENTATONIC = [0, 2, 4, 7, 9, 12, 14, 16, 19, 21, 24] as const;
 
-/** Footstep material: ore and crystal floors read as stone underfoot. */
-export function stepKindOf(block: number): StepKind {
-  const k = soundKindOf(block);
-  return k === 'soil' || k === 'wood' || k === 'ancient' ? k : 'stone';
+/** The biome's key relative to D (SPEC §6.5: D, D, E, C, G, B♭, D, C♯, B, A, E♭, E, whole-tone, —). */
+const KEY_SEMIS = [0, 0, 2, -2, 5, -4, 0, -1, -3, -5, 1, 2, 0, 0];
+
+export const semis = (n: number): number => Math.pow(2, n / 12);
+
+/** The material a cell sounds like, from its kind and the biome. */
+export function materialOf(kind: number, depth: number): SoundKind {
+  if (kind === CELL.TOPSOIL) return 'soil';
+  if (kind === CELL.GEM || kind === CELL.GEODE) return 'crystal';
+  if (kind === CELL.ORE || kind === CELL.RICH || kind === CELL.GOLDEN) return 'metal';
+  if (kind === CELL.CHEST) return 'wood';
+  if (kind === CELL.GATE || kind === CELL.SEAL || kind === CELL.FOSSIL) return 'ancient';
+  const b = biomeAt(depth);
+  return b === 0 ? 'soil' : b === 2 ? 'crystal' : b === 3 ? 'ancient' : 'stone';
 }
 
-const req = (name: SfxName, params: SfxParams = {}): SfxRequest => ({ name, params });
+/** The ladder clocks (one per game). */
+export class SoundCues {
+  private breakStep = -1;
+  private lastBreak = -Infinity;
+  private buyStep = -1;
+  private lastBuy = -Infinity;
+  private buyRun = 0;
+  /** The last purchase note (the ★ stinger sits a fifth above it). */
+  private lastBuyPitch = 1;
+  private key = 1;
 
-type EventSounds = { [K in keyof GameEvents]?: (p: GameEvents[K]) => SfxRequest | null };
+  /** The biome key for the depth (the ladders follow it). */
+  private keyAt(depth: number): number {
+    return semis(KEY_SEMIS[Math.min(KEY_SEMIS.length - 1, biomeAt(depth))] ?? 0);
+  }
 
-export const EVENT_SOUNDS: EventSounds = {
-  'block:hit': (p) => req(`hit.${soundKindOf(p.block)}`, { progress: p.progress }),
-  'block:broken': (p) => req(`break.${soundKindOf(p.block)}`),
-  'block:tooHard': () => req('tooHard'),
-  // Crystal clusters are the only minable props.
-  'prop:hit': (p) => req('hit.crystal', { progress: p.progress }),
-  'prop:broken': () => req('break.crystal'),
-  'tool:swing': (p) => req('swing', { tier: p.tier }),
-  'item:picked': (p) => req(`pickup.${ITEMS[p.item]?.rarity ?? 'common'}`),
-  'item:rejected': () => req('rejected'),
-  'items:banked': (p) => req('banked', { count: p.total }),
-  'craft:done': () => req('craft'),
-  'craft:failed': () => req('ui.error'),
-  discovery: () => req('discovery'),
-  'player:footstep': (p) => req(`step.${stepKindOf(p.block)}`, { gain: 0.7 + 0.3 * saturate(p.speed / PLAYER.walkSpeed) }),
-  'player:jump': () => req('jump'),
-  'player:land': (p) => req('land', { intensity: saturate((p.fallSpeed - 3) / 17), material: stepKindOf(p.block) }),
-  'player:damaged': (p) => req('damaged', { intensity: saturate(p.amount / 40) }),
-  'player:died': () => req('died'),
-  'player:respawned': () => req('respawned'),
-  'camp:entered': () => req('camp'),
-  'lantern:low': () => req('lantern.low'),
-  'lantern:empty': () => req('lantern.empty'),
-  'lantern:refueled': () => req('lantern.refueled'),
-  'game:saved': () => req('saved'),
-  // World variety (W2): existing voices, re-pitched (feel W5 may replace them with their own).
-  'world:ride': (p) => (p.kind === 'hoist' ? req('break.metal', { pitch: p.phase === 'start' ? 0.7 : 0.85, gain: 0.7 }) : req('hit.wood', { pitch: 0.5, gain: 0.6 })),
-  'world:runeOpen': () => req('break.ancient', { pitch: 0.7 }),
-  'world:hoistReleased': () => req('break.metal', { pitch: 0.6 }),
-  'world:note': () => req('hit.wood', { pitch: 1.7, gain: 0.35 }),
-  'world:monolith': () => req('hit.ancient', { pitch: 0.45, gain: 0.7 }),
-};
-
-export const AUDIBLE_EVENTS = Object.keys(EVENT_SOUNDS) as Array<keyof GameEvents>;
-
-export function sfxForEvent<K extends keyof GameEvents>(type: K, payload: GameEvents[K]): SfxRequest | null {
-  const fn = EVENT_SOUNDS[type] as ((p: GameEvents[K]) => SfxRequest | null) | undefined;
-  return fn ? fn(payload) : null;
+  /** The sounds for one event (0, 1 or 2). `now` in seconds. */
+  request<K extends keyof IdleEvents>(type: K, p: IdleEvents[K], now: number, out: SfxRequest[] = []): SfxRequest[] {
+    out.length = 0;
+    switch (type) {
+      case 'tap:hit': {
+        const e = p as IdleEvents['tap:hit'];
+        this.key = this.keyAt(e.depth);
+        const combo = Math.min(12, Math.floor(e.combo / 5));
+        out.push({ name: `tap.${materialOf(e.kind, e.depth)}`, params: { pitch: semis(combo), progress: e.cells > 0 ? 1 : 0.4 } });
+        if (e.crit) out.push({ name: 'crit', params: {} });
+        break;
+      }
+      case 'cell:break': {
+        const e = p as IdleEvents['cell:break'];
+        if (e.source === 'crumble') break;
+        if (now - this.lastBreak > 1) this.breakStep = -1;
+        this.lastBreak = now;
+        this.breakStep = Math.min(PENTATONIC.length - 1, this.breakStep + 1);
+        const pierce = 2 * Math.max(0, e.chainIndex);
+        const pitch = this.keyAt(e.depth) * semis(PENTATONIC[this.breakStep] + pierce);
+        out.push({ name: `break.${materialOf(e.kind, e.depth)}`, params: { pitch } });
+        if (e.kind === CELL.ORE || e.kind === CELL.RICH || e.kind === CELL.GOLDEN) out.push({ name: 'ore.chime', params: { pitch: this.keyAt(e.depth) * semis(e.kind === CELL.RICH ? 7 : e.kind === CELL.GOLDEN ? 12 : 0) } });
+        else if (e.kind === CELL.GEM || e.kind === CELL.GEODE) out.push({ name: 'gem.ring', params: { pitch: this.keyAt(e.depth) } });
+        break;
+      }
+      case 'row:clear': {
+        const e = p as IdleEvents['row:clear'];
+        const step = Math.max(0, this.breakStep);
+        out.push({ name: 'row.clear', params: { pitch: this.keyAt(e.depth) * semis(PENTATONIC[step] - 12) } });
+        break;
+      }
+      case 'row:crumble':
+        out.push({ name: 'crumble', params: {} });
+        break;
+      case 'buy:done': {
+        const e = p as IdleEvents['buy:done'];
+        if (now - this.lastBuy > 1.5) {
+          this.buyStep = -1;
+          this.buyRun = 0;
+        }
+        this.lastBuy = now;
+        this.buyRun++;
+        this.buyStep = (this.buyStep + 1) % 5;
+        const octave = this.buyRun >= 10 ? 12 : 0;
+        const pitch = this.key * semis(PENTATONIC[this.buyStep] + octave);
+        this.lastBuyPitch = pitch;
+        out.push({ name: 'buy', params: { pitch, gain: e.levels > 1 ? 1.15 : 1 } });
+        break;
+      }
+      case 'buy:fail':
+        out.push({ name: 'ui.no', params: {} });
+        break;
+      case 'crew:star':
+      case 'crew:crown':
+        out.push({ name: 'buy.star', params: { pitch: this.lastBuyPitch * semis(7) * 0.5 } });
+        break;
+      case 'pick:tier':
+        out.push({ name: 'tool.tier', params: {} });
+        break;
+      case 'combo:tier': {
+        const e = p as IdleEvents['combo:tier'];
+        const step = e.tier >= 50 ? 7 : e.tier >= 25 ? 4 : 0;
+        out.push({ name: 'combo.tier', params: { pitch: this.key * semis(step) } });
+        break;
+      }
+      case 'combo:lost':
+        out.push({ name: 'combo.lost', params: {} });
+        break;
+      case 'chest:exposed':
+        out.push({ name: 'chest.creak', params: {} });
+        break;
+      case 'chest:open': {
+        const e = p as IdleEvents['chest:open'];
+        const tiers = ['wood', 'copper', 'crystal', 'reliquary', 'lintel'];
+        out.push({ name: 'chest.open', params: { intensity: tiers.indexOf(e.tier) / 4, pitch: this.key } });
+        break;
+      }
+      case 'seal:start':
+        out.push({ name: 'seal.appear', params: {} });
+        break;
+      case 'seal:hit':
+        out.push({ name: 'seal.hit', params: {} });
+        break;
+      case 'seal:break':
+        out.push({ name: 'seal.break', params: {} });
+        break;
+      case 'biome:reveal':
+        out.push({ name: 'reveal', params: {} });
+        break;
+      case 'moth:catch':
+        out.push({ name: 'moth', params: {} });
+        break;
+      case 'skill:dynamite':
+        out.push({ name: 'boom', params: { intensity: 1 } });
+        break;
+      case 'offline:collect':
+        out.push({ name: 'cash.roll', params: { count: 16 } });
+        break;
+      default:
+        break;
+    }
+    return out;
+  }
 }
+
+/** Every IdleEvent that makes a sound. */
+export const AUDIBLE_EVENTS: ReadonlyArray<keyof IdleEvents> = [
+  'tap:hit', 'cell:break', 'row:clear', 'row:crumble', 'buy:done', 'buy:fail', 'crew:star', 'crew:crown', 'pick:tier',
+  'combo:tier', 'combo:lost', 'chest:exposed', 'chest:open', 'seal:start', 'seal:hit', 'seal:break', 'biome:reveal',
+  'moth:catch', 'skill:dynamite', 'offline:collect',
+];

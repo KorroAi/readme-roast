@@ -1,4 +1,5 @@
-import type { ItemId } from './items';
+/** The old game's relic ids (kept as plain strings: the item table is gone; B's rune textures still read the glyphs). */
+type ItemId = string;
 
 /**
  * The builders' eight runes as stroke drawings on a 16 x 16 grid (moved here from

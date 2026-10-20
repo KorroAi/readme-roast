@@ -42,17 +42,29 @@ const EDGE_DIRS: ReadonlyArray<readonly [number, number, number]> = [
   [0, 1, 1], [0, 1, -1], [0, -1, 1], [0, -1, -1],
 ];
 
+export interface LightOptions {
+  /**
+   * The y axis is a ring (RingWorld): y neighbours wrap from the last storage row to the first. A dead
+   * (bedrock) slab in the ring is the barrier between the window's bottom and its top.
+   */
+  wrapY?: boolean;
+}
+
 /**
- * Colored flood-fill light for static emitters (crystals, camp lamps, glyphs), stored as
- * RGBA8 per voxel: RGB = emitted light, A = "openness" (how much open space surrounds the
- * voxel), which the shader turns into a faint ambient fill so huge chambers read as huge.
+ * Colored flood-fill light for static emitters (crystals, lamps, glowroot), stored as RGBA8 per voxel:
+ * RGB = emitted light, A = "openness" (how much open space surrounds the voxel), which the shader turns
+ * into a faint ambient fill so huge chambers read as huge.
  *
- * Propagation uses 18-connectivity (faces + edges) so pools of light are round rather than
- * diamond shaped. Diagonal steps require one open face neighbor so light never leaks
- * through a sealed corner.
+ * Propagation uses 18-connectivity (faces + edges) so pools of light are round rather than diamond
+ * shaped. Diagonal steps require one open face neighbor so light never leaks through a sealed corner.
+ *
+ * All coordinates here are STORAGE coordinates (x + sx (y + sy z)). With `wrapY` the y neighbours wrap
+ * (the descent's ring); `changedRows` then lists the storage rows touched by the last operation, so the
+ * uploader can split a change that crosses the wrap.
  */
 export class LightField {
   readonly data: Uint8Array;
+  readonly wrapY: boolean;
   private readonly world: VoxelWorld;
   private queue: Int32Array;
   private qHead = 0;
@@ -62,16 +74,32 @@ export class LightField {
   private readonly edgeOff: Int32Array;
   private readonly edgeA: Int32Array;
   private readonly edgeB: Int32Array;
+  /** Per edge step: the face-step index (0..5) of its two components. */
+  private readonly edgeFa: Int32Array;
+  private readonly edgeFb: Int32Array;
   private readonly removalQueue: number[] = [];
-  /** Bounding box of voxels changed by the last operation (for partial GPU upload). */
+  /** Scratch: face neighbour indices of the voxel being expanded (-1 = outside). */
+  private readonly fn = new Int32Array(6);
+  /** Bounding box of voxels changed by the last operation (for partial GPU upload). With wrapY, its
+   *  y range is the min/max storage row; `changedRows` is exact. */
   readonly changed: Box3i = { x0: 0, y0: 0, z0: 0, x1: -1, y1: -1, z1: -1 };
+  /** Storage rows changed by the last operation (1 = changed). */
+  readonly changedRows: Uint8Array;
+  /** Rows a propagation may write (null: all); x/z limits. */
+  private rowLimit: Uint8Array | null = null;
+  private lx0 = 0;
+  private lx1 = 0;
+  private lz0 = 0;
+  private lz1 = 0;
 
   /** @param data optional precomputed light buffer to adopt (e.g. from the loading worker). */
-  constructor(world: VoxelWorld, data?: Uint8Array) {
+  constructor(world: VoxelWorld, data?: Uint8Array, options: LightOptions = {}) {
     this.world = world;
+    this.wrapY = !!options.wrapY;
     if (data && data.length !== world.sx * world.sy * world.sz * 4) throw new Error('light buffer size mismatch');
     this.data = data ?? new Uint8Array(world.sx * world.sy * world.sz * 4);
-    const size = 1 << 21;
+    this.changedRows = new Uint8Array(world.sy);
+    const size = 1 << 20;
     this.queue = new Int32Array(size);
     this.qMask = size - 1;
     const sx = world.sx;
@@ -81,6 +109,9 @@ export class LightField {
     this.edgeOff = Int32Array.from(EDGE_DIRS.map(off));
     this.edgeA = new Int32Array(EDGE_DIRS.length);
     this.edgeB = new Int32Array(EDGE_DIRS.length);
+    this.edgeFa = new Int32Array(EDGE_DIRS.length);
+    this.edgeFb = new Int32Array(EDGE_DIRS.length);
+    const faceIndex = (d: [number, number, number]) => FACE_DIRS.findIndex((f) => f[0] === d[0] && f[1] === d[1] && f[2] === d[2]);
     // An edge step (two non-zero components) is bounded by the two single-axis face steps.
     for (let i = 0; i < EDGE_DIRS.length; i++) {
       const [dx, dy, dz] = EDGE_DIRS[i];
@@ -90,8 +121,63 @@ export class LightField {
       if (dz) comps.push([0, 0, dz]);
       this.edgeA[i] = off(comps[0]);
       this.edgeB[i] = off(comps[1]);
+      this.edgeFa[i] = faceIndex(comps[0]);
+      this.edgeFb[i] = faceIndex(comps[1]);
     }
   }
+
+  /** Storage index of a face neighbour of (x, y, z) at index i, -1 outside (y wraps with wrapY). */
+  private faceN(i: number, x: number, y: number, z: number, k: number): number {
+    const w = this.world;
+    const d = FACE_DIRS[k];
+    if (d[0]) {
+      const nx = x + d[0];
+      return nx < 0 || nx >= w.sx ? -1 : i + d[0];
+    }
+    if (d[2]) {
+      const nz = z + d[2];
+      return nz < 0 || nz >= w.sz ? -1 : i + this.faceOff[k];
+    }
+    const ny = y + d[1];
+    if (ny < 0) return this.wrapY ? i + (w.sy - 1) * w.sx : -1;
+    if (ny >= w.sy) return this.wrapY ? i - (w.sy - 1) * w.sx : -1;
+    return i + this.faceOff[k];
+  }
+
+  /** Fill `fn` with the 6 face neighbour indices of voxel i. */
+  private faces(i: number, x: number, y: number, z: number): void {
+    for (let k = 0; k < 6; k++) this.fn[k] = this.faceN(i, x, y, z, k);
+  }
+
+  /** Storage index of edge neighbour e (given the face neighbours in `fn`), -1 outside or sealed corner
+   *  (both bounding face voxels solid: `sealed` set when blocked). */
+  private edgeN(e: number, x: number, y: number, z: number): number {
+    const a = this.fn[this.edgeFa[e]];
+    const b = this.fn[this.edgeFb[e]];
+    if (a < 0 || b < 0) return -1;
+    // a + (b - i): the step of b applied to a. With the y wrap, b - i already holds the wrapped step.
+    void x;
+    void y;
+    void z;
+    return a + (b - this.cur);
+  }
+
+  /** The voxel being expanded (edgeN's base). */
+  private cur = 0;
+
+  private coords(i: number): void {
+    const w = this.world;
+    const sxy = w.sx * w.sy;
+    const z = (i / sxy) | 0;
+    const rem = i - z * sxy;
+    const y = (rem / w.sx) | 0;
+    this.cx = rem - y * w.sx;
+    this.cy = y;
+    this.cz = z;
+  }
+  private cx = 0;
+  private cy = 0;
+  private cz = 0;
 
   /** Recompute everything from scratch (world load). */
   computeAll(): void {
@@ -114,7 +200,8 @@ export class LightField {
         this.push(i);
       }
     }
-    this.propagate(null);
+    this.setLimit(null);
+    this.propagate(false);
     this.computeOpenness();
     this.changed.x0 = 0;
     this.changed.y0 = 0;
@@ -122,21 +209,23 @@ export class LightField {
     this.changed.x1 = w.sx - 1;
     this.changed.y1 = w.sy - 1;
     this.changed.z1 = w.sz - 1;
+    this.changedRows.fill(1);
   }
 
   /**
-   * Update light after a voxel changed from `oldId` to the id now stored in the world.
+   * Update light after the voxel at storage (x, y, z) changed from `oldId` to the id now stored there.
    * Returns the bounding box of changed light texels (empty box if nothing changed).
    */
   onBlockChanged(x: number, y: number, z: number, oldId: number): Box3i {
     const w = this.world;
-    const newId = w.get(x, y, z);
+    const i = w.index(x, y, z);
+    const newId = w.blocks[i];
     this.resetChanged();
     const oldEmits = (EMIT_R[oldId] | EMIT_G[oldId] | EMIT_B[oldId]) !== 0;
     const newEmits = (EMIT_R[newId] | EMIT_G[newId] | EMIT_B[newId]) !== 0;
     const becameSolid = !SOLID[oldId] && SOLID[newId];
     if (becameSolid) {
-      this.data[w.index(x, y, z) * 4 + 3] = 0;
+      this.data[i * 4 + 3] = 0;
       // Adding an occluder can darken anything its shadow reaches: rebuild locally (rare).
       this.recomputeBox({
         x0: x - LIGHT_REACH, y0: y - LIGHT_REACH, z0: z - LIGHT_REACH,
@@ -144,34 +233,11 @@ export class LightField {
       });
       return this.changed;
     }
-    const i = w.index(x, y, z);
     const d = this.data;
     this.qHead = this.qTail = 0;
+    this.setLimit(null);
     if (oldEmits) this.removeLight(i, x, y, z);
-    if (SOLID[oldId] && !SOLID[newId]) {
-      // An occluder was removed: light can only increase. Pull light in from neighbors.
-      d[i * 4] = 0;
-      d[i * 4 + 1] = 0;
-      d[i * 4 + 2] = 0;
-      // Openness is smooth at this scale: the mined voxel takes its most open face neighbour's
-      // value (it was 0 while solid, which left fresh holes without the open-space fill).
-      let open = 0;
-      for (let k = 0; k < 6; k++) {
-        const [dx, dy, dz] = FACE_DIRS[k];
-        if (w.inBounds(x + dx, y + dy, z + dz)) open = Math.max(open, d[(i + this.faceOff[k]) * 4 + 3]);
-      }
-      d[i * 4 + 3] = open;
-      this.expand(x, y, z);
-      this.pullFromNeighbors(i, x, y, z);
-      if (d[i * 4] | d[i * 4 + 1] | d[i * 4 + 2]) this.push(i);
-      // The opened voxel may also unblock diagonal steps between two of its face neighbors.
-      for (let k = 0; k < 6; k++) {
-        const [dx, dy, dz] = FACE_DIRS[k];
-        if (!w.inBounds(x + dx, y + dy, z + dz)) continue;
-        const n = i + this.faceOff[k];
-        if (d[n * 4] | d[n * 4 + 1] | d[n * 4 + 2]) this.push(n);
-      }
-    }
+    if (SOLID[oldId] && !SOLID[newId]) this.openVoxel(i, x, y, z);
     if (newEmits) {
       d[i * 4] = Math.max(d[i * 4], EMIT_R[newId]);
       d[i * 4 + 1] = Math.max(d[i * 4 + 1], EMIT_G[newId]);
@@ -179,25 +245,67 @@ export class LightField {
       this.expand(x, y, z);
       this.push(i);
     }
-    this.propagate(null);
+    this.propagate(true);
     return this.changed;
   }
 
   /**
-   * Remove the light an emitter at voxel i contributed, per channel, then queue the
-   * brighter frontier so other sources refill the cleared region. Generalizes the classic
-   * voxel light-removal flood fill to our multiplicative decay: a neighbor is assumed lit
-   * by the removed light when its value is no brighter than the decayed level reaching it.
-   * Visits only voxels that the light actually reached (far fewer than a box rebuild).
+   * Batch fill for many voxels that turned from solid non-emitters to air in one frame (a blast, a row
+   * wipe): one flood fill for all of them (`openMany`, SPEC §6.2). Indices are storage indices.
+   */
+  openMany(indices: ArrayLike<number>, count = indices.length): Box3i {
+    this.resetChanged();
+    this.qHead = this.qTail = 0;
+    this.setLimit(null);
+    const w = this.world;
+    const sxy = w.sx * w.sy;
+    for (let k = 0; k < count; k++) {
+      const i = indices[k];
+      const z = (i / sxy) | 0;
+      const rem = i - z * sxy;
+      const y = (rem / w.sx) | 0;
+      const x = rem - y * w.sx;
+      if (SOLID[w.blocks[i]]) continue;
+      this.openVoxel(i, x, y, z);
+    }
+    this.propagate(true);
+    return this.changed;
+  }
+
+  /** An occluder at i was removed: pull light in from neighbours and queue the frontier. */
+  private openVoxel(i: number, x: number, y: number, z: number): void {
+    const d = this.data;
+    d[i * 4] = 0;
+    d[i * 4 + 1] = 0;
+    d[i * 4 + 2] = 0;
+    // Openness is smooth at this scale: the opened voxel takes its most open face neighbour's value.
+    this.faces(i, x, y, z);
+    let open = 0;
+    for (let k = 0; k < 6; k++) {
+      const n = this.fn[k];
+      if (n >= 0) open = Math.max(open, d[n * 4 + 3]);
+    }
+    d[i * 4 + 3] = open;
+    this.expand(x, y, z);
+    this.pullFromNeighbors(i, x, y, z);
+    if (d[i * 4] | d[i * 4 + 1] | d[i * 4 + 2]) this.push(i);
+    // The opened voxel may also unblock diagonal steps between two of its face neighbors.
+    this.faces(i, x, y, z);
+    for (let k = 0; k < 6; k++) {
+      const n = this.fn[k];
+      if (n >= 0 && d[n * 4] | d[n * 4 + 1] | d[n * 4 + 2]) this.push(n);
+    }
+  }
+
+  /**
+   * Remove the light an emitter at voxel i contributed, per channel, then queue the brighter frontier so
+   * other sources refill the cleared region (the classic voxel light-removal flood fill, generalised to the
+   * multiplicative decay).
    */
   private removeLight(i: number, x: number, y: number, z: number): void {
     const w = this.world;
     const d = this.data;
     const blocks = w.blocks;
-    const sx = w.sx;
-    const sy = w.sy;
-    const sz = w.sz;
-    const sxy = sx * sy;
     const emitTables = [EMIT_R, EMIT_G, EMIT_B];
     const rq = this.removalQueue;
     for (let c = 0; c < 3; c++) {
@@ -211,35 +319,32 @@ export class LightField {
       for (let h = 0; h < rq.length; h += 2) {
         const idx = rq[h];
         const lvl = rq[h + 1];
-        const cz = (idx / sxy) | 0;
-        const rem = idx - cz * sxy;
-        const cy = (rem / sx) | 0;
-        const cx = rem - cy * sx;
+        this.coords(idx);
+        const cx = this.cx;
+        const cy = this.cy;
+        const cz = this.cz;
+        this.faces(idx, cx, cy, cz);
+        this.cur = idx;
         for (let k = 0; k < 18; k++) {
-          const dir = k < 6 ? FACE_DIRS[k] : EDGE_DIRS[k - 6];
-          const nx = cx + dir[0];
-          const ny = cy + dir[1];
-          const nz = cz + dir[2];
-          if (nx < 0 || ny < 0 || nz < 0 || nx >= sx || ny >= sy || nz >= sz) continue;
           let n: number;
           let decayed: number;
           if (k < 6) {
-            n = idx + this.faceOff[k];
+            n = this.fn[k];
+            if (n < 0) continue;
             decayed = DECAY_FACE[lvl];
           } else {
             const e = k - 6;
-            if (SOLID[blocks[idx + this.edgeA[e]]] && SOLID[blocks[idx + this.edgeB[e]]]) continue;
-            n = idx + this.edgeOff[e];
+            n = this.edgeN(e, cx, cy, cz);
+            if (n < 0) continue;
+            if (SOLID[blocks[this.fn[this.edgeFa[e]]]] && SOLID[blocks[this.fn[this.edgeFb[e]]]]) continue;
             decayed = DECAY_EDGE[lvl];
           }
           const v = d[n * 4 + c];
           if (v === 0) continue;
-          // An open emitter can hold the removed light on top of its own: drop it back to its
-          // own emission and keep clearing past it (it refills with its own light).
           const own = emitC[blocks[n]];
           if (!SOLID[blocks[n]] && v <= decayed && v > own) {
             d[n * 4 + c] = own;
-            this.expand(nx, ny, nz);
+            this.expandIndex(n);
             rq.push(n, v);
             if (own > 0) this.push(n);
           } else {
@@ -251,20 +356,35 @@ export class LightField {
     }
   }
 
-  /** Clear and rebuild light inside `box` (clamped), seeding from emitters inside and lit voxels just outside. */
+  /** Clear and rebuild light inside `box` (x, z clamped; y wraps with wrapY), seeding from emitters inside
+   *  and lit voxels just outside. */
   recomputeBox(box: Box3i): void {
     const w = this.world;
-    const b = {
-      x0: Math.max(0, box.x0), y0: Math.max(0, box.y0), z0: Math.max(0, box.z0),
-      x1: Math.min(w.sx - 1, box.x1), y1: Math.min(w.sy - 1, box.y1), z1: Math.min(w.sz - 1, box.z1),
-    };
+    const x0 = Math.max(0, box.x0);
+    const x1 = Math.min(w.sx - 1, box.x1);
+    const z0 = Math.max(0, box.z0);
+    const z1 = Math.min(w.sz - 1, box.z1);
+    let y0 = box.y0;
+    let y1 = box.y1;
+    if (!this.wrapY) {
+      y0 = Math.max(0, y0);
+      y1 = Math.min(w.sy - 1, y1);
+    } else if (y1 - y0 + 1 >= w.sy) {
+      y0 = 0;
+      y1 = w.sy - 1;
+    }
+    const rows = new Uint8Array(w.sy);
+    for (let y = y0; y <= y1; y++) rows[((y % w.sy) + w.sy) % w.sy] = 1;
     const d = this.data;
     const blocks = w.blocks;
+    this.resetChanged();
     this.qHead = this.qTail = 0;
-    for (let z = b.z0; z <= b.z1; z++)
-      for (let y = b.y0; y <= b.y1; y++) {
-        let i = w.index(b.x0, y, z);
-        for (let x = b.x0; x <= b.x1; x++, i++) {
+    for (let yy = y0; yy <= y1; yy++) {
+      const y = ((yy % w.sy) + w.sy) % w.sy;
+      this.changedRows[y] = 1;
+      for (let z = z0; z <= z1; z++) {
+        let i = w.index(x0, y, z);
+        for (let x = x0; x <= x1; x++, i++) {
           const id = blocks[i];
           const r = EMIT_R[id];
           const g = EMIT_G[id];
@@ -275,23 +395,110 @@ export class LightField {
           if (r | g | bl) this.push(i);
         }
       }
-    // Seed from the one-voxel shell around the box: those values are still correct because
-    // the box extends past the reach of any light that could have passed through the change.
-    for (let z = b.z0 - 1; z <= b.z1 + 1; z++)
-      for (let y = b.y0 - 1; y <= b.y1 + 1; y++)
-        for (let x = b.x0 - 1; x <= b.x1 + 1; x++) {
-          const inside = x >= b.x0 && x <= b.x1 && y >= b.y0 && y <= b.y1 && z >= b.z0 && z <= b.z1;
-          if (inside || !w.inBounds(x, y, z)) continue;
+    }
+    // Seed from the one-voxel shell around the box: those values are still correct because the box
+    // extends past the reach of any light that could have passed through the change.
+    for (let yy = y0 - 1; yy <= y1 + 1; yy++) {
+      let y = yy;
+      if (this.wrapY) y = ((yy % w.sy) + w.sy) % w.sy;
+      else if (y < 0 || y >= w.sy) continue;
+      const rowInside = rows[y] === 1;
+      for (let z = z0 - 1; z <= z1 + 1; z++)
+        for (let x = x0 - 1; x <= x1 + 1; x++) {
+          if (x < 0 || z < 0 || x >= w.sx || z >= w.sz) continue;
+          const inside = rowInside && x >= x0 && x <= x1 && z >= z0 && z <= z1;
+          if (inside) continue;
           const i = w.index(x, y, z);
           if (d[i * 4] | d[i * 4 + 1] | d[i * 4 + 2]) this.push(i);
         }
-    this.changed.x0 = b.x0;
-    this.changed.y0 = b.y0;
-    this.changed.z0 = b.z0;
-    this.changed.x1 = b.x1;
-    this.changed.y1 = b.y1;
-    this.changed.z1 = b.z1;
-    this.propagate(b);
+    }
+    this.changed.x0 = x0;
+    this.changed.x1 = x1;
+    this.changed.z0 = z0;
+    this.changed.z1 = z1;
+    this.changed.y0 = Math.max(0, Math.min(y0, w.sy - 1));
+    this.changed.y1 = Math.min(w.sy - 1, Math.max(0, y1));
+    if (this.wrapY && (y0 < 0 || y1 >= w.sy)) {
+      this.changed.y0 = 0;
+      this.changed.y1 = w.sy - 1;
+    }
+    this.lx0 = x0;
+    this.lx1 = x1;
+    this.lz0 = z0;
+    this.lz1 = z1;
+    this.rowLimit = rows;
+    this.propagate(false);
+    this.setLimit(null);
+  }
+
+  /** Rebuild `count` storage rows from y0 (wrapping), every x and z. */
+  recomputeRows(y0: number, count: number): void {
+    const w = this.world;
+    this.recomputeBox({ x0: 0, x1: w.sx - 1, z0: 0, z1: w.sz - 1, y0, y1: y0 + count - 1 });
+  }
+
+  /**
+   * Max-merge light computed elsewhere (the slab worker) into `count` storage rows from y0: `src` holds
+   * RGBA8 for those rows in order (row-major x, then row, then z: index x + sx (r + count z)), RGB only.
+   */
+  mergeMaxRows(src: Uint8Array, y0: number, count: number): void {
+    const w = this.world;
+    const d = this.data;
+    for (let z = 0; z < w.sz; z++)
+      for (let r = 0; r < count; r++) {
+        const y = (((y0 + r) % w.sy) + w.sy) % w.sy;
+        this.changedRows[y] = 1;
+        let o = w.index(0, y, z) * 4;
+        let s = (w.sx * (r + count * z)) * 4;
+        for (let x = 0; x < w.sx; x++, o += 4, s += 4) {
+          if (src[s] > d[o]) d[o] = src[s];
+          if (src[s + 1] > d[o + 1]) d[o + 1] = src[s + 1];
+          if (src[s + 2] > d[o + 2]) d[o + 2] = src[s + 2];
+        }
+      }
+  }
+
+  /** Write RGBA rows (same layout as mergeMaxRows), replacing what is there. */
+  writeRows(src: Uint8Array, y0: number, count: number): void {
+    const w = this.world;
+    const d = this.data;
+    const rowBytes = w.sx * 4;
+    for (let z = 0; z < w.sz; z++)
+      for (let r = 0; r < count; r++) {
+        const y = (((y0 + r) % w.sy) + w.sy) % w.sy;
+        this.changedRows[y] = 1;
+        const o = w.index(0, y, z) * 4;
+        const s = w.sx * (r + count * z) * 4;
+        d.set(src.subarray(s, s + rowBytes), o);
+      }
+  }
+
+  /** Zero `count` storage rows from y0 (RGBA), e.g. a slot that just died. */
+  clearRows(y0: number, count: number): void {
+    const w = this.world;
+    const d = this.data;
+    for (let z = 0; z < w.sz; z++)
+      for (let r = 0; r < count; r++) {
+        const y = (((y0 + r) % w.sy) + w.sy) % w.sy;
+        this.changedRows[y] = 1;
+        const o = w.index(0, y, z) * 4;
+        d.fill(0, o, o + w.sx * 4);
+      }
+  }
+
+  /** Forget the changed rows (after an upload). */
+  clearChangedRows(): void {
+    this.changedRows.fill(0);
+  }
+
+  private setLimit(rows: Uint8Array | null): void {
+    this.rowLimit = rows;
+    if (!rows) {
+      this.lx0 = 0;
+      this.lz0 = 0;
+      this.lx1 = this.world.sx - 1;
+      this.lz1 = this.world.sz - 1;
+    }
   }
 
   private resetChanged(): void {
@@ -308,6 +515,12 @@ export class LightField {
     if (x > c.x1) c.x1 = x;
     if (y > c.y1) c.y1 = y;
     if (z > c.z1) c.z1 = z;
+    this.changedRows[y] = 1;
+  }
+
+  private expandIndex(i: number): void {
+    this.coords(i);
+    this.expand(this.cx, this.cy, this.cz);
   }
 
   private push(i: number): void {
@@ -328,25 +541,24 @@ export class LightField {
   }
 
   private pullFromNeighbors(i: number, x: number, y: number, z: number): void {
-    const w = this.world;
     const d = this.data;
-    const blocks = w.blocks;
+    const blocks = this.world.blocks;
     let r = 0;
     let g = 0;
     let bl = 0;
+    this.faces(i, x, y, z);
+    this.cur = i;
     for (let k = 0; k < 6; k++) {
-      const [dx, dy, dz] = FACE_DIRS[k];
-      if (!w.inBounds(x + dx, y + dy, z + dz)) continue;
-      const n = i + this.faceOff[k];
+      const n = this.fn[k];
+      if (n < 0) continue;
       r = Math.max(r, DECAY_FACE[d[n * 4]]);
       g = Math.max(g, DECAY_FACE[d[n * 4 + 1]]);
       bl = Math.max(bl, DECAY_FACE[d[n * 4 + 2]]);
     }
-    for (let k = 0; k < 12; k++) {
-      const [dx, dy, dz] = EDGE_DIRS[k];
-      if (!w.inBounds(x + dx, y + dy, z + dz)) continue;
-      if (SOLID[blocks[i + this.edgeA[k]]] && SOLID[blocks[i + this.edgeB[k]]]) continue;
-      const n = i + this.edgeOff[k];
+    for (let e = 0; e < 12; e++) {
+      const n = this.edgeN(e, x, y, z);
+      if (n < 0) continue;
+      if (SOLID[blocks[this.fn[this.edgeFa[e]]]] && SOLID[blocks[this.fn[this.edgeFb[e]]]]) continue;
       r = Math.max(r, DECAY_EDGE[d[n * 4]]);
       g = Math.max(g, DECAY_EDGE[d[n * 4 + 1]]);
       bl = Math.max(bl, DECAY_EDGE[d[n * 4 + 2]]);
@@ -356,8 +568,8 @@ export class LightField {
     d[i * 4 + 2] = bl;
   }
 
-  /** Max-propagation flood fill. If `limit` is given, writes are confined to that box. */
-  private propagate(limit: Box3i | null): void {
+  /** Max-propagation flood fill, confined to the current limit (x/z range and row mask). */
+  private propagate(track: boolean): void {
     const w = this.world;
     const d = this.data;
     const blocks = w.blocks;
@@ -365,13 +577,16 @@ export class LightField {
     const sy = w.sy;
     const sz = w.sz;
     const sxy = sx * sy;
-    const lx0 = limit ? limit.x0 : 0;
-    const ly0 = limit ? limit.y0 : 0;
-    const lz0 = limit ? limit.z0 : 0;
-    const lx1 = limit ? limit.x1 : sx - 1;
-    const ly1 = limit ? limit.y1 : sy - 1;
-    const lz1 = limit ? limit.z1 : sz - 1;
-    const track = limit === null;
+    const rows = this.rowLimit;
+    const lx0 = this.lx0;
+    const lx1 = this.lx1;
+    const lz0 = this.lz0;
+    const lz1 = this.lz1;
+    const fn = this.fn;
+    const faceOff = this.faceOff;
+    const edgeOff = this.edgeOff;
+    const edgeA = this.edgeA;
+    const edgeB = this.edgeB;
 
     while (this.qHead < this.qTail) {
       const i = this.queue[this.qHead & this.qMask];
@@ -384,25 +599,42 @@ export class LightField {
       const rem = i - z * sxy;
       const y = (rem / sx) | 0;
       const x = rem - y * sx;
-
+      // Interior rows use the flat offsets; boundary rows (and the ring's wrap) go through faceN.
+      const interior = y > 0 && y < sy - 1 && x > 0 && x < sx - 1 && z > 0 && z < sz - 1;
+      if (!interior) this.faces(i, x, y, z);
       for (let k = 0; k < 18; k++) {
-        const dir = k < 6 ? FACE_DIRS[k] : EDGE_DIRS[k - 6];
-        const nx = x + dir[0];
-        const ny = y + dir[1];
-        const nz = z + dir[2];
-        if (nx < lx0 || ny < ly0 || nz < lz0 || nx > lx1 || ny > ly1 || nz > lz1) continue;
         let n: number;
         let table: Uint8Array;
         if (k < 6) {
-          n = i + this.faceOff[k];
+          n = interior ? i + faceOff[k] : fn[k];
+          if (n < 0) continue;
           table = DECAY_FACE;
         } else {
           const e = k - 6;
-          if (SOLID[blocks[i + this.edgeA[e]]] && SOLID[blocks[i + this.edgeB[e]]]) continue;
-          n = i + this.edgeOff[e];
+          let a: number;
+          let bb: number;
+          if (interior) {
+            a = i + edgeA[e];
+            bb = i + edgeB[e];
+            n = i + edgeOff[e];
+          } else {
+            a = fn[this.edgeFa[e]];
+            bb = fn[this.edgeFb[e]];
+            if (a < 0 || bb < 0) continue;
+            n = a + (bb - i);
+          }
+          if (SOLID[blocks[a]] && SOLID[blocks[bb]]) continue;
           table = DECAY_EDGE;
         }
         if (SOLID[blocks[n]]) continue;
+        const dir = k < 6 ? FACE_DIRS[k] : EDGE_DIRS[k - 6];
+        const nx = x + dir[0];
+        const nz = z + dir[2];
+        let ny = y + dir[1];
+        if (ny < 0) ny += sy;
+        else if (ny >= sy) ny -= sy;
+        if (nx < lx0 || nx > lx1 || nz < lz0 || nz > lz1) continue;
+        if (rows !== null && rows[ny] === 0) continue;
         const nr = table[r];
         const ng = table[g];
         const nb = table[b];
@@ -429,62 +661,91 @@ export class LightField {
   }
 
   /**
-   * Openness: fraction of open voxels in a ~(2r+1)^3 neighborhood. It is a slow, low-frequency
-   * field, so it is computed on a half-resolution grid (8x fewer cells) with three separable
-   * box-blur passes and sampled back per voxel. Only computed on load; a single mined block
-   * changes it by far less than one 8-bit step, so gameplay edits do not refresh it.
+   * Openness: fraction of open voxels in a ~(2r+1)^3 neighborhood, on a half-resolution grid with three
+   * separable box sums (integer, so a band recompute equals a full one exactly) and sampled back per voxel.
+   * x and z clamp at the edges; y clamps, or wraps with wrapY.
    */
   computeOpenness(radius = 6): void {
+    this.computeOpennessRows(0, this.world.sy, radius);
+  }
+
+  /**
+   * Recompute openness for `count` storage rows from y0 (wrapping with wrapY): what a new slab changes.
+   * y0 and count must be even (half-resolution rows pair storage rows 2h, 2h + 1).
+   */
+  computeOpennessRows(y0: number, count: number, radius = 6): void {
     const w = this.world;
     const { sx, sy, sz } = w;
     const hx = Math.ceil(sx / 2);
     const hy = Math.ceil(sy / 2);
     const hz = Math.ceil(sz / 2);
-    const n = hx * hy * hz;
-    let a = new Float32Array(n);
-    let b = new Float32Array(n);
-    const blocks = w.blocks;
-    for (let z = 0; z < sz; z++)
-      for (let y = 0; y < sy; y++) {
-        const row = (y >> 1) * hx + (z >> 1) * hx * hy;
-        let i = sx * (y + sy * z);
-        for (let x = 0; x < sx; x++, i++) if (!SOLID[blocks[i]]) a[row + (x >> 1)] += 0.125;
-      }
     const r = Math.max(1, Math.round(radius / 2));
-    const norm = 1 / (r * 2 + 1);
-    const passes: Array<[number, number, number]> = [
-      [1, hx, n / hx],
-      [hx, hy, n / hy],
-      [hx * hy, hz, n / hz],
-    ];
-    for (const [stride, len, lines] of passes) {
-      for (let line = 0; line < lines; line++) {
-        let base: number;
-        if (stride === 1) base = line * hx;
-        else if (stride === hx) base = (line % hx) + Math.floor(line / hx) * hx * hy;
-        else base = line;
-        let sum = 0;
-        for (let k = -r; k <= r; k++) sum += a[base + Math.min(len - 1, Math.max(0, k)) * stride];
-        for (let p = 0; p < len; p++) {
-          b[base + p * stride] = sum * norm;
-          const out = Math.max(0, p - r);
-          const inn = Math.min(len - 1, p + r + 1);
-          sum += a[base + inn * stride] - a[base + out * stride];
+    const full = count >= sy;
+    const h0 = full ? 0 : Math.floor(y0 / 2);
+    const hn = full ? hy : Math.ceil(count / 2);
+    // Local half rows: full = every half row by index; a band = the targets and r on each side.
+    const first = full ? 0 : h0 - r;
+    const span = full ? hy : hn + 2 * r;
+    const hyIndex = (h: number): number => (this.wrapY ? ((h % hy) + hy) % hy : Math.min(hy - 1, Math.max(0, h)));
+    const blocks = w.blocks;
+    const occ = new Int32Array(span * hz * hx);
+    for (let j = 0; j < span; j++) {
+      const h = full ? j : hyIndex(first + j);
+      for (let dy = 0; dy < 2; dy++) {
+        const y = 2 * h + dy;
+        if (y >= sy) continue;
+        for (let z = 0; z < sz; z++) {
+          const base = (j * hz + (z >> 1)) * hx;
+          let i = sx * (y + sy * z);
+          for (let x = 0; x < sx; x++, i++) if (!SOLID[blocks[i]]) occ[base + (x >> 1)]++;
         }
       }
-      const t = a;
-      a = b;
-      b = t;
     }
+    // x pass (clamped at the edges).
+    const tmp = new Int32Array(occ.length);
+    for (let line = 0; line < span * hz; line++) {
+      const base = line * hx;
+      for (let p = 0; p < hx; p++) {
+        let sum = 0;
+        for (let k = -r; k <= r; k++) sum += occ[base + Math.min(hx - 1, Math.max(0, p + k))];
+        tmp[base + p] = sum;
+      }
+    }
+    // z pass (clamped at the edges).
+    for (let j = 0; j < span; j++)
+      for (let q = 0; q < hz; q++)
+        for (let p = 0; p < hx; p++) {
+          let sum = 0;
+          for (let k = -r; k <= r; k++) sum += tmp[(j * hz + Math.min(hz - 1, Math.max(0, q + k))) * hx + p];
+          occ[(j * hz + q) * hx + p] = sum;
+        }
+    // y pass for the target half rows, then the voxels of those rows.
     const d = this.data;
-    for (let z = 0; z < sz; z++)
-      for (let y = 0; y < sy; y++) {
-        const row = (y >> 1) * hx + (z >> 1) * hx * hy;
-        let i = sx * (y + sy * z);
-        for (let x = 0; x < sx; x++, i++) {
-          d[i * 4 + 3] = SOLID[blocks[i]] ? 0 : Math.round(Math.min(1, a[row + (x >> 1)]) * 255);
+    const total = 8 * (2 * r + 1) ** 3;
+    const plane = new Int32Array(hz * hx);
+    for (let t = 0; t < hn; t++) {
+      const h = h0 + t;
+      for (let q = 0; q < hz; q++)
+        for (let p = 0; p < hx; p++) {
+          let sum = 0;
+          for (let k = -r; k <= r; k++) {
+            const j = full ? hyIndex(h + k) : h + k - first;
+            sum += occ[(j * hz + q) * hx + p];
+          }
+          plane[q * hx + p] = sum;
+        }
+      const hw = hyIndex(h);
+      for (let dy = 0; dy < 2; dy++) {
+        const y = 2 * hw + dy;
+        if (y >= sy) continue;
+        this.changedRows[y] = 1;
+        for (let z = 0; z < sz; z++) {
+          const row = (z >> 1) * hx;
+          let i = sx * (y + sy * z);
+          for (let x = 0; x < sx; x++, i++) d[i * 4 + 3] = SOLID[blocks[i]] ? 0 : Math.round(Math.min(1, plane[row + (x >> 1)] / total) * 255);
         }
       }
+    }
   }
 }
 

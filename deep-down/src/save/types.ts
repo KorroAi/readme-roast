@@ -1,24 +1,22 @@
-import type { ItemId } from '../config/items';
-import type { CacheState } from '../gameplay/Expedition';
-import type { RecordsState, TripState } from '../gameplay/Records';
 import type { QualityLevel } from '../render/Renderer';
 
-/** Player settings, persisted separately from game progress. */
+/** Player settings, persisted separately from game progress (key `deepdown.settings`; SPEC §9.4, §12.3). */
 export interface Settings {
   quality: QualityLevel;
+  /** Pick the quality preset from the frame governor (Settings → Quality → Auto). */
+  autoQuality: boolean;
   /** Internal resolution multiplier override (null = preset default). */
   renderScale: number | null;
   bloom: boolean;
   /** Overall image brightness (exposure multiplier) for dark screens and bright rooms. */
   brightness: number; // 0.7 .. 1.5
   showFps: boolean;
-  lookSensitivity: number; // 0.25 .. 2
-  invertY: boolean;
+  /** Mirrors the skill row and the Depth Ruler. */
   leftHanded: boolean;
-  /** Short vibrations on hits, breaks, pickups and damage (phones that support it). */
+  /** Haptics master switch (kept for the shell; `hapticStrength` 'off' also silences). */
   vibration: boolean;
-  /** Touch: walking sideways swings the camera behind the explorer. */
-  cameraFollow: boolean;
+  /** Haptic strength (SPEC §10.11): Off / Light / Normal / Strong. */
+  hapticStrength: 'off' | 'light' | 'normal' | 'strong';
   masterVolume: number; // 0 .. 1
   musicVolume: number;
   sfxVolume: number;
@@ -26,19 +24,28 @@ export interface Settings {
   cameraShake: number; // 0 .. 1
   textSize: 'normal' | 'large';
   highContrast: boolean;
+  /** Motion levels (SPEC §10.13): Full, Reduced (no camera motion), Off (no flights). */
+  motion: 'full' | 'reduced' | 'off';
+  /** Full-screen flashes: On, Soft (half), Off. */
+  flashes: 'on' | 'soft' | 'off';
+  /** Number format (SPEC §5.1). */
+  notation: 'letters' | 'scientific' | 'engineering';
+  /** The 45-minute break reminder (H12). */
+  breakReminder: boolean;
+  /** Auto-pick facets once unlocked (250 Embers). */
+  autoFacets: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   quality: 'balanced',
+  autoQuality: true,
   renderScale: null,
   bloom: true,
   brightness: 1,
   showFps: false,
-  lookSensitivity: 1,
-  invertY: false,
   leftHanded: false,
   vibration: true,
-  cameraFollow: true,
+  hapticStrength: 'normal',
   masterVolume: 0.8,
   musicVolume: 0.55,
   sfxVolume: 0.9,
@@ -46,76 +53,114 @@ export const DEFAULT_SETTINGS: Settings = {
   cameraShake: 1,
   textSize: 'normal',
   highContrast: false,
+  motion: 'full',
+  flashes: 'on',
+  notation: 'letters',
+  breakReminder: true,
+  autoFacets: false,
 };
 
-export type ItemCounts = Partial<Record<ItemId, number>>;
+/** A Big as saved: [mantissa, exponent]. */
+export type BigJSON = [number, number];
 
-export interface SlotData {
-  item: ItemId;
-  count: number;
+/** One shaft row as saved: cell kinds (u8) and remaining fractions. */
+export interface RowSave {
+  kinds: number[];
+  left: number[];
 }
 
-/**
- * Long-term progress (save v2). Every field has a default filled by normalizeSave, so later waves
- * add optional fields here without bumping SAVE.version.
- */
-export interface ProgressionSave {
-  /** Days passed in the Hollow (W3: the Bloom). */
-  day: number;
-  /** Expeditions started so far (the next one is expeditions + 1). */
-  expeditions: number;
-  /** The expedition in progress, or null at camp. */
-  trip: TripState | null;
-  records: RecordsState;
-  /** The pack left behind on a black-out, or null. */
-  cache: CacheState | null;
-  /** Camp stations built (W2). */
-  stations: string[];
-  /** Gear nodes built (W2). */
-  gear: string[];
-  /** Relics placed on the shelf (W3). */
-  relics: string[];
-  /** Active ore seams (W3). */
-  seams: unknown[];
-  /** Day each mined cell was mined: flat [index, day, ...] (W3). */
-  minedDay: number[];
-  /** Tutorial hints already shown. */
-  hintsShown: string[];
-  /** The finale has been seen (W3). */
-  finale: boolean;
-  /** The compass target the player picked (a rumour's site id), or null for camp. */
-  compassTarget: string | null;
-  /** When each discovery and rune was found: [expedition number, displayed depth m] (the Journal). */
-  foundAt: Record<string, [number, number]>;
-}
-
-/** Everything needed to resume an expedition. Versioned; see save/SaveSystem migrations. */
-export interface SaveData {
-  version: number;
-  /** WORLD.genVersion of the generator that made the world these edits apply to. */
-  genVersion: number;
+/** Save v3 (SPEC §12.3). Every field has a default filled by normalizeSave. */
+export interface SaveV3 {
+  version: 3;
   savedAt: number;
-  worldSeed: number;
-  /** Total play time in seconds. */
+  monotonicMs: number;
   playTime: number;
-  player: {
-    x: number;
-    y: number;
-    z: number;
-    yaw: number;
-    health: number;
-    lanternFuel: number;
+  seed: number;
+  runIndex: number;
+  run: {
+    depth: number;
+    /** The floor row and the rows below it (the live window), each with kinds and remaining fractions. */
+    rows: RowSave[];
+    gold: BigJSON;
+    goldEarned: BigJSON;
+    pick: number;
+    ups: Record<string, number>;
+    lines: number[];
+    gear: string[];
+    /** Cooldown and effect seconds remaining (model time is not saved). */
+    skills: Record<string, { lvl: number; cd: number; active: number; charges: number }>;
+    facets: string[];
+    pendingHands: number;
+    freeReroll: boolean;
+    surge: number;
+    runTime: number;
+    dmaxRun: number;
+    rack: number[];
+    ghost: number[];
+    chests: Array<{ id: string; col: number; depth: number; floor: number }>;
+    harvested: Record<string, number[]>;
+    breach: null | { id: string; tier: number };
+    /** A seal fight in progress: biome, remaining fraction, its HP. */
+    seal: null | { biome: number; left: number; hp: BigJSON };
+    plantedBonus: number;
+    frenzyLeft: number;
   };
-  backpack: Array<SlotData | null>;
-  storage: ItemCounts;
-  equipment: { pickaxe: number; lantern: number; pack: number };
-  journal: string[];
-  discoveries: string[];
-  objectives: { completed: string[]; current: string | null; stats: Record<string, number> };
-  /** World edits relative to the generated world: flat [index, blockId, index, blockId, ...]. */
-  worldEdits: number[];
-  /** Props removed by the player (mined crystal clusters, collected relics). */
-  removedProps: string[];
-  stats: { blocksMined: number; deaths: number; itemsBanked: number };
-  progression: ProgressionSave;
+  meta: {
+    embers: BigJSON;
+    embersMax: BigJSON;
+    threads: BigJSON;
+    loom: Record<string, number>;
+    sigils: Record<string, number>;
+    record: number;
+    cycleRecord: number;
+    sealsOpened: number[];
+    biomesSeen: number[];
+    gems: number;
+    timeCrystals: number;
+    boostLeft: number;
+    finds: Record<string, number>;
+    bestiary: Record<string, number>;
+    lore: string[];
+    biomeSeals: number[];
+    feats: Record<string, number>;
+    secrets: string[];
+    marks: number;
+    rank: { r: number; xp: number };
+    records: {
+      deepest: number;
+      splits: Record<string, number>;
+      marks500: Record<string, number>;
+      bestHit: BigJSON;
+      bestCombo: number;
+      bestTapCells: number;
+      bestChest: number;
+      bestOffline: BigJSON;
+      bestEmbers: BigJSON;
+    };
+    planted: Array<{ depth: number; n: number }>;
+    contracts: Array<{ tpl: string; target: number; progress: number }>;
+    contractCount: number;
+    daily: { lastDay: number; calendarDay: number; claimedToday: boolean };
+    pity: { crystal: number; reliquary: number; lintel: number };
+    tutorial: { step: number; done: boolean; breaks: number };
+    path: { step: number };
+    hints: Record<string, number>;
+    firstTime: string[];
+    revealed: string[];
+    cosmetics: { owned: string[]; equipped: Record<string, string> };
+    stats: Record<string, number>;
+    lifetime: { gold: BigJSON; embersEver: BigJSON };
+    toolForm: number;
+    markMax: number;
+    blueprints: number;
+  };
+  /** The pending return feast (null when none or collected). */
+  offline: null | {
+    seconds: number; away: number; capped: boolean; fromDepth: number; toDepth: number;
+    goldRows: BigJSON; goldGallery: BigJSON; chests: number; chestsGold: number; sealBiome: number; biomeCrossed: number;
+  };
+  tap: { combo: number; rng: number };
 }
+
+/** What the save system stores: the current format. */
+export type SaveData = SaveV3;

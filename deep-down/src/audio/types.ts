@@ -1,18 +1,13 @@
-/** What the audio needs to know about the world each frame. */
+/** What the audio needs to know about the descent each frame. */
 export interface AudioWorldState {
-  /** Depth in meters (positive, grows downward). */
+  /** The floor's depth in metres. */
   depth: number;
-  atCamp: boolean;
-  /** 0..1, how big the space around the player is (drives reverb and air tone). */
+  /** 0..1, how open the space around the floor is (drives reverb and air tone). */
   openness: number;
-  /** 0..1 */
-  lanternFuel: number;
-  lanternLit: boolean;
-  /** 0..1 proximity to crystals. */
+  /** 0..1, how much crystal is around (the Crystal Grotto hums). */
   nearCrystal: number;
-  /** 0..1 proximity to the campfire. */
+  /** 0..1, the camp fire at the surface. */
   nearFire: number;
-  playerSpeed: number;
   inMenu: boolean;
 }
 
@@ -24,4 +19,4 @@ export interface AudioVolumes {
   ambience: number;
 }
 
-export type UiSound = 'click' | 'open' | 'close' | 'error' | 'craft' | 'confirm';
+export type UiSound = 'tap' | 'open' | 'close' | 'no';

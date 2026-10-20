@@ -2,7 +2,7 @@
   "name": "deep-down",
   "private": true,
   "version": "1.0.0",
-  "description": "DEEP DOWN - a voxel exploration, mining and crafting game for mobile.",
+  "description": "DEEP DOWN - a vertical-descent idle clicker: dig a voxel shaft through fourteen biomes, one tap at a time.",
   "type": "module",
   "scripts": {
     "dev": "vite --host",
@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "e2e": "playwright test",
     "shots": "node tools/capture.mjs",
+    "sim": "node tools/run-ts.mjs tools/econ-sim.ts",
     "preview": "vite preview --host"
   },
   "devDependencies": {

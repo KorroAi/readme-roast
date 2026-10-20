@@ -6,8 +6,9 @@ const env = (globalThis as { process?: { env: Record<string, string | undefined>
 const PORT = Number(env.DD_E2E_PORT ?? 4173);
 const OUT = PORT === 4173 ? 'dist' : `.e2e-dist-${PORT}`;
 
-// End-to-end tests run the production build in headless Chromium with real WebGL 2
-// (SwiftShader). Touch is emulated through CDP so the mobile controls are exercised.
+// End-to-end tests run the production build in headless Chromium with real WebGL 2 (SwiftShader), in portrait on
+// the reference phone (390 × 844, SPEC §13.2). Touch goes through CDP (tests/e2e/touch.ts), so every tap is real.
+// DPR 1 keeps SwiftShader's frame rate usable; captures at DPR 2 use tools/capture.mjs.
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 300_000,
@@ -17,7 +18,7 @@ export default defineConfig({
   outputDir: PORT === 4173 ? 'test-results' : `test-results-${PORT}`,
   use: {
     baseURL: `http://localhost:${PORT}`,
-    viewport: { width: 915, height: 412 },
+    viewport: { width: 390, height: 844 },
     deviceScaleFactor: 1,
     hasTouch: true,
     isMobile: false,

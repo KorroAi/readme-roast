@@ -54,6 +54,9 @@ flat out int vFace;
 flat out float vLayer;
 
 const float OFF_STEP = ${OFFSET_RANGE.toFixed(4)} / 127.0;
+uniform vec4 uCellFx[8];
+uniform vec4 uCellPop[2];
+uniform vec4 uSection;
 
 vec3 octDecode(vec2 e) {
   vec3 v = vec3(e, 1.0 - abs(e.x) - abs(e.y));
@@ -81,6 +84,29 @@ void main() {
   vec3 off = (aShape.xyz - 128.0) * OFF_STEP;
 #endif
   vec4 wp = vec4(g.xyz + off, 1.0);
+  // The cell pop (CRITIQUE B3): a hit cell's front face and its ledge scale about the cell centre (1.08
+  // at the full pop, crits 1.14) and come 0.04 m forward, so a 44 px cell grows by about 3.5 px a side.
+  if (uSection.x > 0.5 && (vFace == 4 || vFace == 2)) {
+    float cu = float(bits & 1);
+    float cv = float((bits >> 1) & 1);
+    vec3 vox = vFace == 4 ? g.xyz - vec3(cu, cv, 1.0) : g.xyz - vec3(cu, 1.0, cv);
+    for (int i = 0; i < 8; i++) {
+      float pop = uCellPop[i >> 2][i & 3];
+      if (pop <= 0.001) continue;
+      vec4 c = uCellFx[i];
+      if (abs(vox.x - c.x) > 0.1 || abs(vox.y - c.y) > 0.1 || vox.z < 56.5) continue;
+      float sc = 1.0 + 0.08 * pop;
+      if (vFace == 4) {
+        wp.xy = vec2(c.x + 0.5, c.y + 0.5) + (wp.xy - vec2(c.x + 0.5, c.y + 0.5)) * sc;
+        wp.z += 0.04 * pop + 0.01;
+      } else {
+        wp.x = c.x + 0.5 + (wp.x - c.x - 0.5) * sc;
+        wp.y += (sc - 1.0) * 0.5;
+        wp.z = 58.5 + (wp.z - 58.5) * sc;
+      }
+      break;
+    }
+  }
   vWorldPos = wp.xyz;
   vec4 mv = viewMatrix * wp;
   vDepth = length(mv.xyz);
@@ -96,9 +122,17 @@ ${LIGHTING_GLSL}
 uniform sampler2DArray uMat;
 uniform sampler3D uNoise;
 uniform float uMatGlow[${MATERIAL_NAMES.length}];
-uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: none)
-uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
-uniform vec4 uTargetHit; // xyz = where the mining ray hits the block, w = 1 when known
+uniform float uMatValue[${MATERIAL_NAMES.length}];
+uniform vec4 uSection;      // x on, y floor top world y, z camera x, w camera y
+uniform vec3 uSectionKey;
+uniform vec3 uRimColor;
+uniform vec3 uCamFill;
+uniform vec3 uDeepTint;
+uniform sampler2D uSectionField;
+uniform vec4 uCellFx[8];    // cell x, cell bottom y, flash, crack
+uniform vec4 uCellPop[2];
+uniform vec4 uImpactPos[4]; // xyz, radius
+uniform vec4 uImpactCol[4]; // rgb, intensity
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -215,17 +249,6 @@ float shadeOf(vec3 n) {
   return dot(w, mix(neg, pos, step(0.0, n)));
 }
 
-// Where the line of sight from the camera to the target block's centre enters the block (the
-// mining highlight's centre when the ray hit is not given).
-vec3 targetEntry(vec3 c) {
-  vec3 rd = c + 0.5 - cameraPosition;
-  rd = vec3(abs(rd.x) < 1e-4 ? 1e-4 : rd.x, abs(rd.y) < 1e-4 ? 1e-4 : rd.y, abs(rd.z) < 1e-4 ? 1e-4 : rd.z);
-  vec3 a = (c - cameraPosition) / rd;
-  vec3 b = (c + 1.0 - cameraPosition) / rd;
-  vec3 lo = min(a, b);
-  return cameraPosition + rd * clamp(max(max(lo.x, lo.y), lo.z), 0.0, 1.0);
-}
-
 // Fractures from a strike at the origin of q (metres in the face plane): five hairline cracks
 // (about one texel) that wander as they run out, reach further with damage (0..1) and taper, a
 // short branch off some of them and a small crushed pit at the centre. Returns the crack core
@@ -330,7 +353,7 @@ void main() {
   // (rock nubs, pebbles, vein metal) pushes across. Both faces evaluate the same world-space
   // test, so they agree exactly. Faces without partners pay nothing. Rock partners are mapped to
   // the same top or side layer as the shown one and sampled through the same projection.
-  if (family != 0 && min(min(vNb.x, vNb.y), min(vNb.z, vNb.w)) < 254.5) {
+  if (family != 0 && min(min(vNb.x, vNb.y), min(vNb.z, vNb.w)) < 253.5) {
     int ax = vFace >> 1;
     vec3 t1 = ax == 0 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
     vec3 t2 = ax == 2 ? vec3(0.0, 1.0, 0.0) : vec3(0.0, 0.0, 1.0);
@@ -341,7 +364,7 @@ void main() {
       int side = l < 0.5 ? -1 : 1;
       float d = side < 0 ? l : 1.0 - l;
       float nlf = k == 0 ? (side < 0 ? vNb.x : vNb.y) : (side < 0 ? vNb.z : vNb.w);
-      if (nlf > 254.5 || d > 0.6) continue;
+      if (nlf > 253.5 || d > 0.6) continue;
       int nl = int(nlf + 0.5);
       if (natural) nl = topShown ? GEO_TOP[nl] : GEO_SIDE[nl];
       if (nl == shownLayer) continue;
@@ -403,16 +426,81 @@ void main() {
   vec2 facing = vec2(1.0);
 #endif
   vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
-  // The lantern and the lamps own the faces they light (the cool fill is cut there): warm against
-  // cold per face, not lavender everywhere.
-  vec3 ambient = ambientFrom(ls, ng, facing, ao, lantern) * shade * aoCurve;
+  // The descent's drawn section (SPEC §11.2): the cut-plane faces facing the camera.
+  bool section = uSection.x > 0.5 && vFace == 4 && abs(vGrid.z - 60.0) < 0.02;
+  float value = uMatValue[shownLayer];
+  float below = uSection.y - vGrid.y; // metres below the floor's top edge
+  // Transient impact lights (crits, breaks, blasts): no visibility term, uniform-driven.
+  vec3 impact = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    vec4 ip = uImpactPos[i];
+    vec4 ic = uImpactCol[i];
+    if (ic.a <= 0.0) continue;
+    vec3 d = ip.xyz - vWorldPos;
+    float dl = length(d);
+    float att = max(0.0, 1.0 - dl / max(ip.w, 0.1));
+    impact += ic.rgb * (ic.a * att * att * (0.3 + 0.7 * max(dot(ng, d / max(dl, 1e-3)), 0.0)));
+  }
+  vec3 ambient;
+  vec3 secAdd = vec3(0.0);
+  if (section) {
+    // Key light (0.9 x the open fill) dimmed into the rock mass by the distance to the nearest open cell
+    // of the cut, the apron's real light (lamps, emitters, the glow below), the dig lantern (wrapped on
+    // the cut so the warm pool reads on the face) and a rim along every outline where the cut meets air.
+    float dField = texture(uSectionField, vec2(vGrid.x / 64.0, vGrid.y / 160.0)).r * 16.0;
+    bool inShaft = vGrid.x > 27.99 && vGrid.x < 35.01;
+    float depthKey = mix(1.0, inShaft ? 0.62 : 0.35, 1.0 - exp(-0.45 * dField));
+    vec2 fr2 = fract(vGrid.xy);
+    float dEdge = 9.0;
+    if (vNb.x > 253.5 && vNb.x < 254.5) dEdge = min(dEdge, fr2.x);
+    if (vNb.y > 253.5 && vNb.y < 254.5) dEdge = min(dEdge, 1.0 - fr2.x);
+    if (vNb.z > 253.5 && vNb.z < 254.5) dEdge = min(dEdge, fr2.y);
+    if (vNb.w > 253.5 && vNb.w < 254.5) dEdge = min(dEdge, 1.0 - fr2.y);
+    float rim = 1.0 - smoothstep(0.0, 0.15, dEdge);
+    vec3 dl = uLanternPos - vWorldPos;
+    float dist = length(dl);
+    float lx = dist / max(uLanternRadius, 0.5);
+    float win = clamp(1.0 - lx * lx * lx * lx, 0.0, 1.0);
+    float lat = win * win / (1.0 + 6.0 * lx * lx);
+    float lwrap = clamp(dot(vec3(0.0, 0.0, 1.0), dl / max(dist, 1e-3)) * 0.65 + 0.35, 0.0, 1.0);
+    vec3 secLantern = uLanternColor * mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, lx)) * (1.6 * lwrap * lat * uLanternIntensity);
+    ambient = uSectionKey * depthKey + ls.rgb * 1.15 + uRimColor * rim * (0.55 + 0.45 * depthKey);
+    lantern = secLantern;
+    // The dig band as a designed object (CRITIQUE B5): chisel seams at the shaft cells' boundaries, a
+    // lit lip toward the lantern, fading out by 4 rows below the floor.
+    if (inShaft) {
+      float fade = 1.0 - smoothstep(0.0, 4.0, below - 1.0);
+      vec2 e = min(fr2, 1.0 - fr2);
+      float seam = 1.0 - smoothstep(0.0, 1.0 / 28.0, min(e.x, e.y));
+      float lip = (1.0 - smoothstep(1.0 / 28.0, 2.0 / 28.0, 1.0 - fr2.y)) * (1.0 - seam);
+      ambient *= 1.0 - 0.35 * seam * fade;
+      secAdd += uLanternColor * 0.06 * lip * fade;
+    } else if (fract(-vGrid.y * 0.25) < 1.0 / 64.0) ambient *= 0.75; // contour hairline every 4 m
+  } else {
+    // The lantern and the lamps own the faces they light (the cool fill is cut there): warm against
+    // cold per face, not lavender everywhere.
+    ambient = ambientFrom(ls, ng, facing, ao, lantern) * shade * aoCurve;
+  }
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
-  if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
-  vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  if (family == ${FAMILY.CRYSTAL} && !section) ambient *= 0.3;
+  // The camera fill: faces turned toward the camera never go black (the shaft interior, the back wall).
+  vec3 camFill = uCamFill * max(ng.z, 0.0) * aoCurve;
+  vec3 color = albedo * (ambient + lantern + camFill + impact + vec3(uDebug.x) * shade * aoCurve) + secAdd * albedo;
 
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
+  if (uSection.x > 0.5 && value > 0.5) {
+    // Valuables read through the dark (CRITIQUE B6): a self-light by value, rich ore pulsing at 0.7 Hz,
+    // and the shine sweep (a 45 degree band crossing the screen every 3.2 s) lifting them by +1.6.
+    float h = hash13(vec3(cell) + 0.5);
+    float self = value < 1.5 ? 0.1 : value < 2.5 ? 0.34 : 0.5;
+    float pulse = value > 1.5 ? 1.0 + 0.25 * sin(6.2832 * 0.7 * uTime + h * 6.2832) : 1.0;
+    float sweepPos = (vGrid.x - vGrid.y) * 0.7071 - ((uSection.z - uSection.w) * 0.7071 - 14.0);
+    float sweep = 1.0 - smoothstep(0.0, 0.3, abs(sweepPos - mod(uTime, 3.2) * 9.0));
+    emissive += albedo * (self * pulse + 0.9 * sweep) * (section ? 1.0 : 0.6);
+    emissive *= pulse;
+  }
 
   // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
   // the explorer moves, and the painted glints at the prism tips flare when their own (tilted)
@@ -456,27 +544,37 @@ void main() {
     emissive += scr.rgb * ink * (0.26 + 0.8 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
 
-  // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around
-  // the point the pick strikes (the ray hit, or where the line of sight to the block enters it),
-  // spreading over the block's own faces, and fractures radiate from it as the damage grows
-  // (stage 0-9), the stone's own joints and partings opening first. Red when too hard.
-  if (all(equal(cell, ivec3(uTarget.xyz)))) {
-    vec3 hit = uTargetHit.w > 0.5 ? uTargetHit.xyz : targetEntry(uTarget.xyz);
-    vec3 dh = vWorldPos - hit;
-    float r = length(dh);
-    float spot = 1.0 - smoothstep(0.06, 0.7, r);
-    if (uTarget.w >= 0.0) {
-      float dmg = (uTarget.w - CRACK0 + 1.0) / CRACKS;
-      // In-plane offset around the hit, snapped to the material texels: crisp pixel cracks.
-      vec2 q = worldUv(dh, vFace) * MAT_PERIOD;
-      q = (floor(q * ${MAT_DENSITY}.0) + 0.5) * (1.0 / ${MAT_DENSITY}.0);
-      vec2 fr = fracture(q, dmg, hash13(vec3(cell)));
-      float joints = (1.0 - smoothstep(0.1, 0.17, heightOf(tex, shownLayer))) * (1.0 - smoothstep(0.1 + dmg * 0.55, 0.22 + dmg * 0.55, r));
-      float crack = max(fr.x, joints * smoothstep(0.1, 0.3, dmg));
-      color *= (1.0 - crack * 0.78) * (1.0 + fr.y * 0.25);
+  // Cell FX (SPEC §10.5): up to 8 hit cells flash and crack at once; the crack is the fracture() pattern
+  // centred on the face, snapped to 32 texels per metre (CRITIQUE SHOULD 2), and a popping cell gets a
+  // 1 px darker outline.
+  if (uSection.x > 0.5 && cell.z >= 57 && cell.z <= 59) {
+    for (int i = 0; i < 8; i++) {
+      vec4 c = uCellFx[i];
+      if (abs(float(cell.x) - c.x) > 0.1 || abs(float(cell.y) - c.y) > 0.1) continue;
+      vec2 ctr = vec2(c.x + 0.5, c.y + 0.5) + (vec2(hash13(vec3(c.xy, 1.0)), hash13(vec3(c.xy, 2.0))) - 0.5) * 0.3;
+      if (c.w > 0.0) {
+        vec2 q = vWorldPos.xy - ctr;
+        if (vFace != 4) q = vec2(vWorldPos.x - ctr.x, vWorldPos.z - 58.5);
+        q = (floor(q * 32.0) + 0.5) * (1.0 / 32.0);
+        vec2 frc = fracture(q, c.w, hash13(vec3(c.xy, 3.0)));
+        color *= (1.0 - frc.x * 0.8) * (1.0 + frc.y * 0.3);
+        emissive *= 1.0 - frc.x * 0.6;
+      }
+      float pop = uCellPop[i >> 2][i & 3];
+      if (pop > 0.01 && vFace == 4) {
+        vec2 e = min(fract(vGrid.xy), 1.0 - fract(vGrid.xy));
+        color *= 1.0 - 0.35 * (1.0 - smoothstep(0.0, 0.03, min(e.x, e.y)));
+      }
+      color += vec3(1.0, 0.9, 0.74) * c.z * (0.55 + 0.45 * luma(albedo) * 4.0) * 0.6;
+      break;
     }
-    vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.82, 0.58);
-    color += spotColor * spot * spot * (0.025 + 0.05 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.2 * spot;
+  }
+
+  if (section) {
+    // The fog of rock: rows more than 6 m below the floor fade to a deep tint (x0.7 by 9 m); treasure and
+    // gem emission passes through (the tease).
+    float fr = smoothstep(6.0, 9.0, below);
+    color = mix(color, uDeepTint, 0.7 * fr);
   }
 
   // Zone atmosphere: haze (pooling low, lit by the light volume around the fragment) takes the

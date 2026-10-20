@@ -1,65 +1,18 @@
-// The slice of window.__DD__ (src/debug/DebugApi.ts) the e2e specs use, declared once so every
-// spec type-checks together. Game internals are reached through `game` and typed loosely.
+// The slice of window.__DD__ the e2e specs use, declared once so every spec type-checks together. The idle game's
+// surface is `__DD__.idle` (src/debug/idle.ts, SPEC §12.4): specs set up states and read results through it, and
+// every tap is a real touch (tests/e2e/touch.ts). `internals` reaches the running game, typed loosely, for the
+// release shell's tests only (the renderer's GL context, the settings).
 
 import type { Page } from '@playwright/test';
+import type { IdleDebug } from '../../src/debug/idle';
 
-export type Vec3i = [number, number, number];
+export type { IdleDebug } from '../../src/debug/idle';
 
 export type DD = {
-  ready: boolean;
-  state(): any;
-  report(): any;
-  events(type?: string): Array<{ type: string; payload: any; t: number }>;
-  clearEvents(): void;
-  prepareMining(id: number, x: number, y: number, z: number, r?: number): { block: Vec3i; stand: Vec3i } | null;
-  aimAt(x: number, y: number, z: number, ndcX?: number, ndcY?: number): boolean;
-  teleport(x: number, y: number, z: number, yaw?: number): void;
-  landmarks(): Record<string, Vec3i>;
-  standableNear(x: number, y: number, z: number): Vec3i | null;
-  block(x: number, y: number, z: number): number;
-  give(item: string, n: number): number;
-  isSolid(x: number, y: number, z: number): boolean;
-  save(): boolean;
-  input(patch: Record<string, unknown>): void;
-  look(yaw: number, pitch: number): void;
-  step(frames: number, dt?: number): void;
-  loop: {
-    recompute(): { homeMs: number; reachMs: number; cacheMs: number; homeCells: number };
-    homeSteps(x: number, y: number, z: number): number;
-    reachable(x: number, y: number, z: number): boolean;
-    cache(): { x: number; y: number; z: number; depth: number; items: Record<string, number> } | null;
-    report(): any;
-    next(): { id: string; text: string };
-  };
-  /** World variety (game/WorldFeatures). */
-  features: {
-    state(): any;
-    ride(id: string, dir: 'up' | 'down', t?: number): boolean;
-    release(): void;
-    openDoor(id: string): boolean;
-    wake(id: string): boolean;
-    setEpoch(n: number): number;
-    sites(): Array<{ kind: string; id: string; area: string; x: number; y: number; z: number; epoch: number; present: boolean }>;
-    layout(): any;
-  };
-  /** Mutating helpers run (automation or ?debug=1). */
-  mutations: boolean;
-  setBlock(x: number, y: number, z: number, id: number): void;
-  /** The tree, the stations, the runes, the rumours (final pass W3). */
-  progression: {
-    state(): any;
-    tree(): any;
-    survey(): any;
-    journal(): any;
-    craft(id: string): void;
-    setTarget(id: string | null): void;
-    grantNode(id: string): boolean;
-    grantRunes(n: number): number;
-    stoneDistance(): number;
-    plots(): any[];
-    runeSites(): any[];
-  };
-  game: any;
+  /** The idle game's surface. */
+  idle: IdleDebug;
+  /** The running game and the FX canvas (debug only). */
+  internals: { game: any; fx: any };
 };
 
 declare global {
@@ -70,37 +23,43 @@ declare global {
   }
 }
 
-
-// ---------------------------------------------------------------------------------------
-// Load-proof waits. Under machine load SwiftShader renders at 0-1 fps, so a wall-clock budget
-// says nothing about the game: the specs wait on game time instead, under a generous
-// wall-clock ceiling. The assertions themselves are unchanged.
-
-/** Wall-clock ceiling for anything that waits on the game. */
+/** Wall-clock ceiling for anything that waits on the game (SwiftShader under load renders at a few fps). */
 export const LOADED_CEILING_MS = 240_000;
 
-/** Seconds of play so far (advances only while playing). */
-export const playTime = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.playTime as number);
+/** Wait until the idle game drew its first frame. */
+export async function idleReady(page: Page, timeout = 180_000): Promise<void> {
+  await page.waitForFunction(() => window.__DD__?.idle?.ready === true, null, { timeout, polling: 200 });
+}
 
-/** Seconds of game time in any mode (the shader clock). */
-export const gameClock = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value as number);
+/** Wait until the game is in `mode` ('menu', 'playing', 'paused', 'crashed'). */
+export async function waitMode(page: Page, mode: string, timeout = 180_000): Promise<void> {
+  await page.waitForFunction((m) => window.__DD__?.idle?.ready === true && window.__DD__.idle.mode() === m, mode, { timeout, polling: 200 });
+}
 
-/**
- * Poll `done` until it holds, giving up only after `gameSeconds` of game time (the shader clock)
- * or the wall-clock ceiling. @returns whether `done` held.
- */
-export async function untilGame(page: Page, done: () => Promise<boolean>, gameSeconds: number, ceilingMs = LOADED_CEILING_MS, pollMs = 250): Promise<boolean> {
-  const t0 = await gameClock(page);
-  const wall = Date.now();
+/** Frames drawn so far. */
+export const frames = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.idle.frame());
+
+/** Wait for `n` more frames (under the wall-clock ceiling). */
+export async function waitFrames(page: Page, n: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
+  const f0 = await frames(page);
+  await page.waitForFunction((t) => window.__DD__.idle.frame() >= t, f0 + n, { timeout: ceilingMs, polling: 50 });
+}
+
+/** Poll `done` until it holds or `ms` of wall clock pass. @returns whether it held. */
+export async function until(page: Page, done: () => Promise<boolean>, ms: number, pollMs = 200): Promise<boolean> {
+  const t0 = Date.now();
   for (;;) {
     if (await done()) return true;
-    if ((await gameClock(page)) - t0 >= gameSeconds || Date.now() - wall >= ceilingMs) return done();
+    if (Date.now() - t0 >= ms) return done();
     await page.waitForTimeout(pollMs);
   }
 }
 
-/** Wait until `seconds` of play (playTime) have passed, under the wall-clock ceiling. */
-export async function waitPlay(page: Page, seconds: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
-  const t0 = await playTime(page);
-  await page.waitForFunction(([t, s]) => window.__DD__.game.playTime - t >= s, [t0, seconds] as const, { timeout: ceilingMs, polling: 50 });
+/** A fresh first launch: no save, no settings, no auto-quality record (run before the page's scripts). */
+export async function freshLaunch(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('dd.e2e.cleared')) return;
+    sessionStorage.setItem('dd.e2e.cleared', '1');
+    for (const k of Object.keys(localStorage)) if (k.startsWith('deepdown')) localStorage.removeItem(k);
+  });
 }

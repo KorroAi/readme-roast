@@ -24,12 +24,32 @@ export interface TerrainUniforms {
   uMat: THREE.IUniform<THREE.DataArrayTexture>;
   uNoise: THREE.IUniform<THREE.Data3DTexture>;
   uMatGlow: THREE.IUniform<number[]>;
-  uTarget: THREE.IUniform<THREE.Vector4>;
-  uTargetFx: THREE.IUniform<THREE.Vector4>;
-  uTargetHit: THREE.IUniform<THREE.Vector4>;
+  /** Per layer: 0 rock, 1 ore, 2 rich, 3 gem or chest (glints, the shine sweep, the pulse). */
+  uMatValue: THREE.IUniform<number[]>;
+  /** The descent's section path (SPEC §11.2): on (x), the floor's top world y (y), the camera x (z). */
+  uSection: THREE.IUniform<THREE.Vector4>;
+  uSectionKey: THREE.IUniform<THREE.Color>;
+  uRimColor: THREE.IUniform<THREE.Color>;
+  uCamFill: THREE.IUniform<THREE.Color>;
+  uDeepTint: THREE.IUniform<THREE.Color>;
+  /** 64 x 160 R8 ring: distance (cells x 16) from each cut-plane voxel to the nearest open one. */
+  uSectionField: THREE.IUniform<THREE.Texture>;
+  /** Up to 8 hit cells: x, world y of the cell's bottom, flash 0..1, crack 0..1. */
+  uCellFx: THREE.IUniform<THREE.Vector4[]>;
+  /** Their face pops (8 values: 1 = the full pop, scale 1.08). */
+  uCellPop: THREE.IUniform<THREE.Vector4[]>;
+  /** Transient impact lights (CRITIQUE B14): position + radius, colour + intensity. */
+  uImpactPos: THREE.IUniform<THREE.Vector4[]>;
+  uImpactCol: THREE.IUniform<THREE.Vector4[]>;
 }
 
 export const NOISE_SIZE = 32;
+
+const DUMMY_FIELD = (() => {
+  const t = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1);
+  t.needsUpdate = true;
+  return t;
+})();
 
 export class TerrainRig {
   readonly uniforms: TerrainUniforms;
@@ -56,23 +76,24 @@ export class TerrainRig {
       uMat: { value: m },
       uNoise: { value: this.noiseTex },
       uMatGlow: { value: MATERIAL_NAMES.map((n) => MATERIAL_INFO[n].glow) },
-      uTarget: { value: new THREE.Vector4(-9999, -9999, -9999, -1) },
-      uTargetFx: { value: new THREE.Vector4(0, 0, 0, 0) },
-      uTargetHit: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uMatValue: { value: new Array(MATERIAL_NAMES.length).fill(0) },
+      uSection: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uSectionKey: { value: new THREE.Color(0.3, 0.32, 0.36) },
+      uRimColor: { value: new THREE.Color(1, 0.7, 0.36) },
+      uCamFill: { value: new THREE.Color(0.06, 0.07, 0.08) },
+      uDeepTint: { value: new THREE.Color(0.01, 0.01, 0.012) },
+      uSectionField: { value: DUMMY_FIELD },
+      uCellFx: { value: Array.from({ length: 8 }, () => new THREE.Vector4(-999, -999, 0, 0)) },
+      uCellPop: { value: [new THREE.Vector4(), new THREE.Vector4()] },
+      uImpactPos: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) },
+      uImpactCol: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) },
     };
   }
 
-  /**
-   * Mining feedback drawn by the terrain shader. `crackLayer` < 0 hides the cracks. `hit`: where
-   * the mining ray strikes the block, if known (the highlight and the fractures centre on it).
-   */
-  setTarget(cell: { x: number; y: number; z: number } | null, crackLayer: number, flash: number, active: boolean, blocked: boolean, hit: { x: number; y: number; z: number } | null = null): void {
-    const t = this.uniforms.uTarget.value;
-    if (!cell) t.set(-9999, -9999, -9999, -1);
-    else t.set(cell.x, cell.y, cell.z, crackLayer);
-    this.uniforms.uTargetFx.value.set(flash, active ? 1 : 0, blocked ? 1 : 0, 0);
-    if (cell && hit) this.uniforms.uTargetHit.value.set(hit.x, hit.y, hit.z, 1);
-    else this.uniforms.uTargetHit.value.set(0, 0, 0, 0);
+  /** Mark material layers as valuables (ore 1, rich 2, gem 3). */
+  setValues(values: ArrayLike<number>): void {
+    const v = this.uniforms.uMatValue.value;
+    for (let i = 0; i < v.length; i++) v[i] = values[i] ?? 0;
   }
 
   dispose(): void {

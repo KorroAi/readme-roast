@@ -2,8 +2,8 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as THREE from 'three';
 import { B } from '../../src/config/blocks';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
-import { generateWorld } from '../../src/world/gen/generateWorld';
-import { MESH_OPTIONS, PADDED_VOXELS, copyPadded, meshChunk, meshPadded } from '../../src/render/mesher';
+import { ringAt } from './idle/ringFixture';
+import { MESH_OPTIONS, PADDED_VOXELS, copyPadded, meshChunk, meshPadded, worldChunkY } from '../../src/render/mesher';
 import { handleMeshRequest } from '../../src/render/meshWorker';
 import type { MeshRequest, WorkerLike } from '../../src/render/meshPool';
 import { ChunkRenderer } from '../../src/render/ChunkRenderer';
@@ -111,7 +111,8 @@ function surfaceBlock(w: VoxelWorld, cx: number, cz: number): [number, number, n
 
 let zone: VoxelWorld;
 beforeAll(() => {
-  zone = generateWorld().world;
+  // Fixtures from the descent: the ring window around 40 m (the tutorial's grotto, the hatch frame, the hall).
+  zone = ringAt(7, 40);
 }, 60_000);
 
 afterEach(() => {
@@ -126,7 +127,7 @@ describe('mesh worker', () => {
       for (let cy = 0; cy < zone.cy; cy++)
         for (let cx = 0; cx < zone.cx; cx++) {
           const a = meshChunk(zone, cx, cy, cz);
-          const b = meshPadded(copyPadded(zone, cx, cy, cz), cx, cy, cz);
+          const b = meshPadded(copyPadded(zone, cx, cy, cz), cx, worldChunkY(zone, cy) ?? cy, cz);
           expect(b.faceCount).toBe(a.faceCount);
           expect(b.vertexCount).toBe(a.vertexCount);
           expect(b.indices.constructor).toBe(a.indices.constructor);

@@ -2,20 +2,28 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { MOTHS } from '../../src/config/balance';
 import { SOLID } from '../../src/config/blocks';
 import { MothFlock, type MothAnchor, type MothLantern } from '../../src/game/moths';
-import { generateWorld } from '../../src/world/gen/generateWorld';
-import type { WorldLayout } from '../../src/world/gen/types';
+import { B } from '../../src/config/blocks';
+import { VoxelWorld } from '../../src/world/VoxelWorld';
 
-let layout: WorldLayout;
+// Synthetic anchors in a synthetic cave (the zone generator is gone): an open grotto 24 x 14 x 24 m in solid
+// rock, with roosts in its middle and secrets against its walls (a crack, a rune door) and in an alcove.
+let world: VoxelWorld;
 let isOpen: (x: number, y: number, z: number) => boolean;
-const anchor = (id: string): MothAnchor => {
-  const a = layout.features!.mothAnchors.find((m) => m.id === id)!;
-  return { id: a.id, x: a.p[0], y: a.p[1], z: a.p[2], count: a.count, radius: a.radius, secret: a.secret };
+const ANCHORS: Record<string, MothAnchor> = {
+  grotto: { id: 'grotto', x: 32, y: 8, z: 32, count: 8, radius: 1.2, secret: false },
+  reliquary: { id: 'reliquary', x: 26, y: 6, z: 28, count: 6, radius: 1.2, secret: false },
+  monolith: { id: 'monolith', x: 38, y: 7, z: 36, count: 6, radius: 1.2, secret: false },
+  grottoCrack: { id: 'grottoCrack', x: 20.6, y: 6, z: 32, count: 5, radius: 0.4, secret: true },
+  runeDoor1: { id: 'runeDoor1', x: 43.4, y: 5, z: 30, count: 5, radius: 0.4, secret: true },
 };
+const anchor = (id: string): MothAnchor => ANCHORS[id];
 const dark: MothLantern = { x: 0, y: 0, z: 0, lit: false, fuelFrac: 0 };
 
 beforeAll(() => {
-  layout = generateWorld();
-  isOpen = (x, y, z) => !SOLID[layout.world.get(x, y, z)];
+  world = new VoxelWorld(64, 32, 64);
+  world.fill(0, 0, 0, 63, 31, 63, B.SLATE);
+  world.fill(20, 2, 20, 43, 15, 43, B.AIR);
+  isOpen = (x, y, z) => !SOLID[world.get(x, y, z)];
 });
 
 function homeDistances(f: MothFlock, a: MothAnchor): number[] {
@@ -51,7 +59,7 @@ describe('lumen moths', () => {
     const f = new MothFlock([a], 5, 32);
     for (let k = 0; k < 60; k++) f.step(1 / 30, dark, a.x, a.y, a.z, isOpen);
     // A lantern 5 m off in the open geode.
-    const L = { x: a.x - 4, y: a.y - 1.5, z: a.z + 2.4, lit: true, fuelFrac: 0.9 };
+    const L = { x: a.x - 4.1, y: a.y - 1.5, z: a.z + 2.4, lit: true, fuelFrac: 0.9 };
     expect(isOpen(Math.floor(L.x), Math.floor(L.y), Math.floor(L.z))).toBe(true);
     expect(Math.hypot(L.x - a.x, L.y - a.y, L.z - a.z)).toBeGreaterThan(4.9);
     let t = 0;
@@ -83,7 +91,7 @@ describe('lumen moths', () => {
   });
 
   it('keep to the cap, nearest anchors first, only within 45 m', () => {
-    const all = layout.features!.mothAnchors.map((m) => anchor(m.id));
+    const all = Object.keys(ANCHORS).map(anchor);
     const f = new MothFlock(all, 9, 40);
     f.setLimit(16);
     const g = anchor('grotto');

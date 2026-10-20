@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PropKind } from '../../world/gen/types';
+import type { PropKind } from './types';
 import { Rng } from '../../core/rng';
 import { hash32 } from '../../core/math';
 import { VoxBuilder } from '../voxModel';

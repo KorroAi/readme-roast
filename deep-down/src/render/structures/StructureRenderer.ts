@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { VoxelWorld } from '../../world/VoxelWorld';
-import type { StructureSpec } from '../../world/gen/types';
+import type { StructureSpec } from './types';
 import type { LightingUniforms } from '../lighting';
 import type { TerrainUniforms } from '../terrainRig';
 import { StructureBuilder } from './builder';
@@ -27,7 +27,7 @@ const BUILD_BUDGET_MS = 6;
 
 /**
  * Built forms (stair flights, columns, the bridge, coping, timber) drawn as meshes over their
- * voxel collision (B.STRUCTURE, B.RAMP_*): see world/gen (the generator writes both) and
+ * voxel collision (B.STRUCTURE, B.RAMP_*): the generator writes both, and
  * structureMaterial.ts. They are static (unbreakable), so they are built once per zone and merged
  * into one draw call per 32 m cell; cells beyond the view distance are hidden like terrain chunks.
  * Cells are built in the first frames after the zone loads (cull(): the nearest first, at least

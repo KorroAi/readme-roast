@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { PropSpec } from '../../world/gen/types';
+import type { PropSpec } from './types';
 import type { LightingUniforms } from '../lighting';
 import { createEntityMaterial } from '../entityMaterial';
 import { hash32 } from '../../core/math';

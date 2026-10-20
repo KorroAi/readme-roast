@@ -1,33 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { ITEM_IDS } from '../../src/config/items';
-import { evaluate, type CraftContext } from '../../src/gameplay/Crafting';
-import { Equipment } from '../../src/gameplay/Equipment';
-import { Backpack } from '../../src/gameplay/Inventory';
-import { CampStorage } from '../../src/gameplay/Storage';
+import { Big } from '../../src/core/big';
 import { t } from '../../src/i18n';
-import { depthText, formatRelativeTime } from '../../src/ui/format';
-import { HEART_COUNT, healthHalves, heartFill } from '../../src/ui/hud/hearts';
+import type { CardView } from '../../src/idle/model/run';
+import { escalation, numberSize, tokensFor } from '../../src/game/fx/juice';
+import { formatRelativeTime } from '../../src/ui/format';
 import { hasLintelGlyph, layoutLintel, LINTEL_H, LINTEL_REQUIRED, LINTEL_SPACE } from '../../src/ui/brand/strokeFont';
 import { lanternPosition, wordmarkLayout } from '../../src/ui/brand/wordmark';
-import { equipInfo } from '../../src/ui/screens/inventory';
-import { nodeLook } from '../../src/ui/screens/progress';
-import { heartSprite, itemRaster, scaleNearest, SPECIMENS, sprite, type Raster } from '../../src/ui/sprites';
-import {
-  advanceLookPhase,
-  clampBase,
-  HOLD_SLOP_PX,
-  HOLD_TO_MINE_MS,
-  JOYSTICK_DEAD_ZONE,
-  JOYSTICK_RADIUS,
-  joystick,
-  releaseLook,
-  toNdc,
-  touchSide,
-  type LookPhase,
-  type StickOutput,
-} from '../../src/ui/touchMath';
-
-const stick = (): StickOutput => ({ x: 0, y: 0, knobX: 0, knobY: 0 });
+import { rollStep, scriptedMs } from '../../src/ui/fx/Ticker';
+import { cardFill, cardState, pipArcs } from '../../src/ui/idle/Card';
+import { rulerY } from '../../src/ui/idle/DepthRuler';
+import { hudLayout } from '../../src/ui/idle/layout';
+import { SPECIMENS, scaleNearest, specimenRaster, sprite } from '../../src/ui/sprites';
 
 describe('Lintel face (title and display type)', () => {
   it('has a glyph for every character of the title, the alphabet, the digits and the marks', () => {
@@ -97,180 +80,177 @@ describe('relative time', () => {
   it('treats clock skew (future saves) as just now', () => {
     expect(formatRelativeTime(now + 10 * min, now)).toBe('just now');
   });
-  it('fills the menu line', () => {
-    expect(t('menu.saveFound', { time: formatRelativeTime(now - 2 * min, now) })).toBe('Last saved 2 minutes ago');
-  });
 });
 
-describe('depth readout', () => {
-  it('reads "-N m" with an ASCII minus', () => {
-    expect(depthText(128)).toBe('-128 m');
-    expect(depthText(12.6)).toBe('-13 m');
-    expect(depthText(128)).toMatch(/-\d+ m/);
-  });
-});
-
-describe('joystick', () => {
-  it('is zero at rest and inside the dead zone', () => {
-    expect(joystick(0, 0, stick())).toMatchObject({ x: 0, y: 0, knobX: 0, knobY: 0 });
-    const r = JOYSTICK_RADIUS * JOYSTICK_DEAD_ZONE * 0.9;
-    expect(joystick(r, 0, stick())).toMatchObject({ x: 0, y: 0 });
-  });
-
-  it('maps screen up to forward and right to right', () => {
-    const up = joystick(0, -JOYSTICK_RADIUS, stick());
-    expect(up.y).toBeCloseTo(1);
-    expect(up.x).toBeCloseTo(0);
-    const right = joystick(JOYSTICK_RADIUS, 0, stick());
-    expect(right.x).toBeCloseTo(1);
-    expect(right.y).toBeCloseTo(0);
+describe('the portrait HUD layout (SPEC §9.1–§9.2)', () => {
+  const views: Array<[number, number, number, number]> = [
+    [360, 740, 24, 16],
+    [390, 844, 47, 34],
+    [412, 915, 40, 24],
+  ];
+  it('matches the 390 × 844 table: goal bar 125–173 (48 px for U1; the table says 44), world region 177–610, quick-buy 674, tabs 754', () => {
+    const l = hudLayout(390, 844, 47, 34);
+    expect(l.goal.y).toBe(125);
+    expect(l.goal.y + l.goal.h).toBe(173);
+    expect(l.region.top).toBe(177);
+    expect(l.region.bottom).toBe(610);
+    expect(l.skill.y).toBe(614);
+    expect(l.quick[0].y).toBe(674);
+    expect(l.tabs.y).toBe(754);
+    expect(l.quick.map((r) => r.w)).toEqual([119, 119, 119]);
   });
 
-  it('clamps the knob to the radius and keeps the direction beyond it', () => {
-    const o = joystick(300, -400, stick());
-    expect(Math.hypot(o.knobX, o.knobY)).toBeCloseTo(JOYSTICK_RADIUS);
-    expect(Math.hypot(o.x, o.y)).toBeCloseTo(1);
-    expect(o.x / o.y).toBeCloseTo(300 / 400);
-  });
-
-  it('ramps continuously and monotonically from the dead-zone edge', () => {
-    const edge = JOYSTICK_RADIUS * JOYSTICK_DEAD_ZONE;
-    expect(joystick(edge + 0.01, 0, stick()).x).toBeLessThan(0.01);
-    let prev = 0;
-    for (let d = 0; d <= JOYSTICK_RADIUS * 1.5; d += 1) {
-      const v = Math.hypot(joystick(d * 0.6, d * 0.8, stick()).x, joystick(d * 0.6, d * 0.8, stick()).y);
-      expect(v).toBeGreaterThanOrEqual(prev - 1e-9);
-      expect(v).toBeLessThanOrEqual(1 + 1e-9);
-      prev = v;
-    }
-    expect(prev).toBeCloseTo(1);
-  });
-
-  it('keeps the floating base on screen', () => {
-    expect(clampBase(5, 5, 800, 400)).toEqual([JOYSTICK_RADIUS + 8, JOYSTICK_RADIUS + 8]);
-    expect(clampBase(400, 200, 800, 400)).toEqual([400, 200]);
-    expect(clampBase(799, 399, 800, 400)).toEqual([800 - JOYSTICK_RADIUS - 8, 400 - JOYSTICK_RADIUS - 8]);
-  });
-});
-
-describe('touch geometry', () => {
-  it('converts screen points to NDC', () => {
-    const o = { x: 0, y: 0 };
-    expect(toNdc(0, 0, 800, 400, o)).toEqual({ x: -1, y: 1 });
-    expect(toNdc(800, 400, 800, 400, o)).toEqual({ x: 1, y: -1 });
-    expect(toNdc(400, 200, 800, 400, o)).toEqual({ x: 0, y: 0 });
-    expect(toNdc(600, 100, 800, 400, o)).toEqual({ x: 0.5, y: 0.5 });
-    expect(toNdc(-50, 900, 800, 400, o)).toEqual({ x: -1, y: -1 });
-  });
-
-  it('splits the screen into move and look halves, swapped when left-handed', () => {
-    expect(touchSide(100, 900, false)).toBe('move');
-    expect(touchSide(800, 900, false)).toBe('look');
-    expect(touchSide(450, 900, false)).toBe('look');
-    expect(touchSide(100, 900, true)).toBe('look');
-    expect(touchSide(800, 900, true)).toBe('move');
-  });
-});
-
-describe('hold-to-mine state machine', () => {
-  /** Replay a touch: moves as [ms, dx, dy], the hold timer at HOLD_TO_MINE_MS, then release. */
-  function replay(moves: Array<[number, number, number]>, releaseAt: number) {
-    let phase: LookPhase = 'pending';
-    const events = [...moves.map(([at, dx, dy]) => ({ at, dx, dy })), { at: HOLD_TO_MINE_MS, dx: NaN, dy: NaN }].sort((a, b) => a.at - b.at);
-    let last = { dx: 0, dy: 0 };
-    for (const e of events) {
-      if (e.at > releaseAt) break;
-      if (Number.isNaN(e.dx)) phase = advanceLookPhase(phase, last.dx, last.dy, e.at);
-      else {
-        phase = advanceLookPhase(phase, e.dx, e.dy, e.at);
-        last = e;
-      }
-    }
-    return { phase, release: releaseLook(phase) };
-  }
-
-  it('stays pending while still and short', () => {
-    expect(advanceLookPhase('pending', 3, 4, HOLD_TO_MINE_MS - 1)).toBe('pending');
-  });
-
-  it('becomes a camera drag when it moves beyond the slop first', () => {
-    expect(advanceLookPhase('pending', HOLD_SLOP_PX + 1, 0, 50)).toBe('look');
-    expect(replay([[30, 4, 0], [60, 20, 0], [400, 21, 0]], 500)).toEqual({ phase: 'look', release: 'none' });
-  });
-
-  it('becomes a mine touch after holding still for the hold time', () => {
-    expect(advanceLookPhase('pending', 0, 0, HOLD_TO_MINE_MS)).toBe('mine');
-    expect(replay([[50, 2, 2]], 800)).toEqual({ phase: 'mine', release: 'endMine' });
-  });
-
-  it('never turns a mine touch into a look, nor a look into mining', () => {
-    expect(advanceLookPhase('mine', 300, 300, 2000)).toBe('mine');
-    expect(advanceLookPhase('look', 0, 0, 2000)).toBe('look');
-    // Moving a lot after the hold re-aims instead of rotating the camera.
-    expect(replay([[HOLD_TO_MINE_MS + 60, 80, -40], [HOLD_TO_MINE_MS + 120, 160, -60]], 900)).toEqual({ phase: 'mine', release: 'endMine' });
-  });
-
-  it('treats a quick still tap as a single mining hit', () => {
-    expect(replay([[40, 1, 1]], 90)).toEqual({ phase: 'pending', release: 'tapMine' });
-  });
-});
-
-describe('hearts', () => {
-  it('converts health to half hearts', () => {
-    expect(healthHalves(100, 100)).toBe(10);
-    expect(healthHalves(0, 100)).toBe(0);
-    expect(healthHalves(-5, 100)).toBe(0);
-    expect(healthHalves(50, 100)).toBe(5);
-    expect(healthHalves(70, 100)).toBe(7);
-  });
-
-  it('shows at least half a heart while alive and all hearts only at full health', () => {
-    expect(healthHalves(0.4, 100)).toBe(1);
-    expect(healthHalves(99, 100)).toBe(9);
-    expect(healthHalves(10, 0)).toBe(0);
-  });
-
-  it('fills hearts left to right with a half heart for odd totals', () => {
-    const row = (halves: number) => Array.from({ length: HEART_COUNT }, (_, i) => heartFill(halves, i));
-    expect(row(10)).toEqual([2, 2, 2, 2, 2]);
-    expect(row(7)).toEqual([2, 2, 2, 1, 0]);
-    expect(row(1)).toEqual([1, 0, 0, 0, 0]);
-    expect(row(0)).toEqual([0, 0, 0, 0, 0]);
-  });
-});
-
-describe('icon rasters', () => {
-  const avg = (r: Raster, pick: (x: number, y: number) => boolean) => {
-    let sum = 0;
-    let n = 0;
-    for (let y = 0; y < r.size; y++)
-      for (let x = 0; x < r.size; x++) {
-        const i = (x + y * r.size) * 4;
-        if (r.data[i + 3] === 255 && pick(x, y)) {
-          sum += r.data[i] + r.data[i + 1] + r.data[i + 2];
-          n++;
+  it('never overlaps the bands, keeps the column inside the screen and the controls under the thumb', () => {
+    for (const [w, hgt, st, sb] of views) {
+      for (const large of [false, true]) {
+        const l = hudLayout(w, hgt, st, sb, large);
+        expect(l.gold.y + l.gold.h, `${w}x${hgt}`).toBeLessThanOrEqual(l.goal.y);
+        expect(l.goal.y + l.goal.h).toBeLessThan(l.region.top);
+        expect(l.region.bottom).toBeLessThan(l.skill.y);
+        expect(l.skill.y + l.skill.h).toBeLessThan(l.quick[0].y);
+        expect(l.quick[0].y + l.quick[0].h).toBeLessThan(l.tabs.y);
+        expect(l.tabs.y + l.tabs.h).toBeLessThanOrEqual(hgt - sb);
+        // U4: every control except the top plates, the goal bar and the menu sits in the bottom 45 %.
+        for (const r of [l.skill, ...l.quick, l.tabs]) expect(r.y, `${w}x${hgt}`).toBeGreaterThanOrEqual(hgt * 0.55);
+        // U1: targets of at least 48 px (cards, tabs; the menu has a 48 px hit area).
+        for (const r of l.quick) expect(Math.min(r.w, r.h)).toBeGreaterThanOrEqual(48);
+        expect(l.goal.h).toBeGreaterThanOrEqual(48);
+        expect(Math.min(l.menu.w, l.menu.h)).toBeGreaterThanOrEqual(48);
+        // The world region keeps at least 5 m of dig view at 44 px per metre.
+        expect(l.region.bottom - l.region.top).toBeGreaterThan(5 * 44);
+        for (const r of [l.gold, l.depth, l.menu, l.goal, ...l.quick]) {
+          expect(r.x).toBeGreaterThanOrEqual(0);
+          expect(r.x + r.w).toBeLessThanOrEqual(w + 1);
         }
       }
-    return n ? sum / n : 0;
-  };
+    }
+  });
 
-  it('draws every item as a specimen sprite, with a fallback for ids without art', () => {
+  it('centres a 9:19.5 column on a tablet', () => {
+    const l = hudLayout(1024, 768, 0, 0);
+    expect(l.column.w).toBeGreaterThanOrEqual(360);
+    expect(l.column.x).toBeGreaterThan(0);
+    expect(l.column.x * 2 + l.column.w).toBe(1024);
+  });
+});
+
+describe('rolling counters (SPEC §10.6)', () => {
+  it('approach the target in log space and never change by more than ×1.5 a frame', () => {
+    let shown = 2; // 100
+    const target = 6; // 1e6
+    for (let i = 0; i < 400 && shown !== target; i++) {
+      const next = rollStep(shown, target, 1 / 60);
+      expect(next - shown).toBeLessThanOrEqual(Math.log10(1.5) + 1e-12);
+      expect(next).toBeGreaterThanOrEqual(shown);
+      shown = next;
+    }
+    expect(shown).toBe(target);
+  });
+  it('roll down when spending, and down to zero without a jump', () => {
+    let shown = 3;
+    for (let i = 0; i < 45; i++) shown = rollStep(shown, 2, 1 / 60);
+    expect(shown).toBe(2);
+    let z = 0.5;
+    const steps: number[] = [];
+    for (let i = 0; i < 10 && Number.isFinite(z); i++) {
+      z = rollStep(z, -Infinity, 1 / 60);
+      steps.push(z);
+    }
+    expect(z).toBe(-Infinity);
+  });
+  it('time a scripted count as clamp(500 + 220·log10(T/D), 500, 2000)', () => {
+    expect(scriptedMs(2, 3)).toBe(720);
+    expect(scriptedMs(2, 2.5)).toBe(610);
+    expect(scriptedMs(0, 100)).toBe(2000);
+    expect(scriptedMs(5, 5)).toBe(500);
+  });
+});
+
+describe('card states (SPEC §10.7)', () => {
+  const view = (o: Partial<CardView> = {}): CardView => ({
+    id: 'crew:0', kind: 'crew', nameKey: '', nameParams: {}, descKey: '', descParams: {}, level: 3, levels: 1, maxed: false, locked: false,
+    unlockDepth: 0, cost: Big.from(100), costLog10: 2, affordable: false, delta: 0.2, after: Big.from(10), unit: 'dps',
+    pips: { filled: 3, total: 10 }, next: { kind: 'star', level: 10 }, best: false, payback: 10, fresh: false, ...o,
+  });
+  it('reads the shown gold, not the actual: ready the moment the coin lands', () => {
+    expect(cardState(view(), Math.log10(99))).toBe('poor');
+    expect(cardState(view(), 2)).toBe('ready');
+    expect(cardState(view({ best: true }), Math.log10(86))).toBe('near');
+    expect(cardState(view(), Math.log10(86))).toBe('poor');
+    expect(cardState(view({ locked: true }), 9)).toBe('locked');
+    expect(cardState(view({ maxed: true }), 9)).toBe('maxed');
+    expect(cardState(null, 9)).toBe('hidden');
+  });
+  it('fills as shown gold over cost', () => {
+    expect(cardFill(view(), 1)).toBeCloseTo(0.1, 9);
+    expect(cardFill(view(), 3)).toBe(1);
+    expect(cardFill(view(), -Infinity)).toBe(0);
+    expect(cardFill(view({ locked: true }), 3)).toBe(0);
+  });
+  it('draws 10 pips for a line and 25 for the pick in 5 groups', () => {
+    expect(pipArcs(10)).toHaveLength(10);
+    expect(pipArcs(25)).toHaveLength(25);
+    for (const d of pipArcs(25)) expect(d).toMatch(/^M [\d.]+ [\d.]+ A 20 20 0 0 1 [\d.]+ [\d.]+$/);
+  });
+});
+
+describe('juice sizing (SPEC §10.5–§10.6)', () => {
+  it('launches 1–6 tokens a break by value over the median', () => {
+    expect(tokensFor(2, 2)).toBe(2);
+    expect(tokensFor(1, 2)).toBe(1);
+    expect(tokensFor(2 + Math.log10(4), 2)).toBe(4);
+    expect(tokensFor(9, 2)).toBe(6);
+  });
+  it('grows numbers 4 px a decade over the median, capped (crits ×1.35)', () => {
+    expect(numberSize(2, 2, false)).toBe(18);
+    expect(numberSize(4, 2, false)).toBe(26);
+    expect(numberSize(20, 2, false)).toBe(38);
+    expect(numberSize(20, 2, true)).toBe(48);
+    expect(numberSize(2, 2, true)).toBeCloseTo(24.3, 6);
+  });
+  it('escalates by the cells a tap broke (E0–E4)', () => {
+    expect(escalation(0, false)).toBe(0);
+    expect(escalation(1, false)).toBe(1);
+    expect(escalation(3, false)).toBe(2);
+    expect(escalation(5, false)).toBe(3);
+    expect(escalation(9, false)).toBe(4);
+    expect(escalation(2, true)).toBe(4);
+  });
+});
+
+describe('the Depth Ruler scale', () => {
+  it('puts the floor on its notch, 10 m above at the top and 80 m below at the bottom, monotone', () => {
+    const top = 181;
+    const bottom = 606;
+    const floorY = 400;
+    expect(rulerY(50, 50, floorY, top, bottom)).toBe(floorY);
+    expect(rulerY(40, 50, floorY, top, bottom)).toBeCloseTo(top, 9);
+    expect(rulerY(130, 50, floorY, top, bottom)).toBeCloseTo(bottom, 9);
+    let prev = -Infinity;
+    for (let d = 40; d <= 130; d += 0.5) {
+      const y = rulerY(d, 50, floorY, top, bottom);
+      expect(y).toBeGreaterThan(prev);
+      prev = y;
+    }
+    // The next 10 m get more room than the 10 m after 60 m.
+    expect(rulerY(60, 50, floorY, top, bottom) - floorY).toBeGreaterThan(rulerY(130, 50, floorY, top, bottom) - rulerY(120, 50, floorY, top, bottom));
+  });
+});
+
+describe('specimen rasters', () => {
+  it('draws every specimen as a shape (not empty, not a square), and a pebble for ids without art', () => {
     const seen = new Set<string>();
-    for (const id of ITEM_IDS) {
-      const r = itemRaster(id, 32);
+    for (const id of [...Object.keys(SPECIMENS), 'tin']) {
+      const r = specimenRaster(id, 32);
       expect(r.size).toBe(32);
       let opaque = 0;
       for (let i = 3; i < r.data.length; i += 4) if (r.data[i] > 0) opaque++;
-      // A shape, not a filled square and not empty.
       expect(opaque / (32 * 32), id).toBeGreaterThan(0.15);
       expect(opaque / (32 * 32), id).toBeLessThan(0.92);
       expect(r.data[3], `${id} corner`).toBe(0);
       seen.add(Array.from(r.data).join(','));
     }
-    // Materials each have their own art (the seven runes share the rune stone).
     expect(seen.size).toBeGreaterThanOrEqual(8);
-    const unknown = itemRaster('tinOre', 16);
-    expect(unknown.data.some((v, i) => i % 4 === 3 && v > 0)).toBe(true);
     for (const def of Object.values(SPECIMENS)) for (const row of def.rows) expect(row.length).toBe(16);
   });
 
@@ -278,58 +258,8 @@ describe('icon rasters', () => {
     const s = sprite(['ab', 'ba'], { a: 0xff0000, b: 0x0000ff });
     expect(s.size).toBe(2);
     const big = scaleNearest(s, 8);
-    // Top-left 4x4 block is pure red, top-right pure blue: no blending between texels.
     expect([...big.data.slice(0, 4)]).toEqual([255, 0, 0, 255]);
-    expect([...big.data.slice((3 + 0 * 8) * 4, (3 + 0 * 8) * 4 + 4)]).toEqual([255, 0, 0, 255]);
-    expect([...big.data.slice((4 + 0 * 8) * 4, (4 + 0 * 8) * 4 + 4)]).toEqual([0, 0, 255, 255]);
-  });
-
-  it('draws full, half and empty hearts', () => {
-    const red = (r: Raster) => avg(r, (x) => x < 5);
-    const redRight = (r: Raster) => avg(r, (x) => x > 6);
-    expect(red(heartSprite(2))).toBeGreaterThan(red(heartSprite(0)));
-    expect(red(heartSprite(1))).toBeCloseTo(red(heartSprite(2)), 0);
-    expect(redRight(heartSprite(1))).toBeLessThan(redRight(heartSprite(2)));
-  });
-});
-
-describe('workbench rules shown in the UI', () => {
-  const context = (o: { tiers?: Partial<Record<'pickaxe' | 'lantern' | 'pack', number>>; stone?: number; copper?: number; atCamp?: boolean; built?: string[] }): CraftContext => {
-    const storage = new CampStorage();
-    if (o.stone) storage.add('stone', o.stone);
-    if (o.copper) storage.add('copperOre', o.copper);
-    return { backpack: new Backpack(6), storage, equipment: new Equipment(o.tiers), built: new Set(o.built ?? []), atCamp: o.atCamp ?? true, rift: false, rune: false };
-  };
-  // The tree draws what the rules decide (gameplay/Crafting.evaluate), so the precedence the
-  // W1 list had (owned first, then where you stand, then materials) holds on the screen too.
-  const look = (id: Parameters<typeof evaluate>[0], c: CraftContext) => {
-    const r = evaluate(id, c);
-    return nodeLook({ state: r.reason, partial: false });
-  };
-  it('matches the gameplay precedence: owned > locked > not at camp > missing', () => {
-    const inv = { stone: 20, copper: 9, tiers: { pickaxe: 1, lantern: 1, pack: 2 } };
-    expect(look('copperPickaxe', context(inv))).toBe('craftable');
-    expect(look('sturdyPack', context(inv))).toBe('owned');
-    expect(look('copperLantern', context(inv))).toBe('short');
-    expect(look('copperPickaxe', context({ ...inv, atCamp: false }))).toBe('away');
-    expect(look('sturdyPack', context({ ...inv, atCamp: false }))).toBe('owned');
-    // Owned wins over everything; a missing prerequisite wins over missing materials and place.
-    expect(look('copperPickaxe', context({ tiers: { pickaxe: 2 }, atCamp: false }))).toBe('owned');
-    expect(look('ironPickaxe', context({ atCamp: false }))).toBe('locked');
-    expect(look('ironPickaxe', context({ tiers: { pickaxe: 2 }, built: ['forge'] }))).toBe('short');
-  });
-
-  it('maps every rule outcome to one look', () => {
-    expect(nodeLook({ state: 'missing', partial: true })).toBe('partial');
-    expect(nodeLook({ state: 'carryToSite', partial: true })).toBe('carry');
-    expect(nodeLook({ state: 'owned', partial: true })).toBe('owned');
-    expect(nodeLook({ state: 'locked', partial: true })).toBe('locked');
-  });
-
-  it('describes equipment stats from the balance tables', () => {
-    expect(equipInfo('pickaxe', 1).stats[0][1]).toBe('100%');
-    expect(equipInfo('pickaxe', 2).stats[0][1]).toBe('160%');
-    expect(equipInfo('lantern', 2).stats.map((s) => s[1])).toEqual(['14.5 m', '10 min']);
-    expect(equipInfo('pack', 2).stats[0][1]).toBe('8');
+    expect([...big.data.slice(3 * 4, 3 * 4 + 4)]).toEqual([255, 0, 0, 255]);
+    expect([...big.data.slice(4 * 4, 4 * 4 + 4)]).toEqual([0, 0, 255, 255]);
   });
 });

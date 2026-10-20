@@ -23,6 +23,7 @@ function lighting(): LightingUniforms {
     uEmitGain: { value: 1.7 },
     uFogColor: { value: new THREE.Color() },
     uFogDensity: { value: 0.02 },
+    uFogStart: { value: 0 },
     uTime: { value: 0 },
     uDebug: { value: new THREE.Vector3() },
   };

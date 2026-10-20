@@ -8,7 +8,7 @@ import { Layers, beam, buildLantern, buildPickaxe, disc, ring, shade, type Lante
  * Geometry for the explorer's rigid parts, each built in its own joint frame (the joint pivot is
  * the origin).
  *
- * Design: a delver of the expedition company. Read from behind (the gameplay camera sits over the
+ * Design: a delver of the Halden company. Read from behind (the gameplay camera sits over the
  * right shoulder), the silhouette stacks distinct shapes instead of one box: a broad felt brim, a
  * red scarf over an amber-ochre coat, a timber pack frame whose poles rise past the hat with an
  * ember vial swinging from a peg, a rounded olive sack over a cream bedroll, split coat tails that

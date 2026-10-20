@@ -130,11 +130,12 @@ export class ExplorerAnimator {
     return this.swinging ? this.swingT / this.swingDur : 1;
   }
 
-  startSwing(duration: number): void {
+  startSwing(duration: number, startAt = 0): void {
     // Start from wherever the arm is now so back-to-back swings blend without a pop.
     this.swingFrom.set(this.last);
-    this.swingT = 0;
     this.swingDur = Math.max(0.1, duration);
+    // The descent's strike snap (SPEC §6.9): start at the impact pose (startAt 0.55), no wind-up.
+    this.swingT = Math.min(0.99, Math.max(0, startAt)) * this.swingDur;
   }
 
   update(dtIn: number, s: ExplorerAnimState): ExplorerPose {

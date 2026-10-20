@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { PropKind, PropSpec } from '../../src/world/gen/types';
+import type { PropKind, PropSpec } from '../../src/render/props/types';
 import type { LightingUniforms } from '../../src/render/lighting';
 import { PropRenderer } from '../../src/render/props/PropRenderer';
 import { PROP_KINDS, PROP_VARIANTS, buildPropModel, propVariant, type PropModel } from '../../src/render/props/models';
@@ -22,6 +22,7 @@ function lighting(): LightingUniforms {
     uEmitGain: { value: 1.7 },
     uFogColor: { value: new THREE.Color() },
     uFogDensity: { value: 0.02 },
+    uFogStart: { value: 0 },
     uTime: { value: 0 },
     uDebug: { value: new THREE.Vector3() },
   };

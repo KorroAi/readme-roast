@@ -1,5 +1,5 @@
 import { Rng } from '../../core/rng';
-import type { StructureSpec } from '../../world/gen/types';
+import type { StructureSpec } from './types';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
 import { STRIP_A } from './strips';

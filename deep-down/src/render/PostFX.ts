@@ -180,7 +180,7 @@ void main() {
   c = mix(c, vec3(lum) * vec3(0.8, 1.01, 1.5), ws * 0.85 * (1.0 - smoothstep(0.15, 0.45, sat)));
   c *= mix(vec3(1.0), vec3(1.07, 1.0, 0.86), wh * 0.6);
   // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
-  // bottom where the joystick and jump button sit.
+  // bottom where the HUD's plates sit.
   vec2 q = vUv - 0.5;
   q.y *= q.y > 0.0 ? 1.25 : 0.55;
   c *= 1.0 - uVignette * smoothstep(0.42, 0.85, length(q));

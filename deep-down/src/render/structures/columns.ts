@@ -1,6 +1,6 @@
 import { Rng } from '../../core/rng';
-import type { StructureSpec } from '../../world/gen/types';
-import { BASE_TOP, CAPITAL_H, columnNeck, echinusRadius, fractureHeight, plinthHalf, shaftRadius } from '../../world/gen/architecture';
+import type { StructureSpec } from './types';
+import { BASE_TOP, CAPITAL_H, columnNeck, echinusRadius, fractureHeight, plinthHalf, shaftRadius } from './geometry';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
 import { STRIP_A } from './strips';
@@ -20,7 +20,7 @@ function aroundUv(radius: number): (a: number, u0: number) => number {
 }
 
 /**
- * A round column (world/gen/architecture.ts for its proportions): a square plinth, an attic base
+ * A round column (structures/geometry.ts for its proportions): a square plinth, an attic base
  * (torus, scotia, torus), a shaft of drums of 1.6-2.2 m with entasis and a groove at each bed
  * joint, then a necking ring, a flaring echinus and a square abacus running into the rock; or a
  * shaft broken off in a conchoidal fracture.

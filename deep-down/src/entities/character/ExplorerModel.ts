@@ -311,6 +311,12 @@ export class ExplorerModel {
     this.animator.startSwing(duration);
   }
 
+  /** The descent's strike: the impact pose in this frame (no wind-up), recovering over `recover` seconds. */
+  strike(recover = 0.14): void {
+    // The impact lands at 55 % of a swing: start there, so the rest of the swing is the recovery.
+    this.animator.startSwing(recover / 0.45, 0.55);
+  }
+
   update(dt: number, s: ExplorerAnimState): void {
     const p = this.animator.update(dt, s);
     this.body.position.y = p.bodyY;

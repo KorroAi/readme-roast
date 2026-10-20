@@ -1,4 +1,3 @@
-import { ITEMS } from '../config/items';
 
 // Pure pixel rasterizers for UI icons (no DOM): small hand-authored 16 x 16 pixel sprites,
 // "specimens" lit from the top left. icons.ts turns the buffers into cached data URLs.
@@ -544,54 +543,26 @@ const shade = (rgb: number, k: number) => {
 };
 export const pebblePalette = (rgb: number): Palette => ({ H: shade(rgb, 1.3), M: rgb, D: shade(rgb, 0.55) });
 
-/** Sprite and palette per item id (the key items without their own art use the tablet). */
+/** Sprite and palette per specimen id: the ores and finds the Codex shows (W2 adds every biome's). */
 export const SPECIMENS: Record<string, { rows: readonly string[]; palette: Palette }> = {
   stone: { rows: SLATE_FLAKE_ROWS, palette: SLATE_FLAKE_PALETTE },
-  rootFibre: { rows: ROOT_COIL_ROWS, palette: ROOT_COIL_PALETTE },
-  copperOre: { rows: COPPER_LUMP_ROWS, palette: COPPER_LUMP_PALETTE },
-  ironOre: { rows: IRON_LUMP_ROWS, palette: IRON_LUMP_PALETTE },
-  echoShard: { rows: ECHO_SHARD_ROWS, palette: ECHO_SHARD_PALETTE },
-  // The rune-door relics (key items of the Reliquary and the Lamp Gallery).
-  bearerLens: { rows: LENS_ROWS, palette: LENS_PALETTE },
-  firstLamp: { rows: FIRST_LAMP_ROWS, palette: FIRST_LAMP_PALETTE },
+  root: { rows: ROOT_COIL_ROWS, palette: ROOT_COIL_PALETTE },
+  copper: { rows: COPPER_LUMP_ROWS, palette: COPPER_LUMP_PALETTE },
+  iron: { rows: IRON_LUMP_ROWS, palette: IRON_LUMP_PALETTE },
+  echo: { rows: ECHO_SHARD_ROWS, palette: ECHO_SHARD_PALETTE },
+  crystal: { rows: SHARD_ROWS, palette: SHARD_PALETTE },
+  lens: { rows: LENS_ROWS, palette: LENS_PALETTE },
+  lamp: { rows: FIRST_LAMP_ROWS, palette: FIRST_LAMP_PALETTE },
+  tablet: { rows: TABLET_ROWS, palette: TABLET_PALETTE },
+  rune: { rows: RUNE_STONE_ROWS, palette: RUNE_STONE_PALETTE },
 };
 
 /**
- * The icon for an item id at `size` px: its specimen sprite, the shard or tablet art, a rune stone
- * for the seven runes, or (for an id without art) a pebble in the item's colour.
+ * The raster of a specimen (an ore or a Find) at `size` px: its own sprite, or a pebble in `color` for an id
+ * without art yet.
  */
-export function itemRaster(id: string, size: number): Raster {
+export function specimenRaster(id: string, size: number, color = 0x8a95a8): Raster {
   const own = SPECIMENS[id];
-  const def = (ITEMS as Record<string, { icon: { kind: string }; color: number; keyItem: boolean } | undefined>)[id];
-  let rows: readonly string[];
-  let palette: Palette;
-  if (own) ({ rows, palette } = own);
-  else if (RUNE_MARKS[id] && id !== 'ancientTablet') [rows, palette] = [carveMark(RUNE_STONE_ROWS, RUNE_MARKS[id], 4, 4), RUNE_STONE_PALETTE];
-  else if (id.startsWith('rune')) [rows, palette] = [RUNE_STONE_ROWS, RUNE_STONE_PALETTE];
-  else if (def?.icon.kind === 'shard') [rows, palette] = [SHARD_ROWS, SHARD_PALETTE];
-  else if (def?.icon.kind === 'tablet') [rows, palette] = [TABLET_ROWS, TABLET_PALETTE];
-  else [rows, palette] = [PEBBLE_ROWS, pebblePalette(def?.color ?? 0x8a95a8)];
+  const [rows, palette] = own ? [own.rows, own.palette] : [PEBBLE_ROWS, pebblePalette(color)];
   return scaleNearest(outline(sprite(rows, palette)), size);
-}
-
-export const HEART_ROWS = ['.###.###.', '#########', '#########', '#########', '.#######.', '..#####..', '...###...', '....#....'];
-
-/**
- * Heart sprite (11x11 with rim): `fill` 2 = full, 1 = left half, 0 = empty. Bottom-right
- * cells are shaded and the top-left lobe gets a highlight, like the terrain bevel.
- */
-export function heartSprite(fill: 0 | 1 | 2): Raster {
-  const w = 9;
-  const r = newRaster(11);
-  HEART_ROWS.forEach((row, y) => {
-    for (let x = 0; x < w; x++) {
-      if (row[x] !== '#') continue;
-      const lit = fill === 2 || (fill === 1 && x <= 4);
-      const edge = y === 7 || row[x + 1] !== '#' || HEART_ROWS[y + 1]?.[x] !== '#';
-      let c = lit ? (edge ? 0xb2322a : 0xff6b5e) : edge ? 0x1d1418 : 0x33232a;
-      if (lit && ((y === 1 && (x === 1 || x === 2)) || (y === 2 && x === 1))) c = 0xffc2b8;
-      put(r, x + 1, y + 2, c);
-    }
-  });
-  return outline(r, 0x07050a);
 }

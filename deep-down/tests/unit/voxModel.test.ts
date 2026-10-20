@@ -37,17 +37,3 @@ describe('VoxBuilder', () => {
     expect(windingAgrees(b.build())).toBe(true);
   });
 });
-
-import { miniBlock } from '../../src/game/Drops';
-import { generateTiles } from '../../src/render/textures';
-import { TILE } from '../../src/config/tiles';
-
-describe('miniBlock', () => {
-  it('builds a 4x4-per-face mini block with outward faces', () => {
-    const b = new VoxBuilder();
-    miniBlock(b, generateTiles(), TILE.copperOre, 0.3);
-    const g = b.build();
-    expect(g.getAttribute('position').count).toBe(6 * 16 * 4);
-    expect(windingAgrees(g)).toBe(true);
-  });
-});

@@ -12,9 +12,9 @@ const LEAD_IN = 0.4;
 
 /** Representative parameters for sounds whose character depends on gameplay values. */
 const DEMO_PARAMS: Partial<Record<string, SfxParams>> = {
-  land: { intensity: 0.6, material: 'stone' },
-  banked: { count: 8 },
-  damaged: { intensity: 0.5 },
+  boom: { intensity: 0.6 },
+  'chest.open': { intensity: 0.5 },
+  'cash.roll': { count: 12 },
 };
 
 /**

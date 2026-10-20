@@ -1,8 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
-import './dd';
+import { waitMode } from './dd';
 
-// The release shell around the game (src/main.ts): the crash panel, the Android bridge
-// (predictive Back, lifecycle), the context-loss notice and the automatic quality governor.
+// The release shell around the idle game (src/main.ts), in portrait: the crash panel, the Android bridge
+// (predictive Back, lifecycle), the context-loss notice, the automatic quality governor and the boot failure.
+// A first launch lands in the shaft; the second launch shows the menu at the surface (Descend, Settings, About).
 
 type Release = {
   version: { version: string; build: number; versionCode: number };
@@ -19,19 +20,12 @@ type Win = Window & {
   __e2e: { firstThrow: number; crashAt: number; panelAt: number; toasts: string[]; throws: number[] };
 };
 
-async function waitMode(page: Page, mode: string, timeout = 180_000) {
-  await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout, polling: 200 });
-}
-
-async function startExpedition(page: Page) {
-  await waitMode(page, 'menu');
-  await page.getByRole('button', { name: /New Expedition/i }).click();
-  await waitMode(page, 'playing');
-}
-
 /** localStorage entries of the save slots (byte-for-byte comparison across a crash). */
 const saveSlots = (page: Page) =>
   page.evaluate(() => Object.fromEntries(Object.keys(localStorage).filter((k) => k.startsWith('deepdown.save')).sort().map((k) => [k, localStorage.getItem(k)])));
+
+const savesSince = (page: Page, t0: number) =>
+  page.evaluate((t) => window.__DD__.idle.events('game:saved').filter((e) => e.t >= t).map((e) => e.payload.reason as string), t0);
 
 /** Record when the crash panel appears, and every toast, from the first script on. */
 async function watchPage(page: Page) {
@@ -57,10 +51,9 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('/index.html');
-  await startExpedition(page);
-  expect(await page.evaluate(() => window.__DD__.save())).toBe(true);
-  const before = await saveSlots(page);
-  expect(Object.keys(before).length).toBeGreaterThan(0);
+  // A first launch goes straight into the shaft.
+  await waitMode(page, 'playing');
+  expect(await page.evaluate(() => window.__DD__.idle.save())).toBe(true);
 
   errors.length = 0;
   await page.evaluate(() => {
@@ -79,34 +72,36 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   const ms = (t: number) => Math.round(t - timing.firstThrow);
   console.log(`crash timing: failed frames at +${timing.throws.slice(0, 3).map(ms).join(', +')} ms, dd:crash at +${ms(timing.crashAt)} ms, panel at +${ms(timing.panelAt)} ms`);
   expect(timing.firstThrow).toBeGreaterThan(0);
-  // The game's guard needs 3 failed frames; SwiftShader renders this scene at a few frames per
-  // second (a phone at 30-60), so the guard's share is bounded loosely and the panel's tightly.
+  // The frame guard needs 3 failed frames; SwiftShader draws a few frames a second (a phone 30-60), so the guard's
+  // share is bounded loosely and the panel's tightly.
   expect(timing.crashAt - timing.firstThrow, 'guard trips within 3 frames').toBeLessThan(5000);
   expect(timing.panelAt - timing.crashAt, 'panel within 1 s of the crash').toBeLessThan(1000);
-  expect(await page.evaluate(() => window.__DD__.state().mode)).toBe('crashed');
+  expect(await page.evaluate(() => window.__DD__.idle.mode())).toBe('crashed');
+  const before = await saveSlots(page);
+  expect(Object.keys(before).length).toBeGreaterThan(0);
   // Let a few more frames come and go: the stopped loop must stay quiet and save nothing.
   await page.waitForTimeout(1500);
-  const savesAfter = await page.evaluate((t0) => window.__DD__.events('game:saved').filter((e) => e.t >= t0).length, timing.firstThrow);
-  expect(savesAfter, 'no game:saved after the first error').toBe(0);
+  expect(await savesSince(page, timing.firstThrow), 'no game:saved after the first error').toEqual([]);
   expect(errors.length, `console errors: ${errors.slice(0, 3).join(' | ')}`).toBeLessThan(10);
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(false);
   const details = await page.evaluate(() => (window as unknown as Win).__DD_RELEASE__.crashDetails());
-  expect(details).toMatch(/^DEEP DOWN 1\.0\.0 \(versionCode 1000000, build 0\)/);
+  expect(details).toMatch(/^DEEP DOWN 1\.\d+\.\d+ \(versionCode \d+, build \d+\)/);
   expect(details).toContain('e2e: simulated GPU driver failure');
   expect(details).toMatch(/GL renderer: /);
 
   await page.getByRole('button', { name: 'Restart' }).click();
+  // The second launch: the menu at the surface, the save untouched.
   await waitMode(page, 'menu');
-  await expect(page.getByRole('button', { name: /Continue/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Descend/i })).toBeVisible();
   expect(await saveSlots(page), 'the save is the one from before the crash').toEqual(before);
-  await page.getByRole('button', { name: /Continue/i }).click();
+  await page.getByRole('button', { name: /Descend/i }).click();
   await waitMode(page, 'playing');
 });
 
 test('an error after boot (a rejected promise) shows the panel; Copy details copies the report', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
   await page.goto('/index.html');
-  await waitMode(page, 'menu');
+  await waitMode(page, 'playing');
   await expect(page.locator('.dd-crash')).toHaveCount(0);
   await page.evaluate(() => {
     void Promise.reject(new Error('e2e: rejected after boot'));
@@ -139,32 +134,36 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
       screenOn,
       keepScreenOn: (on: boolean) => screenOn.push(on),
       setBackHandled: (handled: boolean) => {
-        const s = window.__DD__?.ready ? window.__DD__.state() : { mode: 'boot', screen: 'loading' };
+        const d = window.__DD__;
+        const s = d?.idle?.ready ? { mode: d.idle.mode(), screen: d.internals.game.screen as string } : { mode: 'boot', screen: 'loading' };
         calls.push({ handled, mode: s.mode, screen: s.screen });
       },
     };
   });
   await page.goto('/index.html');
-  await waitMode(page, 'menu');
+  await waitMode(page, 'playing');
   const lastCall = () => page.evaluate(() => (window as unknown as Win).DeepDownAndroid.backCalls.at(-1)?.handled);
+  const screenOn = () => page.evaluate(() => (window as unknown as Win).DeepDownAndroid.screenOn);
+  // Playing: Back is the page's, and the screen stays on.
+  await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
+  await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(true);
+
+  // Back in play climbs to the menu at the surface: the root, where Back belongs to the OS.
+  expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true);
+  await waitMode(page, 'menu', 10_000);
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(false);
+  expect(await page.evaluate(() => window.deepDownBack?.())).toBe(false);
 
   // A screen over the menu: Back closes it, so the page handles Back again.
-  await page.getByRole('button', { name: /Settings/i }).first().click();
+  await page.getByRole('button', { name: /^Settings$/i }).first().click();
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true);
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(false);
 
-  await page.getByRole('button', { name: /New Expedition/i }).click();
+  await page.getByRole('button', { name: /Descend/i }).click();
   await waitMode(page, 'playing');
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
-  const screenOn = () => page.evaluate(() => (window as unknown as Win).DeepDownAndroid.screenOn);
-  await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(true); // playing keeps the screen on
-  expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true); // pauses
-  await waitMode(page, 'paused', 10_000);
-  await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
-  expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true); // resumes
-  await waitMode(page, 'playing', 10_000);
+  await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(true);
 
   const calls = await page.evaluate(() => (window as unknown as Win).DeepDownAndroid.backCalls);
   for (const c of calls) {
@@ -176,15 +175,14 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
   for (let i = 1; i < calls.length; i++) expect(calls[i].handled).not.toBe(calls[i - 1].handled);
 
   // MainActivity.onPause → deepDownLifecycle('pause'): a 'background' save, then the pause.
-  await page.waitForTimeout(1200); // past the one-save-per-second guard after the start save
-  await page.evaluate(() => window.__DD__.clearEvents());
+  await page.waitForTimeout(1200); // past the one-save-per-second guard after the menu's save
+  const t0 = await page.evaluate(() => performance.now());
   expect(await page.evaluate(() => (window as unknown as Win).deepDownLifecycle('pause'))).toBe(true);
-  const saves = await page.evaluate(() => window.__DD__.events('game:saved').map((e) => e.payload.reason));
-  expect(saves).toEqual(['background']);
-  expect(await page.evaluate(() => window.__DD__.state().mode)).toBe('paused');
+  expect(await savesSince(page, t0)).toEqual(['background']);
+  expect(await page.evaluate(() => window.__DD__.idle.mode())).toBe('paused');
   // A second pause within a second does not save again.
   expect(await page.evaluate(() => (window as unknown as Win).deepDownLifecycle('pause'))).toBe(true);
-  expect(await page.evaluate(() => window.__DD__.events('game:saved').length)).toBe(1);
+  expect(await savesSince(page, t0)).toHaveLength(1);
   expect(await page.evaluate(() => (window as unknown as Win).deepDownLifecycle('resume'))).toBe(true);
   // Paused: the game lets the screen sleep again (on its next frame).
   await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(false);
@@ -192,9 +190,9 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
 
 test('context loss pauses behind “Restoring graphics…”; 10 s without the context shows the crash panel', async ({ page }) => {
   await page.goto('/index.html');
-  await startExpedition(page);
+  await waitMode(page, 'playing');
   await page.evaluate(() => {
-    const gl = window.__DD__.game.renderer.gl.getContext() as WebGL2RenderingContext;
+    const gl = window.__DD__.internals.game.renderer.gl.getContext() as WebGL2RenderingContext;
     (window as unknown as { __lose: WEBGL_lose_context }).__lose = gl.getExtension('WEBGL_lose_context')!;
     (window as unknown as { __lose: WEBGL_lose_context }).__lose.loseContext();
   });
@@ -218,16 +216,15 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
     Object.defineProperty(Navigator.prototype, 'deviceMemory', { get: () => 8 });
   });
   await page.goto('/index.html?autoq=1');
-  await waitMode(page, 'menu');
-  expect(await page.evaluate(() => window.__DD__.game.settings.quality)).toBe('balanced');
-  expect(await page.evaluate(() => (window as unknown as Win).__DD_RELEASE__.governor())).toMatchObject({ auto: true });
-  await page.getByRole('button', { name: /New Expedition/i }).click();
   await waitMode(page, 'playing');
+  const quality = () => page.evaluate(() => window.__DD__.idle.settings().quality as string);
+  expect(await quality()).toBe('balanced');
+  expect(await page.evaluate(() => (window as unknown as Win).__DD_RELEASE__.governor())).toMatchObject({ auto: true });
 
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
   try {
-    await page.waitForFunction(() => window.__DD__.game.settings.quality === 'battery', null, { timeout: 150_000, polling: 500 });
+    await page.waitForFunction(() => window.__DD__.idle.settings().quality === 'battery', null, { timeout: 150_000, polling: 500 });
     await page.waitForTimeout(2000);
   } finally {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
@@ -240,9 +237,9 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
 
   await page.reload();
   await waitMode(page, 'menu');
-  expect(await page.evaluate(() => window.__DD__.game.settings.quality)).toBe('battery');
+  expect(await quality()).toBe('battery');
   // A manual choice switches it off for good.
-  await page.evaluate(() => window.__DD__.game.updateSettings({ quality: 'high' }));
+  await page.evaluate(() => window.__DD__.idle.settings({ quality: 'high' }));
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('deepdown.autoquality') ?? 'null')?.auto), { timeout: 5_000 }).toBe(false);
 });
 

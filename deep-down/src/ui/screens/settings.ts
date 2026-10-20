@@ -2,95 +2,94 @@ import { t } from '../../i18n';
 import { SETTINGS_LIMITS } from '../../save/settings';
 import type { Settings } from '../../save/types';
 import { h } from '../dom';
-import { multiplier, percent } from '../format';
+import { percent } from '../format';
 import type { ScreenHost } from './host';
 import { btn, closeBtn, header, section, segmented, slider, toggle } from './widgets';
 
+/** Where the settings rows send their changes (the screen host, or the in-play Settings sheet). */
+export interface SettingsSink {
+  get(): Settings;
+  set(p: Partial<Settings>): void;
+  /** A slider drag: at most one patch per frame. */
+  drag(p: Partial<Settings>): void;
+}
+
 /**
- * Settings. Every control applies immediately through UiActions.updateSettings; sliders
- * update their own readout while dragging instead of rebuilding the screen.
+ * The settings rows (SPEC §9.4, W1: sound, haptics, shake, quality, text size, left-handed; plus Show FPS for
+ * the device test, CRITIQUE MUST 16c). Shared by the menu's Settings screen and the in-play Settings sheet.
  */
-export function buildSettings(host: ScreenHost): HTMLElement {
-  const a = host.actions;
-  const s = a.getSettings();
-  const set = (p: Partial<Settings>) => host.patchSettings(p);
-  const drag = (p: Partial<Settings>) => host.patchSettings(p, true);
+export function settingsRows(sink: SettingsSink): HTMLElement[] {
+  const s = sink.get();
   const on = t('settings.on');
   const off = t('settings.off');
-  const vol = (label: string, key: 'masterVolume' | 'musicVolume' | 'sfxVolume' | 'ambienceVolume') =>
-    slider(label, s[key], (v) => drag({ [key]: v }), { min: 0, max: 1, step: 0.05, format: percent, key });
+  const vol = (label: string, key: 'masterVolume' | 'musicVolume' | 'sfxVolume') =>
+    slider(label, s[key], (v) => sink.drag({ [key]: v }), { min: 0, max: 1, step: 0.05, format: percent, key });
+  return [
+    section(t('settings.audio'), vol(t('settings.master'), 'masterVolume'), vol(t('settings.music'), 'musicVolume'), vol(t('settings.sfx'), 'sfxVolume')),
+    section(
+      t('ui.settings.feel'),
+      toggle(t('ui.settings.haptics'), s.vibration, (vibration) => sink.set({ vibration }), 'vibration', on, off),
+      slider(t('settings.cameraShake'), s.cameraShake, (cameraShake) => sink.drag({ cameraShake }), { min: 0, max: 1, step: 0.05, format: percent, key: 'shake' }),
+      toggle(t('settings.leftHanded'), s.leftHanded, (leftHanded) => sink.set({ leftHanded }), 'leftHanded', on, off),
+    ),
+    section(
+      t('settings.graphics'),
+      segmented(
+        t('settings.quality'),
+        [
+          { value: 'battery', text: t('settings.quality.battery') },
+          { value: 'balanced', text: t('settings.quality.balanced') },
+          { value: 'high', text: t('settings.quality.high') },
+        ],
+        s.quality,
+        (quality) => sink.set({ quality }),
+        'quality',
+      ),
+      slider(t('settings.brightness'), s.brightness, (brightness) => sink.drag({ brightness }), {
+        min: SETTINGS_LIMITS.brightness[0],
+        max: SETTINGS_LIMITS.brightness[1],
+        step: 0.05,
+        format: percent,
+        key: 'brightness',
+      }),
+      toggle(t('settings.showFps'), s.showFps, (showFps) => sink.set({ showFps }), 'showFps', on, off),
+    ),
+    section(
+      t('settings.accessibility'),
+      segmented(
+        t('settings.textSize'),
+        [
+          { value: 'normal', text: t('settings.textSize.normal') },
+          { value: 'large', text: t('settings.textSize.large') },
+        ],
+        s.textSize,
+        (textSize) => sink.set({ textSize }),
+        'textSize',
+      ),
+      toggle(t('settings.highContrast'), s.highContrast, (highContrast) => sink.set({ highContrast }), 'contrast', on, off),
+    ),
+  ];
+}
 
+/** The Settings screen (from the menu): the rows, About, reset and erase. */
+export function buildSettings(host: ScreenHost): HTMLElement {
+  const a = host.actions;
+  const sink: SettingsSink = { get: () => a.getSettings(), set: (p) => host.patchSettings(p), drag: (p) => host.patchSettings(p, true) };
   return h(
     'section',
     { class: 'dd-screen dd-overlay' },
     h(
       'div',
       { class: 'dd-panel dd-settings', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('settings.title') },
-      // About / Licences: one tap from here, two from the menu.
-      header(t('settings.title'), btn(t('ui.settings.about'), () => host.show('about'), { variant: 'ghost', key: 'about', className: 'dd-about-link', label: t('ui.settings.aboutLabel') }), closeBtn(t('menu.back'), () => host.settingsBack())),
+      header(
+        t('settings.title'),
+        btn(t('ui.settings.about'), () => host.show('about'), { variant: 'ghost', key: 'about', className: 'dd-about-link', label: t('ui.settings.aboutLabel') }),
+        closeBtn(t('menu.back'), () => host.settingsBack()),
+      ),
       h(
         'div',
         { class: 'dd-scroll' },
-        section(
-          t('settings.graphics'),
-          segmented(
-            t('settings.quality'),
-            [
-              { value: 'battery', text: t('settings.quality.battery') },
-              { value: 'balanced', text: t('settings.quality.balanced') },
-              { value: 'high', text: t('settings.quality.high') },
-            ],
-            s.quality,
-            (quality) => set({ quality }),
-            'quality',
-          ),
-          resolutionRow(s, set, drag),
-          slider(t('settings.brightness'), s.brightness, (brightness) => drag({ brightness }), {
-            min: SETTINGS_LIMITS.brightness[0],
-            max: SETTINGS_LIMITS.brightness[1],
-            step: 0.05,
-            format: percent,
-            key: 'brightness',
-          }),
-          toggle(t('settings.bloom'), s.bloom, (bloom) => set({ bloom }), 'bloom', on, off),
-          toggle(t('settings.showFps'), s.showFps, (showFps) => set({ showFps }), 'showFps', on, off),
-        ),
-        section(
-          t('settings.controls'),
-          slider(t('settings.lookSensitivity'), s.lookSensitivity, (lookSensitivity) => drag({ lookSensitivity }), {
-            min: SETTINGS_LIMITS.lookSensitivity[0],
-            max: SETTINGS_LIMITS.lookSensitivity[1],
-            step: 0.05,
-            format: multiplier,
-            key: 'look',
-          }),
-          toggle(t('settings.invertY'), s.invertY, (invertY) => set({ invertY }), 'invertY', on, off),
-          toggle(t('settings.leftHanded'), s.leftHanded, (leftHanded) => set({ leftHanded }), 'leftHanded', on, off),
-          toggle(t('settings.vibration'), s.vibration, (vibration) => set({ vibration }), 'vibration', on, off),
-          toggle(t('settings.cameraFollow'), s.cameraFollow, (cameraFollow) => set({ cameraFollow }), 'cameraFollow', on, off),
-        ),
-        section(
-          t('settings.audio'),
-          vol(t('settings.master'), 'masterVolume'),
-          vol(t('settings.music'), 'musicVolume'),
-          vol(t('settings.sfx'), 'sfxVolume'),
-          vol(t('settings.ambience'), 'ambienceVolume'),
-        ),
-        section(
-          t('settings.accessibility'),
-          slider(t('settings.cameraShake'), s.cameraShake, (cameraShake) => drag({ cameraShake }), { min: 0, max: 1, step: 0.05, format: percent, key: 'shake' }),
-          segmented(
-            t('settings.textSize'),
-            [
-              { value: 'normal', text: t('settings.textSize.normal') },
-              { value: 'large', text: t('settings.textSize.large') },
-            ],
-            s.textSize,
-            (textSize) => set({ textSize }),
-            'textSize',
-          ),
-          toggle(t('settings.highContrast'), s.highContrast, (highContrast) => set({ highContrast }), 'contrast', on, off),
-        ),
+        ...settingsRows(sink),
         h(
           'div',
           { class: 'dd-settings-foot' },
@@ -104,16 +103,16 @@ export function buildSettings(host: ScreenHost): HTMLElement {
             { key: 'reset' },
           ),
           btn(
-            t('settings.deleteSave'),
+            t('ui.settings.erase'),
             () =>
               host.confirm({
-                text: t('settings.deleteSaveConfirm'),
-                yes: t('settings.deleteSaveYes'),
+                text: t('ui.settings.eraseConfirm'),
+                yes: t('ui.settings.eraseYes'),
                 no: t('settings.deleteSaveNo'),
                 danger: true,
                 onYes: () => {
                   a.deleteSave();
-                  host.toast(t('settings.deleteSaveDone'), 'info');
+                  host.toast(t('ui.settings.eraseDone'), 'info');
                   host.rerender();
                 },
               }),
@@ -123,30 +122,4 @@ export function buildSettings(host: ScreenHost): HTMLElement {
       ),
     ),
   );
-}
-
-/** Resolution: a slider over the allowed scale range plus an Auto chip (null = preset default). */
-function resolutionRow(s: Settings, set: (p: Partial<Settings>) => void, drag: (p: Partial<Settings>) => void): HTMLElement {
-  const [min, max] = SETTINGS_LIMITS.renderScale;
-  const auto = h('button', { class: 'dd-chip-btn', type: 'button', 'aria-pressed': String(s.renderScale === null), 'data-key': 'scaleAuto', text: t('settings.auto') });
-  // Dragging the slider leaves Auto; the chip goes back to the preset's own resolution.
-  const row = slider(t('settings.renderScale'), s.renderScale ?? 1, (v) => {
-    auto.setAttribute('aria-pressed', 'false');
-    row.classList.remove('is-auto');
-    drag({ renderScale: v });
-  }, { min, max, step: 0.05, format: percent, key: 'scale', extra: auto });
-  const out = row.querySelector('output')!;
-  const input = row.querySelector('input')!;
-  const showAuto = (isAuto: boolean) => {
-    row.classList.toggle('is-auto', isAuto);
-    out.textContent = isAuto ? t('settings.auto') : percent(Number(input.value));
-  };
-  showAuto(s.renderScale === null);
-  auto.addEventListener('click', () => {
-    const next = auto.getAttribute('aria-pressed') !== 'true';
-    auto.setAttribute('aria-pressed', String(next));
-    showAuto(next);
-    set({ renderScale: next ? null : Number(input.value) });
-  });
-  return row;
 }

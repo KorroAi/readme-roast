@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { VoxelWorld } from '../world/VoxelWorld';
-import { ChunkMeshData, OFFSET_RANGE, PADDED_VOXELS, VERTEX_BYTES, copyPadded, meshChunk } from './mesher';
+import { ChunkMeshData, OFFSET_RANGE, PADDED_VOXELS, VERTEX_BYTES, copyPadded, meshChunk, worldChunkY } from './mesher';
 import { MeshPool, meshBuildOnWorkers, meshWorkerCount, spawnMeshWorker, type MeshJob, type MeshResult, type WorkerLike } from './meshPool';
 
 export interface ChunkStats {
@@ -61,6 +61,8 @@ interface Job {
   cx: number;
   cy: number;
   cz: number;
+  /** World chunk y the job meshes (the storage row's slab at posting; a ring world recycles rows). */
+  wcy: number;
   /** World revision of the voxel snapshot. */
   rev: number;
   t: number;
@@ -155,6 +157,8 @@ export class ChunkRenderer {
   private readonly snapRevision: Float64Array;
   /** Per chunk: 1 while its latest worker job has not been applied. */
   private readonly inFlight: Uint8Array;
+  /** Per chunk: 1 once a mesh was applied since its contents were replaced (a ring slab written). */
+  private readonly fresh: Uint8Array;
   private pool: MeshPool | null = null;
   private readonly jobs = new Map<number, Job>();
   private readonly batches: Batch[] = [];
@@ -199,6 +203,7 @@ export class ChunkRenderer {
     this.latest = new Float64Array(n);
     this.snapRevision = new Float64Array(n).fill(-1);
     this.inFlight = new Uint8Array(n);
+    this.fresh = new Uint8Array(n);
     this.dist = new Float64Array(n);
     this.stats.chunks = n;
     this.group.name = 'terrain';
@@ -348,7 +353,7 @@ export class ChunkRenderer {
     const [cx, cy, cz] = this.coords(i);
     const id = ++this.jobSeq;
     this.warmIds.add(id);
-    pool.post([{ id, cx, cy, cz, voxels: copyPadded(this.world, cx, cy, cz, this.takeVoxels()) }]);
+    pool.post([{ id, cx, cy: worldChunkY(this.world, cy) ?? cy, cz, voxels: copyPadded(this.world, cx, cy, cz, this.takeVoxels()) }]);
   }
 
   private markBuilt(i: number): void {
@@ -482,7 +487,7 @@ export class ChunkRenderer {
         const cz = Math.floor(i / cxy);
         const cy = Math.floor((i - cz * cxy) / w.cx);
         const cx = i - cz * cxy - cy * w.cx;
-        return (cx * cs + 8 - focus.x) ** 2 + (cy * cs + 8 - focus.y) ** 2 + (cz * cs + 8 - focus.z) ** 2;
+        return (cx * cs + 8 - focus.x) ** 2 + (this.chunkY(cy) * cs + 8 - focus.y) ** 2 + (cz * cs + 8 - focus.z) ** 2;
       };
       dirty.sort((a, b) => dist(a) - dist(b));
     }
@@ -530,7 +535,7 @@ export class ChunkRenderer {
       const d = this.dist;
       for (const i of dirty) {
         const [cx, cy, cz] = this.coords(i);
-        d[i] = (cx * cs + 8 - f.x) ** 2 + (cy * cs + 8 - f.y) ** 2 + (cz * cs + 8 - f.z) ** 2;
+        d[i] = (cx * cs + 8 - f.x) ** 2 + (this.chunkY(cy) * cs + 8 - f.y) ** 2 + (cz * cs + 8 - f.z) ** 2;
       }
       dirty.sort((a, b) => d[a] - d[b]);
     }
@@ -564,7 +569,8 @@ export class ChunkRenderer {
     this.inFlight[i] = 1;
     this.snapRevision[i] = w.revision;
     w.dirty[i] = 0;
-    return { id, chunk: i, cx, cy, cz, rev: w.revision, t: now(), frame: this.frame, build, batch: null, result: null };
+    const wcy = worldChunkY(w, cy) ?? cy;
+    return { id, chunk: i, cx, cy, cz, wcy, rev: w.revision, t: now(), frame: this.frame, build, batch: null, result: null };
   }
 
   private postBatch(jobs: Job[], voxels: Uint8Array[]): void {
@@ -575,7 +581,7 @@ export class ChunkRenderer {
       const j = jobs[k];
       j.batch = batch;
       this.jobs.set(j.id, j);
-      msgs.push({ id: j.id, cx: j.cx, cy: j.cy, cz: j.cz, voxels: voxels[k] });
+      msgs.push({ id: j.id, cx: j.cx, cy: j.wcy, cz: j.cz, voxels: voxels[k] });
     }
     this.batches.push(batch);
     this.pendingJobs += jobs.length;
@@ -709,6 +715,7 @@ export class ChunkRenderer {
 
   private applyMesh(i: number, cx: number, cy: number, cz: number, data: ChunkMeshData, rev: number): void {
     const w = this.world;
+    this.fresh[i] = 1;
     this.propagateSeams(i, cx, cy, cz, data.seams, rev);
     let mesh = this.meshes[i];
     this.stats.vertices -= this.vertexCounts[i];
@@ -739,16 +746,23 @@ export class ChunkRenderer {
     // Sculpted vertices move at most OFFSET_RANGE per axis.
     geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(cs / 2, cs / 2, cs / 2), (cs * Math.sqrt(3)) / 2 + OFFSET_RANGE * Math.sqrt(3));
     geo.boundingBox = new THREE.Box3(new THREE.Vector3(-OFFSET_RANGE, -OFFSET_RANGE, -OFFSET_RANGE), new THREE.Vector3(cs + OFFSET_RANGE, cs + OFFSET_RANGE, cs + OFFSET_RANGE));
+    // A ring world's storage row holds a different slab after a recycle: place the mesh in world space.
+    const wy = this.chunkY(cy);
     if (mesh) {
       // The old mesh stays drawn until this moment: swap the geometry, no frame without it.
       mesh.geometry.dispose();
       mesh.geometry = geo;
+      if (mesh.position.y !== wy * cs) {
+        mesh.position.set(cx * cs, wy * cs, cz * cs);
+        mesh.updateMatrix();
+        (mesh.userData.center as THREE.Vector3).set(cx * cs + cs / 2, wy * cs + cs / 2, cz * cs + cs / 2);
+      }
     } else {
       mesh = new THREE.Mesh(geo, this.material);
-      mesh.position.set(cx * cs, cy * cs, cz * cs);
+      mesh.position.set(cx * cs, wy * cs, cz * cs);
       mesh.matrixAutoUpdate = false;
       mesh.updateMatrix();
-      mesh.userData.center = new THREE.Vector3(cx * cs + cs / 2, cy * cs + cs / 2, cz * cs + cs / 2);
+      mesh.userData.center = new THREE.Vector3(cx * cs + cs / 2, wy * cs + cs / 2, cz * cs + cs / 2);
       mesh.name = `chunk_${cx}_${cy}_${cz}`;
       this.group.add(mesh);
       this.meshes[i] = mesh;
@@ -776,8 +790,10 @@ export class ChunkRenderer {
       prev[i * 27 + k] = seams[k];
       if (!changed || first || this.building) continue;
       const nx = cx + (k % 3) - 1;
-      const ny = cy + (((k / 3) | 0) % 3) - 1;
+      let ny = cy + (((k / 3) | 0) % 3) - 1;
       const nz = cz + ((k / 9) | 0) - 1;
+      // A ring world's storage rows wrap (the dead slot between its ends has no mesh).
+      if (this.ring) ny = (ny + w.cy) % w.cy;
       if (nx < 0 || ny < 0 || nz < 0 || nx >= w.cx || ny >= w.cy || nz >= w.cz) continue;
       const j = w.chunkIndex(nx, ny, nz);
       if (this.snapRevision[j] < rev) w.markDirty(nx, ny, nz);
@@ -788,6 +804,40 @@ export class ChunkRenderer {
   private noteRebuild(ms: number): void {
     this.stats.lastRebuildMs = ms;
     if (ms > this.stats.maxRebuildMs) this.stats.maxRebuildMs = ms;
+  }
+
+  /** World chunk y of storage chunk row `cy` (ring worlds: the slab it holds; a dead slot keeps its row). */
+  private chunkY(cy: number): number {
+    return worldChunkY(this.world, cy) ?? cy;
+  }
+
+  private get ring(): boolean {
+    return typeof (this.world as unknown as { copyPaddedWorld?: unknown }).copyPaddedWorld === 'function';
+  }
+
+  /** A ring slot's contents were replaced: its chunks have no valid mesh until their next one lands. */
+  markStale(cy: number): void {
+    const w = this.world;
+    for (let cz = 0; cz < w.cz; cz++) for (let cx = 0; cx < w.cx; cx++) this.fresh[w.chunkIndex(cx, cy, cz)] = 0;
+  }
+
+  /** Chunks of storage rows `cys` with no mesh since their contents were replaced (missing from the frame). */
+  missing(cys: readonly number[]): number {
+    const w = this.world;
+    let n = 0;
+    for (const cy of cys) for (let cz = 0; cz < w.cz; cz++) for (let cx = 0; cx < w.cx; cx++) if (!this.fresh[w.chunkIndex(cx, cy, cz)]) n++;
+    return n;
+  }
+
+  /** Storage chunk indices whose slab is written but whose mesh is not applied yet (debug: missing chunks). */
+  unmeshed(isLive: (cy: number) => boolean): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.meshes.length; i++) {
+      const [, cy] = this.coords(i);
+      if (!isLive(cy)) continue;
+      if (this.world.dirty[i] || this.inFlight[i]) out.push(i);
+    }
+    return out;
   }
 
   private coords(i: number): [number, number, number] {

@@ -36,6 +36,7 @@ export interface LightingUniforms {
   uLanternColor: THREE.IUniform<THREE.Color>;
   uLanternRadius: THREE.IUniform<number>;
   uLanternIntensity: THREE.IUniform<number>;
+  uFogStart: THREE.IUniform<number>;
   uAmbient: THREE.IUniform<THREE.Color>;
   uOpenAmbient: THREE.IUniform<THREE.Color>;
   uEmitGain: THREE.IUniform<number>;
@@ -67,6 +68,8 @@ uniform vec3 uFogLow;
 uniform vec4 uFogPool;
 uniform vec4 uAtmos;
 uniform float uFogDensity;
+// Haze starts this far from the eye (the descent: the glass plane, so the dig face is in clear air).
+uniform float uFogStart;
 uniform float uTime;
 uniform vec3 uDebug; // x: fullbright amount, y: clip height (discard above), z: unused
 uniform float uSceneEncode;
@@ -217,6 +220,7 @@ float poolDepth(vec3 wp, float depth) {
 // deep one glows (light scattered many times), so mid-distance forms (pillars, the Spindle, stair
 // flights) stand as darker silhouettes against the lighter depth behind them.
 vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
+  depth = max(depth - uFogStart, 0.0);
   float f = depth * uFogDensity;
   float od = f * f * 0.6 + f * 0.4 + poolDepth(wp, depth);
   float a = 1.0 - exp(-od);
@@ -338,6 +342,9 @@ export class LightingRig {
   private readonly sy: number;
   private readonly sz: number;
   private pending: Box3i | null = null;
+  /** Ring worlds: the storage rows to upload (a change can cross the ring's wrap), with an x/z box. */
+  private pendingRows: Uint8Array | null = null;
+  private rowBox: Box3i = { x0: 0, y0: 0, z0: 0, x1: -1, y1: -1, z1: -1 };
   /** Current zone weights (camp, tunnel, hollow, rift), smoothed over time. */
   readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0 };
   /** Exposure multiplier of the current atmosphere (the post chain applies it). */
@@ -395,6 +402,7 @@ export class LightingRig {
       uFogPool: { value: this.fogPool },
       uAtmos: { value: this.atmos },
       uFogDensity: { value: 0.02 },
+      uFogStart: { value: 0 },
       uTime: { value: 0 },
       uDebug: { value: new THREE.Vector3(0, 9999, 0) },
       uSceneEncode: SCENE_ENCODE,
@@ -497,6 +505,23 @@ export class LightingRig {
     this.exposure = m.k[7];
   }
 
+  /**
+   * Set the atmosphere directly from linear colours (the descent's BiomeLook): haze, pooled haze, base
+   * ambient and open fill, the haze density and where it starts, scatter/bounce/absorb and exposure.
+   */
+  applyLook(l: { fog: THREE.Color; fogLow: THREE.Color; ambient: THREE.Color; open: THREE.Color; density: number; fogStart: number; scatter: number; bounce: number; absorb: number; exposure: number }): void {
+    const u = this.uniforms;
+    u.uFogColor.value.copy(l.fog);
+    this.fogLow.copy(l.fogLow);
+    u.uAmbient.value.copy(l.ambient);
+    u.uOpenAmbient.value.copy(l.open);
+    u.uFogDensity.value = l.density;
+    u.uFogStart.value = l.fogStart;
+    this.fogPool.set(-1000, 0.25, 0, 0);
+    this.atmos.set(l.scatter, l.bounce, l.absorb, 0);
+    this.exposure = l.exposure;
+  }
+
   /** Queue a sub-region of the world light texture for upload. */
   markLightDirty(box: Box3i): void {
     if (box.x1 < box.x0) return;
@@ -513,6 +538,37 @@ export class LightingRig {
     p.z1 = Math.max(p.z1, box.z1);
   }
 
+  /**
+   * Queue storage rows of the light texture for upload (ring worlds: `rows[y]` = 1), over the x/z extent of
+   * `box` (its y range is ignored). Each contiguous run of rows becomes one texSubImage3D.
+   */
+  markLightRows(rows: Uint8Array, box: Box3i | null = null): void {
+    if (!this.pendingRows) this.pendingRows = new Uint8Array(this.sy);
+    let any = false;
+    for (let y = 0; y < this.sy; y++)
+      if (rows[y]) {
+        this.pendingRows[y] = 1;
+        any = true;
+      }
+    if (!any) return;
+    const b = this.rowBox;
+    const x0 = box && box.x1 >= box.x0 ? box.x0 : 0;
+    const x1 = box && box.x1 >= box.x0 ? box.x1 : this.sx - 1;
+    const z0 = box && box.x1 >= box.x0 ? box.z0 : 0;
+    const z1 = box && box.x1 >= box.x0 ? box.z1 : this.sz - 1;
+    if (b.x1 < b.x0) {
+      b.x0 = x0;
+      b.x1 = x1;
+      b.z0 = z0;
+      b.z1 = z1;
+    } else {
+      b.x0 = Math.min(b.x0, x0);
+      b.x1 = Math.max(b.x1, x1);
+      b.z0 = Math.min(b.z0, z0);
+      b.z1 = Math.max(b.z1, z1);
+    }
+  }
+
   /** Mark the whole lantern volume for re-upload (it is tiny: 32 KB). */
   markLanternDirty(origin: THREE.Vector3Like): void {
     this.uniforms.uLanternOrigin.value.set(origin.x, origin.y, origin.z);
@@ -524,9 +580,33 @@ export class LightingRig {
    * whole world volume. Falls back to a full upload if the texture is not on the GPU yet.
    */
   flush(renderer: THREE.WebGLRenderer): void {
+    if (this.pendingRows) {
+      const rows = this.pendingRows;
+      const rb = this.rowBox;
+      this.pendingRows = null;
+      if (rb.x1 >= rb.x0) {
+        // One upload per contiguous run of rows.
+        for (let y = 0; y < this.sy; ) {
+          if (!rows[y]) {
+            y++;
+            continue;
+          }
+          let e = y;
+          while (e + 1 < this.sy && rows[e + 1]) e++;
+          this.uploadBox(renderer, { x0: rb.x0, x1: rb.x1, z0: rb.z0, z1: rb.z1, y0: y, y1: e });
+          y = e + 1;
+        }
+      }
+      rb.x0 = rb.y0 = rb.z0 = 0;
+      rb.x1 = rb.y1 = rb.z1 = -1;
+    }
     const box = this.pending;
     if (!box) return;
     this.pending = null;
+    this.uploadBox(renderer, box);
+  }
+
+  private uploadBox(renderer: THREE.WebGLRenderer, box: Box3i): void {
     const props = renderer.properties.get(this.lightTex) as { __webglTexture?: WebGLTexture };
     const glTex = props.__webglTexture;
     if (!glTex || this.lightTex.version === 0) {
