@@ -244,35 +244,5 @@ export function nodeInputs(def: NodeDef): Array<[ItemId, number]> {
   return (Object.entries(def.inputs) as Array<[ItemId, number | undefined]>).filter((e): e is [ItemId, number] => (e[1] ?? 0) > 0);
 }
 
-// ---------------------------------------------------------------------------------------
-// The W1 Workbench list (interim). The screens stream replaces inventory.ts buildCrafting with the
-// tree (CraftTreeView) in W3; until it does, these keep the three equipment recipes it lists in
-// their old shape. Remove once nothing imports them, and make RecipeId an alias of NodeId.
-
-/** @deprecated Interim: the three Workbench recipes of the W1 list. Use NodeId. */
-export type RecipeId = 'copperPickaxe' | 'copperLantern' | 'sturdyPack';
-
-/** @deprecated Interim: a W1 Workbench recipe (an equipment node). Use NodeDef. */
-export interface RecipeDef {
-  id: RecipeId;
-  name: TextKey;
-  result: { slot: EquipmentSlot; tier: number };
-  inputs: Partial<Record<ItemId, number>>;
-  order: number;
-}
-
-function legacy(id: RecipeId): RecipeDef {
-  const n = NODES[id];
-  const r = n.result as Extract<NodeResult, { kind: 'equip' }>;
-  return { id, name: n.name, result: { slot: r.slot, tier: r.tier }, inputs: n.inputs, order: n.order };
-}
-
-/** @deprecated Interim (see RecipeDef). */
-export const RECIPES: Record<RecipeId, RecipeDef> = {
-  copperPickaxe: legacy('copperPickaxe'),
-  sturdyPack: legacy('sturdyPack'),
-  copperLantern: legacy('copperLantern'),
-};
-
-/** @deprecated Interim (see RecipeDef). */
-export const RECIPE_LIST: readonly RecipeDef[] = Object.values(RECIPES).sort((a, b) => a.order - b.order);
+/** The W1 name of a node id (events and saves say 'recipe'); the data-keys stay craft:{id}. */
+export type RecipeId = NodeId;

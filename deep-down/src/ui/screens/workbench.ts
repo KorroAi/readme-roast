@@ -95,7 +95,8 @@ export function buildTree(host: ScreenHost): HTMLElement {
     { class: 'dd-screen dd-overlay' },
     h(
       'div',
-      { class: 'dd-panel dd-tree', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ui.tree.title') },
+      // Named for the open tab's place ("Workbench upgrades"): where the player stands.
+      { class: 'dd-panel dd-tree', role: 'dialog', 'aria-modal': 'true', 'aria-label': t('ui.tree.dialog', { place: t(TABS.find((d) => d.id === tab)!.label) }) },
       h(
         'header',
         { class: 'dd-panel-head dd-tree-head' },
@@ -180,9 +181,11 @@ function partialRing(frac: number): Element {
   const pts = [
     [c, 0], [s - c, 0], [s, c], [s, s - c], [s - c, s], [c, s], [0, s - c], [0, c],
   ].map(([x, y]) => `${x + 3},${y + 3}`);
+  // Dash lengths in user units (pathLength on basic shapes is newer than the Chromium 88 floor).
+  const perimeter = 4 * (s - 2 * c) + 4 * c * Math.SQRT2;
+  const on = (Math.max(0, Math.min(1, frac)) * perimeter).toFixed(1);
   const tpl = document.createElement('template');
-  const pct = Math.round(Math.max(0, Math.min(1, frac)) * 100);
-  tpl.innerHTML = `<svg class="dd-node-ring" viewBox="0 0 ${TREE_NODE} ${TREE_NODE}" width="${TREE_NODE}" height="${TREE_NODE}" aria-hidden="true"><polygon points="${pts.join(' ')}" pathLength="100" stroke-dasharray="${pct} 100"/></svg>`;
+  tpl.innerHTML = `<svg class="dd-node-ring" viewBox="0 0 ${TREE_NODE} ${TREE_NODE}" width="${TREE_NODE}" height="${TREE_NODE}" aria-hidden="true"><polygon points="${pts.join(' ')}" stroke-dasharray="${on} ${perimeter.toFixed(1)}"/></svg>`;
   return tpl.content.firstElementChild!;
 }
 
@@ -192,7 +195,6 @@ function detail(host: ScreenHost, view: CraftTreeView, n: CraftTreeNode, tab: Tr
   const station = n.result.kind === 'station';
   // The place only when it is not the open tab's (the tab already says where you stand).
   const eyebrow = [tabOf(n.place) === tab ? '' : place?.name ?? '', t(LOOK_TEXT[look])].filter(Boolean).join(' · ');
-  const why = look === 'owned' || look === 'craftable' ? null : n.reason;
   const prereqs = look === 'locked' && n.prereqs.length
     ? h(
         'ul',
@@ -239,7 +241,6 @@ function detail(host: ScreenHost, view: CraftTreeView, n: CraftTreeNode, tab: Tr
         h('div', { class: 'dd-tree-id-text' }, h('span', { class: 'dd-eyebrow', text: eyebrow }), h('h3', { class: 'dd-tree-name', text: n.name })),
       ),
       h('p', { class: 'dd-tree-does', text: n.does }),
-      why ? h('p', { class: `dd-tree-why ${look}`, text: why }) : null,
       prereqs,
       n.stats.length ? h('div', { class: 'dd-tree-stats' }, ...n.stats.map(statBar)) : null,
       h('h4', { class: 'dd-section-title dd-tree-cost-title', text: t('craft.requires') }),

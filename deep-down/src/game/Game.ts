@@ -44,6 +44,7 @@ import { Progression, summarizeSave } from './Progression';
 import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
 import { FrameGuard } from './FrameGuard';
 import { WorldFeatures } from './WorldFeatures';
+import { TapController } from './TapController';
 import { VERSION } from '../version';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
@@ -71,6 +72,8 @@ export class Game {
   private haptics: Haptics | null = null;
   /** Seconds since the look input last moved (touch camera follow waits for it). */
   private lookStill = 0;
+  /** Tap to act on touch: tap a block to mine it, ground to walk there, an object to use it. */
+  private tap!: TapController;
   /** When the last background/pagehide save succeeded (one backgrounding saves once). */
   private lastBackgroundSaveAt = -Infinity;
   desktop!: DesktopInput;
@@ -199,6 +202,19 @@ export class Game {
       propById: (id) => s.liveProps.get(id) ?? null,
       propFlash: (id) => s.props.flash(id),
     }, this.marker, this.debris, this.particles, this.drops, this.cameraRig, this.rng);
+    this.tap = new TapController({
+      get world() {
+        return s.world;
+      },
+      player: () => this.player,
+      hand: () => this.handPosition(),
+      cameraYaw: () => this.cameraRig.moveYaw,
+      focusedPropId: () => this.focusedProp?.id ?? null,
+      propById: (id) => s.liveProps.get(id) ?? null,
+      viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+      hint: (text) => this.ui.hint(text, 2200),
+      ping: (x, y, z) => this.particles.sparkle(x, y, z, 0xffd29a, 8, this.rng, 1.1),
+    }, this.mining, this.bus);
 
     this.desktop = new DesktopInput(this.canvas, this.input);
     // Android Back button (see android/MainActivity): returns true when the game handled it.
@@ -284,6 +300,7 @@ export class Game {
   private enterMenu(): void {
     this.mode = 'menu';
     this.mining?.cancel();
+    this.tap?.reset(this.input);
     this.features?.cancelRide();
     this.desktop.releasePointer();
     this.ui.setGameplayActive(false);
@@ -603,6 +620,8 @@ export class Game {
     const input = this.input;
     const blocked = this.ui.isBlockingInput();
     this.playTime += dt;
+    // Tap to act runs first: a tap on an object presses Use, a walk sets autoMove for this frame.
+    this.tap.update(dt, input, blocked || this.features.riding);
 
     if (!blocked) {
       if (input.pausePressed || input.pauseRequested) {
@@ -629,8 +648,8 @@ export class Game {
     const riding = this.features.riding;
     const swinging = this.mining.update(dt, input, !blocked && !riding, hand.x, hand.y, hand.z);
     p.speedFactor = swinging ? 0.55 : 1;
-    const mx = blocked || riding ? 0 : input.moveX;
-    const my = blocked || riding ? 0 : input.moveY;
+    const mx = blocked || riding ? 0 : input.moveX || input.autoMoveX;
+    const my = blocked || riding ? 0 : input.moveY || input.autoMoveY;
     const ev = riding ? this.features.updateRide(dt) : p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, !swinging);
     this.lookStill = input.lookDX !== 0 || input.lookDY !== 0 ? 0 : this.lookStill + dt;
     if (!blocked && !swinging && this.settings.cameraFollow && input.lastDevice === 'touch' && this.lookStill >= FOLLOW_LOOK_IDLE_S) {
@@ -963,6 +982,7 @@ export class Game {
   private die(): void {
     this.mode = 'dead';
     this.mining.cancel();
+    this.tap.reset(this.input);
     this.features.cancelRide();
     this.input.mining = false;
     this.desktop.releasePointer();

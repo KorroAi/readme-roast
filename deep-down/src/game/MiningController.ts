@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { B, BLOCKS, blockDef, isEmitter, UNBREAKABLE_TIER } from '../config/blocks';
+import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../config/blocks';
 import { PLAYER, type PickaxeDef } from '../config/balance';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Rng } from '../core/rng';
 import { t, type TextKey } from '../i18n';
-import type { InputState } from '../input/types';
-import { raycastVoxels } from '../world/raycast';
+import type { InputState, MineLock } from '../input/types';
+import { raycastVoxels, type VoxelHit as RaycastHit } from '../world/raycast';
 import { assistTarget } from './aimAssist';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import type { PropSpec } from '../world/gen/types';
@@ -14,6 +14,10 @@ import type { DebrisSystem } from './effects/Debris';
 import type { ParticleSystem } from './effects/Particles';
 import type { TargetMarker } from './effects/TargetMarker';
 import type { DropSystem } from './Drops';
+
+const FACES: ReadonlyArray<readonly [number, number, number]> = [
+  [1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1],
+];
 
 export interface MiningTarget {
   kind: 'block' | 'prop';
@@ -97,6 +101,8 @@ export class MiningController {
    * minable block the explorer is facing.
    */
   findTarget(input: InputState, handX: number, handY: number, handZ: number): MiningTarget | null {
+    // Tap to mine: a locked block stays the target until it breaks (game/TapController).
+    if (input.lock) return this.lockedTarget(input.lock, handX, handY, handZ);
     const direct = this.rayTarget(input, handX, handY, handZ);
     if (input.aimFromPointer || input.lastDevice !== 'touch') return direct;
     if (direct && direct.inReach && direct.protectedReason === null) return direct;
@@ -122,45 +128,112 @@ export class MiningController {
     };
   }
 
+  /**
+   * What a screen point (NDC) shows, up to `maxDist` from the camera: the minable target with its
+   * reach from the hand, the prop hit first (any kind, for tap to use) and the raw block hit.
+   */
+  pick(ndcX: number, ndcY: number, handX: number, handY: number, handZ: number, maxDist: number): { target: MiningTarget | null; prop: PropSpec | null; hit: RaycastHit | null } {
+    this.cameraRig.rayThrough(ndcX, ndcY, this.origin, this.dir);
+    return this.cast(handX, handY, handZ, maxDist);
+  }
+
+  /** The locked target (tap to mine), with its face toward the hand; null once it is gone. */
+  private lockedTarget(lock: MineLock, hx: number, hy: number, hz: number): MiningTarget | null {
+    const hand = this.tmp.set(hx, hy, hz);
+    if (lock.kind === 'prop') {
+      const spec = this.hooks.propById(lock.id);
+      if (!spec?.minable) return null;
+      const m = spec.minable;
+      const point = new THREE.Vector3(spec.x, spec.y + 0.4, spec.z);
+      return {
+        kind: 'prop', key: `prop:${spec.id}`, x: spec.x, y: spec.y, z: spec.z, nx: 0, ny: 1, nz: 0, point,
+        block: B.CRYSTAL, prop: spec, name: t('block.crystal'), hardness: m.hardness, tier: m.tier,
+        protectedReason: null, inReach: point.distanceTo(hand) <= PLAYER.reach,
+      };
+    }
+    const { x, y, z } = lock;
+    const id = this.world.get(x, y, z);
+    if (!SOLID[id]) return null;
+    const def = BLOCKS[id];
+    // The open face that looks most toward the hand (as aim assist does).
+    let best = -1;
+    let bestDot = -Infinity;
+    for (let f = 0; f < 6; f++) {
+      const [fx, fy, fz] = FACES[f];
+      if (SOLID[this.world.get(x + fx, y + fy, z + fz)]) continue;
+      const dot = fx * (hx - x - 0.5) + fy * (hy - y - 0.5) + fz * (hz - z - 0.5);
+      if (dot > bestDot) {
+        bestDot = dot;
+        best = f;
+      }
+    }
+    if (best < 0) return null;
+    const [nx, ny, nz] = FACES[best];
+    const point = new THREE.Vector3(x + 0.5 + nx * 0.5, y + 0.5 + ny * 0.5, z + 0.5 + nz * 0.5);
+    const d = Math.hypot(x + 0.5 - hx, y + 0.5 - hy, z + 0.5 - hz);
+    let inReach = d <= PLAYER.reach;
+    if (inReach) {
+      // A clear line from the hand: the first solid cell toward the face must be this block.
+      const tx = point.x - hx;
+      const ty = point.y - hy;
+      const tz = point.z - hz;
+      const len = Math.hypot(tx, ty, tz) || 1;
+      const hit = raycastVoxels(this.world, hx, hy, hz, tx / len, ty / len, tz / len, len + 0.6);
+      inReach = !!hit && hit.x === x && hit.y === y && hit.z === z;
+    }
+    return {
+      kind: 'block', key: `${x},${y},${z}`, x, y, z, nx, ny, nz, point, block: id, prop: null, name: t(def.name),
+      hardness: def.hardness, tier: def.tier, protectedReason: def.protectedReason ?? null, inReach,
+    };
+  }
+
   /** What the aim ray (crosshair, or the pointer when aiming from it) hits. */
   private rayTarget(input: InputState, handX: number, handY: number, handZ: number): MiningTarget | null {
     const ndcX = input.aimFromPointer ? input.aimX : 0;
     const ndcY = input.aimFromPointer ? input.aimY : 0;
     this.cameraRig.rayThrough(ndcX, ndcY, this.origin, this.dir);
     const camToHand = this.origin.distanceTo(this.tmp.set(handX, handY, handZ));
-    const maxDist = camToHand + PLAYER.reach + 1.5;
+    return this.cast(handX, handY, handZ, camToHand + PLAYER.reach + 1.5).target;
+  }
+
+  /** Cast the ray in origin/dir: see pick(). */
+  private cast(handX: number, handY: number, handZ: number, maxDist: number): { target: MiningTarget | null; prop: PropSpec | null; hit: RaycastHit | null } {
     const hit = raycastVoxels(this.world, this.origin.x, this.origin.y, this.origin.z, this.dir.x, this.dir.y, this.dir.z, maxDist);
     const propHit = this.hooks.propRaycast(this.origin, this.dir, maxDist);
     const propSpec = propHit ? this.hooks.propById(propHit.id) : null;
+    const propFirst = propHit && propSpec && (!hit || propHit.distance < hit.distance) ? propSpec : null;
     const useProp = propHit && propSpec?.minable && (!hit || propHit.distance < hit.distance);
     if (useProp && propSpec && propHit) {
       const m = propSpec.minable!;
       const d = propHit.point.distanceTo(this.tmp.set(handX, handY, handZ));
-      return {
+      const target: MiningTarget = {
         kind: 'prop', key: `prop:${propSpec.id}`, x: propSpec.x, y: propSpec.y, z: propSpec.z, nx: -this.dir.x, ny: -this.dir.y, nz: -this.dir.z,
         point: propHit.point.clone(), block: B.CRYSTAL, prop: propSpec, name: t('block.crystal'), hardness: m.hardness, tier: m.tier,
         protectedReason: null, inReach: d <= PLAYER.reach,
       };
+      return { target, prop: propSpec, hit };
     }
-    if (!hit) return null;
+    if (!hit) return { target: null, prop: propFirst, hit: null };
     const def = BLOCKS[hit.block];
     const cx = hit.x + 0.5;
     const cy = hit.y + 0.5;
     const cz = hit.z + 0.5;
     const d = Math.hypot(cx - handX, cy - handY, cz - handZ);
     const point = new THREE.Vector3(this.origin.x + this.dir.x * hit.distance, this.origin.y + this.dir.y * hit.distance, this.origin.z + this.dir.z * hit.distance);
-    return {
+    const target: MiningTarget = {
       kind: 'block', key: `${hit.x},${hit.y},${hit.z}`, x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz, point,
       block: hit.block, prop: null, name: t(def.name), hardness: def.hardness, tier: def.tier,
       protectedReason: def.protectedReason ?? null, inReach: d <= PLAYER.reach,
     };
+    return { target, prop: propFirst, hit };
   }
 
   /** @returns true while a swing is in progress (used to slow movement). */
   update(dt: number, input: InputState, active: boolean, handX: number, handY: number, handZ: number): boolean {
     this.time += dt;
     this.rules.update(dt);
-    const wantsMine = active && input.mining;
+    // Held (button, finger, mouse) or locked by a tap (mined until it breaks).
+    const wantsMine = active && (input.mining || input.lock !== null);
     // The crosshair (desktop) or the aim-assisted block (touch) is shown even when not mining,
     // so the player sees what the next swing will hit.
     const showHover = active && (wantsMine || !input.aimFromPointer);
@@ -192,7 +265,8 @@ export class MiningController {
     }
 
     // Marker reflects the current target and its accumulated damage.
-    const shown = this.target && this.target.kind === 'block' && this.target.inReach ? this.target : null;
+    // A locked block is outlined while the explorer walks up to it, too.
+    const shown = this.target && this.target.kind === 'block' && (this.target.inReach || input.lock !== null) ? this.target : null;
     const progress = shown && this.rules.targetKey === shown.key ? this.rules.progress : 0;
     const blocked = !!shown && (shown.tier > this.hooks.pickaxe().tier || shown.protectedReason !== null);
     // The ray hit centres the strike light and the fractures where the pick actually lands.
@@ -214,8 +288,8 @@ export class MiningController {
         if (tgt.protectedReason === 'protected') this.hooks.hint(t('hint.protected'));
         else if (tgt.tier >= UNBREAKABLE_TIER || tgt.protectedReason === 'unbreakable') this.hooks.hint(t('hint.unbreakable'));
         else {
-          const toolKey: TextKey = tgt.tier >= 3 ? 'equip.ironPickaxe' : tgt.tier >= 2 ? 'equip.copperPickaxe' : 'equip.rustyPickaxe';
-          this.hooks.hint(t('hint.tooHard', { tool: t(toolKey) }));
+          const toolKey: TextKey = tgt.tier >= 2 ? 'equip.copperPickaxe' : 'equip.rustyPickaxe';
+          this.hooks.hint(tgt.tier >= 3 ? t('hint.tooHardIron') : t('hint.tooHard', { tool: t(toolKey) }));
         }
       }
       return;

@@ -6,7 +6,9 @@ import type { Game } from './Game';
 
 /** How long a station takes to rise out of the floor (s), and how deep it starts (m, per kind). */
 export const RISE_SECONDS = 1.6;
-const RISE_DEPTH: Record<StationId, number> = { forge: 2.4, surveyTable: 1.1, relicShelf: 1.5 };
+const RISE_DEPTH: Record<StationId, number> = { forge: 2.9, surveyTable: 1.25, relicShelf: 1.8 };
+/** Stations are drawn a little larger than the camp furniture: they are the camp's landmarks. */
+export const STATION_SCALE: Record<StationId, number> = { forge: 1.2, surveyTable: 1.15, relicShelf: 1.2 };
 
 /** Prop id of a built station. */
 export const stationPropId = (id: StationId): string => `station:${id}`;
@@ -170,7 +172,7 @@ export class Stations {
       y: p.y,
       z: p.z,
       rotY: p.rotY,
-      scale: 1,
+      scale: STATION_SCALE[p.station],
       // Built in place: a station never settles (mining the floor round it leaves it standing).
       anchor: null,
       emitters,

@@ -2381,7 +2381,7 @@
   }
 }
 
-/* Home screen: a gentle nudge to play landscape, only on touch screens held upright. */
+/* Home screen: a gentle nudge to hold the phone upright, only on short touch screens held sideways. */
 .dd-rotate-hint {
   display: none;
   margin: 14px auto 0;
@@ -2391,7 +2391,7 @@
   text-align: center;
   color: var(--ink-dim);
 }
-@media (orientation: portrait) {
+@media (orientation: landscape) and (max-height: 500px) {
   .dd-touch-ui .dd-rotate-hint {
     display: block;
   }

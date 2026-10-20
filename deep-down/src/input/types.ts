@@ -1,3 +1,6 @@
+/** A block or minable prop locked by a tap: it is mined until it breaks, with nothing held. */
+export type MineLock = { kind: 'block'; x: number; y: number; z: number } | { kind: 'prop'; id: string };
+
 /**
  * Device-independent input for one frame. Touch controls (ui/TouchControls) and desktop
  * controls (input/DesktopInput) both write into the same InputState; gameplay only reads it.
@@ -26,6 +29,17 @@ export interface InputState {
   pauseRequested: boolean;
   /** Which device produced the last meaningful input; drives on-screen hints. */
   lastDevice: 'touch' | 'mouse' | 'keyboard';
+  /** A tap on the world this frame (touch), at (tapX, tapY) in NDC. Edge, cleared each frame. */
+  tapPressed: boolean;
+  tapX: number;
+  tapY: number;
+  /** The Mine button was pressed: lock onto the highlighted block. Edge, cleared each frame. */
+  lockAssistPressed: boolean;
+  /** Tap to mine: the locked target (game/TapController), mined until it breaks. */
+  lock: MineLock | null;
+  /** Tap to walk: automatic movement, camera-relative like moveX/moveY; the stick overrides it. */
+  autoMoveX: number;
+  autoMoveY: number;
 }
 
 export function createInputState(): InputState {
@@ -45,6 +59,13 @@ export function createInputState(): InputState {
     pausePressed: false,
     pauseRequested: false,
     lastDevice: 'touch',
+    tapPressed: false,
+    tapX: 0,
+    tapY: 0,
+    lockAssistPressed: false,
+    lock: null,
+    autoMoveX: 0,
+    autoMoveY: 0,
   };
 }
 
@@ -57,4 +78,6 @@ export function consumeEdges(s: InputState): void {
   s.inventoryPressed = false;
   s.pausePressed = false;
   s.pauseRequested = false;
+  s.tapPressed = false;
+  s.lockAssistPressed = false;
 }

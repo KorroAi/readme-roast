@@ -40,6 +40,35 @@ Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before
 - New `tools/poi-density.ts` and `tools/world-tour.json` (f01–f20).
 - Verified: tsc clean; vitest 44 files / 546 tests; e2e 11/11 on port 4173.
 
+### Phone controls rework: upright screen and tap to act (`game/TapController.ts`, `TouchControls.ts`, `MiningController.ts`)
+The first test on a real phone found mining tiring, and the director asked for an upright screen
+and taps instead of holds.
+- **Upright.** The Android shell is `sensorPortrait`, the web manifest is `portrait`, and a phone
+  browser locks portrait on Start. The menu hint now asks for upright on a sideways phone.
+  Landscape still plays (tablets, desktop).
+- **Tap to act** (`TapController`):
+  - A tap on a block in reach mines it until it breaks, with nothing held.
+  - A block, wall or ore further away: the explorer walks up to it, then mines it.
+  - Plain ground: the explorer walks there, unless the tap is at the boots, which digs down.
+  - An object with an action (workbench, note, rope, hoist): walk up to it and use it.
+  - A tap a little off a block (30 px) still finds the minable block in reach nearest the finger.
+  - Walking follows a breadth-first path over the reachability moves (walk, step up 1, drop up to
+    3). It jumps once when stuck, re-plans twice, then says "No way through from here."
+  - The joystick takes over at once.
+- **Mine button.** One press locks the highlighted block and mines it to the end. Press-and-hold on
+  a block still mines at once, and locks it too.
+- **Touch zones.** On an upright screen the joystick starts only in the lower left. A quick still
+  press anywhere, even on the joystick side, is a world tap.
+- **Verified:**
+  - Unit tests: `tapToAct.test.ts`, 6 tests (path search round walls, step up, drops, sealed
+    areas, nearest-cell fallback; stick conversion; portrait zones; tap detection).
+  - UI check: the sandbox checks report one world tap per tap, including on the joystick side
+    (68/68).
+  - Real CDP touches at 390×844, from a probe script:
+    - one tap broke a copper vein in 4 strikes (1.5 s of game time);
+    - a tap on the tunnel walked the explorer 19 m;
+    - the lock released by itself after the break.
+
 ### Final pass W2: wave close (orchestrator)
 An independent review of wave 2 confirmed two defects, now fixed:
 - **Glimmer bloom after its floor is mined.** After a reload the bloom floated over the hole,

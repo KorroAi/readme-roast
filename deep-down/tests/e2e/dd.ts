@@ -42,6 +42,23 @@ export type DD = {
     sites(): Array<{ kind: string; id: string; area: string; x: number; y: number; z: number; epoch: number; present: boolean }>;
     layout(): any;
   };
+  /** Mutating helpers run (automation or ?debug=1). */
+  mutations: boolean;
+  setBlock(x: number, y: number, z: number, id: number): void;
+  /** The tree, the stations, the runes, the rumours (final pass W3). */
+  progression: {
+    state(): any;
+    tree(): any;
+    survey(): any;
+    journal(): any;
+    craft(id: string): void;
+    setTarget(id: string | null): void;
+    grantNode(id: string): boolean;
+    grantRunes(n: number): number;
+    stoneDistance(): number;
+    plots(): any[];
+    runeSites(): any[];
+  };
   game: any;
 };
 

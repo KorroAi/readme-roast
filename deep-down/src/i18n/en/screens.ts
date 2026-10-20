@@ -14,6 +14,7 @@ export const screens = {
 
   // The upgrade tree
   'ui.tree.title': 'Upgrades',
+  'ui.tree.dialog': '{place} upgrades',
   'ui.tree.tab.workbench': 'Workbench',
   'ui.tree.tab.forge': 'Forge',
   'ui.tree.tab.camp': 'Camp & Field',
@@ -99,7 +100,7 @@ export const screens = {
   'ui.journal.elsewhere': 'Elsewhere',
   'ui.journal.unknown': 'Not found yet',
   'ui.journal.runeUnfound': 'A rune not found yet',
-  'ui.journal.relicUnfound': 'Behind a door that has not woken yet.',
+  'ui.journal.relicUnfound': 'A builders’ tablet, not found yet.',
   'ui.journal.noRelics': 'No relics yet.',
   'ui.journal.expedition': 'Expedition {n}',
   'ui.journal.open': 'Open the Journal',

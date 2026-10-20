@@ -1,9 +1,9 @@
 /**
  * Phone screen format. In a mobile browser the game asks for fullscreen (no address bar, no
- * navigation bar) and a landscape lock when an expedition starts, so the cave fills the screen
+ * navigation bar) and an upright (portrait) lock when an expedition starts, so the cave fills the screen
  * the way the controls are laid out for. Both requests need a user gesture, so they are made
  * synchronously from the Start / Continue tap, and any refusal is ignored: the game also plays in
- * portrait and in a windowed browser. The Android shell is already fullscreen and landscape.
+ * landscape and in a windowed browser. The Android shell is already fullscreen and upright.
  */
 
 /** True when the game runs inside the Android WebView shell (it injects window.DeepDownAndroid). */
@@ -21,17 +21,17 @@ export function touchFirst(): boolean {
 }
 
 interface LockableOrientation {
-  lock?: (o: 'landscape') => Promise<void>;
+  lock?: (o: 'portrait') => Promise<void>;
 }
 
-/** Call from a tap handler. Fullscreen + landscape where the browser allows it; never throws. */
+/** Call from a tap handler. Fullscreen + upright where the browser allows it; never throws. */
 export function enterGameScreen(): void {
   // Automated browsers (end-to-end tests, captures) keep their fixed viewport.
   if (!touchFirst() || inAndroidShell() || navigator.webdriver) return;
   const el = document.documentElement as HTMLElement & { webkitRequestFullscreen?: () => void };
   const lock = () => {
     const o = (screen as Screen & { orientation?: LockableOrientation }).orientation;
-    o?.lock?.('landscape').catch(() => {});
+    o?.lock?.('portrait').catch(() => {});
   };
   try {
     if (document.fullscreenElement) {

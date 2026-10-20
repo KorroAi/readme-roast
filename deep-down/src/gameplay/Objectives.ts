@@ -1,5 +1,5 @@
 import { B, BLOCKS } from '../config/blocks';
-import { RECIPES } from '../config/recipes';
+import { NODES } from '../config/recipes';
 import type { GameEvents } from '../core/events';
 import { t, type TextKey } from '../i18n';
 
@@ -19,10 +19,10 @@ export type ObjectiveId = 'mineStone' | 'findCopper' | 'returnToCamp' | 'craftPi
 
 export const OBJECTIVE_CHAIN: readonly ObjectiveId[] = ['mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe', 'breakSeal', 'goDeeper'];
 
-/** Targets match the Copper Pickaxe recipe, so finishing the steps means it can be crafted. */
+/** Targets match the Copper Pickaxe node (it makes pickaxe tier 2), so finishing the steps means it can be made. */
 export const OBJECTIVE_NEED = {
-  stone: RECIPES.copperPickaxe.inputs.stone ?? 12,
-  copper: RECIPES.copperPickaxe.inputs.copperOre ?? 8,
+  stone: NODES.copperPickaxe.inputs.stone ?? 12,
+  copper: NODES.copperPickaxe.inputs.copperOre ?? 8,
 } as const;
 
 export interface ObjectiveView {
@@ -236,7 +236,7 @@ export class Objectives {
       case 'returnToCamp':
         return this.stat('returnedWithCopper') > 0;
       case 'craftPickaxe':
-        return this.stat('craftedPickaxe') > 0 || this.pickaxeTier >= RECIPES.copperPickaxe.result.tier;
+        return this.stat('craftedPickaxe') > 0 || this.pickaxeTier >= 2;
       case 'breakSeal':
         return this.stat('sealBroken') > 0;
       case 'goDeeper':

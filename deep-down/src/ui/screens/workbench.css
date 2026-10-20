@@ -4,7 +4,7 @@
 
 .dd-tree {
   width: min(980px, 100%);
-  height: min(560px, 100%);
+  height: min(470px, 100%);
 }
 .dd-tree-head {
   gap: 10px;
@@ -333,15 +333,6 @@
   font-size: calc(14px * var(--s));
   line-height: 1.4;
   color: var(--ink);
-}
-.dd-tree-why {
-  margin: 0;
-  font-size: calc(13px * var(--s));
-  font-weight: 700;
-  color: var(--amber-300);
-}
-.dd-tree-why.locked {
-  color: var(--deep-300);
 }
 .dd-tree-prereqs {
   list-style: none;

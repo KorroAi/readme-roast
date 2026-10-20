@@ -231,7 +231,10 @@ export class UI implements GameUi {
     this.updateTouch();
     void this.veil(true, DURATION.ceremony).then(() => {
       this.ceremony = false;
-      this.showScreen('ending');
+      // Something else took the screen during the fade (the app went to the background and
+      // paused): the card waits for play to resume.
+      if (this.current === 'none') this.showScreen('ending');
+      else this.endingWaiting = true;
       void this.veil(false, DURATION.long);
     });
   }

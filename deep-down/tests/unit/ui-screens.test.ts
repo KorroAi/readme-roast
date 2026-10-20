@@ -126,6 +126,7 @@ const load = async () => ({
   ...(await import('../../src/ui/screens/progress')),
   ...(await import('../../src/ui/notices')),
   ...(await import('../../src/gameplay/discoveries')),
+  ...(await import('../../src/gameplay/Journal')),
   ...(await import('../../src/gameplay/Tree')),
   ...(await import('../../src/gameplay/Equipment')),
   ...(await import('../../src/gameplay/Inventory')),
@@ -330,6 +331,25 @@ describe('Journal', () => {
     expect(el.byClass('found')).toHaveLength(3);
     expect(el.byClass('unfound')).toHaveLength(m.DISCOVERY_TOTAL - 3);
     expect(el.byClass('dd-journal-total')[0].textContent).toContain(`3/${m.DISCOVERY_TOTAL}`);
+  });
+
+  it('shows the game’s own journal view: N is the discovery table, every entry a card, k the ones found', async () => {
+    const m = await load();
+    const found = ['crystals', 'hollow', 'note.office', 'note.rift'];
+    const v = m.buildJournalView({ discoveries: found, keyItems: ['runeDescent'], foundAt: {}, finale: false, expeditions: 2, deepest: 80, playTime: 600 });
+    expect(v.total).toBe(m.DISCOVERY_TOTAL);
+    expect(v.discoveries.map((d) => d.id)).toEqual(m.DISCOVERIES.map((d) => d.id));
+    const el = m.buildJournal(hostFor({ getJournal: () => v })) as unknown as El;
+    expect(el.byClass('dd-lore')).toHaveLength(m.DISCOVERY_TOTAL);
+    expect(el.byClass('found')).toHaveLength(found.length);
+    expect(el.byClass('dd-journal-total')[0].textContent).toContain(`${found.length}/${m.DISCOVERY_TOTAL}`);
+    // Zone headers add up to the table.
+    const zoneTotals = el.byClass('dd-journal-zone-n').map((z) => Number(z.textContent.split('/')[1]));
+    expect(zoneTotals.reduce((a, b) => a + b, 0)).toBe(m.DISCOVERY_TOTAL);
+    // The runes tab: eight plates, the found one inked.
+    const runes = m.buildJournal(hostFor({ getJournal: () => ({ ...v, focus: 'runes' }) })) as unknown as El;
+    expect(runes.byClass('dd-rune-plate')).toHaveLength(8);
+    expect(runes.byClass('inked')).toHaveLength(1);
   });
 
   it('groups the four Halden logs together, in table order', async () => {

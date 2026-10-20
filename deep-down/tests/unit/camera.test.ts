@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
 import { B } from '../../src/config/blocks';
+import { GEAR, PLAYER } from '../../src/config/balance';
 import { ExplorerModel, FADE_RENDER_ORDER } from '../../src/entities/character/ExplorerModel';
 import type { LightingUniforms } from '../../src/render/lighting';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
@@ -333,6 +334,38 @@ describe('CameraRig collision', () => {
     expect(poses).toBeGreaterThan(300);
     expect(inside).toBe(0);
     expect(blocked).toBe(0);
+  }, 60_000);
+
+  it('stays out of rock at the top of a Grip Boots jump (2.1 m) all over the zone (fuzz)', () => {
+    const { world, landmarks } = generateWorld();
+    const rng = new Rng(9191);
+    const apex = (GEAR.gripBoots.jumpVelocity * GEAR.gripBoots.jumpVelocity) / (2 * PLAYER.gravity);
+    const centres = Object.values(landmarks).filter((v): v is [number, number, number] => !!v);
+    const rig = new CameraRig(world);
+    let poses = 0;
+    let inside = 0;
+    for (let attempt = 0; attempt < 12000 && poses < 300; attempt++) {
+      const c = centres[rng.int(0, centres.length - 1)];
+      const x = Math.floor(c[0]) + rng.int(-8, 8);
+      const y = Math.floor(c[1]) + rng.int(-4, 4);
+      const z = Math.floor(c[2]) + rng.int(-8, 8);
+      // A jump the explorer can make here: room for the whole arc over the cell.
+      if (!standable(world, x, y, z) || [2, 3].some((k) => world.isSolidAt(x + 0.5, y + k + 0.5, z + 0.5))) continue;
+      poses++;
+      const px = x + 0.5;
+      const py = y + apex + 1.45;
+      const pz = z + 0.5;
+      rig.snapTo(px, py, pz);
+      rig.yaw = rng.range(-Math.PI, Math.PI);
+      rig.pitch = rng.range(-1.1, 0.8);
+      for (let f = 0; f < 40; f++) {
+        rig.update(1 / 60, px, py, pz, 16 / 9);
+        const cam = rig.camera.position;
+        if (world.isSolidAt(cam.x, cam.y, cam.z)) inside++;
+      }
+    }
+    expect(poses).toBeGreaterThan(200);
+    expect(inside).toBe(0);
   }, 60_000);
 });
 

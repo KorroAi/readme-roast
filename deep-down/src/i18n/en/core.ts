@@ -18,7 +18,7 @@ export const core = {
   'menu.loadingLight': 'Lighting the crystals…',
   'menu.loadingMesh': 'Shaping the stone…',
   'menu.version': 'v{version} · made entirely in code',
-  'menu.rotateHint': 'Best played in landscape: turn your phone sideways.',
+  'menu.rotateHint': 'Best played upright: hold your phone in portrait.',
   'menu.saveFound': 'Last saved {time}',
   'menu.credits.body':
     'DEEP DOWN is generated entirely in code: every block, texture, sound and note of music. No external assets.',

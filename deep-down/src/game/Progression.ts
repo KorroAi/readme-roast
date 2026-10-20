@@ -402,8 +402,10 @@ export class Progression {
     compass.bearing = seam ? this.targetBearing : this.campBearing;
     compass.distance = seam ? (this.targetDistance as number) : this.campDistance;
     out.compass = compass;
-    out.campBearing = compass.bearing;
-    out.campDistance = compass.distance;
+    // campBearing / campDistance stay on camp: today's HUD labels its needle "Camp" (it shows the
+    // seam once it reads compass.kind; the Next line carries the target's walk meanwhile).
+    out.campBearing = this.campBearing;
+    out.campDistance = this.campDistance;
     if (this.cache) {
       const c = this.cacheOut;
       c.bearing = this.cacheBearing;
@@ -736,8 +738,10 @@ export class Progression {
     this.nextTimer = 0.25;
     const ctx = this.craftContext();
     const node = closestNode(ctx);
-    const r = node ? null : this.focusRumour();
+    const targeted = this.extra.compassTarget !== null;
+    const r = node && !targeted ? null : this.focusRumour();
     this.next = nextLine({
+      targeted: targeted && r?.id === this.extra.compassTarget,
       cacheDistance: this.cache ? this.cacheDistance : null,
       chain: g.objectives.step(),
       node: node ? { id: node.id, short: node.short } : null,

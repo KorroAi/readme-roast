@@ -88,11 +88,26 @@ export function clampBase(x: number, y: number, width: number, height: number, r
 }
 
 /**
- * Which side a touch starts on. The move side is the left half (right half when left-handed).
+ * Which side a touch starts on. The move side is the left half (right half when left-handed); on
+ * an upright (portrait) screen only its lower half, so the whole upper screen is free for looking
+ * and tapping blocks.
  */
-export function touchSide(x: number, width: number, leftHanded: boolean): 'move' | 'look' {
+export function touchSide(x: number, width: number, leftHanded: boolean, y?: number, height?: number): 'move' | 'look' {
   const left = x < width * 0.5;
-  return left !== leftHanded ? 'move' : 'look';
+  if (left === leftHanded) return 'look';
+  if (y !== undefined && height !== undefined && height > width && y < height * PORTRAIT_STICK_TOP) return 'look';
+  return 'move';
+}
+
+/** On a portrait screen the joystick zone starts this far down (fraction of the height). */
+export const PORTRAIT_STICK_TOP = 0.5;
+
+/** A touch released within this time, without moving past the slop, is a tap. */
+export const TAP_MAX_MS = 300;
+
+/** A quick, still press: a tap (tap to mine / walk / use), wherever it lands. */
+export function isTap(durationMs: number, maxOffsetPx: number): boolean {
+  return durationMs <= TAP_MAX_MS && maxOffsetPx <= HOLD_SLOP_PX;
 }
 
 /**

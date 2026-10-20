@@ -35,7 +35,7 @@ const SCENES = opt.scenes
   ? opt.scenes.split(',')
   : ['menu', 'menu:nosave', 'loading', 'hud', 'hud:low', 'discovery', 'inventory:backpack', 'inventory:storage', 'inventory:equipment', 'inventory:journal', 'crafting', 'settings', 'pause', 'confirm', 'death',
      // The progression screens (final pass W3): the tree, the report, the board, the journal, the end card, About.
-     'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'ending', 'about', 'about:privacy', 'about:licences',
+     'hud-wake', 'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'ending', 'about', 'about:privacy', 'about:licences',
      // Accessibility variants: Large text, high contrast, left-handed controls.
      'hud:low+large+contrast', 'settings+large', 'crafting+large', 'inventory:backpack+contrast', 'hud+lefty',
      'crafting:tree+large', 'crafting:forge+contrast', 'summary+large', 'summary:blackout+large+contrast', 'board+large', 'journal:discoveries+large', 'journal:runes+contrast', 'ending+large', 'about+large'];
@@ -217,15 +217,24 @@ if (opt.touch) {
   s = await input();
   check('hold: release stops mining, aim stays for the swing in flight', !s.mining && s.aimFromPointer, { mining: s.mining, aimFromPointer: s.aimFromPointer });
 
-  // Quick tap: one short mining pulse at the tap point.
+  // Quick tap: reported once as a world tap at the finger (the game mines, walks or uses there).
+  before = await seen();
   await touch('touchStart', [{ x: 500, y: 300 }]);
   await wait(40);
   await touch('touchEnd', []);
+  await wait(60);
+  after = await seen();
   s = await input();
-  check('tap: mining pulse starts', s.mining && Math.abs(s.aimX - ((500 / vp.width) * 2 - 1)) < 0.01, { mining: s.mining, aimX: s.aimX });
-  await wait(320);
+  check('tap: one world tap at the finger, nothing held', after.taps === before.taps + 1 && Math.abs(after.tapX - ((500 / vp.width) * 2 - 1)) < 0.01 && Math.abs(after.tapY - (1 - (300 / vp.height) * 2)) < 0.01 && !s.mining, { taps: after.taps - before.taps, tapX: after.tapX, mining: s.mining });
+  // A quick tap where the joystick starts is a world tap too (no stick movement).
+  before = await seen();
+  await touch('touchStart', [{ x: 150, y: 300 }]);
+  await wait(40);
+  await touch('touchEnd', []);
+  await wait(60);
+  after = await seen();
   s = await input();
-  check('tap: pulse ends', !s.mining, { mining: s.mining });
+  check('tap on the joystick side is a world tap', after.taps === before.taps + 1 && s.moveX === 0 && s.moveY === 0, { taps: after.taps - before.taps });
 
   // Two fingers: joystick and look at the same time.
   before = await seen();
@@ -409,6 +418,22 @@ if (opt.touch) {
   check('mouse drives it with data-touch-ui=1', s.mining && !s2.mining, { held: s.mining, released: s2.mining });
 
   await context.close();
+
+  // The tree fits a 915 x 412 phone without scrolling; portrait puts the detail in a bottom sheet.
+  for (const [vpName, scene] of [['land', 'crafting:tree'], ['land', 'crafting:tree+large'], ['port', 'crafting:tree']]) {
+    const { page: p, context: c } = await openPage(VIEWPORTS[vpName], scene);
+    await p.waitForTimeout(400);
+    const m = await p.evaluate(() => {
+      const board = document.querySelector('.dd-tree-board');
+      const detail = document.querySelector('.dd-tree-detail');
+      const b = board.getBoundingClientRect();
+      const d = detail.getBoundingClientRect();
+      return { scroll: board.scrollHeight - board.clientHeight, boardBottom: Math.round(b.bottom), detailTop: Math.round(d.top), detailH: Math.round(d.height), vh: innerHeight };
+    });
+    if (vpName === 'land') check(`tree fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} without scrolling (${scene})`, m.scroll <= 1, m);
+    else check('tree: portrait shows the detail as a bottom sheet (~46%)', m.detailTop >= m.boardBottom - 1 && m.detailH > m.vh * 0.36 && m.detailH < m.vh * 0.5, m);
+    await c.close();
+  }
 
   // Screen flows driven like a player would (mouse + keyboard), on the sandbox's fake game.
   {

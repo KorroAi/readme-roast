@@ -379,6 +379,16 @@ and no dither pattern is printed over the world.
   follows the thumb past 1.2 × the radius (`touchMath.followBase`). The right half drags to look.
   A press and hold on the world (230 ms, 14 px slop) mines the pressed block
   (`aimFromPointer`). The action cluster holds Mine (hold), Jump and Use.
+- `game/TapController.ts` (tap to act) runs at the start of `Game.updatePlaying`. TouchControls
+  reports a world tap as `input.tapPressed`/`tapX`/`tapY` (NDC). The controller casts it with
+  `MiningController.pick()` and either:
+  - locks a target (`input.lock`), which MiningController mines while it is set, until it is gone
+    or too hard;
+  - plans a path (`findPath`, a BFS over standable cells, about 7000 nodes) and walks it through
+    `input.autoMoveX/Y`; Game merges these with the stick, and the stick wins;
+  - or presses Use on arrival at an object.
+  A lock out of reach that nothing walks toward is released after 1.2 s. The Mine button's
+  `lockAssistPressed` locks the highlighted (aim-assisted) target.
 - `game/aimAssist.ts`: with a touch device and no finger aim, `MiningController.findTarget`
   keeps the centre ray when it hits something minable in reach. Otherwise it scans the cells in
   reach and keeps solid, visible, unprotected blocks within 62° of the view direction that have

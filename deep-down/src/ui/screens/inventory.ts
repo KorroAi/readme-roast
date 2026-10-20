@@ -4,9 +4,10 @@ import type { EquipmentSlot } from '../../config/recipes';
 import { t, type TextKey } from '../../i18n';
 import './inventory.css';
 import { h, icon } from '../dom';
-import { equipmentIconDataUrl, iconPx, itemIconDataUrl } from '../icons';
+import { iconPx, itemIconDataUrl } from '../icons';
 import type { InventoryView } from '../types';
 import type { InventoryTab, ScreenHost } from './host';
+import { nodeIconDataUrl } from './nodeIcons';
 import { btn, closeBtn, header, ledger } from './widgets';
 
 const TABS: Array<{ id: InventoryTab; label: TextKey }> = [
@@ -222,7 +223,8 @@ function equipmentTab(inv: InventoryView): HTMLElement {
       return h(
         'li',
         { class: 'dd-equip-card' },
-        icon(equipmentIconDataUrl(slot, tier, iconPx(56)), 56),
+        // Every tier has its own art now (the tree's node icons): iron and glimmer picks, the attuned lantern.
+        icon(nodeIconDataUrl({ kind: 'equip', slot, tier }, iconPx(56)), 56),
         h(
           'div',
           { class: 'dd-card-text' },

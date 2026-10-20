@@ -14,6 +14,9 @@ const RECORDED: Record<number, string> = {
   1: '9cbb0a10',
   // Final pass W2 (world variety): the feature pass, the black stone's collision, the living rock.
   2: '865cc3b6',
+  // Final pass W3 (tree and runes): camp plots, rune stones and Ironbound niches, Echo crystal,
+  // iron for a tier.
+  3: 'b30a78bd',
 };
 
 let layout: WorldLayout;

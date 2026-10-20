@@ -5,8 +5,8 @@ import type { Rumour } from '../ui/types';
 import type { HomeField } from '../world/analysis/homeField';
 import type { LiveSite } from './WorldFeatures';
 
-/** A rumour's walk is measured from the field cell nearest to its site, searched this far (cells). */
-const SITE_SEARCH = 7;
+/** A rumour's walk is measured from the field cell nearest to its site, searched out to this far (cells). */
+const SITE_SEARCH = [6, 12] as const;
 
 /**
  * Rumours for the Survey Table (final pass W3): where the deep has stirred tonight. Built from the
@@ -78,19 +78,22 @@ export function siteCell(home: HomeField, x: number, y: number, z: number): [num
   const cx = Math.floor(x);
   const cy = Math.floor(y);
   const cz = Math.floor(z);
-  let best: [number, number, number] | null = null;
-  let bestD = Infinity;
-  const r = SITE_SEARCH;
-  for (let dz = -r; dz <= r; dz++)
-    for (let dy = -r; dy <= r; dy++)
-      for (let dx = -r; dx <= r; dx++) {
-        const d = dx * dx + dy * dy * 2 + dz * dz;
-        if (d >= bestD) continue;
-        if (home.at(cx + dx, cy + dy, cz + dz) < 0) continue;
-        bestD = d;
-        best = [cx + dx, cy + dy, cz + dz];
-      }
-  return best;
+  // A wide site (the rift's walls) has its centre over the black stone's plinth: look further out.
+  for (const r of SITE_SEARCH) {
+    let best: [number, number, number] | null = null;
+    let bestD = Infinity;
+    for (let dz = -r; dz <= r; dz++)
+      for (let dy = -r; dy <= r; dy++)
+        for (let dx = -r; dx <= r; dx++) {
+          const d = dx * dx + dy * dy * 2 + dz * dz;
+          if (d >= bestD) continue;
+          if (home.at(cx + dx, cy + dy, cz + dz) < 0) continue;
+          bestD = d;
+          best = [cx + dx, cy + dy, cz + dz];
+        }
+    if (best) return best;
+  }
+  return null;
 }
 
 /** Walking metres from camp to a site (field steps at its nearest cell), or null when none is near. */

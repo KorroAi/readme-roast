@@ -33,6 +33,7 @@ export const loop = {
   // The deep tier's blocks (final pass W3)
   'block.echoCrystal': 'Echo Crystal',
   'block.ironbound': 'Ironbound Stone',
+  'hint.tooHardIron': 'Too hard. You need an Iron Pickaxe.',
 
   // The upgrade tree (final pass W3): node names and behaviour sentences
   'recipe.surveyTable': 'Survey Table',

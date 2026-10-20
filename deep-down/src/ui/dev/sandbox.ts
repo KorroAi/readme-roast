@@ -362,7 +362,7 @@ function startPlaying(): void {
 }
 
 // Input the fake game consumed, so tests can check what the touch controls produced.
-const seen = { jump: 0, interact: 0, inventory: 0, pause: 0, lookDX: 0, lookDY: 0, maxMoveY: 0, miningFrames: 0 };
+const seen = { jump: 0, interact: 0, inventory: 0, pause: 0, lookDX: 0, lookDY: 0, maxMoveY: 0, miningFrames: 0, taps: 0, tapX: 0, tapY: 0, locks: 0 };
 let lastInteract: string | null = null;
 
 function frame(): void {
@@ -379,6 +379,12 @@ function frame(): void {
     if (input.inventoryPressed) seen.inventory++;
     if (input.pausePressed) seen.pause++;
     if (input.mining) seen.miningFrames++;
+    if (input.tapPressed) {
+      seen.taps++;
+      seen.tapX = input.tapX;
+      seen.tapY = input.tapY;
+    }
+    if (input.lockAssistPressed) seen.locks++;
     seen.lookDX += input.lookDX;
     seen.lookDY += input.lookDY;
     seen.maxMoveY = Math.max(seen.maxMoveY, input.moveY);
@@ -457,6 +463,13 @@ function scene(name: string): void {
         ui.hint(t('hint.mine'), 60_000);
         ui.toast(t('toast.banked', { count: 12 }), 'good');
       }
+      break;
+    case 'hud-wake':
+      // A rune door waking under the lantern: the ring on the interact chip at 60 %.
+      play();
+      hud.target = null;
+      bus.emit('world:runeWake', { id: 'reliquary', progress: 0.6 });
+      window.setInterval(() => bus.emit('world:runeWake', { id: 'reliquary', progress: 0.6 }), 250);
       break;
     case 'discovery':
       play();

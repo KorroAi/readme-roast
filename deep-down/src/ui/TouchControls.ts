@@ -7,10 +7,10 @@ import {
   clampBase,
   followBase,
   HOLD_TO_MINE_MS,
+  isTap,
   joystick,
   joystickRadiusFor,
   releaseLook,
-  TAP_MINE_MS,
   toNdc,
   touchSide,
   type LookPhase,
@@ -21,6 +21,11 @@ interface StickTouch {
   id: number;
   baseX: number;
   baseY: number;
+  /** Where and when it landed, and how far it has moved: a quick still press is a world tap. */
+  startX: number;
+  startY: number;
+  startT: number;
+  maxOff: number;
 }
 
 interface LookTouch {
@@ -38,9 +43,12 @@ const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [d
 
 /**
  * Mobile controls: a floating joystick on the move side (sized to the screen, following the
- * thumb), drag-to-look on the look side with tap / press-and-hold on a block to mine exactly
- * there, and a large Mine button that mines what aim assist targets (shown highlighted), plus
- * Jump / Use / Bag / Pause buttons. Writes only InputState.
+ * thumb; on an upright screen only the lower left), drag-to-look elsewhere, and taps. A tap on the
+ * world anywhere (even where the joystick would start) is reported as input.tap*: the game
+ * (game/TapController) mines the tapped block until it breaks, walks to tapped ground, or uses the
+ * tapped object. Press-and-hold on a block mines there at once and locks it the same way. The Mine
+ * button locks and mines what aim assist highlights. Plus Jump / Use / Bag / Pause buttons. Writes
+ * only InputState.
  *
  * Touches are tracked by pointerId from window-level pointer events, so the layer itself
  * stays transparent to the mouse (desktop play goes to DesktopInput through the canvas).
@@ -82,9 +90,11 @@ export class TouchControls {
     const mine = this.button('dd-tbtn dd-mine', [h('span', { class: 'dd-mine-glyph', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pickaxe', 2, iconPx(34))}")` }), h('span', { text: t('hud.mine') })], () => {
       this.mineHeld = true;
       window.clearTimeout(this.aimResetTimer);
-      // Aim assist: no finger on the world, so mining goes to the highlighted block.
+      // Aim assist: no finger on the world, so mining goes to the highlighted block, and one press
+      // locks it: it is mined until it breaks, even after the button is let go.
       this.input.aimFromPointer = false;
       this.input.mining = true;
+      this.input.lockAssistPressed = true;
     }, () => {
       this.mineHeld = false;
       if (this.look?.phase !== 'mine') this.input.mining = false;
@@ -228,11 +238,11 @@ export class TouchControls {
     if (e.pointerType === 'touch') this.noteTouch();
     const w = window.innerWidth;
     const hgt = window.innerHeight;
-    if (touchSide(e.clientX, w, this.leftHanded) === 'move') {
+    if (touchSide(e.clientX, w, this.leftHanded, e.clientY, hgt) === 'move') {
       if (this.stick) return;
       this.sizeStick(w, hgt);
       const [bx, by] = clampBase(e.clientX, e.clientY, w, hgt, this.radius);
-      this.stick = { id: e.pointerId, baseX: bx, baseY: by };
+      this.stick = { id: e.pointerId, baseX: bx, baseY: by, startX: e.clientX, startY: e.clientY, startT: e.timeStamp, maxOff: 0 };
       this.base.classList.remove('idle');
       this.placeBase();
       this.updateStick(e.clientX, e.clientY);
@@ -251,6 +261,8 @@ export class TouchControls {
 
   private onMove(e: PointerEvent): void {
     if (this.stick && e.pointerId === this.stick.id) {
+      const s = this.stick;
+      s.maxOff = Math.max(s.maxOff, Math.hypot(e.clientX - s.startX, e.clientY - s.startY));
       this.updateStick(e.clientX, e.clientY);
       return;
     }
@@ -276,7 +288,10 @@ export class TouchControls {
 
   private onUp(e: PointerEvent): void {
     if (this.stick && e.pointerId === this.stick.id) {
+      const s = this.stick;
       this.endStick();
+      // A quick still press where the joystick starts is still a tap on the world.
+      if (e.type !== 'pointercancel' && isTap(e.timeStamp - s.startT, s.maxOff)) this.emitTap(s.startX, s.startY);
       return;
     }
     const look = this.look;
@@ -285,13 +300,8 @@ export class TouchControls {
     this.look = null;
     const action = e.type === 'pointercancel' ? 'endMine' : releaseLook(look.phase);
     if (action === 'tapMine') {
-      // A quick tap mines a single hit where the finger touched.
-      this.aimAt(look.lastX, look.lastY);
-      this.input.mining = true;
-      this.input.aimFromPointer = true;
-      this.ownsMining = true;
-      window.clearTimeout(this.tapTimer);
-      this.tapTimer = window.setTimeout(() => this.endMining(), TAP_MINE_MS);
+      // A tap: the game mines the tapped block until it breaks (or walks there, or uses it).
+      this.emitTap(look.lastX, look.lastY);
       this.flashRing();
     } else {
       if (action === 'endMine') this.endMining();
@@ -327,6 +337,16 @@ export class TouchControls {
     this.input.aimFromPointer = true;
     this.ownsMining = true;
     this.ring.className = 'dd-mine-ring on mine';
+    // The held block is also locked, so it is finished even if the finger lifts early.
+    if (this.look) this.emitTap(this.look.startX, this.look.startY);
+  }
+
+  /** Report a tap on the world at a screen point (CSS px). */
+  private emitTap(x: number, y: number): void {
+    toNdc(x, y, window.innerWidth, window.innerHeight, this.ndc);
+    this.input.tapX = this.ndc.x;
+    this.input.tapY = this.ndc.y;
+    this.input.tapPressed = true;
   }
 
   /**

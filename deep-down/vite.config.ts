@@ -60,7 +60,7 @@ function generatedFiles(name: string, files: Record<string, () => Uint8Array | s
 
 /**
  * Web app manifest and icons, generated from the same procedural emblem as the Android launcher:
- * "Add to Home Screen" then opens the game fullscreen in landscape, like the APK. "any" icons are
+ * "Add to Home Screen" then opens the game fullscreen and upright, like the APK. "any" icons are
  * the rounded tile (transparent corners); "maskable" ones are full-bleed with the emblem inside
  * the adaptive safe circle (61 % of the width, within the 80 % maskable zone), so no platform
  * mask cuts the lantern. The SVG favicon is the emblem itself.
@@ -73,7 +73,7 @@ function webApp(): Plugin {
     start_url: './index.html',
     scope: './',
     display: 'fullscreen',
-    orientation: 'landscape',
+    orientation: 'portrait',
     background_color: '#070a0f',
     theme_color: '#070a0f',
     icons: [

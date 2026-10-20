@@ -15,7 +15,16 @@ export function standable(w: VoxelWorld, x: number, y: number, z: number): boole
  * @param links optional rides (world/gen/features: the hoist, the rift rope): standing on one end's
  * cell reaches the other end's cell. Ends are feet positions (cell = floor of each coordinate).
  */
-export function reachableCells(w: VoxelWorld, sx: number, sy: number, sz: number, maxDrop = 3, links?: ReadonlyArray<{ top: readonly number[]; bottom: readonly number[] }>): Uint8Array {
+export function reachableCells(
+  w: VoxelWorld,
+  sx: number,
+  sy: number,
+  sz: number,
+  maxDrop = 3,
+  links?: ReadonlyArray<{ top: readonly number[]; bottom: readonly number[] }>,
+  /** Highest ledge climbed in one go (1: the auto-step; 2 with the Grip Boots' jump). */
+  stepUp = 1,
+): Uint8Array {
   const seen = new Uint8Array(w.sx * w.sy * w.sz);
   const queue: number[] = [];
   const jump = new Map<number, number[]>();
@@ -51,8 +60,14 @@ export function reachableCells(w: VoxelWorld, sx: number, sy: number, sz: number
       const nz = z + dz;
       if (!w.inBounds(nx, y, nz)) continue;
       if (standable(w, nx, y, nz)) push(nx, y, nz);
-      // Step up one block: needs headroom above the current cell.
-      if (!SOLID[w.get(x, y + 2, z)] && standable(w, nx, y + 1, nz)) push(nx, y + 1, nz);
+      // Step (or jump) up: needs headroom above the current cell all the way.
+      for (let up = 1; up <= stepUp; up++) {
+        if (SOLID[w.get(x, y + 1 + up, z)]) break;
+        if (standable(w, nx, y + up, nz)) {
+          push(nx, y + up, nz);
+          break;
+        }
+      }
       // Drop down into the neighbor column.
       if (!SOLID[w.get(nx, y, nz)] && !SOLID[w.get(nx, y + 1, nz)]) {
         for (let d = 1; d <= maxDrop; d++) {

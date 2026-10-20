@@ -9,6 +9,7 @@ import type { ObjectiveView } from './Objectives';
  * cost" has nothing to point at):
  *   1. a pack is waiting (a cache exists)        -> "Recover your pack — 84 m"
  *   2. the tutorial chain is not finished        -> its current step
+ *   2b. a rumour picked on the Survey Table      -> "Fresh iron at the Halden Face — 61 m"
  *   3. the cheapest MUST node with prereqs met   -> "Next: Forge — Iron Ore 1/3"
  *   4. runes still out there                     -> "Find the runes — 5/8"
  *   5. all eight found, the stone not woken      -> "Take the eight runes to the black stone"
@@ -28,6 +29,8 @@ export interface NextInput {
   finale: boolean;
   /** The best rumour: what grew where, and the walk to it (metres), or null. */
   rumour: { id: string; what: string; distance: number | null } | null;
+  /** The rumour is the compass target the player picked (it comes before the tree). */
+  targeted?: boolean;
   /** Deepest depth ever reached, metres. */
   bestDepth: number;
 }
@@ -40,6 +43,7 @@ export interface NextLine {
 export function nextLine(s: NextInput): NextLine {
   if (s.cacheDistance !== null) return { id: 'recoverPack', text: t('next.recoverPack', { distance: Math.max(0, Math.round(s.cacheDistance)) }) };
   if (s.chain && s.chain.text) return { id: s.chain.id, text: s.chain.text };
+  if (s.rumour && s.targeted) return rumourLine(s.rumour);
   if (s.node) {
     const def = NODES[s.node.id];
     const item = t(def.name);
@@ -53,9 +57,11 @@ export function nextLine(s: NextInput): NextLine {
   }
   if (s.runes < s.runesTotal) return { id: 'runes', text: t('next.runes', { have: s.runes, total: s.runesTotal }) };
   if (!s.finale) return { id: 'stone', text: t('next.stone') };
-  if (s.rumour) {
-    const text = s.rumour.distance === null ? s.rumour.what : t('next.rumour', { what: s.rumour.what, distance: Math.max(0, Math.round(s.rumour.distance)) });
-    return { id: `rumour:${s.rumour.id}`, text };
-  }
+  if (s.rumour) return rumourLine(s.rumour);
   return { id: 'deeper', text: t('next.deeper', { depth: Math.max(0, Math.round(s.bestDepth)) }) };
+}
+
+function rumourLine(r: NonNullable<NextInput['rumour']>): NextLine {
+  const text = r.distance === null ? r.what : t('next.rumour', { what: r.what, distance: Math.max(0, Math.round(r.distance)) });
+  return { id: `rumour:${r.id}`, text };
 }

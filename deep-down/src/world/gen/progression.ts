@@ -223,14 +223,24 @@ export function buildProgression(ctx: ProgressionContext): ProgressionLayout {
       for (let k = 0; k < size; k++) {
         const id = get(cur[0], cur[1], cur[2]);
         if (host(id) || id === B.GRAVEL || id === B.MOSS) put(cur[0], cur[1], cur[2], B.IRON_ORE);
-        cur = [cur[0] + rng.int(-1, 1), cur[1] + rng.int(-1, 1), cur[2] + rng.int(-1, 1)];
+        // Grow along the wall's face (a vein you can see), falling back to any neighbour.
+        let next: V3 = [cur[0] + rng.int(-1, 1), cur[1] + rng.int(-1, 1), cur[2] + rng.int(-1, 1)];
+        for (let tries = 0; tries < 6; tries++) {
+          const c: V3 = [cur[0] + rng.int(-1, 1), cur[1] + rng.int(-1, 1), cur[2] + rng.int(-1, 1)];
+          if (host(get(c[0], c[1], c[2])) && exposed(c[0], c[1], c[2])) {
+            next = c;
+            break;
+          }
+        }
+        cur = next;
       }
       planted++;
     }
     return planted;
   };
-  veins({ id: 'gateIron', min: [139, 20, 98], max: [154, 48, 132] }, 4, 3, 5);
-  veins({ id: 'galleryIron', min: [139, 40, 98], max: [151, 47, 103] }, 6, 3, 5);
+  veins({ id: 'gateIron', min: [139, 20, 98], max: [154, 48, 132] }, 10, 3, 5);
+  veins({ id: 'balconyIron', min: [128, 22, 116], max: [152, 32, 134] }, 4, 3, 5);
+  veins({ id: 'galleryIron', min: [139, 40, 98], max: [151, 47, 103] }, 10, 3, 5);
   veins({ id: 'riftIron', min: [106, 6, 112], max: [142, 36, 152] }, 2, 3, 5);
 
   return { plots, runes, echoCells, echoClusters };

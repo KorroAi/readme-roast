@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { LANTERNS, PACKS, PICKAXES, packForTier } from '../../src/config/balance';
-import { NODES, NODE_LIST, RECIPES, RECIPE_LIST, nodeInputs, type NodeDef, type NodeId } from '../../src/config/recipes';
+import { NODES, NODE_LIST, nodeInputs, type NodeDef, type NodeId } from '../../src/config/recipes';
 import { Crafting, craft, evaluate, type CraftContext } from '../../src/gameplay/Crafting';
 import { buildTreeView, nodeStats } from '../../src/gameplay/Tree';
 import { en } from '../../src/i18n/en';
@@ -220,9 +220,9 @@ describe('Crafting: the upgrade tree', () => {
     expect(nodeStats(NODES.ironPickaxe, c)[1]).toMatchObject({ beforeText: 'Tier 1', afterText: 'Tier 3' });
   });
 
-  it('keeps the W1 Workbench list (interim) in its old shape', () => {
-    expect(RECIPE_LIST.map((r) => r.id)).toEqual(['copperPickaxe', 'sturdyPack', 'copperLantern']);
-    expect(RECIPES.copperPickaxe).toMatchObject({ result: { slot: 'pickaxe', tier: 2 }, inputs: { copperOre: 8, stone: 12 } });
+  it('keeps the W1 recipe ids and inputs for the first three nodes (data-key craft:copperPickaxe)', () => {
+    expect(NODES.copperPickaxe).toMatchObject({ result: { kind: 'equip', slot: 'pickaxe', tier: 2 }, inputs: { copperOre: 8, stone: 12 } });
+    expect(NODES.copperLantern.inputs).toEqual({ copperOre: 6, glimmerShard: 3 });
   });
 
   it('rejects unknown node ids loudly', () => {
