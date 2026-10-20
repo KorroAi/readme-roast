@@ -79,6 +79,26 @@ are displayed. Returning home banks the backpack, refuels, heals and plays a war
   is itself a choice.
 - Shortcuts (ropes, beacons, the lift) make deeper starts possible without grinding the same path.
 
+## The place itself (final pass W2)
+- **The route now has a beat at most every 22 m.** Max sight gaps:
+  - camp→ledge 18 m
+  - ledge→stairs foot 18 m
+  - seal→balcony 18 m
+  - balcony→stone 10 m
+  - stairs foot→reliquary 12 m
+  - ledge→yard 15 m
+  - yard→adit 16 m
+- **Survey Office**, 22 m from camp: the first Halden log. The Halden were the survey crew who came before; four logs (office, landing post, Face 3 in the yard, the last page at the rift camp) tell how they dug down to the black stone and stopped.
+- **Secrets behind barriers**:
+  - Shrine (already in the game).
+  - Moth Grotto: moths tap at a cold slit; mine the gravel plug, crawl the squeeze, and find a geode.
+  - Reliquary: Rune Door 1 wakes to any lit lantern held near it for 1.2 s.
+  - Lamp Gallery: Rune Door 2 wakes only to the copper lantern and gives the copper lantern a purpose in the world.
+- **Shortcut**: the Halden Hoist from the yard floor up to the ledge. It is chained from below, so the player first walks down, releases it, then rides it home; from then on it runs both ways.
+- **Climax**: the rope from the balcony to the rift floor, the Halden's last camp, and the black stone. The stone is cold and silent below 8 runes; W3's finale wakes it.
+- **Replay, 'the deep breathes'**: every expedition into the Hollow (a trip below 70 m) re-rolls the Halden face and the rift walls, regrows what was mined and grows one glimmer bloom somewhere new. Coming back is worth it, and W3's rumours point at these sites.
+- **Ambient life**: lumen moths. They gather at secrets (a hint without text), come to a well-fuelled lantern and scatter at the pick.
+
 ## The trip loop as built (final pass W1)
 
 - The lantern is the clock: Oil 300 s, Copper 600 s, Attuned 900 s. Empty, the light shrinks to an ember (0.38; Attuned 0.7).

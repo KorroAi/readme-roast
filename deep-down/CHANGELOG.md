@@ -7,6 +7,49 @@ Newest first. Each entry says what changed and how it was verified.
 Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before it: local tag
 `checkpoint/pre-final-pass-w1` (commit ee3c11e).
 
+### Final pass W2: world variety (`world/gen/features/**`, `game/WorldFeatures.ts`, `game/{ropeRide,runeDoor,moths}.ts`, `game/effects/LumenMoths.ts`, `config/livingRock.ts`)
+- New places off the existing route:
+  - the Halden Survey Office (first log);
+  - the Moth Grotto (tapping moths at a cold slit, a gravel plug, a 1 m squeeze, a geode with glimmer);
+  - the Halden Yard (track, spoil, broken cart, a lit adit with timber sets) and its hoist;
+  - the Reliquary behind Rune Door 1 at the bridge's end;
+  - the Lamp Gallery behind Rune Door 2 (copper lantern only);
+  - the landing survey post;
+  - the rift floor with the Halden's last camp and the black stone.
+- Four moments:
+  - Squeeze into the grotto.
+  - Ride the hoist: it is chained until released from its foot, then rides up and down at 9 m/s in 5.7 s.
+  - Wake a rune door: 1.2 s near it with a lit lantern, then it sinks row by row.
+  - Ride the rope down to the rift floor (5.4 s). The rope is its only way home.
+- Rides freeze input, ease in and out, and end standing on the stand with no fall damage. They are edges of the walk-home field, so the compass and the pack search follow them.
+- With the hoist, the walk home from the yard is 41–48 % shorter.
+- Discoveries 6 → 16: mothGrotto, hoist, reliquary, lampGallery, undercroft ('The Rift Floor'), monolith ('The Black Stone') and four Halden logs. All text is in `src/i18n/en/world.ts`.
+- The black stone is cold and silent on touch until W3's finale sets `features.stoneAwake`. Its first touch makes the moths spiral.
+- Lumen moths: one instanced draw call, at most 40/32/16 by quality, simulated within 45 m.
+  - They roost at anchors and gather at the secrets.
+  - Up to 8 come to a lantern with at least 20 % fuel; they scatter at pick strikes.
+  - They never enter rock.
+- The deep breathes: each camp entry after a trip below 70 m starts a new expedition (progression.day).
+  - The Halden face (Cu 10, Fe 6) and the rift walls (Fe 12, Cu 4, Crystal 2) re-roll with exact counts.
+  - Mined cells grow back, never within 1.5 m of a drop or the pack.
+  - One glimmer bloom grows at one of 6 sites, never the same twice in a row.
+  - The rock changes on the camp-entry frame and the bloom one frame later.
+- The cache marker is now a satchel prop. It keeps the halo and the id `cache:pack`.
+- Prop kinds haldenNote, hoistWinch and satchel added. Cyan emitters 103 → 117 (+14), plus 1 per bloom, within the cap of 120.
+- `WORLD.genVersion` 2, fingerprint 865cc3b6.
+- New `tools/poi-density.ts` and `tools/world-tour.json` (f01–f20).
+- Verified: tsc clean; vitest 44 files / 546 tests; e2e 11/11 on port 4173.
+
+### Final pass W2: brand identity, 'Lamplight on the Lintel' (`src/ui/brand/**`, `ui.css`, `notices.ts`, `sprites.ts`, `make-icon.mjs`)
+- **Wordmark:** carved in the Lintel stroke face; each word hangs from its lintel. The O of DOWN is the builders' lantern rune with a breathing amber flame, whose warm light reaches D, W and N.
+- **Octagon plates:** brass rims and lintel headers (a groove with pendant ticks) on every screen, the HUD, toasts, the crash panel and the context-loss notice. Ledger rows; an amber octagon focus ring.
+- **Display type:** the Lintel face, built as an in-memory TrueType at startup, sets title plates, discovery titles, the death title and the depth numerals.
+- **Discovery banner:** shows found/total and a major variant.
+- **Specimen icons:** pixel specimens (slate flake, root coil, copper with verdigris, iron with jasper, echo shard, the Lantern-rune tablet, a rune stone per rune) replace the voxel-cube icons.
+- **One emblem everywhere:** the boot mark at first paint, the favicon, the web 'any' and 'maskable' icons, the Android adaptive and themed icon, the splash and the Play icon.
+- **Home screen:** the version line 'v1.0.0 · made entirely in code'; the Visual Lab stays dev or ?lab only.
+- **Motion:** screens cross-fade, with tokens and a reduced-motion rule.
+
 ### Final pass W1: loop core (`game/Progression.ts`, `gameplay/{Cold,Records,NextStep,CacheSpot}.ts`, `world/analysis/homeField.ts`, save v2)
 - The dark is cold. After the flame dies there are 8 s of grace, then the cold takes 10 hp per 5 s (black-out 58 s after the flame dies from full health, 148 s with the coat). Never at camp; the Attuned Lantern is immune.
 - Walk-home field. The compass shows walking metres to camp and aims down the field's steepest descent (balcony: 191 m walk, 152 m straight). It is recomputed on leaving camp and every 25 mined blocks.

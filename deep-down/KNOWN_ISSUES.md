@@ -25,6 +25,16 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 
 ## Gameplay / content
 
+- World W2: the explorer has no climb or hold pose during the hoist and rope rides (requested from feel W5).
+- The reliquary's 6 and the gallery's 8 lamp niches are empty until content's stoneLamp prop lands.
+- The relics give only their discovery until the bearerLens and firstLamp key items exist.
+- Camera (lens, read-only for W2):
+  - the boom collapses and the explorer fades inside the 1 m grotto squeeze;
+  - the boom collapses at the rope foot when looking away from the wall;
+  - on the adit approach the camera rests against a pre-existing brick pillar, so 21 % of the tour frame f13 is an unlit face.
+- Ride, door, note and stone sounds re-pitch existing voices and have not been listened to.
+- The first breath of a session costs 15–18 ms plus 10–11 ms the next frame under SwiftShader, and up to about 38 ms per frame was seen at load average 4 or more. Phone timing is unmeasured.
+- The HALDEN LOG banner label, the rune-door progress ring and journal grouping of the logs wait for screens (W3).
 - Cold is continuous (2 hp/s) rather than discrete 10 hp hits, so both acceptance lines hold (first damage at 8 s, black-out at 58 s). The heartbeat event 'player:cold' fires every 5 s of cold.
 - The cache uses an interim crate model with an ember halo until the W2 satchel. The turn-back tick, cache chip and fuel-state classes have only inline styles until W4-B.
 - The discovery banner does not show index/total yet, and the Expedition Report has no screen yet (W2/W3).
@@ -44,6 +54,12 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 
 ## Technical
 
+- The cache chip in Hud.ts still carries an inline pill style. ui.css overrides it with !important until home-hud (W5) moves it to CSS.
+- The Lintel face has caps only, so lower case shows as caps: the depth readout renders '-128 M' while its DOM text stays '-128 m' (the stable hook).
+- The boot mark is 919 B, not ~600 B.
+- The crash panel and the context-loss notice sit outside .dd-ui. Their rim is an inset box-shadow, so their chamfered corners carry no brass line.
+- Range-slider focus is a rectangular amber outline, not an octagon.
+- Untested on devices: real-device font rendering of the runtime TrueType, phone feel, and the WebView.
 - The light volume is a full-world RGBA8 3D texture (13.1 MB / 12.5 MiB of GPU memory for
   160×128×160). Larger zones should switch to a camera-centred window.
 - Dust and sparkle particles are point sprites: a large puff very close to the screen edge can

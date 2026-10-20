@@ -17,6 +17,36 @@ Node 22.22, headless Chromium 141 (Playwright 1.56.1) with WebGL 2 through Swift
 | Code review | 5 areas reviewed adversarially, each finding independently verified, every confirmed finding fixed; a final audit of these documents and of the late changes (below) |
 | Mutation checks on the new HUD / desktop tests | freezing the hearts, lantern meter, backpack count, compass or objective, or forcing crosshair aim, makes the intended assertion fail |
 
+## Final pass, wave 2 (world variety + brand identity)
+
+### Final pass W2: world variety (agent A, port 4173)
+- `npx tsc --noEmit`: clean.
+- `npx vitest run`: 44 files, 546 tests passed.
+- New tests, 35 in 6 files:
+  - worldFeatures (9): containment, camp margin, reachability sealed and open, ride sweeps, light budget and warm lamps, light leak, spacing, empty floor, beats.
+  - livingRock (6).
+  - moths (7): roost ≤ 1.5 m, lantern in ≤ 4 s, tappers, cap, 0 in rock over 60 s, < 0.05 ms per step.
+  - ropeRide (5).
+  - runeDoor (5).
+  - guidance (3): the hoist ratio, 0.589 from the yard and 0.519 from the foot.
+- Edited tests: genVersion (RECORDED 2 = 865cc3b6), worldgen (warm-lamp list +5), props (3 sizes), audio (sample payloads), structures (monolith bounds).
+- e2e `DD_E2E_PORT=4173 npx playwright test`: 11/11 passed in 12.2 min. The new world.spec test 'Halden log, hoist lock and ride, rune door, rope to the rift floor, the black stone' takes 3.2 min. It covers the log, the hoist lock, the release and ride, a save, reload and ride down, door 1 waking and sinking, the relic, the rope with no damage, the rift floor discovery and the stone's first touch.
+- poi-density, after vs before: max sight gaps 18.2/18.4/17.8/10.2/12/15/16 (was 51.1/36.1/40/–/33/74.4/38.7); empty floor over 10 m 13.2 % (was 26.9 %), columns over 15 m 51 (was 631).
+- Tour: tools/world-tour.json f01–f20, 6 rounds at 915x412, every image read.
+  - 0 % clipped; cyan ≤ 3.1 %; +2 to +10 draw calls and +1k to +5k triangles per shot.
+  - Dark share (luma < 12) above 18 % on f13 (21.3 %, pre-existing pillar at the camera) and f17 (21.4 %, existing tunnel).
+- Not covered: phone feel, audio by ear, device timing.
+
+W2 brand:
+- **tsc:** clean.
+- **vitest:** 544/545. The single failure was the world agent's load-sensitive moths timing test, which passed on rerun. New: brand.test.ts 18 tests (tokens and contrast, CSS token parity, no neon/pills/blur, 12 px floor, glyph coverage and 8-direction strokes, TrueType structure and checksums, wordmark accessibility, legibility and cold DEEP, subtitle, emblem, boot mark size, motion). ui.test.ts rewritten: Lintel coverage, layout, lantern-O position, a specimen icon for every ItemId.
+- **e2e on port 4174:** 11/11 (21.0 m).
+- **ui-check:** 64/64 checks, 0 console problems and 0 layout problems over 20 scenes × 5 viewports with a 48 px target floor, including the game flow.
+- **Icons:** icon-masks 4/4 PASS; aapt2 badging lists the adaptive icon; apk-sim all PASS.
+- **Production menu:** Visual Lab hidden without ?lab and shown with it.
+- **Boot mark:** FCP 176 ms with no script.
+- **Evidence:** screenshots in artifacts/final-pass/brand/ (gitignored).
+
 ## Final pass, wave 1 (loop core + release infrastructure)
 
 W1 loop core, agent A, port 4173, final code: tsc clean; vitest 37 files / 488 tests passed (was 27 / 416). New tests: cold (8), homeField (7, warm recompute 2.03 ms, balcony 191 m walk = 191 m BFS vs 152 m straight), cache (5, fuzz of 200 lethal falls: chasm 30, hollow 150, rift 20, every cache on the reachable set), records (6), genVersion (3, fingerprint 9cbb0a10 for genVersion 1), menuCamera (4), save-v2 (7), gameplay-progression (10), frame guard (2 in session.test). e2e full suite 10/10 passed in 8.8 m (desktop 2, release 6, slice, world rewritten for the cache). ui-check 43/47; the same 4 touch failures appear on HEAD.

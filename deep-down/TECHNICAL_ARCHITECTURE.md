@@ -395,6 +395,83 @@ and no dither pattern is printed over the world.
 - `vite.config.ts` → `webApp()` emits the manifest and icons at build time, and serves them from
   memory in dev.
 
+## World features (final pass W2)
+
+**Feature pass** (`world/gen/features/{index,places,living,types}.ts`)
+- `buildFeatures(ctx)` runs in generateWorld after the key lights and before the bedrock re-assert.
+- It has its own Rng (`seed ^ 0xfea70001`) and Noise (`seed ^ 0xfea7`). Prop ids are `f_<place>_<n>`.
+- It writes voxels only inside `layout.features.boxes`. `generateWorld(seed, {features:false})` leaves it out, and the containment test diffs the two.
+- It returns a FeatureLayout:
+  - boxes, pois (with mustReach), links (hoist, riftRope: top, bottom, path, speeds, lock);
+  - runeDoors (cells, lintel, wake, radius, hold, minLanternTier);
+  - mothAnchors, living (cells, host, table), blooms, areas, sockets.fossil, eventSites.
+- `reachableCells(..., links)` and `ReachSet.addEdge` take the links.
+
+**Runtime** (`game/WorldFeatures.ts`, created in Game.boot)
+- `attach(removedProps)`, called before progression.attachWorld:
+  - rebuilds the door states from the world voxels;
+  - places the epoch's bloom;
+  - sets the moth anchors;
+  - places the hoist cage;
+  - passes the ride edges (`rideEdges(links, hoistReleased, RIDES.stepsPerSecond)`) to `Progression.setRides`, which adds them to HomeField, the cache field and ReachSet.
+- The hoist is released when the journal has 'hoist', so no new save field.
+- Rides (`ropeRide.ts`):
+  - constant-acceleration easing over 0.6 m;
+  - Game.updatePlaying replaces PlayerController.update with `features.updateRide(dt)` while riding;
+  - a save mid-ride stores the end stand;
+  - a black-out, respawn or the menu cancels the ride.
+- Rune doors (`runeDoor.ts`):
+  - `wakeStep` holds 1.2 s, decays at 2x and checks the tier;
+  - the door is open when its cells are air, so world edits persist it;
+  - rows sink top to bottom every 0.3 s.
+- Interactions go through PropSpec.interact 'feature' plus `feature {kind, id, end}`: note, relic (grants `relicItems[id]` only if it is in ITEMS), monolith, rope, hoist.
+- Hooks for W3:
+  - `stoneAwake()`;
+  - the `world:monolith {first}` event;
+  - `sites(): LiveSite[]` (living and bloom sites with area, epoch, ore, present);
+  - the `relicItems` map.
+- Events: world:ride, world:runeWake, world:runeOpen, world:hoistReleased, world:note, world:monolith, world:regrow, world:bloom, moths:startled.
+
+**Moths** (`game/moths.ts`, `game/effects/LumenMoths.ts`)
+- MothFlock keeps typed arrays: roost (a breathing circle), drawn, scatter and spiral states.
+- A step never moves a moth into rock. Moths at secret anchors with rank < 3 are tappers and are never drawn.
+- LumenMoths is one InstancedBufferGeometry sharing the flock's arrays, with additive procedural wings, a near fade and a haze fade.
+
+**Breath** (`living.ts`, `config/livingRock.ts`)
+- `rollLiving(site, seed, epoch)` uses a golden-ratio sliding window over stable per-cell hash keys, so counts are exact and consecutive epochs never overlap.
+- `applyLiving` restores only generated-solid cells and skips cells within 1.5 m of drops or the cache.
+- `bloomSiteFor` never repeats a site twice in a row; epoch 0 is chasmEast.
+- `WorldFeatures.breathe(epoch)` runs on camp entry:
+  - light is rebuilt in ±4 boxes per 8 m bin of regrown holes, and crystal swaps go through onBlockChanged;
+  - the bloom (prop `bloom_e<epoch>` with a LIGHT_CYAN emitter) is placed by `growBloom()` one frame later.
+
+**Debug and tools**
+- `__DD__.features {state, ride, release, openDoor, wake, setEpoch, sites, layout}`; `report().features` gives mothMs, regrowMs, bloomMs.
+- `tools/poi-density.ts` measures sight gaps on 7 legs and the empty-floor share.
+
+**Costs**
+- Feature phase 6.4–14.7 ms; light computeAll +1.3 to +2.1 %.
+- Draw calls +2 to +10 per tour shot.
+- Moths about 0.004 ms per frame (browser).
+- First breath 15–18 ms plus 10–11 ms (next frame) under SwiftShader.
+
+## Brand identity (final pass W2)
+
+- **src/ui/brand/:**
+  - `tokens.ts`: colour tokens, WCAG contrast and the cut and type scales; ui.css mirrors them as --slate-950… on .dd-ui.
+  - `strokeFont.ts`: the Lintel face. 4×7 grid (M/W 5); lattice polylines become a rectangle per segment and an octagon per node, wound clockwise; nonzero union.
+  - `lintelFont.ts`: builds a TrueType (glyf, loca, cmap format 4, hmtx, head, hhea, maxp, OS/2 v4, name, post, with checksums) from those polygons and registers it with FontFace('Lintel'). Lower case maps to the caps; digits are tabular. UI.ts installs it.
+  - `wordmark.ts`: SVG lockup strings; `logo.ts` puts both lockups in the DOM (CSS picks the line or the stack by orientation).
+  - `emblem.mjs`: plain ESM geometry for the lantern rune and the emblem, plus emblemSvg and bootMarkSvg. It is used by wordmark.ts, by vite.config.ts (the %DD_BOOT_MARK% injection and favicon.svg) and by android/make-icon.mjs, which now rasterizes polygons with a 4×4 supersampled scanline fill instead of a 24-cell pixel MARK.
+  - `motion.ts`: duration and easing tokens.
+- **ui.css:** a `:where(...)` plate rule. The octagon comes from a clip-path on --cut; the rim from four corner gradients plus the border; the fill from --fill/--face. Focus is an evenodd octagon ring on ::after.
+- **UI.ts:**
+  - The exit layer (.dd-screens-exit, inert, aria-hidden, z-index under the live screens, after them in the DOM) holds a leaving screen for 140 ms.
+  - `veil(on, ms)`.
+  - The boot mark (#dd-boot, z-index 1 under #ui, which is z-index 2) is removed two frames after the first screen, which enters without its fade.
+- **sprites.ts:** itemRaster(id, size) is pure and maps by id (SPECIMENS, RUNE_MARKS carved into the rune stone, shard, tablet, pebble fallback).
+- **ui-check.mjs:** mid and short viewports, a 48 px target audit, layout problems in the exit code, boot and discovery checks.
+
 ## Loop core (final pass W1)
 
 - game/Progression.ts is the seam later waves extend. Game delegates camp entry and exit, black-out (onBlackout), abandon (onAbandon), camp-prop interaction, the HUD fields (hud(out)), and save (toSave/fromSave). It owns Records (gameplay/Records.ts), Cold (gameplay/Cold.ts), the cache (gameplay/Expedition.ts makeCache/replaceCache/recoverCache, placement in gameplay/CacheSpot.ts) and the Next line (gameplay/NextStep.ts).
