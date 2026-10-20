@@ -108,9 +108,12 @@ export class SkillRow {
     this.guideEl.classList.toggle('dot', on);
   }
 
-  /** Add a skill button (once, when it unlocks). */
-  addSkill(id: string, label: string, icon: IconId): void {
-    if (this.skills.has(id)) return;
+  /** Every skill's button, built once at load (hidden): an unlock only reveals it (F10: no element per event). */
+  private readonly built = new Map<string, { el: HTMLButtonElement; sweep: SVGCircleElement; ready: boolean; label: string }>();
+
+  /** Build a skill's button (hidden), in the row's order. */
+  prebuild(id: string, label: string, icon: IconId): void {
+    if (this.built.has(id)) return;
     const svg = document.createElementNS(SVG_NS, 'svg');
     svg.setAttribute('viewBox', '0 0 52 52');
     svg.setAttribute('class', 'dd-skill-sweep');
@@ -120,10 +123,19 @@ export class SkillRow {
     sweep.setAttribute('cy', '26');
     sweep.setAttribute('r', '22');
     svg.appendChild(sweep);
-    const el = h('button', { class: 'dd-skill', type: 'button', 'data-skill': id, 'aria-label': label, onclick: () => this.onSkill?.(id) }, iconEl(icon, 'dd-skill-ico'), svg);
+    const el = h('button', { class: 'dd-skill hide', type: 'button', 'data-skill': id, 'aria-label': label, onclick: () => this.onSkill?.(id) }, iconEl(icon, 'dd-skill-ico'), svg);
     this.holder.appendChild(el);
-    this.skills.set(id, { el, sweep, ready: false, label });
-    spring(el, 'bounce', 0, 1, (v) => `scale(${v})`);
+    this.built.set(id, { el, sweep, ready: false, label });
+  }
+
+  /** Show a skill's button (once, when it unlocks). */
+  addSkill(id: string, label: string, icon: IconId): void {
+    if (this.skills.has(id)) return;
+    this.prebuild(id, label, icon);
+    const sk = this.built.get(id)!;
+    sk.el.classList.remove('hide');
+    this.skills.set(id, sk);
+    spring(sk.el, 'bounce', 0, 1, (v) => `scale(${v})`);
   }
 
   /** The Surge meter is full and waits for a tap on the ring ("TAP THE LANTERN"); false when it fired. */
@@ -147,7 +159,7 @@ export class SkillRow {
 
   /** A new run: every skill button goes (they come back as the depth unlocks them). */
   clearSkills(): void {
-    for (const sk of this.skills.values()) sk.el.remove();
+    for (const sk of this.skills.values()) sk.el.classList.add('hide');
     this.skills.clear();
   }
 

@@ -414,6 +414,7 @@ export class IdleGame implements IdleShell, HudModel {
     if (this.state.meta.tutorial.done) for (const id of ['gold', 'depth', 'quick1', 'quick2', 'quick3', 'digTab', 'crewTab', 'ruler', 'buyMode', 'combo', 'surge', 'skills']) this.ui.hud.reveal(id, true);
     if (this.state.meta.gems > 0) this.ui.hud.reveal('gems', true);
     if (this.state.meta.stats.stars > 0) this.setBuyMode('star');
+    for (const sk of SKILLS) this.ui.hud.skill.prebuild(sk.id, tr(`idle.skill.${sk.id}`) || tr(`ui.skill.${sk.id}`), cardIcon(`skill:${sk.id}`));
     for (const sk of SKILLS) if (this.state.run.skills[sk.id]) this.addSkill(sk.id);
     this.ui.hud.top.gold.snap(this.state.run.gold.isZero() ? -Infinity : this.state.run.gold.log10());
     this.ui.hud.top.gems.snap(this.state.meta.gems > 0 ? Math.log10(this.state.meta.gems) : -Infinity);

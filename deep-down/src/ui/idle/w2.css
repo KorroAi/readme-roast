@@ -1468,3 +1468,8 @@
 .dd-wbar-on .dd-ft {
   margin-top: 34px;
 }
+
+/* A skill not unlocked yet takes no room in the row (its button is built at load, F10). */
+.dd-skill.hide {
+  display: none;
+}
