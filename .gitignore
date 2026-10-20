@@ -9,3 +9,4 @@ Thumbs.db
 # Temp
 *.tmp
 *.log
+.claude/worktrees/
