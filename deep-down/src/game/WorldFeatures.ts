@@ -731,6 +731,9 @@ export class WorldFeatures {
       if (s.world.get(cx, Math.floor(y), cz) === B.AIR) s.setBlock(cx, Math.floor(y), cz, B.LIGHT_CYAN);
       s.liveProps.set(id, spec);
       s.props.add(spec);
+      // Its floor may have been mined (this epoch before a reload, or an earlier visit to the
+      // site): drop it onto the rock like any settled prop, so one light remains and nothing floats.
+      s.settleProps(cx, Math.floor(y) - 1, cz);
     }
     this.bloomId = id;
   }

@@ -386,6 +386,8 @@ function startGovernor(g: Game, state: AutoQState): QualityGovernor {
 const createUi: UiFactory = (root, actions, bus, input) => new UI(root, actions, bus, input);
 
 async function boot(): Promise<void> {
+  // index.html found the engine too old and already shows the 'update your WebView' message.
+  if ((window as { __DD_UNSUPPORTED__?: boolean }).__DD_UNSUPPORTED__) return;
   if (!Renderer.isSupported()) {
     fatal(t('error.webgl'));
     return;

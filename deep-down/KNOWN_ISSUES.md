@@ -16,6 +16,7 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 
 ## Android build
 
+- The game needs Android System WebView / Chrome 88 or newer (January 2021): the brand's `:where()`/`:is()` selectors, CSS `inset` and `replaceChildren`. Older engines see an 'update your WebView' message instead of the game. The WebView updates itself through the Play Store on Android 7+, so only un-updated devices hit this.
 - The Play bundle (Gradle, compile/target SDK 36) and the CI workflow are written but **unverified until their first CI run**: Google's SDK and Gradle downloads are blocked in this container. The smoke-test APK (`android/build-apk.sh`, API 23 toolchain, targetSdk 36) is the verified path.
 - The native API 28+/30+/33+ behaviours (predictive Back, cutouts, WindowInsetsController, renderer recovery, lifecycle timers, the API 31 splash, themed icon) are reflection-based and **untested on a device or emulator**.
 - The smoke-test APK has no manifest overlay. On API 33–35 it uses the legacy onBackPressed path (Android 16 forces the callback path, which the shell also registers) and it lacks the API 31 splash theme.

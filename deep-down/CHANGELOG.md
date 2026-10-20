@@ -40,6 +40,19 @@ Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before
 - New `tools/poi-density.ts` and `tools/world-tour.json` (f01–f20).
 - Verified: tsc clean; vitest 44 files / 546 tests; e2e 11/11 on port 4173.
 
+### Final pass W2: wave close (orchestrator)
+An independent review of wave 2 confirmed two defects, now fixed:
+- **Glimmer bloom after its floor is mined.** After a reload the bloom floated over the hole,
+  and a second cyan light stayed in every later save. `placeBloom` now settles the bloom onto
+  the rock, so one light remains. A regression test (`bloomSettle.test.ts`) uses the real
+  session and features code; it fails without the fix.
+- **Old WebViews.** The brand plates use `:where()`/`:is()` (Chromium 88). On Chromium 87,
+  which the gate allowed, those rules are dropped and buttons become unreadable native grey. The
+  gate in `index.html` now also requires both selectors, and for the first time it stops the
+  boot (`window.__DD_UNSUPPORTED__`) instead of drawing the game under the 'update your
+  WebView' message. Probed with `:where()` reported as unsupported: only the message shows. On
+  current Chromium the game boots as before.
+
 ### Final pass W2: brand identity, 'Lamplight on the Lintel' (`src/ui/brand/**`, `ui.css`, `notices.ts`, `sprites.ts`, `make-icon.mjs`)
 - **Wordmark:** carved in the Lintel stroke face; each word hangs from its lintel. The O of DOWN is the builders' lantern rune with a breathing amber flame, whose warm light reaches D, W and N.
 - **Octagon plates:** brass rims and lintel headers (a groove with pendant ticks) on every screen, the HUD, toasts, the crash panel and the context-loss notice. Ledger rows; an amber octagon focus ring.

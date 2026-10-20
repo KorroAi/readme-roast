@@ -32,9 +32,13 @@
         } catch (e) {
           ok = false;
         }
-        // Newest platform features the build relies on: CSS inset (Chromium 87), replaceChildren (86).
-        ok = ok && !!(window.CSS && CSS.supports && CSS.supports('inset', '0')) && 'replaceChildren' in Element.prototype;
+        // Newest platform features the build relies on: the :where()/:is() selectors of the brand plates
+        // (Chromium 88; 87 drops those rules and leaves unreadable native buttons), CSS inset (87) and
+        // replaceChildren (86). CSS.supports('selector(...)') itself exists from Chromium 83.
+        ok = ok && !!(window.CSS && CSS.supports && CSS.supports('inset', '0') && CSS.supports('selector(:where(a))') && CSS.supports('selector(:is(a))')) && 'replaceChildren' in Element.prototype;
         if (ok) return;
+        // Where the bundle still parses (a missing feature, not syntax), it must not boot under the message.
+        window.__DD_UNSUPPORTED__ = true;
         var el = document.createElement('div');
         el.className = 'fatal';
         el.setAttribute('role', 'alert');
