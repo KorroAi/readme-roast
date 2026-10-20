@@ -1,4 +1,5 @@
 import { ITEMS, type ItemId } from '../config/items';
+import { discoveryDef } from '../gameplay/discoveries';
 import { t } from '../i18n';
 import type { DiscoveryNotice, PickupNotice } from './types';
 import { h, icon } from './dom';
@@ -114,6 +115,8 @@ export class DiscoveryBanner {
   private readonly title: HTMLElement;
   private readonly body: HTMLElement;
   private readonly count: HTMLElement;
+  /** "DISCOVERY", or "HALDEN LOG" for a found text (a table entry with `log`). */
+  private readonly label: HTMLElement;
   private readonly queue: DiscoveryNotice[] = [];
   private showing = false;
   private timer = 0;
@@ -122,6 +125,7 @@ export class DiscoveryBanner {
     this.title = h('h2', { class: 'dd-discovery-title' });
     this.body = h('p', { class: 'dd-discovery-body' });
     this.count = h('span', { class: 'dd-discovery-count' });
+    this.label = h('span', { class: 'dd-discovery-kind', text: t('discovery.label') });
     this.el = h(
       'div',
       { class: 'dd-discovery', role: 'status', 'aria-live': 'assertive' },
@@ -130,7 +134,7 @@ export class DiscoveryBanner {
         { class: 'dd-discovery-label' },
         h('span', { class: 'dd-rule' }),
         h('span', { class: 'dd-discovery-mark', 'aria-hidden': 'true' }),
-        h('span', { text: t('discovery.label') }),
+        this.label,
         this.count,
         h('span', { class: 'dd-discovery-mark', 'aria-hidden': 'true' }),
         h('span', { class: 'dd-rule' }),
@@ -154,6 +158,9 @@ export class DiscoveryBanner {
     this.showing = true;
     this.title.textContent = n.title;
     this.body.textContent = n.body;
+    const log = discoveryDef(n.id)?.log === true;
+    this.label.textContent = t(log ? 'ui.banner.haldenLog' : 'discovery.label');
+    this.el.classList.toggle('log', log);
     const counted = Number.isFinite(n.index) && Number.isFinite(n.total) && n.total > 0;
     this.count.textContent = counted ? t('brand.discoveryCount', { index: n.index, total: n.total }) : '';
     this.count.hidden = !counted;

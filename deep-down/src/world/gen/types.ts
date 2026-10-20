@@ -19,7 +19,13 @@ export type PropKind =
   // World variety (final pass W2): Halden logs, hoist gear, the pack left behind on a black-out.
   | 'haldenNote'
   | 'hoistWinch'
-  | 'satchel';
+  | 'satchel'
+  // The tree and the runes (final pass W3): camp plots, the three stations, the rune stones.
+  | 'plotStake'
+  | 'forge'
+  | 'surveyTable'
+  | 'relicShelf'
+  | 'runeStone';
 
 export interface PropSpec {
   /** Stable id, used by saves to remember removed props. */
@@ -36,11 +42,15 @@ export interface PropSpec {
   /** Invisible emitter voxels owned by this prop (removed with it). */
   emitters: Array<[number, number, number]>;
   /** Interaction role, if any. */
-  interact?: 'craft' | 'storage' | 'rest' | 'relic' | 'feature';
+  interact?: 'craft' | 'storage' | 'rest' | 'relic' | 'feature' | 'station' | 'rune';
+  /** Camp plots and stations (interact 'station'): which station (game/Stations). */
+  station?: 'surveyTable' | 'forge' | 'relicShelf';
+  /** Rune stones (interact 'rune'): the rune's key item and its glyph (config/runes). */
+  rune?: { item: string; glyph: number };
   /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
   feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith'; id: string; end?: 'top' | 'bottom' };
   /** Minable props (crystal clusters) drop items when broken. */
-  minable?: { hardness: number; tier: number; drop: 'glimmerShard'; min: number; max: number };
+  minable?: { hardness: number; tier: number; drop: 'glimmerShard' | 'echoShard'; min: number; max: number };
   /** Variation seed for procedural mesh details. */
   seed: number;
 }
@@ -230,4 +240,41 @@ export interface WorldLayout {
   structures: StructureSpec[];
   /** The feature pass (world/gen/features): places, rides, rune doors, moths, the living rock. */
   features?: FeatureLayout;
+  /** The progression pass (final pass W3, world/gen/progression): camp plots, runes, Ironbound niches. */
+  progression?: ProgressionLayout;
+}
+
+/** A camp plot: where a station rises once it is built (a chalk outline and a stake until then). */
+export interface PlotDef {
+  station: 'surveyTable' | 'forge' | 'relicShelf';
+  /** Centre of the 2 x 2 plot on the floor (feet height), and the station's turn. */
+  x: number;
+  y: number;
+  z: number;
+  rotY: number;
+  /** The four floor cells of the plot (x, y = feet, z). */
+  cells: Array<[number, number, number]>;
+}
+
+/** A rune stone placed by the generator (the Lantern rune is the shrine's tablet, not listed here). */
+export interface RuneSite {
+  item: string;
+  glyph: number;
+  /** The prop id of its stone. */
+  prop: string;
+  /** What has to be done to reach it: nothing, an iron pick (an Ironbound niche), the rope, or both. */
+  gate: 'none' | 'tier3' | 'rope' | 'tier3+rope';
+  x: number;
+  y: number;
+  z: number;
+  /** Ironbound cells that close its niche (empty when open). */
+  seal: Array<[number, number, number]>;
+}
+
+export interface ProgressionLayout {
+  plots: PlotDef[];
+  runes: RuneSite[];
+  /** Echo crystal voxels placed in the rift, and the clusters that drop echo shards (prop ids). */
+  echoCells: number;
+  echoClusters: string[];
 }

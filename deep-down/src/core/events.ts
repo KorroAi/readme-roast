@@ -1,5 +1,5 @@
 import type { ItemId } from '../config/items';
-import type { RecipeId } from '../config/recipes';
+import type { NodeId } from '../config/recipes';
 import type { ExpeditionReport } from '../gameplay/Records';
 
 /**
@@ -18,8 +18,9 @@ export interface GameEvents {
   'item:rejected': { item: ItemId };
   'inventory:changed': Record<string, never>;
   'items:banked': { total: number; items: Partial<Record<ItemId, number>> };
-  'craft:done': { recipe: RecipeId };
-  'craft:failed': { recipe: RecipeId; reason: string };
+  /** A node of the upgrade tree was made (`recipe` keeps its W1 name: it is a NodeId). */
+  'craft:done': { recipe: NodeId };
+  'craft:failed': { recipe: NodeId; reason: string };
   discovery: { id: string };
   'objective:changed': { id: string };
   'player:footstep': { block: number; speed: number };
@@ -63,6 +64,13 @@ export interface GameEvents {
   'world:bloom': { epoch: number; site: string; area: string; x: number; y: number; z: number };
   /** Moths were scattered by a mining hit. */
   'moths:startled': { x: number; y: number; z: number; count: number };
+  // The tree, the runes and the finale (final pass W3, game/Progression).
+  /** A camp station began to rise on its plot (x, y, z: the plot's centre on the floor). */
+  'station:built': { id: string; x: number; y: number; z: number };
+  /** A rune was found (`count` of `total` now). */
+  'relic:found': { id: string; count: number; total: number };
+  /** The black stone answered: the end card follows. Once per game, saved. */
+  'finale:reached': Record<string, never>;
 }
 
 type Handler<T> = (payload: T) => void;

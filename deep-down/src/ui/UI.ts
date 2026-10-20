@@ -100,6 +100,9 @@ export class UI implements GameUi {
         if (this.current === 'inventory' || this.current === 'crafting') this.refresh();
       }),
       bus.on('craft:failed', ({ reason }) => this.toast(t(CRAFT_FAIL[reason] ?? 'craft.missing'), 'warn')),
+      // A rune door waking under the lantern: the ring on the interact chip fills (it opens at 1).
+      bus.on('world:runeWake', ({ progress }) => this.hud.wakeProgress(progress, performance.now())),
+      bus.on('world:runeOpen', () => this.hud.wakeProgress(1, performance.now())),
     );
     const onKey = (e: KeyboardEvent) => this.onKey(e);
     // Capture phase on window runs before DesktopInput, so keys a screen consumes

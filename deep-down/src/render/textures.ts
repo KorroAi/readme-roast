@@ -2,6 +2,7 @@ import { CRACK_STAGES, TILE, TILE_NAMES, TILE_SIZE, type TileName } from '../con
 import { Rng } from '../core/rng';
 import { hexToRgb } from '../core/math';
 import * as MP from './materials/palette';
+import { RUNES } from '../config/runes';
 
 /**
  * Procedural pixel-art tiles for every block material, generated deterministically.
@@ -516,17 +517,7 @@ export interface TileAtlas {
  * a lantern diamond, descending steps) so inscriptions read as one language. RGB = ink colour,
  * A = ink mask (255 core, 110 soft rim); the terrain shader erodes and lights them.
  */
-type Stroke = [number, number, number, number];
-const RUNES: Array<{ lines: Stroke[]; rings?: Array<[number, number, number]>; dots?: Array<[number, number]> }> = [
-  { lines: [[8, 2, 8, 12], [8, 5, 5, 8], [8, 5, 11, 8], [6, 11, 10, 11], [4, 13, 12, 13]] }, // descent
-  { lines: [[8, 1, 8, 3], [8, 11, 8, 14]], rings: [[8, 7, 3.6]], dots: [[8, 7]] }, // eye
-  { lines: [[8, 1, 8, 3], [8, 3, 12, 7], [12, 7, 8, 11], [8, 11, 4, 7], [4, 7, 8, 3], [6, 13, 10, 13]], dots: [[8, 7]] }, // lantern
-  { lines: [[5, 2, 5, 13], [11, 2, 11, 13], [5, 5, 11, 8], [11, 8, 5, 11]] }, // chasm
-  { lines: [[8, 2, 13, 13], [13, 13, 3, 13], [3, 13, 8, 2], [6, 9, 10, 9]] }, // spire
-  { lines: [[3, 5, 5, 3], [5, 3, 8, 5], [8, 5, 11, 3], [11, 3, 13, 5], [3, 11, 5, 9], [5, 9, 8, 11], [8, 11, 11, 9], [11, 9, 13, 11]] }, // waves
-  { lines: [[4, 13, 4, 3], [4, 3, 12, 3], [12, 3, 12, 13], [8, 6, 8, 13]], dots: [[8, 4]] }, // gate
-  { lines: [[8, 2, 8, 6], [8, 10, 8, 14], [2, 8, 6, 8], [10, 8, 14, 8], [5, 5, 6, 6], [11, 5, 10, 6], [5, 11, 6, 10], [11, 11, 10, 10]], rings: [[8, 8, 1.6]] }, // star
-];
+// The glyphs live in config/runes.ts (shared with the rune stones, the Relic Shelf and the UI).
 
 function paintRune(t: Tile, index: number): void {
   const r = RUNES[index % RUNES.length];

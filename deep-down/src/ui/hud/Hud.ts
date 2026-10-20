@@ -1,3 +1,4 @@
+import './wake.css';
 import { t } from '../../i18n';
 import type { HudState } from '../types';
 import { h } from '../dom';
@@ -8,6 +9,10 @@ import { HEART_COUNT, healthHalves, heartFill } from './hearts';
 const FUEL_STEPS = 200;
 const PROGRESS_STEPS = 100;
 const PERF_INTERVAL_MS = 250;
+/** The wake ring hides this long after the last 'world:runeWake' (they come 4 times a second). */
+const WAKE_HOLD_MS = 700;
+/** Circumference of the wake ring (r = 9 in a 24 x 24 box). */
+const WAKE_C = 2 * Math.PI * 9;
 
 const ARROW_SVG =
   '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2 L19 19 L12 15 L5 19 Z" fill="currentColor" stroke="#05080d" stroke-width="1.6" stroke-linejoin="round"/></svg>';
@@ -44,6 +49,12 @@ export class Hud {
   private readonly useLabel: HTMLElement;
   private readonly hintEl: HTMLElement;
   private readonly perf: HTMLElement;
+  /** The interact chip's rune-door ring: shown while a door wakes under the lantern. */
+  private readonly wake: HTMLElement;
+  private readonly wakeArc: SVGCircleElement;
+  private wakeQ = -1;
+  private wakeAt = -Infinity;
+  private wakeOn = false;
   private hintTimer = 0;
   private readonly reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -124,6 +135,10 @@ export class Hud {
     this.usePrompt = h('div', { class: 'dd-use-prompt' }, h('kbd', { text: t('hud.useKey') }), this.useLabel);
     this.hintEl = h('div', { class: 'dd-hint', role: 'status' });
     this.perf = h('div', { class: 'dd-perf' });
+    const ring = h('span', { class: 'dd-wake-ring', 'aria-hidden': 'true' });
+    ring.innerHTML = `<svg viewBox="0 0 24 24" width="24" height="24"><circle class="dd-wake-track" cx="12" cy="12" r="9"/><circle class="dd-wake-arc" cx="12" cy="12" r="9" stroke-dasharray="${WAKE_C.toFixed(2)}" stroke-dashoffset="${WAKE_C.toFixed(2)}" transform="rotate(-90 12 12)"/><path class="dd-wake-rune" d="M12 6.5 L15 11 L12 15.5 L9 11 Z M12 15.5 V18"/></svg>`;
+    this.wakeArc = ring.querySelector('.dd-wake-arc') as SVGCircleElement;
+    this.wake = h('div', { class: 'dd-wake', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100 }, ring, h('span', { class: 'dd-wake-text', text: t('ui.wake.label') }));
 
     this.el = h(
       'div',
@@ -138,7 +153,7 @@ export class Hud {
       ),
       this.perf,
       this.crosshair,
-      h('div', { class: 'dd-hud-bottom' }, this.hintEl, this.usePrompt, this.target),
+      h('div', { class: 'dd-hud-bottom' }, this.hintEl, this.wake, this.usePrompt, this.target),
     );
     this.el.style.setProperty('--heart-0', `url("${heartDataUrl(0)}")`);
     this.el.style.setProperty('--heart-1', `url("${heartDataUrl(1)}")`);
@@ -244,6 +259,7 @@ export class Hud {
     }
 
     this.updateTarget(s.target);
+    if (this.wakeOn && now - this.wakeAt > WAKE_HOLD_MS) this.setWakeOn(false);
 
     if (s.showCrosshair !== this.crosshairOn) {
       this.crosshairOn = s.showCrosshair;
@@ -271,6 +287,28 @@ export class Hud {
     this.hintEl.classList.add('on');
     window.clearTimeout(this.hintTimer);
     this.hintTimer = window.setTimeout(() => this.hintEl.classList.remove('on'), ms);
+  }
+
+  /**
+   * A rune door is waking ('world:runeWake', progress 0..1; it opens at 1): the ring on the
+   * interact chip fills. It hides by itself once the events stop (the door opened, or the
+   * explorer stepped away and the waking faded).
+   */
+  wakeProgress(progress: number, now: number): void {
+    this.wakeAt = now;
+    if (!this.wakeOn) this.setWakeOn(true);
+    const q = Math.round(Math.max(0, Math.min(1, progress)) * PROGRESS_STEPS);
+    if (q === this.wakeQ) return;
+    this.wakeQ = q;
+    this.wakeArc.setAttribute('stroke-dashoffset', (WAKE_C * (1 - q / PROGRESS_STEPS)).toFixed(2));
+    this.wake.setAttribute('aria-valuenow', String(q));
+    this.wake.setAttribute('aria-label', t('ui.wake.aria', { value: q }));
+  }
+
+  private setWakeOn(on: boolean): void {
+    this.wakeOn = on;
+    this.wake.classList.toggle('on', on);
+    if (!on) this.wakeQ = -1;
   }
 
   dispose(): void {

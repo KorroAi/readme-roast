@@ -365,6 +365,159 @@ export const RUNE_STONE_PALETTE: Palette = { L: 0x6a7484, S: 0x414a58, s: 0x2a30
 
 
 
+// ---------------------------------------------------------------------------------------
+// The rune-door relics (the Reliquary's and the Lamp Gallery's tablets give these key items).
+
+/** The Bearer's Lens: a brass ring holding a disc of cyan glass, on a short stem. */
+export const LENS_ROWS = [
+  '................',
+  '.....BBBBBB.....',
+  '....BbCCCCbB....',
+  '...BbCWWCCCbB...',
+  '...BCWWCCCCCB...',
+  '...BCWCCCCCCB...',
+  '...BCCCCCCCCB...',
+  '...BCCCCCCCDB...',
+  '...BbCCCCCDbB...',
+  '....BbCCDDbB....',
+  '.....BBBBBB.....',
+  '.......bb.......',
+  '.......BB.......',
+  '......BBBB......',
+  '......bbbb......',
+  '................',
+];
+export const LENS_PALETTE: Palette = { B: 0xdba84a, b: 0x8a5a2a, C: 0x2fb6cc, W: 0xe2ffff, D: 0x10617a };
+
+/** The First Lamp: a builders' stone lamp, its flame cyan, not amber. */
+export const FIRST_LAMP_ROWS = [
+  '................',
+  '.......W........',
+  '......WCW.......',
+  '......CCC.......',
+  '.......C........',
+  '.......c........',
+  '....SSSSSSS.....',
+  '...SLLLLLLLS....',
+  '..SLLsGsGsLLSSS.',
+  '..SLsssssssLS..S',
+  '...SsssssssS..S.',
+  '....SSSSSSSSSS..',
+  '.....DDDDDDD....',
+  '....DDDDDDDDD...',
+  '................',
+  '................',
+];
+export const FIRST_LAMP_PALETTE: Palette = { W: 0xe2ffff, C: 0x8fe3ee, c: 0x2fb6cc, S: 0x2a2f3a, L: 0x6a7384, s: 0x4b5260, G: 0x8fe3ee, D: 0x1b1e25 };
+
+// ---------------------------------------------------------------------------------------
+// Upgrade tree art (gear and camp stations; the tree's node plates).
+
+/** Grip Boots: a laced leather boot on an iron-cleated sole. */
+export const BOOTS_ROWS = [
+  '................',
+  '................',
+  '.....DDDD.......',
+  '.....DLLD.......',
+  '.....DLHD.......',
+  '.....DLLD.......',
+  '.....DBLD.......',
+  '....DLLLLD......',
+  '....DLHLLLDD....',
+  '...DLLLLLLLLD...',
+  '...DLLLLLLLLLD..',
+  '...DSSSSSSSSSD..',
+  '...DKDKDKDKDKD..',
+  '................',
+  '................',
+  '................',
+];
+export const BOOTS_PALETTE: Palette = { L: 0x8a5a34, H: 0xb07a4a, D: 0x3d2616, B: 0xdba84a, S: 0x2a2522, K: 0xc9cdd6 };
+
+/** Miner's Coat: an oilcloth coat with a brass-buttoned front and worn cuffs. */
+export const COAT_ROWS = [
+  '................',
+  '.....DD..DD.....',
+  '....DLLDDLLD....',
+  '...DLLLHHLLLD...',
+  '..DLLLLPPLLLLD..',
+  '..DLLLLKPLLLLD..',
+  '.DLLDLLPPLLDLLD.',
+  '.DLLDLLKPLLDLLD.',
+  '.DLLDLLPPLLDLLD.',
+  '.DCCDLLKPLLDCCD.',
+  '..DDDLLPPLLDDD..',
+  '....DLLPPLLD....',
+  '....DLLPPLLD....',
+  '....DDDDDDDD....',
+  '................',
+  '................',
+];
+export const COAT_PALETTE: Palette = { L: 0x5a6a5a, H: 0x7d8f7d, D: 0x1d2420, P: 0x3a463c, K: 0xdba84a, C: 0x8a7a60 };
+
+/** The Survey Table: a trestle table under a chart. */
+export const TABLE_ROWS = [
+  '................',
+  '................',
+  '................',
+  '...WWWWWWWWWW...',
+  '..WPPWWPWWPPWW..',
+  '..WWPWWWPPWWWW..',
+  '.TTTTTTTTTTTTTT.',
+  '.tttttttttttttt.',
+  '..L..........L..',
+  '..L..........L..',
+  '..LL........LL..',
+  '..L.L......L.L..',
+  '..L..L....L..L..',
+  '..L..........L..',
+  '................',
+  '................',
+];
+export const TABLE_PALETTE: Palette = { W: 0xd8c7a4, P: 0x5e4220, T: 0x9a7048, t: 0x5a3f28, L: 0x6b4a2f };
+
+/** The Forge: a stone hearth with a chimney and a fire in its mouth. */
+export const FORGE_ROWS = [
+  '................',
+  '.......SSS......',
+  '.......SsS......',
+  '.......SsS......',
+  '...SSSSSSSSSS...',
+  '..SLLLLLLLLLLS..',
+  '..SLsDDDDDDsLS..',
+  '..SLsDOYYODsLS..',
+  '..SLsDYWWYDsLS..',
+  '..SLsDOYYODsLS..',
+  '..SLssssssssLS..',
+  '..SSSSSSSSSSSS..',
+  '.KKKKKKKKKKKKKK.',
+  '..k..........k..',
+  '................',
+  '................',
+];
+export const FORGE_PALETTE: Palette = { S: 0x3a3f48, L: 0x6a7384, s: 0x4b5260, D: 0x16181d, O: 0xd8722a, Y: 0xffb35c, W: 0xfff0d0, K: 0x5a3f28, k: 0x3d291a };
+
+/** The Relic Shelf: a timber frame with two rows of sockets, one lit. */
+export const SHELF_ROWS = [
+  '................',
+  '..DDDDDDDDDDDD..',
+  '..DTTTTTTTTTTD..',
+  '..DT.G..o..oTD..',
+  '..DT.g..d..dTD..',
+  '..DttttttttttD..',
+  '..DTTTTTTTTTTD..',
+  '..DT.o..o..oTD..',
+  '..DT.d..d..dTD..',
+  '..DttttttttttD..',
+  '..DD........DD..',
+  '..D..........D..',
+  '................',
+  '................',
+  '................',
+  '................',
+];
+export const SHELF_PALETTE: Palette = { D: 0x3d291a, T: 0x6b4a2f, t: 0x5a3f28, G: 0x8fe3ee, g: 0x2fb6cc, o: 0x2a303a, d: 0x1b1e25 };
+
 /** Fallback for an item without its own sprite: a plain pebble in the item's colour. */
 export const PEBBLE_ROWS = [
   '................',
@@ -398,6 +551,9 @@ export const SPECIMENS: Record<string, { rows: readonly string[]; palette: Palet
   copperOre: { rows: COPPER_LUMP_ROWS, palette: COPPER_LUMP_PALETTE },
   ironOre: { rows: IRON_LUMP_ROWS, palette: IRON_LUMP_PALETTE },
   echoShard: { rows: ECHO_SHARD_ROWS, palette: ECHO_SHARD_PALETTE },
+  // The rune-door relics (key items of the Reliquary and the Lamp Gallery).
+  bearerLens: { rows: LENS_ROWS, palette: LENS_PALETTE },
+  firstLamp: { rows: FIRST_LAMP_ROWS, palette: FIRST_LAMP_PALETTE },
 };
 
 /**

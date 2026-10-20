@@ -123,9 +123,10 @@ function rune(id: ItemId): ItemDef {
 
 export const ITEM_IDS = Object.keys(ITEMS) as ItemId[];
 
+/** Rarity accents: the brand tokens (src/ui/brand/tokens.ts RARITY). */
 export const RARITY_COLOR: Record<Rarity, string> = {
-  common: '#aab4c4',
-  uncommon: '#f0a060',
-  rare: '#5ff0ff',
-  relic: '#c9a2ff',
+  common: '#c9bfae',
+  uncommon: '#e58444',
+  rare: '#8fe3ee',
+  relic: '#b9a2ff',
 };

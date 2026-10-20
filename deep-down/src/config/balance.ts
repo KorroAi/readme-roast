@@ -41,6 +41,8 @@ export interface PackDef {
 export const PICKAXES: readonly PickaxeDef[] = [
   { tier: 1, name: 'equip.rustyPickaxe', desc: 'equip.rustyPickaxe.desc', power: 1, swingInterval: 0.42, headColor: 0x7d6a5a },
   { tier: 2, name: 'equip.copperPickaxe', desc: 'equip.copperPickaxe.desc', power: 1.6, swingInterval: 0.42, headColor: 0xd9864b },
+  { tier: 3, name: 'equip.ironPickaxe', desc: 'equip.ironPickaxe.desc', power: 2.4, swingInterval: 0.4, headColor: 0x9aa3ad },
+  { tier: 4, name: 'equip.glimmerPickaxe', desc: 'equip.glimmerPickaxe.desc', power: 3.4, swingInterval: 0.38, headColor: 0x8fe3ee },
 ];
 
 export const LANTERNS: readonly LanternDef[] = [
@@ -88,6 +90,14 @@ export const PLAYER = {
   lanternLowFraction: 0.2,
   /** Lantern radius multiplier once the fuel is gone (an ember, never total darkness). */
   emptyLanternFactor: 0.38,
+} as const;
+
+/** Gear (final pass W3): worn, it changes how the explorer moves and endures. */
+export const GEAR = {
+  /** Grip Boots: jump 1.14 -> 2.1 m, safe drop 3.5 -> 7 m (PlayerController). */
+  gripBoots: { jumpVelocity: 10.1, safeFallSpeed: 18.3 },
+  /** Miner's Coat: 5 -> 7 hearts (Health); the cold's bite is COLD.coatFactor. */
+  minersCoat: { maxHealth: 140 },
 } as const;
 
 /** The dark is cold: once the flame dies and the grace runs out, it hurts (gameplay/Cold). */
@@ -154,7 +164,7 @@ export const WORLD = {
    * (tests/unit/genVersion.test.ts pins the fingerprint): a save from another version keeps
    * everything but its world edits, and wakes the explorer at camp.
    */
-  genVersion: 2,
+  genVersion: 3,
 } as const;
 
 export const LIGHT = {

@@ -49,7 +49,29 @@ export interface RecordsState {
   streak: number;
 }
 
-/** What an expedition amounted to (the Expedition Report reads it; W2/W3 add next and overnight). */
+/** The report's Next card: the node closest to affordable, with its missing chips (game/Progression). */
+export interface ReportNext {
+  /** A node id (config/recipes NodeId). */
+  id: string;
+  name: string;
+  /** Every cost chip: have counts storage + pack. */
+  cost: Array<{ item: ItemId; have: number; need: number }>;
+  /** It can be made now. */
+  ready: boolean;
+}
+
+/** What the deep did overnight (the living rock re-rolled and a glimmer bloom grew), as rumours. */
+export interface ReportOvernight {
+  /** The new night (expeditions into the Hollow so far). */
+  day: number;
+  /** Cells the living rock rewrote, and how many of them had been mined (grew back). */
+  cells: number;
+  regrown: number;
+  /** One line per rumour ("Fresh copper and iron at the Halden Face — 61 m"). */
+  rumours: Array<{ id: string; kind: 'living' | 'bloom'; area: string; text: string; distance: number | null }>;
+}
+
+/** What an expedition amounted to (the Expedition Report reads it; Progression adds next and overnight). */
 export interface ExpeditionReport {
   n: number;
   outcome: TripOutcome;
@@ -79,6 +101,12 @@ export interface ExpeditionReport {
   records: string[];
   /** The report screen is worth showing (long enough, banked something, or found something). */
   show: boolean;
+  /** The Next card (set by Progression when the trip ends; null when the whole tree is made). */
+  next?: ReportNext | null;
+  /** Something in the tree can be made right now: the CTA is Open Workbench, else Head Out Again. */
+  craftableNow?: boolean;
+  /** The deep breathed after this trip (it went into the Hollow): null otherwise. */
+  overnight?: ReportOvernight | null;
 }
 
 export const NO_RECORDS: Readonly<RecordsState> = { deepest: 0, biggestHaul: 0, expeditions: 0, blackouts: 0, bestStreak: 0, streak: 0 };

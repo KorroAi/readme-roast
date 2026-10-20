@@ -52,6 +52,12 @@ export const B = {
   RAMP_BASE_NX: 31,
   RAMP_BASE_PZ: 32,
   RAMP_BASE_NZ: 33,
+  // 34..38 belong to the content stream (W4): TIN_ORE 34, LANTERNSTONE 35, LIGHT_RESONANCE 36,
+  // STATUE_SOLID 37, FOSSIL 38. Until it defines them they are reserved as air (see below).
+  /** Echo crystal (final pass W3): the rift's pale glass. Tier 3; it glows in the shader only, no light. */
+  ECHO_CRYSTAL: 39,
+  /** Ironbound stone (final pass W3): the seal-stone of the relic niches, with a rune band. Tier 3. */
+  IRONBOUND: 40,
 } as const;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
@@ -140,6 +146,18 @@ const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBRE
 def({ id: B.STRUCTURE, name: 'block.ancientBrick', ...structureStone });
 def({ id: B.STRUCTURE_TIMBER, name: 'block.beam', solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
 for (const id of [B.RAMP_PX, B.RAMP_NX, B.RAMP_PZ, B.RAMP_NZ, B.RAMP_BASE_PX, B.RAMP_BASE_NX, B.RAMP_BASE_PZ, B.RAMP_BASE_NZ]) def({ id, name: 'block.ancientTile', ...structureStone });
+// The deep tier (final pass W3). Echo crystal: the crystal's look in pale cyan-white (materials:
+// echoCrystal), a glow in the shader only and no light emission (the cyan budget holds).
+def({
+  id: B.ECHO_CRYSTAL, name: 'block.echoCrystal', solid: true, visible: true, hardness: 6, tier: 3,
+  drop: { item: 'echoShard', min: 1, max: 1, chance: 1 }, sound: 'crystal', tiles: same(TILE.crystal),
+  emission: null, glow: 0, debris: [0xd8f4f6, 0xb9e9ef, 0x6fb8c4],
+});
+// Ironbound: the seal-stone with a rune band; it closes the relic niches until an iron pick opens them.
+def({ id: B.IRONBOUND, name: 'block.ironbound', solid: true, visible: true, hardness: 12, tier: 3, drop: stoneDrop, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x2b2f3a, 0x4a4f5a, 0x1f222b] });
+// Ids not defined yet (34..38, the content stream's) behave as air, so tables and loops over
+// BLOCKS have no holes. A definition above or added later replaces the reservation.
+for (let id = 0; id < B.IRONBOUND; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
 
 export const BLOCKS: readonly BlockDef[] = defs;
 export const BLOCK_COUNT = defs.length;
