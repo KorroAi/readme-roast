@@ -240,6 +240,7 @@ test.describe('the W1 slice (hybrid-slice)', () => {
   });
 
   test('Explore: a far tappable is walked to, then acted on; the objective line walks you to the goal', async ({ page }) => {
+    test.setTimeout(600_000);
     const touch = await boot(page);
     await intoCellar(page);
     // Look for a strike tappable beyond reach that is on screen.
@@ -248,7 +249,7 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     for (let k = 0; k < 8 && !far; k++) {
       const list = await H(page, () => window.__DD__.hybrid.tappables());
       seen.push(list.map((t) => `${t.id}:${t.kind}@${Math.round(t.hit.x + t.hit.w / 2)},${Math.round(t.hit.y + t.hit.h / 2)} d${t.dist.toFixed(1)} l${t.left}`).join(' '));
-      far = list.find((t) => ['vein', 'gem', 'stash', 'lamp'].includes(t.kind) && t.dist > 3.6 && t.dist < 25 && t.left > 0 && t.hit.x + t.hit.w / 2 > 30 && t.hit.x + t.hit.w / 2 < 360 && t.hit.y + t.hit.h / 2 > 150 && t.hit.y + t.hit.h / 2 < 730) ?? null;
+      far = list.find((t) => ['vein', 'gem', 'stash', 'lamp'].includes(t.kind) && t.dist > 3.6 && t.dist < 10 && t.left > 0 && t.hit.x + t.hit.w / 2 > 30 && t.hit.x + t.hit.w / 2 < 360 && t.hit.y + t.hit.h / 2 > 150 && t.hit.y + t.hit.h / 2 < 730) ?? null;
       if (!far) {
         await touch.drag({ x: 300, y: 450 }, -110, 0, 300);
         await still(page);
@@ -257,7 +258,8 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     expect(far, `no far tappable came on screen while looking around: ${seen.join(' | ')}`).not.toBeNull();
     await touch.tap(centreOf(far!.hit));
     await page.waitForFunction(() => window.__DD__.hybrid.explore().walks > 0 || window.__DD__.hybrid.events('tappable:hit').length > 0, null, { timeout: 30_000 });
-    await page.waitForFunction(() => window.__DD__.hybrid.explore().actsOnArrival > 0, null, { timeout: 90_000 });
+    // (Under SwiftShader a frame is ~1 s and a frame advances the walk by at most 0.1 s: metres take frames.)
+    await page.waitForFunction(() => window.__DD__.hybrid.explore().actsOnArrival > 0, null, { timeout: 240_000 });
     const ev = (await H(page, () => window.__DD__.hybrid.events())).map((e) => e.name);
     expect(ev.some((n) => /^(tappable:hit|chamber:harvest|lamp:relight)$/.test(n))).toBe(true);
     // The objective line: a tap walks toward its target (or faces it when already there).
@@ -439,6 +441,7 @@ test.describe('the W1 slice (hybrid-slice)', () => {
   });
 
   test('E9: relight the Root Cellar\'s lamps with real taps (walk there, then the flame): lamp:relight ×2, charted, a gem', async ({ page }) => {
+    test.setTimeout(900_000);
     const touch = await boot(page);
     await intoCellar(page);
     const v0 = await H(page, () => window.__DD__.hybrid.node());
@@ -451,11 +454,13 @@ test.describe('the W1 slice (hybrid-slice)', () => {
       if (v.lamps[0] >= v.lamps[1]) break;
       const all = await H(page, () => window.__DD__.hybrid.tappables());
       seen.push(`lamps ${v.lamps.join('/')} yaw ${(((await H(page, () => window.__DD__.hybrid.explore().pos.yaw)) * 180) / Math.PI).toFixed(0)}: ` + all.filter((t) => t.kind === 'lamp').map((t) => `${t.id}@${Math.round(t.hit.x + t.hit.w / 2)},${Math.round(t.hit.y + t.hit.h / 2)} d${t.dist.toFixed(1)} l${t.left}`).join(' '));
-      const lamp = all.find((t) => t.kind === 'lamp' && t.left > 0 && t.hit.x + t.hit.w / 2 > 20 && t.hit.x + t.hit.w / 2 < 370 && t.hit.y + t.hit.h / 2 > 140 && t.hit.y + t.hit.h / 2 < 740);
+      const lamp = all
+        .filter((t) => t.kind === 'lamp' && t.left > 0 && t.hit.x + t.hit.w / 2 > 20 && t.hit.x + t.hit.w / 2 < 370 && t.hit.y + t.hit.h / 2 > 140 && t.hit.y + t.hit.h / 2 < 740)
+        .sort((p, q) => p.dist - q.dist)[0];
       if (lamp) {
         const lit0 = v.lamps[0];
         await touch.tap(centreOf(lamp.hit));
-        await page.waitForFunction((n) => window.__DD__.hybrid.node().lamps[0] > n, lit0, { timeout: 90_000 }).catch(() => undefined);
+        await page.waitForFunction((n) => window.__DD__.hybrid.node().lamps[0] > n, lit0, { timeout: 240_000 }).catch(() => undefined);
         await still(page);
       } else {
         await touch.drag({ x: 300, y: 450 }, -140, 0, 300);

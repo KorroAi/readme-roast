@@ -67,6 +67,7 @@ import { globalId, localId, makeSource, nodeOfId, type WorldProvider } from './s
 import { createWorld } from './world';
 import { IrradianceVolume } from './irradiance';
 import { DeepWorld } from '../../world/hybrid/DeepWorld';
+import { templateFor } from '../../world/hybrid/kits/templates';
 import { loadPrefs, savePrefs, type ShellPrefs } from './prefs';
 import type { V3 } from './ropeRide';
 
@@ -316,9 +317,8 @@ export class HybridGame {
 
   /** Register 1B's templates with the model (the contents of each chamber follow its sockets). */
   private installTemplates(): void {
-    void import('../../world/hybrid/kits/templates').then((m) => {
-      setTemplateSource((lifeSeed, topo) => m.templateFor(lifeSeed, topo));
-    });
+    // Synchronous: the model reads a chamber's contents from its template from the first step on.
+    setTemplateSource((lifeSeed, topo) => templateFor(lifeSeed, topo));
   }
 
   // ----------------------------------------------------------------------------------------------------------------
