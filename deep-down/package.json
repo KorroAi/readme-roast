@@ -1,7 +1,7 @@
 {
   "name": "deep-down",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "DEEP DOWN - a voxel exploration, mining and crafting game for mobile.",
   "type": "module",
   "scripts": {

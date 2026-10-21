@@ -42,11 +42,11 @@ describe('versionCode = (MAJOR × 10000 + MINOR × 100 + PATCH) × 100 + BUILD',
     expect(() => parseBuild('100')).toThrow();
   });
 
-  it('package.json is version 1.0.0 → 1000000, released by tag deep-down-v1.0.0', async () => {
+  it('package.json is version 1.1.0 → 1010000, released by tag deep-down-v1.1.0', async () => {
     const v = await readVersion(undefined, {});
-    expect(v).toEqual({ version: '1.0.0', build: 0, versionCode: 1000000 });
-    expect((await readVersion(undefined, { DD_BUILD: '7' })).versionCode).toBe(1000007);
-    expect(releaseTag(v.version)).toBe('deep-down-v1.0.0');
+    expect(v).toEqual({ version: '1.1.0', build: 0, versionCode: 1010000 });
+    expect((await readVersion(undefined, { DD_BUILD: '7' })).versionCode).toBe(1010007);
+    expect(releaseTag(v.version)).toBe('deep-down-v1.1.0');
   });
 
   it('src/version.ts falls back to 0.0.0 / 0 outside a vite build', () => {

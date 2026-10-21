@@ -41,6 +41,8 @@ async function goDeep(page: Page, key = 'oldCamp', yaw = 0) {
   await page.evaluate(([x, y, z, w]) => window.__DD__.teleport(x + 0.5, y, z + 0.5, w), [...s!, yaw] as [number, number, number, number]);
   await page.evaluate((w) => window.__DD__.look(w, -0.08), yaw);
   await page.evaluate(() => window.__DD__.step(10));
+  // The camp clears creatures near it; wait until the game has seen the player leave the camp before spawning.
+  await page.waitForFunction(() => !(window.__DD__.game as any).inCamp, undefined, { timeout: 15_000, polling: 100 });
 }
 
 /** Find a heading with open floor 3-9 m ahead, then return that floor point. */

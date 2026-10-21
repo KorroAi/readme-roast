@@ -2,6 +2,47 @@
 
 Newest first. Each entry says what changed and how it was verified.
 
+## 1.1.0 — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21)
+
+The director's notes on 1.0.0 drove this round: bugs and glitches, "not everything should be minable", rarity highlights,
+a bad pointer, the lantern, an empty and linear world, few events, special creatures, and "charm" meaning visual quality.
+Briefs: `docs/final/ROUND2.md` and `POLISH2.md`.
+
+- **Only interesting things are minable** (`src/config/rarity.ts`):
+  - Plain rock is solid: a tap on it gives a soft tunk and, now and then, a hint.
+  - Ores, crystals, gem pockets, rubble and roots break.
+  - Each find glows softly in its rarity colour: common white, uncommon green, rare blue, epic violet, legendary gold. From
+    about 10 m out it gets a hairline rim. A legend explains the colours.
+- **Selection without the dot.** A tap snaps to the best target within 56 px, preferring the rarer find. Progress is shown as
+  cracks and a ring on the struck point. The selection outline hugs the struck find only and fades at arm's length.
+- **The lantern redone.** It is now a brass storm lantern, with glass panes, a cage, a handle, a flickering flame and a
+  visible oil level. Its tiers change the model and the light.
+- **A vaster, looping world** (genVersion 6). The walkable floor grows by 56 %, in loops rather than one line: the Root
+  Galleries, the Geode, the Sounding Shaft, the Still Lake (water), the Underhall and the Lantern Vault. Every space is
+  proven reachable.
+- **World events** (`src/game/events/**`):
+  - tremor, rockfall, gust, geyser, crystal bloom, a moth migration, a treasure glint, an echo light;
+  - each with a calm visual (falling dust, rising spores, a soft glow, a drifting mote) and its own sound.
+- **Creatures** (`src/game/mobs/**`, `src/render/mobs/**`), in many sizes:
+  - Unsettling monsters: the Crawler (packs deeper down), the Gnasher (a breathing boulder), the Shade Wisp (drinks your oil),
+    the Hollow Stalker (fears a full flame), the Stone Sentinel and, far off, the Deep Worm.
+  - Endearing beings: Lumen Moths, Lamplings (they light your way), the Glimmerkin, the Shellback, the Drift Jelly and the
+    Burrower.
+  - Monsters never spawn in the camp, in lit places or inside the lantern's pool, and every attack is telegraphed.
+- **Weapons after iron**, made at the Forge: the machete, the spear, the sling (ranged) and the flash charge (it scares
+  monsters off and hurts everything in a 6 m area). Tap a monster to strike it, and a short hit stop sells the blow. Each weapon has its own icon.
+- **Visual quality:**
+  - Copper reads as metal nuggets in grey rock.
+  - Close stone peaks at about 0.75 display, so walls no longer wash out.
+  - The camp fire licks as real flames.
+  - The Glowroot's ember-glass seal glows.
+  - The Lantern Vault has clear air and lamps that read from the floor.
+  - Water is new.
+  - Drops shrink away as they pass the lens.
+- **Fixes.** FP's bug list B1–B12 is closed, the hoist ride keeps the rope out of the frame, and the machete stripes are gone.
+- **Version.** 1.1.0, versionCode 1010000. It installs over 1.0.0 because the signing key is the same.
+- **Verified:** see TEST_REPORT.md, "1.1.0 gate".
+
 ## 1.0.0 candidate — the finished game: first person, the visual upgrade and the deep (2026-10-21)
 
 After two other directions (an idle clicker, then a first-person "node crawl" hybrid, both kept only in git history:

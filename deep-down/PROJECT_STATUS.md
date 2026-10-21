@@ -17,11 +17,18 @@ npm run build          # production build in dist/
 ```
 
 **First person everywhere** (the explorer is never drawn; you hold the pickaxe on the right and the lantern on the left).
-Touch, upright phone, one thumb: tap a block within 3.5 m and it is mined to the end; tap farther rock, the floor or an
+Only interesting things break (ores, crystals, gem pockets, rubble, roots); plain rock is solid and answers a tap with a
+soft tunk. Finds glow in their rarity colour: common white, uncommon green, rare blue, epic violet, legendary gold.
+Touch, upright phone, one thumb: there is no centre dot; a tap snaps to the best find within 56 px (the rarer one first)
+and, within 3.5 m, mines it to the end; tap farther rock, the floor or an
 object and you walk there (the view turns along the way), then mine or use it; drag anywhere to look; hold on a vein to
 mine it out block after block; a floating joystick appears under the thumb in the lower left third if you want to walk
 freely; 1-block ledges are climbed on their own. The top bar shows depth, lantern oil, the pack (tap: bag) and ≡ (pause);
-the objective line is always on. Desktop: WASD move, mouse look (click to capture), hold left button to mine, Space jump,
+the objective line is always on. After the first iron, the Forge makes weapons (machete, spear, sling, flash charges):
+tap a monster to strike it. Creatures of every size live in the caves, from unsettling monsters (Crawler, Gnasher, Shade
+Wisp, Hollow Stalker, Stone Sentinel, the Deep Worm) to endearing beings (Lamplings, Glimmerkin, Shellback, Drift Jelly,
+Burrower, Lumen Moths); none spawn in the camp. World events (tremors, rockfalls, gusts, geysers, crystal blooms,
+migrations, treasure glints, echo lights) keep the trip alive. Desktop: WASD move, mouse look (click to capture), hold left button to mine, Space jump,
 E use, I / Tab bag, Esc pause.
 
 ## Systems

@@ -194,7 +194,10 @@ export class DropSystem {
       d.mesh.position.set(d.x, d.y + bob, d.z);
       d.mesh.rotation.y += d.spin * dt;
       const appear = Math.min(1, d.age * 8);
-      d.mesh.scale.setScalar(appear * fade * (d.magnet ? Math.max(0.4, Math.min(1, dist)) : 1));
+      // In first person the eye is 1.62 m up: a drop passing the lens shrinks away instead of filling the screen.
+      const eye = Math.hypot(d.x - px, d.y - (py + 1.62), d.z - pz);
+      const nearEye = Math.max(0, Math.min(1, (eye - 0.35) / 0.55));
+      d.mesh.scale.setScalar(appear * fade * nearEye * (d.magnet ? Math.max(0.4, Math.min(1, dist)) : 1));
     }
   }
 
