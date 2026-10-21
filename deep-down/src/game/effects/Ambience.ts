@@ -12,9 +12,8 @@ import { HaloSystem, type HaloSource } from './Halos';
  *   lantern and the light around it (one draw call, animated on the GPU, gone past 16 m);
  * - glow caps: small clumps of fungi against the walls, pale amber-gold caps that glow faintly,
  *   so the deep's dark always holds a warm point (one draw call), with a soft halo each;
- * - the deep zones' own glows: a halo over every ember fissure (LIGHT_MAGMA) and glowroot light,
- *   and a warm glow over each focal landmark of the cool, monotone spaces (the gate's seal, the
- *   rift floor's last camp, the Glowroot's relic, the Ember Deep's hearth). One draw call.
+ * - the deep zones' own glows: a halo of heat in every ember fissure (LIGHT_MAGMA), a faint wide
+ *   glow round the glowroot lights, and the heat over the Ember Deep's hearth. One draw call.
  * Static except the drips' fall: nothing else moves.
  */
 export interface AmbientAnchor {
@@ -143,9 +142,8 @@ export function deepGlowSources(world: VoxelWorld): HaloSource[] {
 }
 
 /**
- * The focal glows of the cool, monotone spaces (the polish round's note 3: one warm counterpoint
- * and one lit focal point each). Positions come from the world's landmarks; a missing landmark
- * gives no glow.
+ * The focal glows of the monotone spaces (the polish round's note 3: one warm counterpoint and one
+ * lit focal point each). Positions come from the world's landmarks; a missing landmark gives none.
  */
 export function focalGlows(lm: Landmarks): HaloSource[] {
   const out: HaloSource[] = [];
@@ -153,14 +151,10 @@ export function focalGlows(lm: Landmarks): HaloSource[] {
     const p = lm[key];
     if (p) out.push({ x: p[0] - 0.5, y: p[1] - 0.5 + dy, z: p[2] - 0.5, id: B.LIGHT_EMBER, color, size, lift: 0.5 });
   };
-  // The gate: warm light low on the seal, against the Hollow's violet.
-  add('seal', 1.2, [1.25, 0.62, 0.24], 1.6);
-  // The rift floor: the last camp's ember, warm against the violet deep.
-  add('lastCamp', 0.7, [1.4, 0.66, 0.24], 1.3);
-  // The Glowroot: warm gold on the relic, against the moss's green.
-  add('relic_glowroot', 1.0, [1.3, 0.8, 0.3], 1.2);
-  // The Ember Deep: the hearth's heat over its bed of lanternstone.
-  add('emberDeep', 0.6, [1.6, 0.62, 0.2], 2.2);
+  // The Ember Deep: the hearth's heat over its bed of lanternstone (the cavern's focal point; the
+  // gate, the rift floor and the Glowroot take their warm counterpoint from CONTENT's lamps and the
+  // lantern pool, which now owns its faces under cool light: lighting.ts ambientFrom).
+  add('emberDeep', 1.0, [1.7, 0.6, 0.18], 2.4);
   return out;
 }
 

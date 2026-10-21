@@ -22,7 +22,7 @@ const RECORDED: Record<number, string> = {
   4: 'a3013d11',
   // Polish: focal points (features/focal) in the seal hall, on the black stone's step, at the
   // Glowroot's heart and the Ember hearth; the Choir's dais kerb in dressed stone.
-  5: 'a5516cc4',
+  5: '322dd587',
 };
 
 let layout: WorldLayout;

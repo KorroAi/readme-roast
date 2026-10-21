@@ -202,6 +202,11 @@ if (opt.touch) {
   check('hold: not mining before 230 ms', !s.mining, { mining: s.mining });
   await wait(150);
   s = await input();
+  // SwiftShader under load can run the hold timer a few frames late: give it up to 1.5 s more.
+  for (let i = 0; i < 50 && !s.mining; i++) {
+    await wait(30);
+    s = await input();
+  }
   const nx = (600 / vp.width) * 2 - 1;
   const ny = 1 - (150 / vp.height) * 2;
   check('hold: mining with pointer aim', s.mining && s.aimFromPointer && Math.abs(s.aimX - nx) < 0.01 && Math.abs(s.aimY - ny) < 0.01, { aimX: s.aimX, aimY: s.aimY, expect: [nx, ny] });

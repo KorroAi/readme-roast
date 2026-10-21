@@ -91,7 +91,8 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   plank: { glow: 0 },
   beamSide: { glow: 0 },
   beamEnd: { glow: 0 },
-  hearth: { glow: 0.8 },
+  // Lanternstone and the hearth: a held flame, the deep's warm focal glint (polish: brighter).
+  hearth: { glow: 1.25 },
   bedrock: { glow: 0 },
   masonryB: { glow: 0 },
   crumblingB: { glow: 0.9 },

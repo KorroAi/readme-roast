@@ -29,8 +29,8 @@ const plotBox = (p: PlotDef) => new THREE.Box3(new THREE.Vector3(p.x - 1, p.y, p
 
 describe('the camp plots and stations', () => {
   it('keeps every earlier prop id and landmark (the progression pass only appends)', () => {
-    // The deep beyond the rift (f_glowroot_, f_choir_, f_ember_) and the content pass (c_) come after.
-    const ids = layout.props.map((p) => p.id).filter((id) => !/^(plotStake|runeStone)_\d+$/.test(id) && !/^(f_(glowroot|choir|ember)|c)_/.test(id));
+    // The deep beyond the rift (f_glowroot_, f_choir_, f_ember_), the content pass (c_) and the focal points (f_focal_) come after.
+    const ids = layout.props.map((p) => p.id).filter((id) => !/^(plotStake|runeStone)_\d+$/.test(id) && !/^(f_(glowroot|choir|ember|focal)|c)_/.test(id));
     expect(ids).toEqual(W2_PROP_IDS);
     for (const [k, v] of Object.entries(W2_LANDMARKS)) {
       expect(layout.landmarks[k], k).toBeDefined();

@@ -175,8 +175,9 @@ void main() {
 #else
   vec2 facing = vec2(1.0);
 #endif
-  vec3 ambient = ambientFrom(ls, ng, facing, ao) * shade * aoCurve;
+  // The lantern first: it owns the faces it lights (warm against cold), as on the terrain.
   vec3 lantern = lanternLight(vLight, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
+  vec3 ambient = ambientFrom(ls, ng, facing, ao, lantern) * shade * aoCurve;
   vec3 color = nearShoulder(albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve), albedo * lantern);
   float rough = clamp(max(DETAIL_R[layer] + (0.5 - det.w) * 0.3, length(fwidth(ng)) * 1.5), 0.12, 1.0);
   color += lanternSpec(ng, normalize(cameraPosition - vWorldPos), rough, vec3(0.035)) * (0.3 + 0.7 * ao);

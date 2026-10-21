@@ -134,9 +134,10 @@ export class HaloSystem {
         sz = 1.25;
         lift = 0.5;
       } else if (s.id === B.LIGHT_GLOWROOT) {
-        // The glowroot moss's own green-gold light, soft and wide.
-        rgb = [0.42, 0.62, 0.22];
-        sz = 1.4;
+        // The glowroot moss's own green-gold light: a faint, wide breath of colour in the air,
+        // never an orb (the lights hang in open air above the moss).
+        rgb = [0.07, 0.11, 0.035];
+        sz = 2.6;
         lift = 0.5;
       } else if (s.id === B.LIGHT_LAMP) {
         // Amber-gold like the lamps' light (blocks.ts), not red-orange.

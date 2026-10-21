@@ -261,9 +261,15 @@ every surface is seen from 0.5 m to 15 m. What changed in the renderer for that 
   `Viewmodel.lightWorld`); falloff K 16 (1 m 0.86, 3 m 0.4, 6 m 0.12 of the gain), so the pool reads
   6-8 m across and the far dark keeps its depth (gain 11.5; floors take more wrap than walls); pale gold at the core, amber by 3 m, deep
   amber at the rim (`uLanternColor` #ffb878); the floor right ahead takes 30 % less so it stays
-  golden, the near field is held back (0.62x at 1 m, 1x from 2.2 m) so a wall at arm's length keeps
-  its colour; the tank only shades the floor almost straight below. Cool placed light (crystals, the rift) gives way
-  up to 60 % where the lantern owns a face, so pools read amber against cyan, not lavender.
+  golden. Polish round: the near field rolls off (0.42x at 0.2 m, 0.52x at 1 m, 0.78x at 2 m, 1x
+  from 3.4 m), so the light on a face is about level from the hand to 3 m, and `nearShoulder`
+  eases the flame-lit colour of terrain, structures and props under a ceiling (knee 0.24, ceiling
+  0.46 linear, hue kept), so lit stone peaks at about 0.75 display at 1 m (`tools/vis-near.mjs`
+  measures it) instead of clipping to cream; the tank shades only the floor below the flame, so a
+  2 m tunnel's roof stays lit. Inside the pool (`gLanternOwn`: in sight of the flame, within ~3.3 m
+  and fading by 7.5 m, turned to it) the lantern owns the face: cool placed light gives way by up
+  to 80 %, the cool fill by 85 % and the zone's constant ambient by 70 %, so the floor ahead reads golden even under the rift's violet or
+  the Glowroot's green; structures take the same ownership.
 - **Exposure 1.0, the lights carry the brightness**: each zone preset has `exposure: 1.0` (x 1.05 at
   the player's default brightness) and a `lightGain` (camp 1.8, tunnel 1.36, Hollow 2.25, rift 2.09,
   Glowroot and Ember Deep 1.98) on its ambient, open fill, haze colours, placed lights
@@ -280,12 +286,25 @@ every surface is seen from 0.5 m to 15 m. What changed in the renderer for that 
   one draw call (the rift's violet light rising past the monolith, the Spindle's uplight, the light
   on the shrine's tablet), dust drifting slowly through them, faded near the lens and into the haze.
 - **Calm FX**: a burst throws at most 9 chunks (`CRUMBLE_MAX`), dust and glints are capped per call
-  (`FX_MAX`); the lumen moths are drawn as glow spores (round breathing motes, no wings).
+  (`FX_MAX`); the lumen moths are drawn as glow spores (round breathing motes, no wings). Debris is
+  lit from the open air on the lantern's side (a chip in the broken block's stale cell is never
+  black) and shrinks away near the lens (gone within 0.6 m). The mining fractures are hairlines
+  (~1 cm, at least ~1 px) that darken the stone by at most about half. A glyph band at the feet
+  (the Choir's kerb) keeps only a thin, dim core of ink, so the landmark it rings holds the eye.
+- **Ambient wonder** (`game/effects/Ambience.ts`, from CONTENT's `layout.content.ambient`): drips
+  (a bead gathers under the roof and falls every 3-8 s, a glint of the lantern, GPU-animated, gone
+  past 16 m), warm glow caps against the walls (a soft halo each), a halo of heat in every ember
+  fissure (`LIGHT_MAGMA`), a faint wide glow round the glowroot lights, and the heat over the Ember
+  Deep's hearth (with a low warm beam). Three draw calls; nothing moves but the drips.
 - **Draw distance**: chunks and structures stop at the zone's haze (`FOG_CULL`: where distance fog
   reaches 97 %, e.g. ~60 m in passages), props smaller than 2 m at 45 m; measured first-person
   views stay at 31-125 draw calls and 17-134k triangles on Balanced (`tools/perf.mjs`).
 - Tools: `tools/fp-shots.mjs` (+ `fp-shots.json`) captures the spaces at 390 x 844 @2 in first
-  person; `tools/perf.mjs` now measures first-person portrait views against the budget below.
+  person; `tools/perf.mjs` now measures first-person portrait views against the budget below;
+  `tools/vis-near.mjs` reads back how lantern-lit walls read from 0.8 to 6 m.
+- No depth, AO, shaft or shadow pass exists in this renderer (one forward pass, then the post
+  chain), so the viewmodel (`userData.viewmodel`, layer 5, no shadow casting) is in none; a future
+  auxiliary pass must disable layer 5 on its camera.
 
 ## Rendering budgets (target device class: 2022 mid-range Android, e.g. Mali-G68 / Adreno 642L)
 

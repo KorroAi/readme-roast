@@ -385,7 +385,7 @@ export function buildLantern(tier: number): LanternGeometry {
  */
 export function buildGlove(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const glove: Finish = { color: 0x9a6c45, rough: 0.72 };
+  const glove: Finish = { color: 0xa8784c, rough: 0.7 };
   const seam: Finish = { color: 0x6a4a32, rough: 0.8 };
   // The wrapped fingers: a short sleeve of leather round the rod, a little flattened.
   b.add(new THREE.CylinderGeometry(0.026, 0.026, 0.054, 14, 1, false), new THREE.Matrix4().makeScale(1.1, 1, 0.94), glove);
@@ -410,8 +410,8 @@ export function buildGlove(): THREE.BufferGeometry {
  */
 export function buildSleeve(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const gauntlet: Finish = { color: 0x5c4030, rough: 0.78 };
-  const band: Finish = { color: 0xc09050, metal: 1, rough: 0.38 };
+  const gauntlet: Finish = { color: 0x3e2a1e, rough: 0.8 };
+  const band: Finish = { color: 0xd8a860, metal: 1, rough: 0.32 };
   const coat: Finish = { color: 0x34404f, rough: 0.92 };
   const turn: Finish = { color: 0x4a5869, rough: 0.9 };
   b.rod(V(0, -0.01, 0), V(0, 0.085, 0), 0.025, 0.037, gauntlet, 14);

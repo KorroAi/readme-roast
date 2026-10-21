@@ -172,13 +172,13 @@ export const PICK_TUNE: Partial<PickLayout> = {};
 /** Where the pick sits for a screen shape. */
 export function pickLayout(aspect: number): PickLayout {
   const w = wide(aspect);
-  return { headX: mix(0.87, 0.8, w), headY: mix(-0.5, -0.44, w), leanX: mix(0.1, 0.2, w), leanZ: -0.2, scale: mix(0.5, 0.74, w), pointIn: 0.2, pointUp: 0.2, ...PICK_TUNE };
+  return { headX: mix(0.88, 0.8, w), headY: mix(-0.52, -0.44, w), leanX: mix(0.1, 0.2, w), leanZ: -0.2, scale: mix(0.55, 0.74, w), pointIn: mix(0.16, 0.2, w), pointUp: 0.2, ...PICK_TUNE };
 }
 
 /** Where the lantern hangs for a screen shape: its bail in NDC and its height (NDC). */
 export function lanternLayout(aspect: number): { x: number; y: number; height: number } {
   const w = wide(aspect);
-  return { x: mix(-0.8, -0.78, w), y: mix(-0.56, -0.5, w), height: mix(0.27, 0.34, w) };
+  return { x: mix(-0.8, -0.79, w), y: mix(-0.56, -0.5, w), height: mix(0.27, 0.34, w) };
 }
 
 const smooth = (x: number) => {
@@ -443,7 +443,7 @@ export class Viewmodel {
     this.qTmp.setFromAxisAngle(this.swingAxis, -a * 0.95);
     this.pick.quaternion.copy(this.qTmp).multiply(this.pickRest);
     // The strike reaches in toward the middle of the view (plus the aim at the struck point).
-    this.qAim.setFromEuler(this.eAim.set((this.aim.pitch + 0.12) * strike, (this.aim.yaw + 0.22 * sx) * strike, 0, 'YXZ'));
+    this.qAim.setFromEuler(this.eAim.set((this.aim.pitch + 0.1) * strike, (this.aim.yaw + 0.42 * sx) * strike, 0, 'YXZ'));
     this.pick.quaternion.premultiply(this.qAim);
     this.pickSwing.position.set(0, 0, -0.03 * strike);
     this.gloves[0].position.set(0, 0.0, 0);
@@ -472,9 +472,9 @@ export class Viewmodel {
 
   /**
    * The pick's rest orientation, size and grip for a screen shape: the head sits in the right
-   * quarter of the view, low, its point aimed forward into the scene (foreshortened, so the tool
-   * stays out of the central column); the handle leans in and away, down to a grip below the
-   * bottom edge.
+   * quarter of the view, low, its point aimed forward and a little up into the scene (so the forged
+   * profile reads while the tool stays out of the central column); the handle leans in, its top a
+   * little toward the eye, down to the gloved grip at the bottom edge.
    */
   private restPose(aspect: number, D: number, sx: number): void {
     const key = `${aspect.toFixed(3)}:${sx}`;

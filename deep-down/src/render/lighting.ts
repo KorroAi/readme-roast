@@ -90,6 +90,11 @@ vec4 lightSample(vec3 samplePos) {
   return vec4(pow(l.rgb, vec3(1.55)) * uEmitGain, l.a);
 }
 
+// Set by lanternLight (call it first): how far the face is inside the lantern's pool (in sight of
+// the flame, within ~3.3 m fully and fading by 7.5 m, scaled with the lantern's radius, and turned
+// to it), for ambientFrom's warm-against-cool ownership. 0 where no lantern was computed.
+float gLanternOwn = 0.0;
+
 // Emitter light + ambient from a light sample. Openness adds a neutral blue-grey fill so big
 // spaces read as big; its colour comes from the zone's atmosphere.
 vec3 ambientFrom(vec4 ls) {
@@ -120,9 +125,16 @@ vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
   // the pool reads amber against cyan around it instead of lavender where the two overlap.
   float pl = max(dot(placed, LUM), 1e-4);
   float cool = smoothstep(0.0, 0.6, (placed.b + 0.5 * placed.g - 1.5 * placed.r) / pl);
-  placed *= 1.0 - 0.6 * cool * smoothstep(0.7, 2.2, dot(lantern, LUM) / pl);
-  float own = 1.0 - 0.75 * smoothstep(0.6, 1.8, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004));
-  return uAmbient + fill * own + placed;
+  // Polish round: the pool owns its faces as soon as the flame is about as bright as the cool light
+  // there (from 0.35x, fully by 1.4x, up to 80 %), so the floor ahead reads golden even under the
+  // rift's violet or the Glowroot's green, not lilac or olive.
+  // Inside the pool itself (gLanternOwn: in sight of the flame, within ~3-7 m, turned to it) the
+  // flame owns the face outright, however strong the cool light there.
+  placed *= 1.0 - 0.8 * cool * max(smoothstep(0.35, 1.4, dot(lantern, LUM) / pl), gLanternOwn);
+  float own = 1.0 - 0.85 * max(smoothstep(0.4, 1.4, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004)), gLanternOwn);
+  // The zone's constant ambient (its hued dark) gives way in the pool too, so pale floors there
+  // read gold, not lilac.
+  return uAmbient * (1.0 - 0.7 * gLanternOwn) + fill * own + placed;
 }
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
   return ambientFrom(ls, n, facing, ao, vec3(0.0));
@@ -216,6 +228,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
   gLanternRad = uLanternColor * tint * (LANTERN_GAIN * tank * uLanternIntensity * vis * att);
   gLanternL = l;
+  gLanternOwn = vis * tank * (1.0 - smoothstep(0.3, 0.68, x)) * smoothstep(0.0, 0.2, dot(n, l)) * min(uLanternIntensity, 1.0);
   return uLanternColor * (tint * (LANTERN_GAIN * diff * tank) + bounceTint * (bounce * (0.3 + 0.7 * tank))) * (uLanternIntensity * vis * att);
 }
 

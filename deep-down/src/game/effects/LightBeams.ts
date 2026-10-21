@@ -4,7 +4,7 @@ import { LIGHTING_GLSL, type LightingUniforms } from '../../render/lighting';
 /**
  * Light beams: the only volumetric light in the game, and only where a real beam is (the rift's
  * violet light rising past the monolith, the Spindle's uplight in the Hollow, the light falling on
- * the shrine's tablet). Clear air everywhere else (the finished-game visual rules: no global haze).
+ * the shrine's tablet, the heat over the Ember Deep's hearth). Clear air everywhere else (the finished-game visual rules: no global haze).
  *
  * Each beam is an open cone, additive, no depth write, drawn in one merged mesh (one draw call).
  * The glow is brightest along the axis and fades softly at the rim (by the angle between the view
@@ -168,6 +168,10 @@ export function beamsFor(lm: Landmarks): BeamSpec[] {
   const tb = lm.tablet;
   // Light falling on the shrine's tablet from the vault: a narrow warm-white cone.
   if (tb) out.push({ from: [tb[0], tb[1] - 0.1, tb[2]], to: [tb[0], tb[1] + 6.5, tb[2]], r0: 0.8, r1: 0.4, color: [0.022, 0.02, 0.016] });
+  const ed = lm.emberDeep;
+  // The Ember Deep's hearth: heat rising off the bed of lanternstone, a low wide warm column (the
+  // cavern's focal point).
+  if (ed) out.push({ from: [ed[0], ed[1] - 0.6, ed[2]], to: [ed[0], ed[1] + 5.5, ed[2]], r0: 1.1, r1: 1.7, color: [0.035, 0.012, 0.003] });
   return out;
 }
 

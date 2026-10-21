@@ -109,8 +109,9 @@ describe('visual pass rules', () => {
     expect(deepGlowSources(w)).toHaveLength(2);
     expect(focalGlows({})).toHaveLength(0);
     const lm = { seal: [10, 4, 10], lastCamp: [12, 4, 12], relic_glowroot: [14, 4, 14], emberDeep: [16, 4, 16] };
-    expect(focalGlows(lm)).toHaveLength(4);
+    expect(focalGlows(lm)).toHaveLength(1);
     for (const g of focalGlows(lm)) expect(g.color![0]).toBeGreaterThan(g.color![2] * 2); // warm
+    expect(beamsFor({ emberDeep: [16, 2, 16] })).toHaveLength(1);
     const rig = new LightingRig(new LightField(w), new LanternField(w), 32, 16, 32);
     const amb = new Ambience(rig.uniforms, w, [
       { kind: 'drip', p: [5.5, 12, 5.5], drop: 6 },
@@ -119,7 +120,7 @@ describe('visual pass rules', () => {
     ], lm);
     expect(amb.drips).toBe(2);
     expect(amb.caps).toBe(4);
-    expect(amb.haloCount).toBe(2 + 4 + 1);
+    expect(amb.haloCount).toBe(2 + 1 + 1);
     expect(amb.group.children).toHaveLength(3);
     amb.dispose();
   });

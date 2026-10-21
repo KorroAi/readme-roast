@@ -1,4 +1,5 @@
 import { SOLID } from '../../config/blocks';
+import { EYE_HEIGHT, REACH as FP_REACH } from '../../game/fp/constants';
 import type { VoxelWorld } from '../VoxelWorld';
 
 /**
@@ -96,26 +97,34 @@ export function nearReachable(w: VoxelWorld, seen: Uint8Array, x: number, y: num
   return false;
 }
 
-/** Count voxels of `id` whose center is within `reach` of a reachable cell's chest height. */
-export function minableCount(w: VoxelWorld, seen: Uint8Array, id: number, reach = 4.2): number {
-  let count = 0;
+/**
+ * Count voxels of `id` the explorer can mine from a reachable cell: the voxel's centre within
+ * `reach` of the eye (first person: game/fp/constants, 1.62 m over the feet, 3.5 m from the eye).
+ * The reachable set is dilated once into a mask of minable voxels, so a common block (slate) costs
+ * no more than a rare one.
+ */
+export function minableCount(w: VoxelWorld, seen: Uint8Array, id: number, reach = FP_REACH): number {
+  // Offsets (voxel - feet cell) whose centre is within reach of that cell's eye.
   const r = Math.ceil(reach);
-  for (let i = 0; i < w.blocks.length; i++) {
-    if (w.blocks[i] !== id) continue;
-    const z = Math.floor(i / (w.sx * w.sy));
+  const offs: number[] = [];
+  for (let dy = -r; dy <= r + 2; dy++)
+    for (let dz = -r; dz <= r; dz++)
+      for (let dx = -r; dx <= r; dx++) if (Math.hypot(dx, dy - (EYE_HEIGHT - 0.5), dz) <= reach) offs.push(dx, dy, dz);
+  const mask = new Uint8Array(w.blocks.length);
+  const sxy = w.sx * w.sy;
+  for (let i = 0; i < seen.length; i++) {
+    if (!seen[i]) continue;
+    const z = Math.floor(i / sxy);
     const y = Math.floor(i / w.sx) % w.sy;
     const x = i % w.sx;
-    let ok = false;
-    for (let dy = -r; dy <= r && !ok; dy++)
-      for (let dz = -r; dz <= r && !ok; dz++)
-        for (let dx = -r; dx <= r && !ok; dx++) {
-          const xx = x + dx;
-          const yy = y + dy;
-          const zz = z + dz;
-          if (!w.inBounds(xx, yy, zz) || !seen[w.index(xx, yy, zz)]) continue;
-          if (Math.hypot(dx, dy - 1.3, dz) <= reach) ok = true;
-        }
-    if (ok) count++;
+    for (let k = 0; k < offs.length; k += 3) {
+      const vx = x + offs[k];
+      const vy = y + offs[k + 1];
+      const vz = z + offs[k + 2];
+      if (w.inBounds(vx, vy, vz)) mask[w.index(vx, vy, vz)] = 1;
+    }
   }
+  let count = 0;
+  for (let i = 0; i < w.blocks.length; i++) if (mask[i] && w.blocks[i] === id) count++;
   return count;
 }
