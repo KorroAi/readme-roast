@@ -1,9 +1,10 @@
 import { expect, test, type Page } from '@playwright/test';
-import { waitMode } from './dd';
+import { descend, waitMenu, waitMode } from './dd';
 
 // The release shell around the first-person game (src/main.ts), in portrait: the crash panel, the Android bridge
 // (predictive Back, lifecycle), the context-loss notice, the automatic quality governor and the boot failure.
-// A first launch lands in the shaft; the second launch shows the menu at the surface (Descend, Settings, About).
+// A first launch goes straight to the plug face; from the second launch the camp at the adit mouth is the menu
+// (SPEC §5.10: "Descend" = the adit, which the objective line walks you to; ≡ opens the sheet with Settings).
 
 type Release = {
   version: { version: string; build: number; versionCode: number };
@@ -90,11 +91,11 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   expect(details).toMatch(/GL renderer: /);
 
   await page.getByRole('button', { name: 'Restart' }).click();
-  // The second launch: the menu at the surface, the save untouched.
-  await waitMode(page, 'menu');
-  await expect(page.getByRole('button', { name: /Descend/i })).toBeVisible();
+  // The second launch: the menu (the camp at the adit mouth), the save untouched.
+  await waitMenu(page);
+  await expect(page.locator('[data-hud="goal"]')).toBeVisible();
   expect(await saveSlots(page), 'the save is the one from before the crash').toEqual(before);
-  await page.getByRole('button', { name: /Descend/i }).click();
+  await descend(page);
   await waitMode(page, 'playing');
 });
 
@@ -117,7 +118,7 @@ test('an error after boot (a rejected promise) shows the panel; Copy details cop
   expect(details).toContain(await page.evaluate(() => navigator.userAgent));
   // A platform refusal (a DOMException, e.g. a denied fullscreen) is not a crash.
   await page.reload();
-  await waitMode(page, 'menu');
+  await waitMenu(page);
   await page.evaluate(() => {
     void Promise.reject(new DOMException('e2e: refused', 'NotAllowedError'));
   });
@@ -148,26 +149,26 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
   await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(true);
 
-  // Back in play climbs to the menu at the surface: the root, where Back belongs to the OS.
+  // Back in play climbs to the menu (the camp): the root, where Back belongs to the OS.
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true);
-  await waitMode(page, 'menu', 10_000);
+  await waitMenu(page, 30_000);
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(false);
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(false);
 
-  // A screen over the menu: Back closes it, so the page handles Back again.
-  await page.getByRole('button', { name: /^Settings$/i }).first().click();
+  // A screen over the menu (≡'s sheet, with Settings): Back closes it, so the page handles Back again.
+  await page.locator('[data-hud="menu"]').click();
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(true);
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(false);
 
-  await page.getByRole('button', { name: /Descend/i }).click();
+  await descend(page);
   await waitMode(page, 'playing');
   await expect.poll(lastCall, { timeout: 5_000 }).toBe(true);
   await expect.poll(async () => (await screenOn()).at(-1), { timeout: 30_000 }).toBe(true);
 
   const calls = await page.evaluate(() => (window as unknown as Win).DeepDownAndroid.backCalls);
   for (const c of calls) {
-    const root = c.mode === 'menu' && c.screen === 'menu';
+    const root = c.screen === 'menu';
     expect(c.handled, `setBackHandled(${c.handled}) at ${c.mode}/${c.screen}`).toBe(!root);
   }
   expect(calls.filter((c) => !c.handled).length).toBeGreaterThanOrEqual(2);
@@ -236,7 +237,7 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
   expect(await page.evaluate(() => JSON.parse(localStorage.getItem('deepdown.autoquality') ?? 'null'))).toEqual({ auto: true, toasted: true });
 
   await page.reload();
-  await waitMode(page, 'menu');
+  await waitMenu(page);
   expect(await quality()).toBe('battery');
   // A manual choice switches it off for good.
   await page.evaluate(() => window.__DD__.hybrid.settings({ quality: 'high' }));

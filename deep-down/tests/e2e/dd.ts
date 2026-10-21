@@ -31,7 +31,7 @@ export async function idleReady(page: Page, timeout = 180_000): Promise<void> {
   await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true, null, { timeout, polling: 200 });
 }
 
-/** Wait until the game is in `mode` ('menu', 'playing', 'paused', 'crashed'). */
+/** Wait until the game is in `mode` ('playing', 'paused', 'crashed'; the menu is the camp: `waitMenu`). */
 export async function waitMode(page: Page, mode: string, timeout = 180_000): Promise<void> {
   await page.waitForFunction((m) => window.__DD__?.hybrid?.ready === true && window.__DD__.hybrid.mode() === m, mode, { timeout, polling: 200 });
 }
@@ -71,7 +71,21 @@ export async function hybridReady(page: Page, timeout = 180_000): Promise<void> 
   await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true, null, { timeout, polling: 200 });
 }
 
-/** Wait until the hybrid game is in `mode` ('menu', 'playing', 'paused', 'crashed'). */
+/**
+ * Wait for the menu: the camp at the adit mouth with nothing open (SPEC §5.10; `screen === 'menu'`, where Back belongs
+ * to the OS). The game's mode there is 'playing': the camp is a place, not a screen.
+ */
+export async function waitMenu(page: Page, timeout = 180_000): Promise<void> {
+  await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true && (window.__DD__.internals?.game as { screen?: string } | undefined)?.screen === 'menu', null, { timeout, polling: 200 });
+}
+
+/** "Descend" from the camp: a tap on the objective line ("Go down the adit") walks to the adit, which goes down. */
+export async function descend(page: Page, timeout = 240_000): Promise<void> {
+  await page.locator('[data-hud="goal"]').click();
+  await page.waitForFunction(() => window.__DD__.hybrid.node().phase !== 'camp', null, { timeout, polling: 200 });
+}
+
+/** Wait until the hybrid game is in `mode` ('playing', 'paused', 'crashed'; the menu is the camp: `waitMenu`). */
 export async function hybridMode(page: Page, mode: string, timeout = 180_000): Promise<void> {
   await page.waitForFunction((m) => window.__DD__?.hybrid?.ready === true && window.__DD__.hybrid.mode() === m, mode, { timeout, polling: 200 });
 }
