@@ -235,6 +235,7 @@ describe('feats', () => {
     relics: 0,
     relicsTotal: 5,
     discoveryIds: DISCOVERIES.map((d) => d.id),
+    secretsFound: 0,
     secretsTotal: 10,
     treeBuilt: 0,
     treeTotal: 12,

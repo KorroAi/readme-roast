@@ -62,6 +62,8 @@ export interface FeatSnapshot {
   relicsTotal: number;
   /** Every discovery in the table. */
   discoveryIds: readonly string[];
+  /** Secret alcoves opened in this world (life.secrets also counts an older world's). */
+  secretsFound: number;
   secretsTotal: number;
   treeBuilt: number;
   treeTotal: number;
@@ -103,7 +105,7 @@ export const FEATS: readonly FeatDef[] = [
   { id: 'caches3', group: 'finds', check: (s) => s.life.caches >= 3, reward: { copperOre: 2 } },
   { id: 'caches12', group: 'finds', check: (s) => s.life.caches >= 12, reward: { glimmerShard: 2 } },
   { id: 'secrets3', group: 'finds', check: (s) => s.life.secrets >= 3, reward: { glimmerShard: 1 } },
-  { id: 'secretsAll', group: 'finds', check: (s) => s.secretsTotal > 0 && s.life.secrets >= s.secretsTotal, reward: { echoShard: 2 } },
+  { id: 'secretsAll', group: 'finds', check: (s) => s.secretsTotal > 0 && s.secretsFound >= s.secretsTotal, reward: { echoShard: 2 } },
   { id: 'relics', group: 'finds', check: (s) => s.relicsTotal > 0 && s.relics >= s.relicsTotal, reward: { echoShard: 1 } },
   { id: 'logs', group: 'story', check: (s) => ['note.office', 'note.landing', 'note.yard', 'note.rift'].every((id) => s.discoveries.has(id)), reward: { ironOre: 2 } },
   { id: 'runes4', group: 'story', check: (s) => s.runes >= 4, reward: { glimmerShard: 1 } },

@@ -633,10 +633,15 @@ export class Progression {
     g.particles.sparkle(spec.x, spec.y + 0.6, spec.z, 0xffd9a0, 10, g.rng, 1.4);
     if (spec.secret) {
       life.secrets++;
-      g.ui.toast(t('toast.secret', { found: life.secrets, total: this.secretsTotal }), 'good');
+      g.ui.toast(t('toast.secret', { found: this.secretsFound, total: this.secretsTotal }), 'good');
     } else g.ui.toast(t('toast.cacheLoot', { items: rewardText(loot, (i) => t(ITEMS[i].name)) }), 'good');
     g.clearFocus();
     this.featTimer = 0;
+  }
+
+  /** Secret alcoves opened in this world. The lifetime count also keeps those of an older world (save/saveData shiftWorldIfNeeded). */
+  get secretsFound(): number {
+    return this.game.session.layout.props.filter((p) => p.secret && this.looted(p.id)).length;
   }
 
   /** Secret alcoves in this world (props with a secret tag). */
@@ -755,6 +760,7 @@ export class Progression {
       relics: RELIC_ITEMS.filter((id) => g.journal.hasKeyItem(id)).length,
       relicsTotal: RELIC_ITEMS.length,
       discoveryIds: DISCOVERIES.map((d) => d.id),
+      secretsFound: this.secretsFound,
       secretsTotal: this.secretsTotal,
       treeBuilt,
       treeTotal: owned.length,
@@ -861,6 +867,9 @@ export class Progression {
   /** Game.onLanded: a survivable landing from higher than a walk drops (HOME.maxDrop). */
   onLongFall(): void {
     this.pit.arm();
+    // Blocks mined since the fields were computed (a seal, a cracked wall) may have joined the floor
+    // below to a walk home the field does not know yet: the watch waits for the recompute.
+    if (this.minedSinceField > 0) this.scheduleFields();
   }
 
   /** After a long fall into a pit, climb back to the last safe cell instead of being stranded. */
