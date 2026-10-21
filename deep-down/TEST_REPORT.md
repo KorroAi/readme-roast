@@ -1,5 +1,21 @@
 # DEEP DOWN — Test Report
 
+## 1.0.0 candidate gate — the finished first-person game (2026-10-21, commit after 1945565)
+
+Run by the lead on a quiet machine (load ≈ 1–5), on the tree that ships:
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run` | 55 files, **630/630**, four consecutive runs (the worker-mesh test was made deterministic first) |
+| `npx playwright test` (all specs; touch specs at 390 × 844 with real CDP touches) | **18/18 passed** (15.6 min): desktop 2, progression 3, release 6, slice 1, tap 4, world 2 |
+| `tools/apk-sim.mjs` on the final APK (signed with the shared debug key 47facb26…) | **14/14 PASS**, 0 refused requests, 0 page errors |
+| `tools/ui-check.mjs --game` (FP, polish round) | 82/82, 0 layout problems |
+| `tools/perf.mjs`, Balanced, 19 first-person views (VIS) | 32–131 draw calls, 17k–145k triangles (budget 150 / 250k) |
+| `tools/poi-density.ts` (CONTENT) | 7,280 floor columns, none more than 10 m from a find |
+
+**Not covered here:** a real Android device (frame rate, heat, touch latency, haptics), and audio by ear.
+
 Milestone M1 (vertical slice "The Lantern Hollow"). Environment: Linux container, 4 CPUs,
 Node 22.22, headless Chromium 141 (Playwright 1.56.1) with WebGL 2 through SwiftShader
 (software rendering). **No physical Android device or emulator was available.**
