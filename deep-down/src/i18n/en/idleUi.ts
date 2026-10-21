@@ -396,7 +396,7 @@ export const idleUi = {
   'hy.camp.lantern': 'The lantern maker',
   'hy.camp.goal': 'Walk to the adit',
   // The focus pop panel
-  'hy.focus.chest': '{tier} chest',
+  'hy.focus.chest': 'A chest',
   'hy.focus.chestOpen': 'Tap to open',
   'hy.focus.chestGot': '+{gold} gold',
   'hy.focus.chestGems': '+{gold} gold · +{gems} gems',

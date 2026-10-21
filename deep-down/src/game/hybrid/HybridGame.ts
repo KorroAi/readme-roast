@@ -486,7 +486,7 @@ export class HybridGame {
       if (id) this.scene.openFocus(id);
       this.fx.ceremonyStart('chest', Math.min(1200, 250 * Math.max(1, p.steps + 1)), () => this.fx.request('chest.open'));
       const gold = format(p.gold);
-      this.ui.hud.focus(t('hy.focus.chest', { tier: tx(`idle.chest.${p.tier}`) || p.tier }), p.gems > 0 ? t('hy.focus.chestGems', { gold, gems: p.gems }) : t('hy.focus.chestGot', { gold }), 'chest');
+      this.ui.hud.focus(tx(`idle.chest.${p.tier}`) || t('hy.focus.chest'), p.gems > 0 ? t('hy.focus.chestGems', { gold, gems: p.gems }) : t('hy.focus.chestGot', { gold }), 'chest');
       this.haptics.play('chest');
     });
     on('relic:grade', (p) => {
@@ -1619,7 +1619,7 @@ export class HybridGame {
   private showFocusPanel(node: number, id: string, kind: string): void {
     const con = contentsOf(this.state, node);
     const sc = con.sockets[id];
-    if (kind === 'chest') this.ui.hud.focus(t('hy.focus.chest', { tier: tx(`idle.chest.${['wood', 'copper', 'crystal', 'reliquary', 'lintel'][sc?.floor ?? 0]}`) || '' }).trim(), t('hy.focus.chestOpen'), 'chest');
+    if (kind === 'chest') this.ui.hud.focus(tx(`idle.chest.${['wood', 'copper', 'crystal', 'reliquary', 'lintel'][sc?.floor ?? 0]}`) || t('hy.focus.chest'), t('hy.focus.chestOpen'), 'chest');
     else if (kind === 'relic') this.ui.hud.focus(tx(`idle.find.${sc?.relic ?? ''}`) || t('hy.focus.relic'), t('hy.focus.relic'), 'relic');
     else if (kind === 'note' || kind === 'mural') this.ui.hud.focus(t('hy.focus.note'), tx(sc?.lore ?? '') || tx(`idle.lore.${sc?.lore ?? ''}`), 'note');
   }

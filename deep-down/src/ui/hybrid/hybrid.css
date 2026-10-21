@@ -318,7 +318,9 @@ button.hy-plate:focus-visible {
   flex-direction: column;
   justify-content: center;
   gap: 6px;
-  padding: 12px 16px;
+  padding: 14px 18px;
+  min-height: 72px;
+  overflow: hidden;
   pointer-events: none;
 }
 .hy-focus[data-tone='note'] {

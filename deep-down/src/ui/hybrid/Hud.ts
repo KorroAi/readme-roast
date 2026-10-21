@@ -289,7 +289,12 @@ export class Hud {
     place(this.cardEls[1], l.cards[1]);
     place(this.skipEl, l.skip);
     place(this.noteEl, l.note);
+    // The focus panel fits its words, anchored to the bottom of its slot (a note runs up to the slot's height).
     place(this.focusEl, l.focus);
+    this.focusEl.style.top = '';
+    this.focusEl.style.height = '';
+    this.focusEl.style.bottom = `${height - (l.focus.y + l.focus.h)}px`;
+    this.focusEl.style.maxHeight = `${l.focus.h}px`;
     this.sheetEl.style.top = `${l.sheetTop}px`;
     this.sheetEl.style.bottom = `${height - l.sheetBottom}px`;
     this.returnEl.style.top = `${Math.round(l.region.top + (l.region.bottom - l.region.top) * 0.22)}px`;
