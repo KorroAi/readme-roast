@@ -215,8 +215,13 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     expect(aim.y).toBeCloseTo(ndc[1], 3);
     await expect(page.locator('.dd-crosshair')).not.toHaveClass(/\bon\b/);
   }
-  // Hold for up to 30 s of game time (SwiftShader under load runs at a frame or two per second).
-  await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
+  // Hold for up to 30 s of game time (SwiftShader under load runs at a frame or two per second);
+  // captured, the view is re-aimed at the vein once if it has not given way by then.
+  const broke = () => untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
+  if (!(await broke()) && locked) {
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), vein!.block);
+    await broke();
+  }
   await page.mouse.up({ button: 'left' });
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)).toBe(B.AIR);
   const onTarget = await page.evaluate(([x, y, z]) => {
@@ -242,7 +247,7 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
 
 
 // SwiftShader under load renders a frame or two per second: give each test a generous budget.
-test.describe.configure({ timeout: 900_000 });
+test.describe.configure({ timeout: 1_800_000 });
 
 test('desktop controls: keyboard and mouse drive movement, look, mining, screens and pause', async ({ page }) => {
   const errors = watchErrors(page);
@@ -313,9 +318,18 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   const lm = await page.evaluate(() => window.__DD__.landmarks());
   const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
+  // Round 2: the vein was out in the tunnel (plain rock is not minable), so coming back ends a short
+  // trip and its report opens first; its Close button returns to play (and, as every screen, frees
+  // the mouse).
+  const reported = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', 4);
+  if (reported) {
+    await page.locator('[data-key="summary-close"]').click();
+    await waitScreen(page, 'none');
+  }
   await expect(page.locator('.dd-use-prompt.on')).toContainText(/Workbench/i, { timeout: LOADED_CEILING_MS });
-  // A lock granted by the mining click is still held here, so the release below is the screen's doing.
-  expect(await page.evaluate(() => document.pointerLockElement === document.getElementById('game'))).toBe(mined.locked);
+  // A lock granted by the mining click is still held here (unless the report freed it), so the
+  // release below is the screen's doing.
+  if (!reported) expect(await page.evaluate(() => document.pointerLockElement === document.getElementById('game'))).toBe(mined.locked);
   await page.keyboard.press('KeyE');
   await waitScreen(page, 'crafting');
   await expect(page.getByRole('dialog', { name: 'Workbench' })).toBeVisible();

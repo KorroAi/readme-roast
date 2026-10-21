@@ -25,7 +25,8 @@ void main() {
   gl_Position = projectionMatrix * mv;
   gl_PointSize = clamp(aSize * uPixelScale / max(0.1, -mv.z), 1.0, 64.0);
   // Fade particles that drift right in front of the lens instead of drawing huge blurry discs.
-  vAlpha = aAlpha * smoothstep(0.5, 1.8, -mv.z);
+  // VIS r2: dust (no glow) fades sooner: a mining puff at arm's length read as a glowing disc.
+  vAlpha = aAlpha * (aGlow > 0.5 ? smoothstep(0.5, 1.8, -mv.z) : smoothstep(0.8, 2.6, -mv.z));
   vColor = aColor;
   vGlow = aGlow;
 }
@@ -44,7 +45,8 @@ void main() {
   vec2 c = gl_PointCoord - 0.5;
   float d = dot(c, c) * 4.0;
   if (d > 1.0) discard;
-  float soft = (1.0 - d);
+  // Dust is a soft puff (no edge); glints keep their small bright disc.
+  float soft = vGlow > 0.5 ? (1.0 - d) : (1.0 - d) * (1.0 - d);
   // Lit by the same light volumes as everything else (no normal: average facing).
   vec4 ls = lightSample(vWorldPos);
   // Distance clamped to 1.2 m: motes drifting past the flame must not flash brighter than it.
@@ -169,14 +171,19 @@ export class ParticleSystem {
   /** Dust cloud (e.g. when a block breaks). */
   dust(x: number, y: number, z: number, hex: number, count: number, rng: Rng, spread = 0.45): void {
     // Colors are sRGB hex like the rest of the palette; the shader works in linear light.
-    const [r, g, b] = hexToLinear(hex);
+    const [r0, g0, b0] = hexToLinear(hex);
+    // VIS r2: dust is the stone's colour half-greyed (a puff of copper ore is not orange paint).
+    const l = 0.2126 * r0 + 0.7152 * g0 + 0.0722 * b0;
+    const r = (r0 + l) / 2;
+    const g = (g0 + l) / 2;
+    const b = (b0 + l) / 2;
     // Calm FX: a few motes per call, never a cloud over the view.
     count = Math.min(count, FX_MAX.dust);
     for (let i = 0; i < count; i++) {
       this.spawn({
         x: x + rng.range(-spread, spread), y: y + rng.range(-spread, spread), z: z + rng.range(-spread, spread),
         vx: rng.range(-0.6, 0.6), vy: rng.range(0.1, 0.8), vz: rng.range(-0.6, 0.6),
-        life: 0, maxLife: rng.range(0.7, 1.4), size: rng.range(0.25, 0.5), grow: 0.6, alpha: 0.5, r: r * 2.6, g: g * 2.6, b: b * 2.6, glow: 0,
+        life: 0, maxLife: rng.range(0.7, 1.4), size: rng.range(0.25, 0.5), grow: 0.6, alpha: 0.36, r: r * 2.2, g: g * 2.2, b: b * 2.2, glow: 0,
       });
     }
   }

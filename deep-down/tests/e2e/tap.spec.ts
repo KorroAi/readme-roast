@@ -262,7 +262,24 @@ test('round 2: no dot; a tap on ordinary rock is a soft tunk; a tap a little off
         }
   }, block);
   const vy = 380;
-  await page.evaluate(([x, y, z, ay]) => window.__DD__.aimAt(x, y, z, 0, ay), [...block, 1 - (vy / 844) * 2]);
+  // Step back a cell or two (in reach still): from the cell beside it the vein fills the view.
+  const backed = await page.evaluate(([bx, by, bz, sx, sy, sz, ay]) => {
+    const dd = window.__DD__;
+    const g = dd.game;
+    const dx = Math.sign(sx - bx);
+    const dz = Math.sign(sz - bz);
+    for (const k of [2, 1, 0]) {
+      const c = dd.standableNear(sx + 0.5 + dx * k, sy, sz + 0.5 + dz * k);
+      if (!c) continue;
+      dd.teleport(c[0], c[1], c[2]);
+      dd.aimAt(bx, by, bz, 0, ay);
+      const e = g.cameraRig.eye;
+      const r = g.mining.pick(0, ay, e.x, e.y, e.z, 48);
+      if (r.target && r.target.key === `${bx},${by},${bz}` && r.target.inReach) return k;
+    }
+    return -1;
+  }, [...block, ...prep!.stand, 1 - (vy / 844) * 2] as [number, number, number, number, number, number, number]);
+  expect(backed, 'the vein in reach from a step back').toBeGreaterThanOrEqual(0);
   // A point just beside the vein on screen (20 px past its edge) whose own ray meets no find.
   const off = await page.evaluate(([vy]) => {
     const g = window.__DD__.game;

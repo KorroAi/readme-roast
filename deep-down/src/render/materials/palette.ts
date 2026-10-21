@@ -41,7 +41,8 @@ export const SOIL = [0x1b1917, 0x231f1c, 0x2b2623, 0x342e29, 0x3e3731, 0x4a4139,
 export const COPPER = [0x3d2115, 0x5b2c19, 0x803e1f, 0xa65126, 0xc96832, 0xe58444] as const;
 export const COPPER_GLINT = 0xffb978;
 /** Verdigris crust around copper: grey-green, deliberately not cyan. */
-export const VERDIGRIS = [0x2b453d, 0x37574a, 0x466d5a, 0x56856b] as const;
+// Round 2: teal (true verdigris), so under the warm flame it reads grey-green, not lime.
+export const VERDIGRIS = [0x2a4243, 0x335253, 0x3f6563, 0x4c7a75] as const;
 
 /** Banded iron: steel-grey metallic bands, red jasper bands, ochre rust stains. */
 export const IRON = [0x24252a, 0x313439, 0x41434a, 0x53575f, 0x686c75, 0x7f848d] as const;

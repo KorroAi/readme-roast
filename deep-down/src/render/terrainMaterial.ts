@@ -535,7 +535,7 @@ void main() {
     // clean colours.
     float green = smoothstep(0.98, 1.06, tex.g / max(tex.r, 1e-3)) * smoothstep(0.12, 0.22, sat);
     float between = isCopper ? (1.0 - max(smoothstep(1.3, 1.5, tex.r / max(tex.g, 1e-3)), green)) * smoothstep(0.18, 0.35, sat) : 0.0;
-    float fringe = max((1.0 - crisp) * smoothstep(0.05, 0.45, m), between);
+    float fringe = max(max((1.0 - crisp) * smoothstep(0.05, 0.45, m), between), isCopper ? green * 0.35 : 0.0);
     albedo = mix(albedo, vec3(lum) * vec3(1.03, 1.0, 0.96), fringe * 0.75);
     float rim = smoothstep(0.12, 0.4, m) * (1.0 - smoothstep(0.45, 0.6, m));
     // World-space gradient of the mask (1/m) from its screen derivatives: the nugget as a height
@@ -548,10 +548,14 @@ void main() {
     // Iron's steel reads cool and bright against the warm-lit host rock (it was the rock's own grey).
     // VIS r2 (arm's length): steel is a dark blue-grey metal (the flame's specular gives its shine),
     // not a pale plate; iron's rust crust is a deep red-brown, not orange paint.
-    vec3 metalAlb = isCopper ? albedo * 1.3 : max(albedo * 1.25, vec3(0.1, 0.105, 0.12)) * vec3(0.92, 0.97, 1.08) * (0.8 + 0.4 * det.w);
+    // Native copper is a deep coppery metal whose shine is the flame's specular: a third less
+    // saturated than the painted orange (flat orange paint at arm's length), toned by the detail
+    // layer so a large nugget has a hammered surface, not one flat fill.
+    vec3 copperAlb = mix(albedo, vec3(lum) * vec3(1.25, 0.78, 0.56), 0.35) * 1.18 * (0.78 + 0.44 * det.w);
+    vec3 metalAlb = isCopper ? copperAlb : max(albedo * 1.25, vec3(0.1, 0.105, 0.12)) * vec3(0.92, 0.97, 1.08) * (0.8 + 0.4 * det.w);
     if (isIron) {
       float rust = smoothstep(1.25, 1.6, tex.r / max(tex.g, 1e-3)) * smoothstep(0.35, 0.6, sat);
-      albedo = mix(albedo, mix(vec3(lum), albedo, 0.5) * vec3(1.0, 0.86, 0.8) * 0.82, rust);
+      albedo = mix(albedo, mix(vec3(lum), albedo, 0.3) * vec3(1.06, 0.9, 0.8) * 0.78, rust);
     }
     albedo = mix(albedo * (1.0 - 0.5 * rim), metalAlb, crisp);
     oreMetal = crisp;

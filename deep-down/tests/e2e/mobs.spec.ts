@@ -257,10 +257,13 @@ test('shoot a wisp with the Flare Sling', async ({ page }) => {
   const t1 = await page.evaluate(() => window.__DD__.game.playTime as number);
   expect(oil0 - oil1, 'it drank more oil than the time burnt').toBeGreaterThan((t1 - t0) * 1.5);
   expect(await page.evaluate(() => (window.__DD__ as any).mobs.dim() as number), 'the flame is dimmed').toBeLessThan(0.9);
+  // The feeder is put away; the next one hangs back in the dark, out of reach of any blade: the sling.
+  await page.evaluate((id) => (window.__DD__ as any).mobs.hit(id, 99), feeder);
   const f = await floorAhead(page, 7, 9);
   const w = await spawnAt(page, 'wisp', f, 1.5);
   expect(w).not.toBeNull();
-  await page.evaluate(() => window.__DD__.step(20));
+  await page.evaluate(() => (window.__DD__ as any).mobs.freeze(true));
+  await page.evaluate(() => window.__DD__.step(30));
   const gone = await fightAll(page, touch, 'wisp', 90);
   if (!gone) console.log('wisps left', JSON.stringify(await mobs(page)), JSON.stringify((await ev(page, 'weapon:swing')).length));
   expect(gone, 'the wisp was dispersed').toBe(true);

@@ -117,6 +117,10 @@ describe('HighlightSystem (rarity highlights, VIS)', () => {
     expect(hs.selection).toBeNull();
     props.onFocus?.('bench'); // no rarity: never outlined
     expect(hs.selection).toBeNull();
+    // A selection the game made itself is not cleared when the use focus moves on.
+    hs.select({ kind: 'prop', id: 'chest-1' });
+    props.onFocus?.(null);
+    expect(hs.selection).toMatchObject({ kind: 'prop', id: 'chest-1' });
   });
 
   it('shows the progress ring on its target and hides it when progress ends', () => {
@@ -143,6 +147,11 @@ describe('HighlightSystem (rarity highlights, VIS)', () => {
     hs.select({ kind: 'object', id: 'mob-7', object: obj, rarity: 'epic' });
     for (let i = 0; i < 10; i++) hs.update(1 / 30, i / 30, cam);
     expect((mat.uniforms.uHi.value as THREE.Vector2).y).toBeCloseTo(1, 5);
+    // The game's selection id (`mob:7`) names the same creature: one entry, still selected.
+    hs.select({ kind: 'object', id: 'mob:7', object: obj, rarity: 'epic' });
+    for (let i = 0; i < 10; i++) hs.update(1 / 30, i / 30, cam);
+    expect((mat.uniforms.uHi.value as THREE.Vector2).y).toBeCloseTo(1, 5);
+    expect((hs as unknown as { objects: Map<string, unknown> }).objects.size).toBe(1);
     hs.setMobSource(() => []);
     hs.select(null);
     hs.update(1 / 30, 1, cam);

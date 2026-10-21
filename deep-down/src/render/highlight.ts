@@ -231,6 +231,8 @@ export class HighlightSystem {
 
   private explicit: HighlightTarget[] = [];
   private selected: HighlightTarget | null = null;
+  /** The prop the use focus selected (cleared by the focus only if it is still the selection). */
+  private focusSel: string | null = null;
   private blocked = false;
   private selStrength = 0;
   private progressValue = 0;
@@ -285,12 +287,21 @@ export class HighlightSystem {
     };
     this.group.add(this.ring);
     // The focused interactable (the game's use focus) wears the selection outline when it is a find.
+    // Only a selection the focus made is cleared by it: a prop the game selected itself (FP's
+    // select while opening a chest) keeps its outline when the use focus moves on.
     opts.props.onFocus = (id) => {
       const cur = this.selected;
+      const mine = !!cur && cur.kind === 'prop' && cur.id === this.focusSel;
       if (id) {
         const t: HighlightTarget = { kind: 'prop', id };
-        if (this.rarityOf(t) && (!cur || cur.kind === 'prop')) this.select(t);
-      } else if (cur && cur.kind === 'prop') this.select(null);
+        if (this.rarityOf(t) && (!cur || mine)) {
+          this.select(t);
+          this.focusSel = id;
+        }
+      } else if (mine) {
+        this.select(null);
+        this.focusSel = null;
+      }
     };
   }
 
@@ -513,7 +524,11 @@ export class HighlightSystem {
         if (!list.some((t) => t.id === id)) list.push({ kind: 'object', id, object: m.object, rarity: m.rarity });
       }
     }
-    if (sel && sel.kind === 'object' && !list.some((t) => t.id === sel.id)) list.push(sel);
+    // The selected creature may come under another id than its ambient entry (the game's
+    // `mob:<id>` and MOBS' `mob-<id>`): the same object is one entry, matched by identity.
+    const selObj = sel && sel.kind === 'object' ? sel : null;
+    const isSel = (t: Extract<HighlightTarget, { kind: 'object' }>) => !!selObj && (selObj.id === t.id || selObj.object === t.object);
+    if (selObj && !list.some(isSel)) list.push(selObj);
     for (const t of list) {
       live.add(t.id);
       let st = this.objects.get(t.id);
@@ -525,7 +540,7 @@ export class HighlightSystem {
       st.target = t;
       t.object.getWorldPosition(this.tmp);
       const amb = this.enabled ? fadeAt(this.tmp.distanceTo(eye)) * breath : 0;
-      const s = sel && sel.kind === 'object' && sel.id === t.id ? this.selStrength : 0;
+      const s = isSel(t) ? this.selStrength : 0;
       for (const m of st.mats) {
         setHi(m, RARITY_LINEAR[t.rarity], s > 0 ? 0 : amb, s);
         if (m.uniforms.uHiShimmer) m.uniforms.uHiShimmer.value = t.rarity === 'legendary' ? 1 : 0;
