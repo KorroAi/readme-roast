@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readVersion } from '../../tools/version.mjs';
 import { quietDeep } from './dd';
 import './dd';
 
@@ -101,7 +102,9 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   expect(errors.length, `console errors: ${errors.slice(0, 3).join(' | ')}`).toBeLessThan(10);
   expect(await page.evaluate(() => window.deepDownBack?.())).toBe(false);
   const details = await page.evaluate(() => (window as unknown as Win).__DD_RELEASE__.crashDetails());
-  expect(details).toMatch(/^DEEP DOWN 1\.0\.0 \(versionCode 1000000, build 0\)/);
+  // The packaged version: package.json through tools/version.mjs, as the build stamps it (no DD_BUILD).
+  const v = await readVersion(undefined, {});
+  expect(details.startsWith(`DEEP DOWN ${v.version} (versionCode ${v.versionCode}, build 0)`), details.split('\n')[0]).toBe(true);
   expect(details).toContain('e2e: simulated GPU driver failure');
   expect(details).toMatch(/GL renderer: /);
 

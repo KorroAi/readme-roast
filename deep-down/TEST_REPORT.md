@@ -1,19 +1,31 @@
 # DEEP DOWN — Test Report
 
-## 1.1.0 gate — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21, commit 524b08d)
+## 1.1.0 gate — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21)
 
-Run by the lead on a quiet machine, on the tree that ships:
+Run by the lead on a quiet machine, on the tree that ships (the APK was built from c3237aa; the only later change is the
+release spec reading the version from package.json instead of a hard-coded "1.0.0"):
 
 | Check | Result |
 |---|---|
 | `npx tsc --noEmit` | exit 0 |
-| `npx vitest run` | 69 files, **738/738** |
-| `npx playwright test` (touch specs at 390 × 844 with real CDP touches) | **26 passed, 1 skipped** (28.0 min). desktop 2, mobs 6, progression 3, release 6, slice 1, tap 6, world 2. The skipped test is the opt-in creature capture sheet. |
-| `tools/apk-sim.mjs` on the 1.1.0 APK (shared debug key 47facb26…) | **14/14 PASS** (version 1.1.0, versionCode 1010000), 0 refused requests, 0 page errors |
+| `npx vitest run` | 70 files, **751/751**. This includes `tests/unit/release-110.test.ts` (13 regression tests for the pre-release fixes, each shown to fail with its fix reversed). |
+| `npx playwright test` (touch specs at 390 × 844 with real CDP touches) | **26 passed, 1 skipped** (29.1 min, plus the release spec re-run 6/6 after its version fix). desktop 2, mobs 6, progression 3, release 6, slice 1, tap 6, world 2. The skipped test is the opt-in creature capture sheet. |
+| `tools/apk-sim.mjs` on the 1.1.0 APK (shared debug key 47facb26…, versionCode 1010000) | **14/14 PASS**, 0 refused requests, 0 page errors |
 | Real-camera captures (VIS, `tools/fp-shots.mjs`, 49 views at 390 × 844 @2) | 0 console errors. At most 143 draw calls and 151k triangles (budget 150 / 250k). |
+| Pre-release risk review (save upgrade from 1.0.0; crashes and soft-locks on the phone) | 7 claims. 5 were confirmed by an independent verifier and fixed, 2 were refuted. A second review of the fixes found 2 follow-ups, also fixed. See CHANGELOG 1.1.0. |
 
-The mobs e2e covers: catching a Glimmerkin and harvesting a Shellback; fighting crawlers with the machete; shooting a wisp with
-the sling; the Stone Sentinel; a Hollow Stalker held off by the flame; and a black-out to monsters that leaves a cache.
+**The upgrade path.** A real 1.0.0 save, written by the 1.0.0 code, was loaded with the 1.1.0 code:
+- it wakes at camp in the new world, and its pack goes to storage;
+- inventory, equipment, journal, feats and stats are kept;
+- caches are closed again and taken relics stay taken.
+
+The mobs e2e covers:
+- catching a Glimmerkin and harvesting a Shellback;
+- fighting crawlers with the machete;
+- shooting a wisp with the sling;
+- the Stone Sentinel;
+- a Hollow Stalker held off by the flame;
+- a black-out to monsters that leaves a cache.
 
 **Known small visual leftovers:**
 - a short dashed rim along one ceiling crease;
