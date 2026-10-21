@@ -1,6 +1,7 @@
 import type { ItemId } from '../config/items';
 import type { NodeId, NodeResult, Place, Prereq, TreeLine } from '../config/recipes';
 import type { CraftReason } from '../gameplay/Crafting';
+import type { FeatsView } from '../gameplay/Feats';
 import type { ExpeditionReport, RecordsState } from '../gameplay/Records';
 import type { Settings, SlotData, ItemCounts } from '../save/types';
 
@@ -226,7 +227,7 @@ export interface SurveyView {
 // ---------------------------------------------------------------------------------------
 // The Journal
 
-export type JournalTab = 'discoveries' | 'runes' | 'relics';
+export type JournalTab = 'discoveries' | 'runes' | 'relics' | 'feats';
 
 export interface JournalEntry {
   id: string;
@@ -299,6 +300,8 @@ export interface JournalView {
   runesFound: number;
   runesTotal: number;
   relics: RelicText[];
+  /** The Feats page (journal feats and lifetime numbers), when the game keeps them. */
+  feats?: FeatsView;
   ending: EndingView;
   /** The tab to open on (openJournal(tab)); 'discoveries' by default. */
   focus: JournalTab;

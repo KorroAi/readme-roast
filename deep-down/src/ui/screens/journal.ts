@@ -3,6 +3,7 @@ import { RUNES } from '../../config/runes';
 import { t, type TextKey } from '../../i18n';
 import { h } from '../dom';
 import { depthText } from '../format';
+import type { FeatsView } from '../../gameplay/Feats';
 import type { JournalEntry, JournalTab, JournalView, RunePage } from '../types';
 import type { ScreenHost } from './host';
 import { closeBtn } from './widgets';
@@ -14,22 +15,35 @@ import { closeBtn } from './widgets';
  *   the depth it was found at), '?' cards with a light hint; the four Halden logs grouped apart.
  * - Runes: the eight plates, inked once found (k/8).
  * - Relics: the texts the relics carry.
+ * - Feats: every feat (earned in cyan ink with its reward, the rest as what to do), then the
+ *   lifetime numbers.
  */
 
 const TABS: Array<{ id: JournalTab; label: TextKey }> = [
   { id: 'discoveries', label: 'ui.journal.tab.discoveries' },
   { id: 'runes', label: 'ui.journal.tab.runes' },
   { id: 'relics', label: 'ui.journal.tab.relics' },
+  { id: 'feats', label: 'journal.feats' },
 ];
+
+function tabCount(v: JournalView, id: JournalTab): string {
+  if (id === 'discoveries') return `${v.found}/${v.total}`;
+  if (id === 'runes') return `${v.runesFound}/${v.runesTotal}`;
+  if (id === 'feats') return v.feats ? `${v.feats.earned}/${v.feats.total}` : '';
+  return `${v.relics.filter((r) => r.found).length}/${v.relics.length}`;
+}
 
 export function buildJournal(host: ScreenHost): HTMLElement {
   const v = host.actions.getJournal();
   if (host.opening) host.state.journalTab = v.focus;
+  // The Feats tab exists when the game keeps feats (a view without them never lands on it).
+  const defs = TABS.filter((d) => d.id !== 'feats' || !!v.feats);
+  if (!defs.some((d) => d.id === host.state.journalTab)) host.state.journalTab = 'discoveries';
   const tab = host.state.journalTab;
-  const tabs = h('div', { class: 'dd-tabs dd-journal-tabs', role: 'tablist', 'aria-label': t('ui.journal.title') });
-  for (const def of TABS) {
+  const tabs = h('div', { class: `dd-tabs dd-journal-tabs n${defs.length}`, role: 'tablist', 'aria-label': t('ui.journal.title') });
+  for (const def of defs) {
     const selected = def.id === tab;
-    const count = def.id === 'discoveries' ? `${v.found}/${v.total}` : def.id === 'runes' ? `${v.runesFound}/${v.runesTotal}` : `${v.relics.filter((r) => r.found).length}/${v.relics.length}`;
+    const count = tabCount(v, def.id);
     tabs.appendChild(
       h(
         'button',
@@ -52,7 +66,7 @@ export function buildJournal(host: ScreenHost): HTMLElement {
       ),
     );
   }
-  const body = tab === 'discoveries' ? discoveriesTab(v) : tab === 'runes' ? runesTab(v) : relicsTab(v);
+  const body = tab === 'discoveries' ? discoveriesTab(v) : tab === 'runes' ? runesTab(v) : tab === 'feats' && v.feats ? featsTab(v.feats) : relicsTab(v);
   return h(
     'section',
     { class: 'dd-screen dd-overlay' },
@@ -170,6 +184,39 @@ function relicsTab(v: JournalView): HTMLElement {
       r.found
         ? h('li', { class: 'dd-lore found relic' }, h('span', { class: 'dd-lore-emblem', 'aria-hidden': 'true' }), h('div', { class: 'dd-lore-text' }, h('h4', { class: 'dd-lore-title', text: r.title }), h('p', { class: 'dd-lore-body', text: r.body })))
         : h('li', { class: 'dd-lore unfound relic' }, h('span', { class: 'dd-lore-q', 'aria-hidden': 'true', text: '?' }), h('div', { class: 'dd-lore-text' }, h('span', { class: 'dd-lore-hint', text: t('ui.journal.relicUnfound') }))),
+    ),
+  );
+}
+
+function featCard(f: FeatsView['feats'][number]): HTMLElement {
+  return h(
+    'li',
+    { class: `dd-lore dd-feat ${f.earned ? 'found' : 'unfound'}`, 'data-feat': f.id, 'aria-label': `${f.name}. ${f.desc}${f.earned ? '' : `. ${t('ui.journal.unknown')}`}` },
+    f.earned ? h('span', { class: 'dd-lore-emblem', 'aria-hidden': 'true' }) : h('span', { class: 'dd-feat-socket', 'aria-hidden': 'true' }),
+    h(
+      'div',
+      { class: 'dd-lore-text' },
+      h('h4', { class: 'dd-lore-title', text: f.name }),
+      h('p', { class: 'dd-lore-body', text: f.desc }),
+      f.earned && f.reward ? h('span', { class: 'dd-lore-meta dd-feat-reward', text: `+ ${f.reward}` }) : null,
+    ),
+  );
+}
+
+function featsTab(v: FeatsView): HTMLElement {
+  // Earned first (the page fills from the top as you play), each part in table order.
+  const earned = v.feats.filter((f) => f.earned);
+  const waiting = v.feats.filter((f) => !f.earned);
+  return h(
+    'div',
+    { class: 'dd-journal-feats' },
+    h('p', { class: 'dd-journal-total' }, h('b', { text: `${v.earned}/${v.total}` }), ' ', t('journal.feats')),
+    h('ul', { class: 'dd-lores dd-feats' }, ...earned.map(featCard), ...waiting.map(featCard)),
+    h(
+      'section',
+      { class: 'dd-journal-group g-stats' },
+      h('h3', { class: 'dd-journal-zone' }, h('span', { class: 'dd-journal-zone-name', text: t('journal.stats') })),
+      h('dl', { class: 'dd-life' }, ...v.stats.map((r) => h('div', { class: 'dd-life-row', 'data-stat': r.id }, h('dt', { text: r.label }), h('dd', { text: r.value })))),
     ),
   );
 }

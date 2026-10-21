@@ -248,6 +248,61 @@
   color: var(--deep-300);
 }
 
+/* Feats: earned in cyan ink with the reward; the rest an empty socket and what to do. */
+.dd-feats {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.dd-feat {
+  min-height: 0;
+  padding: 10px 14px 10px 10px;
+}
+.dd-feat-socket {
+  width: 12px;
+  height: 12px;
+  margin: 5px 0 0 6px;
+  border: 2px solid var(--deep-300);
+  opacity: 0.6;
+  transform: rotate(45deg);
+}
+.dd-feat.unfound .dd-lore-title {
+  color: var(--deep-300);
+}
+.dd-feat.unfound .dd-lore-body {
+  color: var(--ink-dim);
+}
+.dd-feat-reward {
+  color: var(--amber-400);
+}
+.g-stats {
+  margin-top: 14px;
+}
+.dd-life {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 4px 18px;
+}
+.dd-life-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 5px 4px;
+  border-bottom: 1px solid rgba(143, 227, 238, 0.12);
+}
+.dd-life-row dt {
+  font-size: calc(13px * var(--s));
+  color: var(--ink-dim);
+}
+.dd-life-row dd {
+  margin: 0;
+  font-family: var(--font-lintel);
+  font-size: calc(15px * var(--s));
+  letter-spacing: 0.06em;
+  color: var(--rune-200);
+  font-variant-numeric: tabular-nums;
+}
+
 @media (orientation: portrait) {
   .dd-journal-screen {
     height: 100%;
@@ -258,6 +313,9 @@
   .dd-journal-tabs {
     grid-template-columns: repeat(3, 1fr);
   }
+  .dd-journal-tabs.n4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
   .dd-journal-tabs .dd-tab {
     flex-direction: column;
     justify-content: center;
@@ -267,7 +325,9 @@
     columns: auto;
   }
   .dd-journal-relics,
-  .dd-rune-plates {
+  .dd-rune-plates,
+  .dd-feats,
+  .dd-life {
     grid-template-columns: minmax(0, 1fr);
   }
 }

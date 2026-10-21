@@ -35,6 +35,13 @@ void main() {
     n = mat3(instanceMatrix) * n;
   #endif
   vec4 wp = modelMatrix * local;
+  #if defined(DEBRIS) && defined(USE_INSTANCING)
+    // Debris near the eye: a chunk shrinks away inside 0.9 m of the lens and is gone within
+    // 0.6 m, so a crumble never fills the view with big dark cubes.
+    vec3 centre = (modelMatrix * vec4(instanceMatrix[3].xyz, 1.0)).xyz;
+    float keep = smoothstep(0.6, 0.9, distance(centre, cameraPosition));
+    wp.xyz = centre + (wp.xyz - centre) * keep;
+  #endif
   vWorldPos = wp.xyz;
   vNormal = normalize(mat3(modelMatrix) * n);
   vColor = srgbToLinear(color);
@@ -72,7 +79,14 @@ void main() {
   // around it), so the route and the landmarks, not the carrier of the lantern, hold the
   // brightest values of the frame, even next to a lamp.
   vec3 albedo = vColor * uTint * (1.0 - 0.28 * uRim);
+#ifdef DEBRIS
+  // A chunk is lit like the rock it broke from: its light is read in the open air on the
+  // lantern's side of it (the cell it flew out of may still read as solid for a frame or two
+  // while the light volumes catch up), never from inside the wall behind it.
+  vec3 samplePos = vWorldPos + normalize(uLanternPos - vWorldPos + vec3(0.0, 1e-3, 0.0)) * 0.45;
+#else
   vec3 samplePos = vWorldPos + n * 0.35;
+#endif
   vec4 ls = lightSample(samplePos);
   float shade = 0.72 + 0.28 * n.y; // soft top light so forms read in flat ambient
   // Contact darkening: openness is 0 inside solid voxels, so the filtered volume 0.45 m below the
@@ -81,10 +95,19 @@ void main() {
   float below = texture(uLightTex, (vWorldPos - vec3(0.0, 0.45, 0.0)) / uWorldSize).a;
   float contact = ls.a > 0.02 ? clamp(below / ls.a, 0.0, 1.0) : 1.0;
   contact = 0.4 + 0.6 * smoothstep(0.08, 0.9, contact);
+#ifdef DEBRIS
+  contact = 1.0;
+#endif
   vec3 env = ambientFrom(ls);
   // The carrier's own lantern is measured from at least 3 m (its flame hangs at the hip):
   // otherwise the inverse-square core would make the explorer the brightest thing on screen.
+#ifdef DEBRIS
+  // The flame's line of sight is read half-way to the lantern: a chip still inside the broken
+  // block's (stale, solid) cell is never cut off from the light that shows it.
+  vec3 lantern = lanternLight(mix(vWorldPos, uLanternPos, 0.5), vWorldPos, n, max(ls.a, 0.5), 0.0);
+#else
   vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a, 3.0 * uRim);
+#endif
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
   if (uRim > 0.0) {
     // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half
@@ -103,7 +126,7 @@ void main() {
     emissive += albedo * warm * (rim * away * near * 0.15 * uRim);
   }
   vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
-  vec3 color = albedo * light;
+  vec3 color = nearShoulder(albedo * light, albedo * lantern);
   // The flame glints on crafted things (wood, iron, brass) as it moves: soft lobe, low reflectance.
   color += lanternSpec(n, normalize(cameraPosition - vWorldPos), 0.5, vec3(0.04)) * contact;
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
@@ -129,6 +152,11 @@ export interface EntityMaterialOptions {
    * desaturated environment light), 0..1. Defaults to 1 for the explorer (fade) and 0 otherwise.
    */
   rim?: number;
+  /**
+   * Debris chunks (instanced): lit from the open air on the lantern's side, no contact shadow,
+   * and shrunk away near the lens (gone within 0.6 m of the camera).
+   */
+  debris?: boolean;
 }
 
 export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMaterialOptions = {}): THREE.ShaderMaterial {
@@ -143,7 +171,7 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uFade: { value: 1 },
       uRim: { value: opts.rim ?? (opts.fade ? 1 : 0) },
     },
-    defines: {},
+    defines: opts.debris ? { DEBRIS: '' } : {},
     vertexShader: vertex,
     fragmentShader: fragment,
     side: opts.doubleSided ? THREE.DoubleSide : THREE.FrontSide,

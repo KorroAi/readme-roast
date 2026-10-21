@@ -308,3 +308,26 @@
   overflow: visible;
   line-height: 1.25;
 }
+
+/* The trip's feats, caches and secrets: one calm line under the finds. */
+.dd-report-finds {
+  margin: 2px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  font-size: calc(13px * var(--s));
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+.dd-report-finds b {
+  font-weight: 700;
+  color: var(--rune-200);
+  font-variant-numeric: tabular-nums;
+}
+.dd-report-finds-part.feats b {
+  color: var(--amber-400);
+}
+.dd-report-finds-sep {
+  color: var(--bone-500);
+}

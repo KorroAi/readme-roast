@@ -68,6 +68,86 @@ export class PartBuilder {
     return this.add(g, new THREE.Matrix4().compose(c, q, V(1, 1, 1)), f);
   }
 
+  /**
+   * A forged bar: chamfered-rectangle sections (8 facets) swept along a spine, sharp between the
+   * facets and smooth along the length, with flat end caps. Each ring: centre `c`, half extents
+   * `hw` (along `side`) and `hh` (along the in-plane normal), chamfer `ch` (m). `finish(i)` is the
+   * finish of the band from ring i to ring i + 1 (the caps take the end bands').
+   */
+  loft(rings: Array<{ c: THREE.Vector3; hw: number; hh: number; ch: number }>, side: THREE.Vector3, finish: (i: number) => Finish): this {
+    const n = rings.length;
+    if (n < 2) return this;
+    const sideN = side.clone().normalize();
+    // Section corners (8) per ring, in world (model) space.
+    const corners: THREE.Vector3[][] = [];
+    const tangents: THREE.Vector3[] = [];
+    for (let i = 0; i < n; i++) {
+      const a = rings[Math.max(0, i - 1)].c;
+      const b = rings[Math.min(n - 1, i + 1)].c;
+      const tng = new THREE.Vector3().subVectors(b, a).normalize();
+      tangents.push(tng);
+      const up = new THREE.Vector3().crossVectors(tng, sideN).normalize();
+      const r = rings[i];
+      const ch = Math.min(r.ch, r.hw * 0.95, r.hh * 0.95);
+      const pts2: Array<[number, number]> = [
+        [r.hw, r.hh - ch], [r.hw - ch, r.hh], [-(r.hw - ch), r.hh], [-r.hw, r.hh - ch],
+        [-r.hw, -(r.hh - ch)], [-(r.hw - ch), -r.hh], [r.hw - ch, -r.hh], [r.hw, -(r.hh - ch)],
+      ];
+      corners.push(pts2.map(([x, y]) => r.c.clone().addScaledVector(sideN, x).addScaledVector(up, y)));
+    }
+    // Facet normals per band and strip; vertex normals average the two bands meeting at a ring.
+    const faceN: THREE.Vector3[][] = [];
+    const e1 = new THREE.Vector3();
+    const e2 = new THREE.Vector3();
+    for (let i = 0; i < n - 1; i++) {
+      const row: THREE.Vector3[] = [];
+      const mid = new THREE.Vector3().addVectors(rings[i].c, rings[i + 1].c).multiplyScalar(0.5);
+      for (let j = 0; j < 8; j++) {
+        const A = corners[i][j], B = corners[i][(j + 1) % 8], C = corners[i + 1][(j + 1) % 8], D = corners[i + 1][j];
+        const nn = new THREE.Vector3().crossVectors(e1.subVectors(C, A), e2.subVectors(D, B));
+        if (nn.lengthSq() < 1e-14) nn.crossVectors(e1.subVectors(B, A), e2.subVectors(D, A));
+        const centre = new THREE.Vector3().add(A).add(B).add(C).add(D).multiplyScalar(0.25);
+        if (nn.dot(centre.sub(mid)) < 0) nn.negate();
+        row.push(nn.normalize());
+      }
+      faceN.push(row);
+    }
+    const vn = (i: number, j: number) => {
+      const v = new THREE.Vector3();
+      if (i > 0) v.add(faceN[i - 1][j]);
+      if (i < n - 1) v.add(faceN[i][j]);
+      return v.normalize();
+    };
+    const tri = (pts: THREE.Vector3[], nrm: THREE.Vector3[], f: Finish) => {
+      // Wind each triangle to face along its normal (the material draws front faces only).
+      const cr = new THREE.Vector3().crossVectors(e1.subVectors(pts[1], pts[0]), e2.subVectors(pts[2], pts[0]));
+      const order = cr.dot(nrm[0].clone().add(nrm[1]).add(nrm[2])) >= 0 ? [0, 1, 2] : [0, 2, 1];
+      this.c.setHex(f.color);
+      for (const k of order) {
+        this.pos.push(pts[k].x, pts[k].y, pts[k].z);
+        this.nrm.push(nrm[k].x, nrm[k].y, nrm[k].z);
+        this.col.push(this.c.r, this.c.g, this.c.b);
+        this.mat.push(f.emit ?? 0, f.metal ?? 0, f.rough ?? 0.6);
+      }
+    };
+    for (let i = 0; i < n - 1; i++) {
+      const f = finish(i);
+      for (let j = 0; j < 8; j++) {
+        const j1 = (j + 1) % 8;
+        const A = corners[i][j], B = corners[i][j1], C = corners[i + 1][j1], D = corners[i + 1][j];
+        const nA = vn(i, j), nC = vn(i + 1, j);
+        tri([A, B, C], [nA, nA, nC], f);
+        tri([A, C, D], [nA, nC, nC], f);
+      }
+    }
+    // Flat caps at both ends.
+    for (const [i, out, f] of [[0, tangents[0].clone().negate(), finish(0)], [n - 1, tangents[n - 1].clone(), finish(n - 2)]] as Array<[number, THREE.Vector3, Finish]>) {
+      const c = rings[i].c;
+      for (let j = 0; j < 8; j++) tri([c, corners[i][j], corners[i][(j + 1) % 8]], [out, out, out], f);
+    }
+    return this;
+  }
+
   get empty(): boolean {
     return this.pos.length === 0;
   }
@@ -183,37 +263,45 @@ export function buildPickaxe(tier: number): THREE.BufferGeometry {
   // A grip wrap: leather bands near the bottom of the handle.
   for (let i = 0; i < 5; i++) b.rod(V(0, -0.06 + i * 0.026, 0), V(0, -0.044 + i * 0.026, 0), 0.0195, 0.0195, s.wrap, 10, i % 2 ? 0.85 : 1);
   if (s.band) for (let i = 0; i < 2; i++) b.rod(V(0, 0.28 + i * 0.03, 0), V(0, 0.29 + i * 0.03, 0), 0.0185, 0.0185, s.band, 10);
-  // The eye of the head (a socket around the handle), and a collar on the heavier picks.
+  // The head, forged in one piece: a chamfered bar from the pick point (-z) through the eye to
+  // the adze blade (+z), both arms tapering and curving down toward the grip. The polished edge
+  // finish (tiers 2+) takes the last fifth of each arm.
   const t = s.thick;
-  b.box(V(0, top, 0), V(t * 1.05, 0.032, t * 1.25), s.head, undefined, 0.006);
-  if (s.collar) b.box(V(0, top - 0.038, 0), V(t * 1.15, 0.008, t * 1.35), s.headDark, undefined, 0.003);
-  // Two tapered arms with a slight downward curve: the pick point (-z) and the adze (+z).
-  const arm = (dir: number, len: number, w: number, flat: boolean) => {
-    const segs = 4;
-    for (let i = 0; i < segs; i++) {
-      const t0 = i / segs;
-      const t1 = (i + 1) / segs;
-      const z0 = dir * (t * 1.1 + len * t0);
-      const z1 = dir * (t * 1.1 + len * t1);
-      const y0 = top - 0.05 * t0 * t0;
-      const y1 = top - 0.05 * t1 * t1;
-      const k = 1 - 0.72 * ((t0 + t1) / 2);
-      const hw = w * (flat ? 1.05 : k);
-      const hh = w * (flat ? 0.55 + 0.45 * (1 - t0) : k);
-      const q = new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), -Math.atan2(y1 - y0, z1 - z0) * Math.sign(z1 - z0 || 1));
-      b.box(V(0, (y0 + y1) / 2, (z0 + z1) / 2), V(hw * 0.78, hh, Math.abs(z1 - z0) / 2 + 0.003), i === segs - 1 ? s.headDark : s.head, q, 0.004);
-    }
-    if (s.edge) {
-      const ze = dir * (t * 1.1 + len * 0.97);
-      b.box(V(0, top - 0.048, ze), V(w * 0.22, w * 0.25, 0.012), s.edge, undefined, 0.002);
-    }
+  const eye = t * 1.15;
+  const rings: Array<{ c: THREE.Vector3; hw: number; hh: number; ch: number }> = [];
+  const zones: Array<'tip' | 'body'> = [];
+  const add = (z: number, hw: number, hh: number, tipBand: boolean) => {
+    const d = Math.max(0, Math.abs(z) - eye);
+    const y = top - 0.36 * d * d - 0.04 * d;
+    rings.push({ c: V(0, y, z), hw, hh, ch: Math.min(hw, hh) * 0.32 });
+    zones.push(tipBand ? 'tip' : 'body');
   };
-  arm(-1, s.point, t, false);
-  arm(1, s.adze, t, true);
+  const SEG = 9;
+  // The point: tapering in both directions to a short square point.
+  for (let i = SEG; i >= 1; i--) {
+    const f = i / SEG;
+    const e = Math.pow(f, 0.85);
+    add(-(eye + s.point * f), t * (0.95 - 0.83 * e), t * (1.22 - 1.08 * e), f > 0.8);
+  }
+  // Through the eye: a little fuller (the boss).
+  add(-eye, t * 0.98, t * 1.28, false);
+  add(0, t * 1.02, t * 1.32, false);
+  add(eye, t * 0.98, t * 1.28, false);
+  // The adze: thinning to a straight edge and flaring a little wider.
+  for (let i = 1; i <= SEG; i++) {
+    const f = i / SEG;
+    add(eye + s.adze * f, t * (0.95 + 0.38 * f), t * (1.22 - 1.04 * Math.pow(f, 0.8)), f > 0.8);
+  }
+  const edge = s.edge ?? s.headDark;
+  b.loft(rings, V(1, 0, 0), (i) => (zones[i] === 'tip' && zones[i + 1] === 'tip' ? edge : zones[i] === 'tip' || zones[i + 1] === 'tip' ? s.headDark : s.head));
+  // The socket boss round the handle, proud of the arms, and a wedge of end grain on top.
+  b.box(V(0, top, 0), V(t * 1.16, t * 1.42, eye * 0.92), s.headDark, undefined, t * 0.35);
+  b.box(V(0, top + t * 1.42, 0), V(0.0125, 0.0025, 0.0125), s.handle, undefined, 0.002, 0.8);
+  if (s.collar) b.box(V(0, top - t * 1.42 - 0.006, 0), V(t * 1.05, 0.006, t * 1.05), s.headDark, undefined, 0.003);
   if (s.crystal) {
-    // A glimmer shard set in the head's eye.
-    const g = new THREE.OctahedronGeometry(0.014, 0);
-    b.add(g, new THREE.Matrix4().compose(V(0, top + 0.004, 0), new THREE.Quaternion(), V(1, 1.6, 1)).premultiply(new THREE.Matrix4().makeTranslation(t * 1.1, 0, 0)), { color: 0x8fe3ee, emit: 1.8, rough: 0.1 });
+    // A glimmer shard set in the side of the boss.
+    const g = new THREE.OctahedronGeometry(0.012, 0);
+    b.add(g, new THREE.Matrix4().compose(V(t * 1.18, top, 0), new THREE.Quaternion(), V(0.7, 1.5, 1)), { color: 0x8fe3ee, emit: 1.8, rough: 0.1 });
   }
   // The pommel cap.
   b.box(V(0, -0.105, 0), V(0.019, 0.008, 0.019), s.headDark, undefined, 0.005);
@@ -292,28 +380,43 @@ export function buildLantern(tier: number): LanternGeometry {
 
 /**
  * A gloved fist closed round a rod along local y through the origin (the pick's grip, the
- * lantern's bail): fingers wrapping the rod, knuckles on the outside (+x), the thumb over the top.
+ * lantern's bail): tan leather fingers wrapping the rod with a row of knuckles on the outside (+x),
+ * the thumb over the top, the back of the hand toward the wrist (-x).
  */
 export function buildGlove(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const glove: Finish = { color: 0x6a4a34, rough: 0.8 };
-  const seam: Finish = { color: 0x4e3524, rough: 0.85 };
-  // The wrapped fingers: a short thick sleeve round the rod, a little flattened.
-  b.add(new THREE.CylinderGeometry(0.027, 0.027, 0.056, 12, 1, false), new THREE.Matrix4().makeScale(1.12, 1, 0.92), glove);
-  // Knuckles, one per finger.
-  for (let i = 0; i < 4; i++) b.box(V(0.026, -0.021 + i * 0.014, -0.004), V(0.007, 0.0062, 0.012), i % 2 ? seam : glove, undefined, 0.005);
-  // The back of the hand toward the wrist (-x) and the thumb across the top of the fingers.
-  b.box(V(-0.022, 0.002, 0.008), V(0.02, 0.026, 0.022), glove, undefined, 0.012);
-  b.box(V(0.008, 0.03, -0.016), V(0.017, 0.008, 0.009), glove, new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), -0.35), 0.007, 1.06);
+  const glove: Finish = { color: 0x9a6c45, rough: 0.72 };
+  const seam: Finish = { color: 0x6a4a32, rough: 0.8 };
+  // The wrapped fingers: a short sleeve of leather round the rod, a little flattened.
+  b.add(new THREE.CylinderGeometry(0.026, 0.026, 0.054, 14, 1, false), new THREE.Matrix4().makeScale(1.1, 1, 0.94), glove);
+  // Four fingers, each a rounded ridge round the rod, with the knuckles standing out on the outside.
+  for (let i = 0; i < 4; i++) {
+    const y = -0.02 + i * 0.0135;
+    b.box(V(0.024, y, -0.003), V(0.0085, 0.0058, 0.013), i % 2 ? seam : glove, undefined, 0.0052, i % 2 ? 1 : 1.08);
+    b.box(V(0.004, y, -0.024), V(0.017, 0.0055, 0.006), glove, undefined, 0.0045, 0.94);
+  }
+  // The back of the hand toward the wrist and the thumb across the top of the fingers.
+  b.box(V(-0.02, 0.001, 0.006), V(0.019, 0.025, 0.021), glove, undefined, 0.011, 1.04);
+  b.box(V(0.006, 0.031, -0.014), V(0.017, 0.0075, 0.0085), glove, new THREE.Quaternion().setFromAxisAngle(V(0, 0, 1), -0.35), 0.0065, 1.1);
+  // A stitched seam over the back of the hand.
+  b.box(V(-0.02, 0.001, 0.027), V(0.012, 0.0018, 0.0012), seam, undefined, 0.0008);
   return b.build();
 }
 
-/** A forearm in the coat sleeve: a unit length along +y (scaled to fit wrist to elbow), cuffed at y = 0. */
+/**
+ * A forearm: a unit length along +y (scaled to fit wrist to elbow; x and z in the glove's scale),
+ * from the wrist at y = 0. A flared leather gauntlet cuff with a brass band, then the coat sleeve
+ * in cool dark wool with a turned-back cuff, so the arm reads as glove, cuff and sleeve.
+ */
 export function buildSleeve(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const coat: Finish = { color: 0x463a2c, rough: 0.9 };
-  const cuff: Finish = { color: 0x2e241b, rough: 0.9 };
-  b.rod(V(0, 0.0, 0), V(0, 0.16, 0), 0.032, 0.035, cuff, 12);
-  b.rod(V(0, 0.15, 0), V(0, 1, 0), 0.036, 0.05, coat, 12);
+  const gauntlet: Finish = { color: 0x5c4030, rough: 0.78 };
+  const band: Finish = { color: 0xc09050, metal: 1, rough: 0.38 };
+  const coat: Finish = { color: 0x34404f, rough: 0.92 };
+  const turn: Finish = { color: 0x4a5869, rough: 0.9 };
+  b.rod(V(0, -0.01, 0), V(0, 0.085, 0), 0.025, 0.037, gauntlet, 14);
+  b.rod(V(0, 0.07, 0), V(0, 0.09, 0), 0.0385, 0.0385, band, 14);
+  b.rod(V(0, 0.09, 0), V(0, 0.14, 0), 0.046, 0.047, turn, 14);
+  b.rod(V(0, 0.135, 0), V(0, 1, 0), 0.043, 0.056, coat, 14);
   return b.build();
 }

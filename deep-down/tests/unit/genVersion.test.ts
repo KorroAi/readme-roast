@@ -20,6 +20,9 @@ const RECORDED: Record<number, string> = {
   // Finished game (content): the deep beyond the rift (the Glowroot, the Crystal Choir, the Ember
   // Deep) and the content pass (finds on every stretch of floor, secret alcoves, lanternstone).
   4: 'a3013d11',
+  // Polish: focal points (features/focal) in the seal hall, on the black stone's step, at the
+  // Glowroot's heart and the Ember hearth; the Choir's dais kerb in dressed stone.
+  5: 'a5516cc4',
 };
 
 let layout: WorldLayout;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { B } from '../../src/config/blocks';
+import type { PropSpec } from '../../src/world/gen/types';
 import { findPath, stickToward, TapController, type TapHost } from '../../src/game/TapController';
 import type { MiningController } from '../../src/game/MiningController';
 import { EventBus, type GameEvents } from '../../src/core/events';
@@ -92,7 +93,7 @@ describe('tap to act: stick and touch zones', () => {
 });
 
 describe('tap to act: no tap does nothing', () => {
-  function rig(pick: ReturnType<MiningController['pick']>) {
+  function rig(pick: ReturnType<MiningController['pick']>, usable = true) {
     const w = floorWorld();
     const calls = { nudge: [] as Array<[number, number]>, hints: 0, pings: 0 };
     const host: TapHost = {
@@ -102,6 +103,7 @@ describe('tap to act: no tap does nothing', () => {
       cameraYaw: () => 0,
       focusedPropId: () => null,
       propById: () => null,
+      usable: () => usable,
       viewport: () => ({ width: 390, height: 844 }),
       hint: () => void calls.hints++,
       ping: () => void calls.pings++,
@@ -122,6 +124,22 @@ describe('tap to act: no tap does nothing', () => {
     expect(calls.nudge).toEqual([[0.4, 0.6]]);
     expect(input.lock).toBeNull();
     expect(tap.walking).toBe(false);
+  });
+
+  it('a tap on a chest walks up to use it; an opened cache is scenery and the tap passes through', () => {
+    const chest = { id: 'cache-1', kind: 'chest', x: 9.5, y: 1, z: 5.5, interact: 'feature' } as unknown as PropSpec;
+    const floor = { x: 12, y: 0, z: 5, nx: 0, ny: 1, nz: 0, distance: 7, block: B.SLATE };
+    const full = rig({ target: null, prop: chest, hit: floor });
+    const a = createInputState();
+    a.tapPressed = true;
+    full.tap.update(1 / 60, a, false);
+    expect(full.tap.goalKind).toBe('use');
+    const opened = rig({ target: null, prop: chest, hit: floor }, false);
+    const b = createInputState();
+    b.tapPressed = true;
+    opened.tap.update(1 / 60, b, false);
+    // Not a walk to the empty chest: the tap acts on what lies behind it (here the floor).
+    expect(opened.tap.goalKind).toBe('walk');
   });
 
   it('a tap on floor far off walks there instead (and says where)', () => {

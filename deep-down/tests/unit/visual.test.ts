@@ -9,6 +9,9 @@ import { CRUMBLE_MAX } from '../../src/game/effects/Debris';
 import { FX_MAX } from '../../src/game/effects/Particles';
 import { beamsFor, zoneAnchorsFor } from '../../src/game/effects/LightBeams';
 import { B, BLOCKS } from '../../src/config/blocks';
+import { LIGHTING_GLSL } from '../../src/render/lighting';
+import { Ambience, deepGlowSources, focalGlows } from '../../src/game/effects/Ambience';
+import { createEntityMaterial } from '../../src/render/entityMaterial';
 
 // The finished game's visual rules (docs/final/BRIEF.md §2): exposure, clear air, calm FX, HD stone.
 describe('visual pass rules', () => {
@@ -78,5 +81,46 @@ describe('visual pass rules', () => {
     expect(rig.zoneWeights.glowroot + rig.zoneWeights.ember).toBeLessThan(0.01);
     expect(rig.zoneWeights.rift).toBeGreaterThan(0.95);
     expect(B.LIGHT_GLOWROOT).toBeGreaterThan(0);
+  });
+
+  it('the lantern near field rolls off, and lit colour eases under a ceiling at arm\'s length', () => {
+    // Polish round note 1: no hot spot at 1.5-2.5 m, and a shoulder on the flame-lit colour.
+    expect(LIGHTING_GLSL).toContain('att *= 0.42 + 0.58 * smoothstep(0.2, 3.4, dist);');
+    expect(LIGHTING_GLSL).toMatch(/vec3 nearShoulder\(vec3 c, vec3 lit\)/);
+    // The tank shades the floor below the flame (l points up to it), never the roof above.
+    expect(LIGHTING_GLSL).toContain('smoothstep(0.8, 0.97, l.y)');
+    const ent = createEntityMaterial(new LightingRig(new LightField(new VoxelWorld(16, 16, 16)), new LanternField(new VoxelWorld(16, 16, 16)), 16, 16, 16).uniforms);
+    expect(ent.fragmentShader).toContain('nearShoulder(albedo * light, albedo * lantern)');
+  });
+
+  it('debris is lit from the open air and shrinks away near the lens', () => {
+    const w = new VoxelWorld(16, 16, 16);
+    const u = new LightingRig(new LightField(w), new LanternField(w), 16, 16, 16).uniforms;
+    const m = createEntityMaterial(u, { debris: true });
+    expect(m.defines.DEBRIS).toBe('');
+    expect(m.vertexShader).toContain('smoothstep(0.6, 0.9, distance(centre, cameraPosition))');
+    expect(createEntityMaterial(u).defines.DEBRIS).toBeUndefined();
+  });
+
+  it('ambient wonder: drips, glow caps and the deep and focal glows, in three draw calls', () => {
+    const w = new VoxelWorld(32, 16, 32);
+    w.set(4, 3, 4, B.LIGHT_MAGMA);
+    w.set(8, 3, 8, B.LIGHT_GLOWROOT);
+    expect(deepGlowSources(w)).toHaveLength(2);
+    expect(focalGlows({})).toHaveLength(0);
+    const lm = { seal: [10, 4, 10], lastCamp: [12, 4, 12], relic_glowroot: [14, 4, 14], emberDeep: [16, 4, 16] };
+    expect(focalGlows(lm)).toHaveLength(4);
+    for (const g of focalGlows(lm)) expect(g.color![0]).toBeGreaterThan(g.color![2] * 2); // warm
+    const rig = new LightingRig(new LightField(w), new LanternField(w), 32, 16, 32);
+    const amb = new Ambience(rig.uniforms, w, [
+      { kind: 'drip', p: [5.5, 12, 5.5], drop: 6 },
+      { kind: 'drip', p: [9.5, 12, 9.5], drop: 4 },
+      { kind: 'fungus', p: [3.5, 2, 3.5], n: 4 },
+    ], lm);
+    expect(amb.drips).toBe(2);
+    expect(amb.caps).toBe(4);
+    expect(amb.haloCount).toBe(2 + 4 + 1);
+    expect(amb.group.children).toHaveLength(3);
+    amb.dispose();
   });
 });

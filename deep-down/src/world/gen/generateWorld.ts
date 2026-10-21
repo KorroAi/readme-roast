@@ -8,6 +8,7 @@ import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, co
 import { buildProgression } from './progression';
 import { placeContent } from './content';
 import { buildFeatures } from './features';
+import { focalPoints } from './features/focal';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -1078,6 +1079,9 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   // ore veins, Halden caches and crates, glimmer, secret alcoves. Its own stream, after everything.
   const content = opts.content === false ? undefined : placeContent({ world: w, seed, layout: { props, landmarks, structures, camp, spawn }, features });
   mark('content');
+  // 15b. Focal points (features/focal, polish): a warm counterpoint and a lit focal point in the
+  // spaces that read monotone. After the content pass, so no find moves.
+  if (features) focalPoints({ world: w, seed, props }, features);
 
   // Re-assert the bedrock shell (decoration passes must never open the world boundary).
   for (let z = 0; z < sz; z++)

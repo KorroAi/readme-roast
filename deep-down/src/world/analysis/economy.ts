@@ -3,6 +3,7 @@ import type { ItemId } from '../../config/items';
 import { NODE_LIST, nodeInputs, type NodeDef } from '../../config/recipes';
 import type { ItemCounts } from '../../save/types';
 import type { WorldLayout } from '../gen/types';
+import { EYE_HEIGHT, REACH as FP_REACH } from '../../game/fp/constants';
 import { reachableCells } from './reachability';
 
 /**
@@ -11,7 +12,8 @@ import { reachableCells } from './reachability';
  * drop tables, cost from the node table, so a new ore (tin, W4) or node is counted without edits.
  *
  * "Sight-minable": an ore voxel with a face open to air, whose centre is within the pick's reach
- * (4.2 m) of the chest of a cell the explorer can walk to. The living rock is renewal and the bloom
+ * (3.5 m, first person: game/fp/constants) of the eye (1.62 m over the feet) of a cell the explorer
+ * can walk to. The living rock is renewal and the bloom
  * is renewal, so both are left out: living cells count for nothing (the world is epoch 0).
  */
 
@@ -21,7 +23,10 @@ export interface Gate {
   lantern: number;
 }
 
-export const REACH = 4.2;
+/** The first person's reach, measured from the eye to the block's centre (game/fp/constants). */
+export const REACH = FP_REACH;
+/** The eye over the voxel centre's height, for a voxel `dy` cells under the walkable cell: dy + this. */
+const EYE_OVER_CENTRE = EYE_HEIGHT - 0.5;
 
 /** The walkable set from the camp spawn with this gate's barriers open (and the rides on). */
 export function reachFor(layout: WorldLayout, gate: Gate): Uint8Array {
@@ -47,7 +52,7 @@ export function livingCells(layout: WorldLayout): Set<number> {
   return s;
 }
 
-/** Is any reachable cell's chest within `reach` of voxel (x, y, z)'s centre? */
+/** Is any reachable cell's eye within `reach` of voxel (x, y, z)'s centre? (Cells are feet cells.) */
 export function inReach(layout: WorldLayout, seen: Uint8Array, x: number, y: number, z: number, reach = REACH): boolean {
   const w = layout.world;
   const r = Math.ceil(reach);
@@ -58,7 +63,7 @@ export function inReach(layout: WorldLayout, seen: Uint8Array, x: number, y: num
         const yy = y + dy;
         const zz = z + dz;
         if (!w.inBounds(xx, yy, zz) || !seen[w.index(xx, yy, zz)]) continue;
-        if (Math.hypot(dx, dy - 1.3, dz) <= reach) return true;
+        if (Math.hypot(dx, dy + EYE_OVER_CENTRE, dz) <= reach) return true;
       }
   return false;
 }

@@ -61,8 +61,9 @@ export class DebrisSystem {
     const geo = new VoxBuilder().cube(0, 0, 0, 1, 1, 1, 0xffffff, 0, true).build();
     const glowGeo = new VoxBuilder().cube(0, 0, 0, 1, 1, 1, 0xffffff, 1, false).build();
     const max = 400;
-    this.lit = new THREE.InstancedMesh(geo, createEntityMaterial(lighting), max);
-    this.glow = new THREE.InstancedMesh(glowGeo, createEntityMaterial(lighting, { emissiveScale: 2.6 }), max);
+    // Lit like the rock (light read on the lantern's side), and gone within 0.6 m of the lens.
+    this.lit = new THREE.InstancedMesh(geo, createEntityMaterial(lighting, { debris: true }), max);
+    this.glow = new THREE.InstancedMesh(glowGeo, createEntityMaterial(lighting, { emissiveScale: 2.6, debris: true }), max);
     for (const mesh of [this.lit, this.glow]) {
       mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
       mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(max * 3), 3);

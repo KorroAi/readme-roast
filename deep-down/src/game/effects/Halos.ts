@@ -64,8 +64,12 @@ export interface HaloSource {
   x: number;
   y: number;
   z: number;
-  /** Emitter block id (amber, lamp, ember or abyss). */
+  /** Emitter block id (amber, lamp, ember, abyss, magma or glowroot). */
   id: number;
+  /** Optional overrides of the id's look: linear HDR colour, world size (m), lift above the cell. */
+  color?: readonly [number, number, number];
+  size?: number;
+  lift?: number;
 }
 
 /** Every halo-worthy emitter voxel in a world (used once at load for static lights). */
@@ -124,6 +128,16 @@ export class HaloSystem {
         rgb = [1.6, 0.75, 0.28];
         sz = 0.9;
         lift = 0.4;
+      } else if (s.id === B.LIGHT_MAGMA) {
+        // An ember fissure: deep red-orange heat breathing out of the slit.
+        rgb = [1.5, 0.46, 0.14];
+        sz = 1.25;
+        lift = 0.5;
+      } else if (s.id === B.LIGHT_GLOWROOT) {
+        // The glowroot moss's own green-gold light, soft and wide.
+        rgb = [0.42, 0.62, 0.22];
+        sz = 1.4;
+        lift = 0.5;
       } else if (s.id === B.LIGHT_LAMP) {
         // Amber-gold like the lamps' light (blocks.ts), not red-orange.
         rgb = [1.3, 0.8, 0.38];
@@ -132,6 +146,9 @@ export class HaloSystem {
         rgb = [1.6, 1.0, 0.52];
         sz = 0.85;
       }
+      if (s.color) rgb = [s.color[0], s.color[1], s.color[2]];
+      if (s.size !== undefined) sz = s.size;
+      if (s.lift !== undefined) lift = s.lift;
       for (let k = 0; k < 4; k++) {
         const v = i * 4 + k;
         pos.set([s.x + 0.5, s.y + lift, s.z + 0.5], v * 3);

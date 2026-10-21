@@ -269,6 +269,25 @@ describe('Expedition Report', () => {
     expect(text).not.toContain(m.t('ui.report.newBest'));
   });
 
+  it('shows the trip\'s feats, caches and secrets as one calm line, and leaves it out when there are none', async () => {
+    const m = await load();
+    const el = m.buildSummary(hostFor({ getReport: () => ({ ...baseReport, feats: ['First Copper', 'Halfway Down'], caches: 2, secrets: 1 }) })) as unknown as El;
+    const line = el.all().filter((e) => e.getAttribute('data-section') === 'finds');
+    expect(line).toHaveLength(1);
+    expect(line[0].tagName).toBe('P');
+    const text = line[0].textContent;
+    expect(text).toContain('First Copper, Halfway Down');
+    expect(text).toContain(`${m.t('stat.caches')} 2`);
+    expect(text).toContain(`${m.t('stat.secrets')} 1`);
+    expect(line[0].byClass('dd-report-finds-sep')).toHaveLength(2);
+    // In the haul column, after the finds.
+    expect(el.byClass('col-haul')[0].all().some((e) => e.getAttribute('data-section') === 'finds')).toBe(true);
+    const none = m.buildSummary(hostFor({ getReport: () => ({ ...baseReport, feats: [], caches: 0, secrets: 0 }) })) as unknown as El;
+    expect(none.all().filter((e) => e.getAttribute('data-section') === 'finds')).toHaveLength(0);
+    const old = m.buildSummary(hostFor({ getReport: () => baseReport })) as unknown as El;
+    expect(old.all().filter((e) => e.getAttribute('data-section') === 'finds')).toHaveLength(0);
+  });
+
   it('offers Open Workbench when something can be made', async () => {
     const m = await load();
     const host = hostFor({ getReport: () => ({ ...baseReport, craftableNow: true }) });
@@ -350,6 +369,45 @@ describe('Journal', () => {
     const runes = m.buildJournal(hostFor({ getJournal: () => ({ ...v, focus: 'runes' }) })) as unknown as El;
     expect(runes.byClass('dd-rune-plate')).toHaveLength(8);
     expect(runes.byClass('inked')).toHaveLength(1);
+  });
+
+  it('adds a Feats tab when the view carries feats: earned first with the reward, then the rest, then the lifetime rows', async () => {
+    const m = await load();
+    const base = await view([]);
+    // Without feats there are three tabs (and a stale feats tab falls back to discoveries).
+    const three = m.buildJournal(hostFor({ getJournal: () => base }, { journalTab: 'feats' }, false)) as unknown as El;
+    expect(three.byClass('dd-tab')).toHaveLength(3);
+    expect(three.byClass('dd-journal-discoveries')).toHaveLength(1);
+    const feats = {
+      feats: [
+        { id: 'firstStone', group: 'firsts' as const, name: 'First Stone', desc: 'Mine your first block.', earned: false, reward: '3 Stone' },
+        { id: 'firstCopper', group: 'firsts' as const, name: 'First Copper', desc: 'Mine copper.', earned: true, reward: '4 Stone' },
+        { id: 'answer', group: 'story' as const, name: 'The Answer', desc: 'Wake the black stone.', earned: true, reward: '' },
+      ],
+      earned: 2,
+      total: 3,
+      stats: [
+        { id: 'expeditions', label: 'Expeditions', value: '4' },
+        { id: 'deepest', label: 'Deepest', value: '-96 m' },
+      ],
+    };
+    const v: JournalView = { ...base, feats, focus: 'feats' };
+    const el = m.buildJournal(hostFor({ getJournal: () => v })) as unknown as El;
+    const tabs = el.byClass('dd-tab');
+    expect(tabs).toHaveLength(4);
+    expect(tabs[3].getAttribute('data-key')).toBe('jtab:feats');
+    expect(tabs[3].textContent).toContain('2/3');
+    expect(tabs[3].getAttribute('aria-selected')).toBe('true');
+    const cards = el.byClass('dd-feat');
+    expect(cards.map((c) => c.getAttribute('data-feat'))).toEqual(['firstCopper', 'answer', 'firstStone']);
+    expect(cards[0].textContent).toContain('+ 4 Stone');
+    expect(cards[1].byClass('dd-feat-reward')).toHaveLength(0);
+    // Not earned: no reward shown, what to do is.
+    expect(cards[2].byClass('dd-feat-reward')).toHaveLength(0);
+    expect(cards[2].textContent).toContain('Mine your first block.');
+    const rows = el.byClass('dd-life-row');
+    expect(rows.map((r) => r.textContent)).toEqual(['Expeditions4', 'Deepest-96 m']);
+    expect(el.byClass('dd-journal-total')[0].textContent).toContain('2/3');
   });
 
   it('groups the four Halden logs together, in table order', async () => {

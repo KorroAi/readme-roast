@@ -64,7 +64,8 @@ export const packForTier = (tier: number): PackDef => PACKS[Math.max(0, Math.min
 
 export const PLAYER = {
   maxHealth: 100,
-  walkSpeed: 4.6,
+  /** Walking speed (m/s): the first person's (game/fp/constants WALK_SPEED, the source). */
+  walkSpeed: 3.3,
   /** Ground acceleration (m/s^2) and air control fraction. */
   accel: 38,
   airControl: 0.35,
@@ -74,7 +75,8 @@ export const PLAYER = {
   /** Player collision box, in blocks. */
   width: 0.62,
   height: 1.72,
-  eyeHeight: 1.5,
+  /** Eye over the feet (m): game/fp/constants EYE_HEIGHT (the source). */
+  eyeHeight: 1.62,
   /** Falls landing faster than this (m/s) hurt; damage scales linearly beyond it. */
   safeFallSpeed: 13,
   fallDamagePerSpeed: 9,
@@ -82,8 +84,8 @@ export const PLAYER = {
   jumpBuffer: 0.14,
   /** Max height auto-stepped while walking into a 1-block ledge. */
   stepHeight: 1.05,
-  /** Max distance from the hand to the center of a block that can be mined. */
-  reach: 4.6,
+  /** Max distance from the eye to the centre of a block that can be mined: game/fp/constants REACH (the source). */
+  reach: 3.5,
   pickupRadius: 2.6,
   /** Health regained per second while inside the camp. */
   campRegen: 12,
@@ -113,8 +115,8 @@ export const COLD = {
 
 /** Walk-home field, turn-back mark and compass (world/analysis/homeField, game/Progression). */
 export const HOME = {
-  /** Walking seconds per BFS step: route detours and the stairs make a step 1.35 m of walking. */
-  secondsPerStep: 1.35 / 4.6,
+  /** Walking seconds per BFS step: route detours and the stairs make a step 1.35 m of walking, at the walk's 3.3 m/s. */
+  secondsPerStep: 1.35 / 3.3,
   /** The turn-back mark sits at walkHome x turnBackFactor + turnBackMarginS of fuel. */
   turnBackFactor: 1.25,
   turnBackMarginS: 10,
@@ -164,14 +166,16 @@ export const WORLD = {
    * (tests/unit/genVersion.test.ts pins the fingerprint): a save from another version keeps
    * everything but its world edits, and wakes the explorer at camp.
    */
-  genVersion: 4,
+  genVersion: 5,
   /**
    * Older generator versions whose world edits still apply to this one, cell for cell: version 4
    * (finished game, content) only carves the deep beyond the rift into rock nobody could reach and
    * adds ore, caches and secrets, so a version 3 save keeps its mined cells, opened doors and taken
-   * props (save/saveData shiftWorldIfNeeded).
+   * props (save/saveData shiftWorldIfNeeded). Version 5 (polish, features/focal) only adds props
+   * with new ids and lights in open air, and changes unbreakable kerb stones, so a version 3 or 4
+   * save keeps everything too.
    */
-  genCompatible: [3] as readonly number[],
+  genCompatible: [3, 4] as readonly number[],
 } as const;
 
 export const LIGHT = {

@@ -281,15 +281,15 @@ vec3 targetEntry(vec3 c) {
 }
 
 // Fractures from a strike at the origin of q (metres in the face plane): five hairline cracks
-// (about one texel) that wander as they run out, reach further with damage (0..1) and taper, a
+// (about a centimetre, at least ~1 px: px is metres per pixel) that wander as they run out, reach further with damage (0..1) and taper, a
 // short branch off some of them and a small crushed pit at the centre. Returns the crack core
 // (x) and a lit lip beside it (y), so the cracks read as cut into the stone, not drawn on it.
-vec2 fracture(vec2 q, float dmg, float seed) {
+vec2 fracture(vec2 q, float dmg, float seed, float px) {
   float r = length(q);
   float reach = 0.14 + 0.66 * dmg;
   if (r > reach + 0.07) return vec2(0.0);
   float ang = atan(q.y, q.x);
-  float c = 1.0 - step(0.03 + 0.035 * dmg, r);
+  float c = 1.0 - step(0.012 + 0.016 * dmg + px, r);
   float lip = 0.0;
   for (int k = 0; k < 5; k++) {
     float fk = float(k);
@@ -298,10 +298,12 @@ vec2 fracture(vec2 q, float dmg, float seed) {
     float len = reach * (0.45 + 0.55 * h2);
     float a = (fk + 0.2 + 0.6 * h1) * 1.2566 + sin(r * 9.0 + fk * 2.1 + seed * 6.0) * 0.3;
     float da = abs(mod(ang - a + 3.14159, 6.28318) - 3.14159) * r;
-    float w = 0.034 * (1.0 - r / len);
+    // Hairlines: ~1 cm at the root, tapering, never thinner than about 1.2 px (px: metres per
+    // pixel at the fragment), so they stay fine at arm's length and still read from 3 m.
+    float w = 0.011 * (1.0 - r / len) + px * 1.2;
     float on = step(r, len);
     c = max(c, step(da, w) * on);
-    lip = max(lip, step(da, w + 0.06) * on * step(0.0, sin(ang - a)));
+    lip = max(lip, step(da, w + 0.025 + px) * on * step(0.0, sin(ang - a)));
     // a short branch off the middle of some cracks, bending away
     float ab = a + (h1 > 0.5 ? 1.5 : -1.5) * max(r - len * 0.45, 0.0) / len;
     float db = abs(mod(ang - ab + 3.14159, 6.28318) - 3.14159) * r;
@@ -495,6 +497,7 @@ void main() {
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  vec3 litByFlame = albedo * lantern;
   // The flame's specular on the detailed surface: wet stone and ore metal glint as the lantern
   // moves, dry rubble barely. Roughness widens where the normal changes fast on screen (no sparkle).
   {
@@ -510,8 +513,12 @@ void main() {
       f0 = vec3(0.07);
       rough = min(rough, 0.46);
     }
-    color += lanternSpec(nd, toEye, rough, f0) * (0.3 + 0.7 * ao);
+    vec3 spec = lanternSpec(nd, toEye, rough, f0) * (0.3 + 0.7 * ao);
+    color += spec;
+    litByFlame += spec;
   }
+  // Arm's length: the flame-lit colour eases under a ceiling (lighting.ts nearShoulder).
+  color = nearShoulder(color, litByFlame);
 
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
@@ -550,18 +557,24 @@ void main() {
     vec4 scr = matGrad(su, SCRIPT_LAYER, uvDx * scale, uvDy * scale, SOFT_CUT);
     float erosion = smoothstep(0.3, 0.46, textureLod(uNoise, vGrid * (1.0 / 18.0) + hb * 7.0, 0.0).g);
     float carve = smoothstep(0.24, 0.42, scr.a) * (0.55 + 0.45 * erosion);
-    float ink = smoothstep(0.72, 0.95, scr.a) * erosion;
+    // A band at the feet (a kerb of glyph stones, as round the Choir's dais) whispers: its ink is
+    // a thin core of the strokes and much dimmer, so the landmark it rings holds the eye, not a row
+    // of glowing glyph boxes. Friezes at and above eye height keep their light.
+    float low = 1.0 - smoothstep(-0.2, 0.6, float(y0) + (tall ? 2.0 : 1.0) - cameraPosition.y);
+    float ink = smoothstep(0.72 + 0.16 * low, 0.95 + 0.03 * low, scr.a) * erosion;
     // The wake reaches up: a frieze high over a doorway answers a lantern carried beneath it.
     vec3 dl = vGrid - uLanternPos;
     float wake = smoothstep(9.0, 2.5, length(vec3(dl.x, dl.y * 0.35, dl.z)));
-    color *= 1.0 - carve * 0.62; // the carved groove
-    emissive += scr.rgb * ink * (0.26 + 0.8 * wake) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
+    color *= 1.0 - carve * (0.62 - 0.22 * low); // the carved groove
+    emissive += scr.rgb * ink * (0.26 + 0.8 * wake) * (1.0 - 0.72 * low) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
 
   // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around
   // the point the pick strikes (the ray hit, or where the line of sight to the block enters it),
   // spreading over the block's own faces, and fractures radiate from it as the damage grows
   // (stage 0-9), the stone's own joints and partings opening first. Red when too hard.
+  // Metres per pixel at the fragment (taken in uniform control flow, outside the branch below).
+  float pxMetres = length(fwidth(vWorldPos)) * 0.7;
   if (all(equal(cell, ivec3(uTarget.xyz)))) {
     vec3 hit = uTargetHit.w > 0.5 ? uTargetHit.xyz : targetEntry(uTarget.xyz);
     vec3 dh = vWorldPos - hit;
@@ -571,10 +584,12 @@ void main() {
       float dmg = (uTarget.w - CRACK0 + 1.0) / CRACKS;
       // In-plane offset around the hit, snapped to the material texels: crisp pixel cracks.
       vec2 q = worldUv(dh, vFace) * MAT_PERIOD;
-      vec2 fr = fracture(q, dmg, hash13(vec3(cell)));
+      vec2 fr = fracture(q, dmg, hash13(vec3(cell)), pxMetres);
       float joints = (1.0 - smoothstep(0.1, 0.17, heightOf(tex, shownLayer))) * (1.0 - smoothstep(0.1 + dmg * 0.55, 0.22 + dmg * 0.55, r));
-      float crack = max(fr.x, joints * smoothstep(0.1, 0.3, dmg));
-      color *= (1.0 - crack * 0.78) * (1.0 + fr.y * 0.25);
+      float crack = max(fr.x, joints * 0.6 * smoothstep(0.1, 0.3, dmg));
+      // Cut into the stone, not inked on it: the groove darkens by at most ~half (darker as the
+      // block nears breaking), with a lit lip beside it.
+      color *= (1.0 - crack * (0.42 + 0.2 * dmg)) * (1.0 + fr.y * 0.18);
     }
     vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.82, 0.58);
     color += spotColor * spot * spot * (0.025 + 0.05 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.2 * spot;

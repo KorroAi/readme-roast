@@ -177,7 +177,7 @@ float lanternVisibility(vec3 samplePos) {
 // above the feet, a little ahead), so the pool is the floor and walls ahead of the player. The
 // falloff is steeper (K 16: 1 m 0.86, 2 m 0.6, 3 m 0.4, 4 m 0.28, 6 m 0.12 of the gain), so the
 // pool reads 6-8 m across and the far dark keeps its depth; the tank only shades the floor
-// almost straight below the flame (out of view), and the near ground is no longer held back.
+// almost straight below the flame (out of view). Polish round: the near field rolls off (below).
 const float LANTERN_K = 16.0;
 const float LANTERN_GAIN = 11.5;
 // Set by lanternLight for lanternSpec (the same flame, no second visibility fetch): the radiance
@@ -191,10 +191,14 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float x = max(dist, minDist) / max(uLanternRadius, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
-  // Arm's length: a wall right in front of the flame would wash to cream; the near field is held
-  // back (0.45x at 0.3 m, 0.62x at 1 m, 1x from 2.2 m), so close stone keeps its colour and form.
-  att *= 1.0 - 0.55 * (1.0 - smoothstep(0.3, 2.2, dist));
-  float tank = 1.0 - 0.75 * smoothstep(0.8, 0.97, -l.y);
+  // Arm's length: a wall right in front of the flame would wash to cream; the near field rolls off
+  // (0.42x at 0.2 m, 0.52x at 1 m, 0.78x at 2 m, 1x from 3.4 m), so the light reaching a face is
+  // about level from the hand out to 3 m (no hot spot at 1.5-2.5 m) and falls away beyond; with
+  // the near-field shoulder (nearShoulder) lit stone peaks at about 0.75 display at 1 m.
+  att *= 0.42 + 0.58 * smoothstep(0.2, 3.4, dist);
+  // The fuel tank shades the floor almost straight below the flame (out of view in first person);
+  // roofs above the hand are lit, so a 2 m tunnel's roof still reads.
+  float tank = 1.0 - 0.75 * smoothstep(0.8, 0.97, l.y);
   // Ground (up-facing) takes the light with more wrap, as rough rubble does, so the pool still
   // reads 3-6 m out where the flame grazes it (the flame hangs only ~0.7 m above the floor); within
   // ~4 m it takes less, so the ground at the carrier's feet is never the largest bright area.
@@ -231,6 +235,23 @@ vec3 lanternSpec(vec3 n, vec3 v, float rough, vec3 f0) {
   float spec = a2 / (4.0 * 3.14159 * d * d * max(0.1, ldh * ldh) * (rough + 0.5));
   vec3 f = f0 + (1.0 - f0) * pow(1.0 - ldh, 5.0);
   return gLanternRad * f * min(spec, 24.0) * ndl;
+}
+
+// The near-field shoulder: a face the flame lights at arm's length (pale stone, a vein, a crate)
+// would still clip to cream in the tone map. Its lit colour (c, linear) is eased toward a ceiling
+// by its brightest channel, hue and saturation kept, in proportion to how much of it is the
+// lantern's (lit: albedo x lantern light), so lamp-lit walls and dark stone are untouched. The
+// shoulder starts at NEAR_KNEE (about 0.6 display) and never passes NEAR_CEIL (about 0.76 display
+// through the grade).
+const float NEAR_KNEE = 0.24;
+const float NEAR_CEIL = 0.46;
+vec3 nearShoulder(vec3 c, vec3 lit) {
+  float y = max(c.r, max(c.g, c.b));
+  if (y <= NEAR_KNEE) return c;
+  float span = NEAR_CEIL - NEAR_KNEE;
+  float f = NEAR_KNEE + span * (1.0 - exp(-(y - NEAR_KNEE) / span));
+  float own = clamp(max(lit.r, max(lit.g, lit.b)) / y, 0.0, 1.0);
+  return c * mix(1.0, f / y, own);
 }
 
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open) {

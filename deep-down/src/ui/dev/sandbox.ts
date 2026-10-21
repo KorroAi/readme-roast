@@ -5,6 +5,7 @@ import { EventBus, type GameEvents } from '../../core/events';
 import { Noise } from '../../core/noise';
 import { craft as craftNode, type CraftContext } from '../../gameplay/Crafting';
 import { DISCOVERIES } from '../../gameplay/discoveries';
+import { buildFeatsView, NO_LIFE } from '../../gameplay/Feats';
 import { Equipment } from '../../gameplay/Equipment';
 import { Backpack } from '../../gameplay/Inventory';
 import { CampStorage } from '../../gameplay/Storage';
@@ -133,6 +134,12 @@ function journalView(): JournalView {
       { id: 'reliquary', title: t('discovery.reliquary.title'), body: t('discovery.reliquary.body'), found: camp.found.has('reliquary') },
       { id: 'gallery', title: t('discovery.lampGallery.title'), body: t('discovery.lampGallery.body'), found: camp.found.has('lampGallery') },
     ],
+    feats: buildFeatsView(
+      new Set(['firstStone', 'firstCopper', 'firstGlimmer', 'depth50', 'mined100', 'caches3']),
+      { ...NO_LIFE, blocksMined: 212, oreMined: 41, itemsBanked: 180, caches: 4, secrets: 1, walked: 2310 },
+      { expeditions: 7, deepest: 96, blackouts: 1 },
+      (item) => t(ITEMS[item].name),
+    ),
     ending: { reached: camp.finale, expeditions: 14, deepest: 144, playTime: 4210, answer: t('discovery.monolith.title') },
     focus: camp.journalFocus,
   };
@@ -201,6 +208,9 @@ const report: ExpeditionReport = {
   discoveries: ['hollow'],
   runes: [],
   records: ['deepest', 'biggestHaul'],
+  feats: [t('feat.firstCopper.name'), t('feat.depth50.name')],
+  caches: 2,
+  secrets: 1,
   show: true,
   next: { id: 'copperPickaxe', name: t('recipe.copperPickaxe'), cost: [{ item: 'copperOre', have: 9, need: 8 }, { item: 'stone', have: 53, need: 12 }], ready: true },
   craftableNow: true,

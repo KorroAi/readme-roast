@@ -28,8 +28,9 @@ import { shiftWorldIfNeeded } from '../save/saveData';
 import { DEFAULT_SETTINGS, type ItemCounts, type SaveData, type Settings } from '../save/types';
 import { CameraRig, clearOfRock } from './CameraRig';
 import { Viewmodel } from './fp/Viewmodel';
-// VIS: light beams.
+// VIS: light beams and ambient wonder.
 import { LightBeams, beamsFor, zoneAnchorsFor } from './effects/LightBeams';
+import { Ambience } from './effects/Ambience';
 import { EYE_HEIGHT } from './fp/constants';
 import { PlayerController } from './PlayerController';
 import { MiningController } from './MiningController';
@@ -198,6 +199,8 @@ export class Game {
     const visLandmarks = s.layout.landmarks as Record<string, readonly number[] | undefined>;
     this.scene.add(new LightBeams(s.rig.uniforms, s.terrain.noiseTex, beamsFor(visLandmarks)).mesh);
     s.rig.setZoneAnchors(zoneAnchorsFor(visLandmarks));
+    // VIS: ambient wonder (drips, glow caps, the deep glows and the monotone spaces' focal glows).
+    this.scene.add(new Ambience(s.rig.uniforms, s.world, s.layout.content?.ambient ?? [], visLandmarks).group);
     this.features = new WorldFeatures(this);
     this.scene.add(this.features.moths.mesh, this.features.cage);
     this.menuCamera = new MenuCamera(layout.landmarks.ledge);
@@ -227,6 +230,8 @@ export class Game {
       cameraYaw: () => this.cameraRig.moveYaw,
       focusedPropId: () => this.focusedProp?.id ?? null,
       propById: (id) => s.liveProps.get(id) ?? null,
+      // A world feature with no use left (an opened cache) reads Infinity: a tap passes through it.
+      usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)),
       viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
       hint: (text) => this.ui.hint(text, 2200),
       ping: (x, y, z) => this.particles.sparkle(x, y, z, 0xffd29a, 5, this.rng, 0.9),
@@ -351,7 +356,7 @@ export class Game {
     } finally {
       this.loading = false;
     }
-    this.tutorial('move', this.isTouch() ? 'hint.move' : 'hint.moveDesktop', 6000);
+    // The tutorial's first steps (look, then walk) are the objective line's: no hint repeats them.
     this.saveNow('new');
   }
 
@@ -682,7 +687,6 @@ export class Game {
     if (ev.rescued) this.ui.hint(t('hint.outOfReach'), 1500);
 
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
-    if (!blocked && this.isTouch() && this.progression.hintsShown.has('mine')) this.tutorial('look', 'hint.look', 5000, 11);
 
     this.cameraRig.update(dt, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, this.renderer.aspect);
     this.updateViewmodel(dt);

@@ -32,6 +32,8 @@ const UP = new THREE.Vector3(0, 1, 0);
 /** Wrist points in each glove's space (the back of the hand). */
 const WRIST_PICK = new THREE.Vector3(-0.045, 0, 0);
 const WRIST_LANTERN = new THREE.Vector3(-0.04, 0, 0);
+/** The lantern fist's turn: rod (glove y) along the bail top (x), knuckles (glove x) away (-z), the back of the hand up. */
+const LANTERN_GRIP = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(-1, 0, 0), new THREE.Vector3(0, 1, 0)));
 
 const VERT = /* glsl */ `
 in vec3 color;
@@ -143,6 +145,42 @@ function makeMaterial(uniforms: Record<string, THREE.IUniform>, glass: boolean):
   return m;
 }
 
+/** 0 on an upright phone .. 1 on a wide screen. */
+const wide = (aspect: number) => {
+  const t = saturate((aspect - 0.7) / 0.7);
+  return t * t * (3 - 2 * t);
+};
+const mix = (a: number, b: number, t: number) => a + (b - a) * t;
+
+export interface PickLayout {
+  /** The head's eye in viewmodel-lens NDC. */
+  headX: number;
+  headY: number;
+  /** The handle's lean from grip to head: in toward the middle, and away (+) or toward the eye (-). */
+  leanX: number;
+  leanZ: number;
+  /** Model scale. */
+  scale: number;
+  /** How far the point turns in toward the middle, and up. */
+  pointIn: number;
+  pointUp: number;
+}
+
+/** Tuning overrides for the pick's layout (dev captures only; empty in play). */
+export const PICK_TUNE: Partial<PickLayout> = {};
+
+/** Where the pick sits for a screen shape. */
+export function pickLayout(aspect: number): PickLayout {
+  const w = wide(aspect);
+  return { headX: mix(0.87, 0.8, w), headY: mix(-0.5, -0.44, w), leanX: mix(0.1, 0.2, w), leanZ: -0.2, scale: mix(0.5, 0.74, w), pointIn: 0.2, pointUp: 0.2, ...PICK_TUNE };
+}
+
+/** Where the lantern hangs for a screen shape: its bail in NDC and its height (NDC). */
+export function lanternLayout(aspect: number): { x: number; y: number; height: number } {
+  const w = wide(aspect);
+  return { x: mix(-0.8, -0.78, w), y: mix(-0.56, -0.5, w), height: mix(0.27, 0.34, w) };
+}
+
 const smooth = (x: number) => {
   const t = saturate(x);
   return t * t * (3 - 2 * t);
@@ -186,6 +224,8 @@ export class Viewmodel {
   /** The pick's rest pose for the current screen shape (recomputed when it changes). */
   private readonly pickRest = new THREE.Quaternion();
   private pickScale = 1;
+  /** The pick's grip at rest, camera space (m). */
+  private readonly pickGrip = new THREE.Vector3();
   private poseKey = '';
   private readonly wrist = new THREE.Vector3();
   private readonly elbow = new THREE.Vector3();
@@ -379,18 +419,21 @@ export class Viewmodel {
     this.restPose(aspect, D, sx);
 
     // The lantern: lower left, hanging from the glove at its bail; a raise lifts it toward the middle.
-    const lscale = (0.62 * D * TAN_HALF * Math.min(1, aspect * 1.15)) / 0.22;
-    at((-0.62 + 0.12 * lift) * sx, -0.52 + 0.3 * lift, D, this.lantern.position);
+    const lay = lanternLayout(aspect);
+    const lscale = (lay.height * D * TAN_HALF) / 0.22;
+    at((lay.x + 0.1 * lift) * sx, lay.y + 0.28 * lift, D, this.lantern.position);
     this.lantern.rotation.set(0.1, 0.4 * sx, 0.0);
     this.lantern.scale.setScalar(lscale);
     this.lanternSwing.rotation.set(this.swayX, 0, this.swayZ);
-    // The fist round the bail, knuckles outward.
-    this.gloves[1].position.set(0, 0.005, 0);
-    this.gloves[1].rotation.set(0, sx > 0 ? Math.PI : 0, 0);
+    // The fist round the top of the bail (the rod across, along x), knuckles away from the eye,
+    // the wrist toward it.
+    this.gloves[1].position.set(0, 0.004, 0);
+    this.gloves[1].quaternion.copy(LANTERN_GRIP);
 
     // The pick: grip lower right, the handle leaning in, the head toward the upper right of the tools.
     const bob = Math.sin(this.walkPhase * 2) * 0.004 * this.moving;
-    at(0.86 * sx, -0.98 + bob, D, this.pick.position);
+    this.pick.position.copy(this.pickGrip);
+    this.pick.position.y += bob * D * TAN_HALF;
     this.pick.scale.setScalar(this.pickScale);
     // The swing turns the whole pick about its grip, in the plane of the handle and the view
     // direction: the head goes forward into the scene (toward the crosshair), then comes home.
@@ -414,8 +457,10 @@ export class Viewmodel {
     (this.uniforms.uUp.value as THREE.Vector3).set(0, 1, 0).transformDirection(this.tmpM.copy(camera.matrixWorldInverse));
     // The forearms: from each wrist back toward the lower corners, out of view.
     this.placeSleeve(this.sleeves[0], this.gloves[0], WRIST_PICK, 0.05 * sx, 0.3);
-    // The lantern arm comes in from the left edge, above the lantern (never in front of it).
-    this.placeSleeve(this.sleeves[1], this.gloves[1], WRIST_LANTERN, -0.3 * sx, 0.06);
+    // The lantern arm: out to the side and back toward the eye, a little raised (it passes above
+    // the lantern, never in front of it), so only the glove and its cuff show before it leaves the
+    // frame at the left edge.
+    this.placeSleeve(this.sleeves[1], this.gloves[1], WRIST_LANTERN, -0.26 * sx, -0.03);
     (this.uniforms.uAmbient.value as THREE.Color).copy(ambient);
     (this.uniforms.uFlameColor.value as THREE.Color).copy(flameColor);
     this.uniforms.uFlame.value = this.flame;
@@ -426,23 +471,24 @@ export class Viewmodel {
   }
 
   /**
-   * The pick's rest orientation and size for a screen shape: the handle runs from the grip (just
-   * off the lower right corner) to the head (about a third in from the right, below the middle),
-   * the point turned forward and in.
+   * The pick's rest orientation, size and grip for a screen shape: the head sits in the right
+   * quarter of the view, low, its point aimed forward into the scene (foreshortened, so the tool
+   * stays out of the central column); the handle leans in and away, down to a grip below the
+   * bottom edge.
    */
   private restPose(aspect: number, D: number, sx: number): void {
     const key = `${aspect.toFixed(3)}:${sx}`;
     if (key === this.poseKey) return;
     this.poseKey = key;
     const k = D * TAN_HALF;
-    const grip = new THREE.Vector3(0.86 * sx * k * aspect, -0.98 * k, -D);
-    const head = new THREE.Vector3(0.44 * sx * k * aspect, -0.4 * k, -D * 1.2);
-    const along = head.clone().sub(grip);
-    this.pickScale = along.length() / 0.44;
-    along.normalize();
+    const lay = pickLayout(aspect);
+    const head = new THREE.Vector3(lay.headX * sx * k * aspect, lay.headY * k, -D * 1.2);
+    const along = new THREE.Vector3(-lay.leanX * sx, 1, -lay.leanZ).normalize();
+    this.pickScale = lay.scale;
+    this.pickGrip.copy(head).addScaledVector(along, -0.44 * lay.scale);
     const qa = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), along);
-    // Roll about the handle so the point (model -z) faces forward and in.
-    const want = new THREE.Vector3(-1 * sx, 0.3, -0.5).normalize();
+    // Roll about the handle so the point (model -z) aims forward into the scene, a little in.
+    const want = new THREE.Vector3(-lay.pointIn * sx, lay.pointUp, -1).normalize();
     want.sub(along.clone().multiplyScalar(want.dot(along))).normalize();
     const p0 = new THREE.Vector3(0, 0, -1).applyQuaternion(qa);
     const ang = Math.atan2(new THREE.Vector3().crossVectors(p0, want).dot(along), p0.dot(want));
@@ -451,8 +497,8 @@ export class Viewmodel {
   }
 
   /**
-   * Stretch a sleeve from a glove's wrist (glove-local point) down and back to an elbow well below
-   * the bottom of the view, so the forearm leaves the frame at the bottom edge.
+   * Stretch a sleeve from a glove's wrist (glove-local point) back toward the eye to an elbow out of
+   * the view, so the forearm leaves the frame at the nearest edge.
    */
   private placeSleeve(sleeve: THREE.Mesh, glove: THREE.Object3D, wristLocal: THREE.Vector3, dx: number, dy: number): void {
     glove.localToWorld(this.wrist.copy(wristLocal));

@@ -27,6 +27,8 @@ export interface TapHost {
   cameraYaw(): number;
   focusedPropId(): string | null;
   propById(id: string): PropSpec | null;
+  /** Whether a tap on this prop should walk up and use it (an opened cache is scenery). */
+  usable(spec: PropSpec): boolean;
   viewport(): { width: number; height: number };
   hint(text: string): void;
   /** Small mark where a walk ends. */
@@ -217,7 +219,7 @@ export class TapController {
     const hand = this.host.hand();
     const r = this.mining.pick(input.tapX, input.tapY, hand.x, hand.y, hand.z, TAP_RANGE);
     // An object with an action, in front of any block: walk up to it and use it.
-    if (r.prop && r.prop.interact && r.target?.prop !== r.prop) {
+    if (r.prop && r.prop.interact && r.target?.prop !== r.prop && this.host.usable(r.prop)) {
       this.use(input, r.prop);
       return;
     }

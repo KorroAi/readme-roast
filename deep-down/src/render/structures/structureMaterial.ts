@@ -177,7 +177,7 @@ void main() {
 #endif
   vec3 ambient = ambientFrom(ls, ng, facing, ao) * shade * aoCurve;
   vec3 lantern = lanternLight(vLight, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
-  vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  vec3 color = nearShoulder(albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve), albedo * lantern);
   float rough = clamp(max(DETAIL_R[layer] + (0.5 - det.w) * 0.3, length(fwidth(ng)) * 1.5), 0.12, 1.0);
   color += lanternSpec(ng, normalize(cameraPosition - vWorldPos), rough, vec3(0.035)) * (0.3 + 0.7 * ao);
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);

@@ -164,6 +164,38 @@ describe('the deep beyond the rift', () => {
     for (const r of roots) if (r.kind === 'beam') expect(r.b[1] - DEEP.glowroot.floor, r.id).toBeGreaterThanOrEqual(2.3);
   });
 
+  it('gives the monotone spaces a warm counterpoint and a lit focal point (features/focal)', () => {
+    const w = layout.world;
+    const focal = layout.props.filter((p) => p.id.startsWith('f_focal_'));
+    // Three Halden lamps (the seal, the black stone's step, the Glowroot camp), each with its warm light.
+    const lamps = focal.filter((p) => p.kind === 'lanternPost');
+    expect(lamps.length).toBe(3);
+    for (const l of lamps) {
+      expect(l.emitters.length, l.id).toBe(1);
+      const e = BLOCKS[w.get(...l.emitters[0])].emission!;
+      expect(e[0] > e[2], `${l.id} warm`).toBe(true);
+    }
+    expect(layout.features!.pois.filter((p) => p.id.startsWith('focal.')).map((p) => p.id).sort()).toEqual(['focal.glowrootCamp', 'focal.hearth', 'focal.sealLamp', 'focal.stoneLamp']);
+    // The Ember hearth: a lanternstone heart under an amber flame, four ways in through its ring.
+    const [ex, ez] = DEEP.ember.c;
+    const ey = DEEP.ember.floor;
+    expect(w.get(ex, ey, ez)).toBe(B.LANTERNSTONE);
+    expect(w.get(ex, ey + 1, ez)).toBe(B.LIGHT_AMBER);
+    for (const [x, z] of [[ex, ez - 3], [ex, ez + 3], [ex - 3, ez], [ex + 3, ez]]) expect(SOLID[w.get(x, ey, z)], `${x},${z}`).toBe(0);
+    // The Choir's dais: no glowing glyph boxes on the kerb, four runes inlaid flush in the floor.
+    const [cx, cz] = DEEP.choir.c;
+    const cy = DEEP.choir.floor;
+    let kerb = 0;
+    let inlaid = 0;
+    for (let z = cz - 5; z <= cz + 5; z++)
+      for (let x = cx - 5; x <= cx + 5; x++) {
+        if (w.get(x, cy, z) === B.GLYPH_STONE) kerb++;
+        if (w.get(x, cy - 1, z) === B.GLYPH_STONE) inlaid++;
+      }
+    expect(kerb).toBe(0);
+    expect(inlaid).toBe(4);
+  });
+
   it('keeps a relic in each cavern, each a key item with a journal page', () => {
     const relics = layout.props.filter((p) => p.feature?.kind === 'relic' && ['glowroot', 'choir', 'ember'].includes(p.feature.id));
     expect(relics.map((p) => p.feature!.id).sort()).toEqual(['choir', 'ember', 'glowroot']);

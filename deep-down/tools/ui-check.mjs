@@ -35,10 +35,10 @@ const SCENES = opt.scenes
   ? opt.scenes.split(',')
   : ['menu', 'menu:nosave', 'loading', 'hud', 'hud:low', 'discovery', 'inventory:backpack', 'inventory:storage', 'inventory:equipment', 'inventory:journal', 'crafting', 'settings', 'pause', 'confirm', 'death',
      // The progression screens (final pass W3): the tree, the report, the board, the journal, the end card, About.
-     'hud-wake', 'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'ending', 'about', 'about:privacy', 'about:licences',
+     'hud-wake', 'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'journal:feats', 'ending', 'about', 'about:privacy', 'about:licences',
      // Accessibility variants: Large text, high contrast, left-handed controls.
      'hud:low+large+contrast', 'settings+large', 'crafting+large', 'inventory:backpack+contrast', 'hud+lefty',
-     'crafting:tree+large', 'crafting:forge+contrast', 'summary+large', 'summary:blackout+large+contrast', 'board+large', 'journal:discoveries+large', 'journal:runes+contrast', 'ending+large', 'about+large'];
+     'crafting:tree+large', 'crafting:forge+contrast', 'summary+large', 'summary:blackout+large+contrast', 'board+large', 'journal:discoveries+large', 'journal:runes+contrast', 'journal:feats+large', 'ending+large', 'about+large'];
 
 mkdirSync(opt.out, { recursive: true });
 const server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });

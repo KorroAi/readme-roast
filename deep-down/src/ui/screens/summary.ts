@@ -174,6 +174,29 @@ registerReportSection({
 });
 
 registerReportSection({
+  id: 'finds',
+  column: 'haul',
+  order: 30,
+  build: (r) => {
+    // One calm line: the feats this trip earned, the caches opened and the secrets found.
+    const feats = (r.feats ?? []).filter((n) => typeof n === 'string' && n.length > 0);
+    const caches = Math.max(0, Math.floor(r.caches ?? 0));
+    const secrets = Math.max(0, Math.floor(r.secrets ?? 0));
+    const parts: HTMLElement[] = [];
+    if (feats.length) parts.push(h('span', { class: 'dd-report-finds-part feats' }, h('span', { class: 'dd-report-finds-k', text: t('journal.feats') }), ' ', h('b', { text: feats.join(', ') })));
+    if (caches > 0) parts.push(h('span', { class: 'dd-report-finds-part' }, h('span', { class: 'dd-report-finds-k', text: t('stat.caches') }), ' ', h('b', { text: String(caches) })));
+    if (secrets > 0) parts.push(h('span', { class: 'dd-report-finds-part' }, h('span', { class: 'dd-report-finds-k', text: t('stat.secrets') }), ' ', h('b', { text: String(secrets) })));
+    if (!parts.length) return null;
+    const line = h('p', { class: 'dd-report-finds', 'data-section': 'finds' });
+    parts.forEach((el, i) => {
+      if (i) line.appendChild(h('span', { class: 'dd-report-finds-sep', 'aria-hidden': 'true', text: '·' }));
+      line.appendChild(el);
+    });
+    return line;
+  },
+});
+
+registerReportSection({
   id: 'overnight',
   column: 'ahead',
   order: 10,
