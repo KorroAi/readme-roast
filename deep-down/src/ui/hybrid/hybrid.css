@@ -111,7 +111,16 @@ button.hy-plate:focus-visible {
   45% { transform: scale(1.07); }
   100% { transform: scale(1); }
 }
+.hy-menu-hit {
+  position: absolute;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  pointer-events: auto;
+}
 .hy-menu {
+  inset: var(--slop, 4px);
   padding: 0;
   display: flex;
   align-items: center;
@@ -382,7 +391,7 @@ button.hy-plate:focus-visible {
 }
 .hy-tab {
   flex: 1;
-  min-height: 44px;
+  min-height: 48px;
   border: 1px solid var(--slate-600, #2a3544);
   background: var(--slate-800, #131a24);
   color: var(--bone-300, #c9bfae);
@@ -396,8 +405,8 @@ button.hy-plate:focus-visible {
 }
 .hy-sheet-close {
   flex: none;
-  width: 44px;
-  min-height: 44px;
+  width: 48px;
+  min-height: 48px;
   border: 1px solid var(--slate-600, #2a3544);
   background: var(--slate-800, #131a24);
   color: var(--bone-100, #efe7d8);
@@ -472,7 +481,7 @@ button.hy-plate:focus-visible {
 }
 .hy-seg-opt {
   flex: 1;
-  min-height: 44px;
+  min-height: 48px;
   border: 1px solid var(--slate-600, #2a3544);
   background: var(--slate-800, #131a24);
   color: var(--bone-300, #c9bfae);

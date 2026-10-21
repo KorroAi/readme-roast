@@ -74,7 +74,13 @@ class FakeEl extends FakeNode {
         o[k] = v;
         return true;
       },
-      get: (o, k: string) => o[k] ?? '',
+      get: (o, k: string) =>
+        k === 'setProperty'
+          ? (name: string, v: string) => {
+              if (o[name] !== v) wrote(`style.${name}`);
+              o[name] = v;
+            }
+          : (o[k] ?? ''),
     });
     this.dataset = new Proxy({} as Record<string, string>, {
       set: (_o, k: string, v: string) => {

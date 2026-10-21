@@ -139,11 +139,15 @@ function measure({ minTarget, minText }) {
     const r = vis(el);
     if (!r) continue;
     out.controls++;
-    if (r.width < minTarget - 0.5 || r.height < minTarget - 0.5) out.small.push(`${name(el)} ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
+    // The objective line is SPEC §3.4's 32 px band across the whole width (30 px on a short screen): a wide target.
+    const isGoal = el.dataset.hud === 'goal';
+    if (isGoal ? r.width < minTarget || r.height < 29.5 : r.width < minTarget - 0.5 || r.height < minTarget - 0.5) out.small.push(`${name(el)} ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
     // U4: every control but row A and the objective line sits in the bottom 45 %. A sheet's rows and the return
     // plate's Collect are exempt (the sheet scrolls any row anywhere; the return plate is a dialog over a still world).
     const inTop = el.closest('[data-hud="gold"], [data-hud="depth"], [data-hud="menu"], [data-hud="goal"]');
-    const inModal = el.closest('.hy-sheet-body, [data-hud="return"], .dd-toast');
+    // Exempt: the sheet's own tab bar (its top edge is SPEC-fixed at ~42 %), the Skip plate (any press skips a skippable
+    // move: the plate is a label over a world that is all skip target), the return plate (a dialog), toasts.
+    const inModal = el.closest('.hy-sheet-body, .hy-tabs, [data-hud="skip"], [data-hud="return"], .dd-toast');
     if (!inTop && !inModal && r.top + r.height / 2 < innerHeight * 0.55) out.thumb.push(`${name(el)} at y ${(r.top + r.height / 2).toFixed(0)}`);
   }
   // U2: every visible text ≥ 12 px.

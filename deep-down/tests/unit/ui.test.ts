@@ -121,9 +121,26 @@ describe('the calm first-person HUD layout (SPEC §3.4, §8.9; E21)', () => {
       expect(l.sheetTop / h).toBeGreaterThanOrEqual(0.45);
     });
   }
-  it('large text grows the rows and still keeps the plates under 17 %', () => {
+  it('large text grows the rows and still keeps the plates under 17 % (also on the short 360 × 740 screen)', () => {
     const l = hybridLayout(390, 844, 47, 34, true);
     expect(l.goal.h).toBeGreaterThan(32);
     expect(plateArea(l)).toBeLessThanOrEqual(0.17);
+    for (const [w, h] of [[360, 740], [412, 915]] as const) {
+      const k = hybridLayout(w, h, 0, 0, true);
+      expect(plateArea(k), `${w}×${h}`).toBeLessThanOrEqual(0.17);
+      expect(k.goal.h).toBeGreaterThan(hybridLayout(w, h, 0, 0, false).goal.h);
+    }
+  });
+});
+
+describe('the shell reads model text keys (no raw key on screen)', () => {
+  it('resolves a parameter that is itself a text key: "Break the Halden Hatch!"', async () => {
+    const { tx } = await import('../../src/game/hybrid/text');
+    expect(tx('idle.goal.sealFight', { seal: 'idle.mech.haldenHatch' })).toBe('Break the Halden Hatch!');
+    expect(tx('idle.goal.seal', { seal: 'idle.mech.haldenHatch', m: 12 })).toBe('Break the Halden Hatch · 12 m');
+    // Plain parameters pass through; an unknown key reads as '' (the caller falls back).
+    expect(tx('idle.goal.seal', { seal: 'not a key', m: 3 })).toBe('Break the not a key · 3 m');
+    expect(tx('no.such.key')).toBe('');
+    expect(tx('')).toBe('');
   });
 });

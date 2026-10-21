@@ -179,6 +179,7 @@ export class Hud {
   private readonly goldNum: HTMLElement;
   private readonly rateEl: HTMLElement;
   private readonly menuEl: HTMLButtonElement;
+  private readonly menuPlate: HTMLElement;
   private readonly goalEl: HTMLButtonElement;
   private readonly goalIcon: HTMLElement;
   private readonly goalRing: SVGCircleElement;
@@ -217,7 +218,9 @@ export class Hud {
     this.goldNum = h('span', { class: 'hy-gold-num' });
     this.rateEl = h('span', { class: 'hy-gold-rate' });
     this.goldEl = h('div', { class: 'hy-plate hy-gold', 'data-hud': 'gold', role: 'status', 'aria-label': t('ui.hud.gold') }, h('span', { class: 'hy-coin', 'aria-hidden': 'true' }), this.goldNum, this.rateEl);
-    this.menuEl = h('button', { class: 'hy-plate hy-menu', type: 'button', 'data-hud': 'menu', 'aria-label': t('ui.hud.menu') }, h('span', { class: 'hy-menu-bars', 'aria-hidden': 'true' }));
+    // ≡: a 38–44 px plate inside a ≥ 48 px touch target (the transparent button around it takes the slop).
+    this.menuPlate = h('span', { class: 'hy-plate hy-menu', 'aria-hidden': 'true' }, h('span', { class: 'hy-menu-bars' }));
+    this.menuEl = h('button', { class: 'hy-menu-hit', type: 'button', 'data-hud': 'menu', 'aria-label': t('ui.hud.menu') }, this.menuPlate);
     this.menuEl.addEventListener('click', () => this.toggleSheet(this.tab ? null : 'dig'));
     // Row B: the objective line.
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -278,7 +281,9 @@ export class Hud {
     this.layout = l;
     place(this.depthEl, l.depth);
     place(this.goldEl, l.gold);
-    place(this.menuEl, l.menu);
+    const slop = Math.max(4, Math.ceil((48 - Math.min(l.menu.w, l.menu.h)) / 2));
+    place(this.menuEl, { x: l.menu.x - slop, y: l.menu.y - slop, w: l.menu.w + 2 * slop, h: l.menu.h + 2 * slop });
+    this.menuEl.style.setProperty('--slop', `${slop}px`);
     place(this.goalEl, l.goal);
     place(this.cardEls[0], l.cards[0]);
     place(this.cardEls[1], l.cards[1]);
@@ -319,7 +324,7 @@ export class Hud {
     set(this.goldNum, f.gold);
     set(this.rateEl, f.rate);
     cls(this.goldEl, 'hy-with-rate', !!f.rate);
-    cls(this.menuEl, 'hy-badge', f.badge);
+    cls(this.menuPlate, 'hy-badge', f.badge);
     // The objective line (L5: always shown).
     const g = f.goal;
     if (g.id !== this.lastGoalId) {
@@ -342,7 +347,8 @@ export class Hud {
     attr(this.goalEl, 'aria-label', t('ui.hud.goal', { text: g.text }));
     // The cards.
     for (let i = 0; i < 2; i++) {
-      const c = f.ceremony ? null : f.cards[i];
+      // The cards stand aside for a ceremony and while the sheet (the full list they summarise) is open.
+      const c = f.ceremony || this.tab ? null : f.cards[i];
       const el = this.cardEls[i];
       const st = this.cardState[i];
       const vis = !!c;
@@ -494,7 +500,7 @@ export class Hud {
     const p = [f.depth, f.gold];
     const num = /\d/.exec(f.goal.text) ? f.goal.text : '';
     if (num) p.push(num);
-    for (const c of f.cards) if (c && !f.ceremony) p.push(c.price);
+    for (const c of f.cards) if (c && !f.ceremony && !this.tab) p.push(c.price);
     return { persistent: p, transient: f.rate };
   }
 

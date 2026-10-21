@@ -139,6 +139,25 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     expect(await H(page, () => window.__DD__.hybrid.state().run.pick as number)).toBe(pick0 + 1);
   });
 
+  test('E4: hire the Shovel Hand from the BEST card with a real tap; the crew\'s strikes land on the face', async ({ page }) => {
+    const touch = await boot(page);
+    await H(page, () => {
+      window.__DD__.hybrid.skipTutorial();
+      window.__DD__.hybrid.give({ gold: 5000 });
+    });
+    await page.waitForFunction(() => window.__DD__.hybrid.hud().cards.some((c) => c.visible && c.id.startsWith('crew') && c.ready), null, { timeout: 120_000 });
+    const hud = await H(page, () => window.__DD__.hybrid.hud());
+    const card = hud.cards.find((c) => c.visible && c.id.startsWith('crew'))!;
+    await H(page, () => window.__DD__.hybrid.clearEvents());
+    await touch.tap(centreOf(hud.rects[card.slot === 'pick' ? 'card-pick' : 'card-best']));
+    await page.waitForFunction(() => window.__DD__.hybrid.events('buy:done').some((e) => String(e.payload.id).startsWith('crew')), null, { timeout: 60_000 });
+    // The crew works the face (its strikes are the model's; the rig's swing timing is 1C's NodeCrew).
+    await page.waitForFunction(() => window.__DD__.hybrid.events('crew:strike').length > 0, null, { timeout: 120_000 });
+    const s = (await H(page, () => window.__DD__.hybrid.events('crew:strike')))[0].payload;
+    expect(s.col).toBeGreaterThanOrEqual(0);
+    expect(s.col).toBeLessThan(7);
+  });
+
   test('E8: a hold on the face streams strikes at the hold rate; strikes never move the camera', async ({ page }) => {
     const touch = await boot(page);
     const cells = await H(page, () => window.__DD__.hybrid.faceCells());
@@ -249,7 +268,13 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     for (let k = 0; k < 8 && !far; k++) {
       const list = await H(page, () => window.__DD__.hybrid.tappables());
       seen.push(list.map((t) => `${t.id}:${t.kind}@${Math.round(t.hit.x + t.hit.w / 2)},${Math.round(t.hit.y + t.hit.h / 2)} d${t.dist.toFixed(1)} l${t.left}`).join(' '));
-      far = list.find((t) => ['vein', 'gem', 'stash', 'lamp'].includes(t.kind) && t.dist > 3.6 && t.dist < 10 && t.left > 0 && t.hit.x + t.hit.w / 2 > 30 && t.hit.x + t.hit.w / 2 < 360 && t.hit.y + t.hit.h / 2 > 150 && t.hit.y + t.hit.h / 2 < 730) ?? null;
+      // A far one whose centre no other tappable's hit area covers (a near chest's area would take the tap first).
+      const clear = (t: (typeof list)[number]) => {
+        const cx = t.hit.x + t.hit.w / 2;
+        const cy = t.hit.y + t.hit.h / 2;
+        return !list.some((o) => o.id !== t.id && cx >= o.hit.x && cx < o.hit.x + o.hit.w && cy >= o.hit.y && cy < o.hit.y + o.hit.h);
+      };
+      far = list.find((t) => ['vein', 'gem', 'stash', 'lamp'].includes(t.kind) && t.dist > 3.6 && t.dist < 20 && t.left > 0 && t.hit.x + t.hit.w / 2 > 30 && t.hit.x + t.hit.w / 2 < 360 && t.hit.y + t.hit.h / 2 > 150 && t.hit.y + t.hit.h / 2 < 730 && clear(t)) ?? null;
       if (!far) {
         await touch.drag({ x: 300, y: 450 }, -110, 0, 300);
         await still(page);
@@ -259,9 +284,11 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     await touch.tap(centreOf(far!.hit));
     await page.waitForFunction(() => window.__DD__.hybrid.explore().walks > 0 || window.__DD__.hybrid.events('tappable:hit').length > 0, null, { timeout: 30_000 });
     // (Under SwiftShader a frame is ~1 s and a frame advances the walk by at most 0.1 s: metres take frames.)
-    await page.waitForFunction(() => window.__DD__.hybrid.explore().actsOnArrival > 0, null, { timeout: 240_000 });
+    await page.waitForFunction(() => window.__DD__.hybrid.explore().actsOnArrival > 0, null, { timeout: 420_000 });
+    await hybridWaitFrames(page, 3);
     const ev = (await H(page, () => window.__DD__.hybrid.events())).map((e) => e.name);
-    expect(ev.some((n) => /^(tappable:hit|chamber:harvest|lamp:relight)$/.test(n))).toBe(true);
+    const last = (await H(page, () => window.__DD__.hybrid.lastTouches())).slice(-4).map((t) => `${t.kind}:${t.verb}:${t.target}`);
+    expect(ev.some((n) => /^(tappable:hit|chamber:harvest|lamp:relight)$/.test(n)), `${far!.id}: ${ev.slice(-12).join(',')} | ${last.join(' ')}`).toBe(true);
     // The objective line: a tap walks toward its target (or faces it when already there).
     const goal = await H(page, () => window.__DD__.hybrid.hud().rects.goal);
     const walks0 = await H(page, () => window.__DD__.hybrid.explore().walks);
@@ -346,6 +373,7 @@ test.describe('the W1 slice (hybrid-slice)', () => {
   });
 
   test('E16: save and reload mid-chamber: the camp (the menu), then Descend resumes the same node, phase, stand, harvested and lit bits', async ({ page }) => {
+    test.setTimeout(900_000);
     let touch = await boot(page);
     await intoCellar(page);
     // (state() is the save form: run.node, run.phase, run.resume, run.chambers.)
@@ -371,7 +399,8 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     const adit = (await H(page, () => window.__DD__.hybrid.nav())).find((n) => n.kind === 'station' && /adit/.test(n.id) && n.hit.y > 130 && n.hit.y + n.hit.h < 745);
     if (adit) await touch.tap(centreOf(adit.hit));
     else await touch.tap(centreOf(await H(page, () => window.__DD__.hybrid.hud().rects.goal)));
-    await page.waitForFunction(() => window.__DD__.hybrid.events('camp:descend').length > 0, null, { timeout: 120_000 });
+    // (The adit is ~12 m off: under SwiftShader the walk there takes a minute or two of frames.)
+    await page.waitForFunction(() => window.__DD__.hybrid.events('camp:descend').length > 0, null, { timeout: 400_000 });
     await waitPhase(page, 'explore', a.n.node);
     const b = await H(page, () => {
       const s = window.__DD__.hybrid.state();
@@ -408,10 +437,10 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
     const ALLOWED = /^(strike|relight|focus|navigation|skill|tunk|raise|walk|look)$/;
     const run = async (n: number, label: string) => {
-      const hud = await H(page, () => window.__DD__.hybrid.hud());
-      const top = hud.rects.goal.y + hud.rects.goal.h + 6;
-      const cards = [hud.rects['card-pick'], hud.rects['card-best']].filter((r) => r?.visible);
-      const bottom = cards.length ? Math.min(...cards.map((r) => r.y)) - 6 : 740;
+      // The world region (between the objective line and the card band; the band is the HUD's even with no card).
+      const region = await H(page, () => (window.__DD__.internals.game as { ui: { hud: { layout: { region: { top: number; bottom: number } } } } }).ui.hud.layout.region);
+      const top = region.top + 4;
+      const bottom = region.bottom - 4;
       const missed: string[] = [];
       for (let i = 0; i < n; i++) {
         const p = { x: Math.round(20 + rnd() * 350), y: Math.round(top + rnd() * (bottom - top)) };
@@ -423,7 +452,13 @@ test.describe('the W1 slice (hybrid-slice)', () => {
         if (!ok)
           missed.push(
             `${p.x},${p.y} ` +
-              JSON.stringify(await H(page, () => ({ phase: window.__DD__.hybrid.node().phase, cer: window.__DD__.hybrid.fx().ceremony, focus: window.__DD__.hybrid.hud().focus, walking: window.__DD__.hybrid.explore().walking, last: window.__DD__.hybrid.lastTouches().slice(-3) }))),
+              JSON.stringify(
+                await page.evaluate(([x, y]) => {
+                  const el = document.elementFromPoint(x, y) as HTMLElement | null;
+                  const g = window.__DD__.internals.game as { ui: { hud: { layout: { region: unknown } } }; taps: { enabled: boolean } };
+                  return { el: el ? `${el.tagName}.${el.className}` : '', region: g.ui.hud.layout.region, taps: g.taps.enabled, phase: window.__DD__.hybrid.node().phase, cer: window.__DD__.hybrid.fx().ceremony, focus: window.__DD__.hybrid.hud().focus, walking: window.__DD__.hybrid.explore().walking, last: window.__DD__.hybrid.lastTouches().slice(-3) };
+                }, [p.x, p.y] as const),
+              ),
           );
         // A focus pop owns the next tap (it closes it): let it.
         await page.waitForTimeout(120);
@@ -443,36 +478,39 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     expect(acts.length).toBeGreaterThan(0);
   });
 
-  test('E9: relight the Root Cellar\'s lamps with real taps (walk there, then the flame): lamp:relight ×2, charted, a gem', async ({ page }) => {
+  test('E9: relight the Root Cellar\'s lamps with real taps: lamp:relight ×2, the chamber charted, a gem', async ({ page }) => {
     test.setTimeout(900_000);
     const touch = await boot(page);
     await intoCellar(page);
     const v0 = await H(page, () => window.__DD__.hybrid.node());
     expect(v0.lamps[1]).toBeGreaterThanOrEqual(2);
     const gems0 = await H(page, () => window.__DD__.hybrid.state().meta.gems as number);
+    // The cold lamps of this chamber (set-up read: their ids; walking to far ones has its own test).
+    const cold = await H(page, () =>
+      (window.__DD__.internals.game as { scene: { targets(): Array<{ id: string; type: string; state?: number }> } }).scene
+        .targets()
+        .filter((t) => t.type === 'lamp' && !t.state && t.id.startsWith(`${window.__DD__.hybrid.node().node}:`))
+        .map((t) => t.id),
+    );
+    expect(cold.length).toBeGreaterThanOrEqual(2);
     await H(page, () => window.__DD__.hybrid.clearEvents());
     const seen: string[] = [];
-    for (let k = 0; k < 14; k++) {
+    for (const id of cold) {
       const v = await H(page, () => window.__DD__.hybrid.node());
       if (v.lamps[0] >= v.lamps[1]) break;
-      const all = await H(page, () => window.__DD__.hybrid.tappables());
-      seen.push(`lamps ${v.lamps.join('/')} yaw ${(((await H(page, () => window.__DD__.hybrid.explore().pos.yaw)) * 180) / Math.PI).toFixed(0)}: ` + all.filter((t) => t.kind === 'lamp').map((t) => `${t.id}@${Math.round(t.hit.x + t.hit.w / 2)},${Math.round(t.hit.y + t.hit.h / 2)} d${t.dist.toFixed(1)} l${t.left}`).join(' '));
-      const lamp = all
-        .filter((t) => t.kind === 'lamp' && t.left > 0 && t.hit.x + t.hit.w / 2 > 20 && t.hit.x + t.hit.w / 2 < 370 && t.hit.y + t.hit.h / 2 > 140 && t.hit.y + t.hit.h / 2 < 740)
-        .sort((p, q) => p.dist - q.dist)[0];
-      if (lamp) {
-        const lit0 = v.lamps[0];
-        await touch.tap(centreOf(lamp.hit));
-        await page.waitForFunction((n) => window.__DD__.hybrid.node().lamps[0] > n, lit0, { timeout: 240_000 }).catch(() => undefined);
-        await still(page);
-      } else {
-        await touch.drag({ x: 300, y: 450 }, -140, 0, 300);
-        await still(page);
-      }
+      // Set-up: stand at the lamp's approach, facing it; then the real tap.
+      if (!(await page.evaluate((l) => window.__DD__.hybrid.standAt(l), id.split(':').pop()!))) continue;
+      await settle(page);
+      const lamp = (await H(page, () => window.__DD__.hybrid.tappables())).find((t) => t.id === id || t.id.endsWith(`:${id.split(':').pop()}`));
+      seen.push(`${id}: ${lamp ? `@${Math.round(lamp.hit.x + lamp.hit.w / 2)},${Math.round(lamp.hit.y + lamp.hit.h / 2)} d${lamp.dist.toFixed(1)} l${lamp.left}` : 'not on screen'}`);
+      if (!lamp || lamp.left <= 0) continue;
+      const lit0 = v.lamps[0];
+      await touch.tap({ x: Math.max(20, Math.min(370, lamp.hit.x + lamp.hit.w / 2)), y: Math.max(150, Math.min(730, lamp.hit.y + lamp.hit.h / 2)) });
+      await page.waitForFunction((n) => window.__DD__.hybrid.node().lamps[0] > n, lit0, { timeout: 240_000 }).catch(() => undefined);
     }
     const ev = (await H(page, () => window.__DD__.hybrid.events())).map((e) => e.name);
     expect(ev.filter((n) => n === 'lamp:relight').length, seen.join(' | ')).toBeGreaterThanOrEqual(2);
-    await page.waitForFunction(() => window.__DD__.hybrid.events('chamber:charted').length > 0, null, { timeout: 30_000 });
+    await page.waitForFunction(() => window.__DD__.hybrid.events('chamber:charted').length > 0, null, { timeout: 60_000 });
     expect(await H(page, () => window.__DD__.hybrid.node().charted)).toBe(true);
     expect(await H(page, () => window.__DD__.hybrid.state().meta.gems as number)).toBeGreaterThanOrEqual(gems0 + 1);
   });

@@ -186,6 +186,18 @@ describe('Explore (W1-LEAD §3)', () => {
     const near = f.focusables[0].rect;
     expect(resolve(touch(near.x + 10, near.y + 10, 'tap'), f)).toEqual({ verb: 'focus', id: 'chest:0', input: 'open' });
   });
+  it('a far tappable is walked to by its padded hit area even when the ray misses its small mesh (the nearest centre wins)', () => {
+    const f = exploreFrame();
+    const vein = padRect({ x: 20, y: 440, w: 30, h: 30 });
+    const lamp = padRect({ x: 60, y: 470, w: 20, h: 30 });
+    const g: NodeFrame = { ...f, far: [{ id: 'vein:far', kind: 'vein', rect: vein, dist: 6.3, at: V(-3, 1, -6) }, { id: 'lamp:far', kind: 'lamp', rect: lamp, dist: 9, at: V(-2, 2, -9) }] };
+    // The ray under (25, 445) hits rock in reach (deep): the vein's padded area still takes the tap.
+    expect(g.pick(25, 445).kind).toBe('deep');
+    expect(resolve(touch(25, 445, 'tap'), g)).toMatchObject({ verb: 'walk', via: 'approach', to: V(-3, 1, -6), then: { verb: 'strike', target: { kind: 'tappable', id: 'vein:far' } } });
+    expect(resolve(touch(72, 488, 'tap'), g)).toMatchObject({ verb: 'walk', then: { verb: 'relight', lampId: 'lamp:far' } });
+    // Outside every padded area: the old answers (a tunk on rock in reach).
+    expect(resolve(touch(250, 450, 'tap'), g)?.verb).toBe('tunk');
+  });
   it('a far exit is walked to, then taken', () => {
     const f = exploreFrame();
     const e = f.nav[0].rect;

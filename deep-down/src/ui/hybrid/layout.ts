@@ -44,7 +44,8 @@ export function hybridLayout(width: number, height: number, safeTop = 0, safeBot
   const bottom = Math.max(PAD + 2, Math.round(safeBottom));
   // Short screens (≤ 780 px) take 2–4 px off each band so the plates stay ≤ 17 % of the screen (E21 at 360 × 740).
   const compact = height <= 780;
-  const grow = large ? 4 : 0;
+  // Large text grows each band 4 px (1 px on a short screen, where 3 px in all is the room left under 17 %).
+  const grow = large ? (compact ? 1 : 4) : 0;
   const rowA = (compact ? 38 : 40) + grow;
   const rowB = (compact ? 30 : 32) + grow;
   const cardH = (compact ? 60 : 64) + grow;
@@ -62,7 +63,7 @@ export function hybridLayout(width: number, height: number, safeTop = 0, safeBot
     { x: PAD + cardW + GAP, y: cardY, w: w - cardW - GAP, h: cardH },
   ];
   const regionBottom = cardY - GAP;
-  const skip: Rect = { x: width - PAD - 96, y: regionTop + 6, w: 96, h: 40 };
+  const skip: Rect = { x: width - PAD - 96, y: regionTop + 6, w: 96, h: 48 };
   const note: Rect = { x: PAD + 16, y: regionTop + 6, w: w - 32, h: 52 + grow };
   const focusH = Math.round(Math.min(210, (regionBottom - regionTop) * 0.36));
   const focus: Rect = { x: PAD + 10, y: regionBottom - focusH - 8, w: w - 20, h: focusH };

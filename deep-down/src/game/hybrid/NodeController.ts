@@ -105,6 +105,9 @@ export interface NodeFrame {
   focusables: ReadonlyArray<{ id: string; kind: FocusKind; rect: Rect; dist?: number; at?: V3 }>;
   /** Strike-type tappables and cold lamps IN REACH (padded hit rects, for the fat finger and the sweep). */
   strikeables: ReadonlyArray<{ id: string; kind: StrikeKind; rect: Rect; dist?: number; at?: V3 }>;
+  /** Explore: strike-type tappables and cold lamps BEYOND reach, visible, with their padded hit rects (≥ 88 px) and the
+   *  world point to walk to: a tap on one walks there and acts on arrival, even when the ray misses the small mesh. */
+  far?: ReadonlyArray<{ id: string; kind: StrikeKind; rect: Rect; dist: number; at: V3 }>;
   /** Live face blocks (drift): the model column, the slice, the screen rect. */
   face: ReadonlyArray<{ col: number; slice: number; rect: Rect }>;
   /** The face's weakest live block in the front slice (the hold's fallback); −1 when none. */
@@ -291,6 +294,20 @@ export function resolve(touch: TouchIn, f: NodeFrame): NodeTouch | null {
   // 9. The fat finger: exactly one strike-type tappable or cold lamp in reach within 48 px.
   const fat = fatChamber(x, y, f.strikeables);
   if (fat) return strikeOf(fat.kind, fat.id, 'fat');
+  // 9b. Explore: a far tappable's padded hit area (the ray missed its mesh): walk there, then act (the nearest centre).
+  if (walking && f.far?.length) {
+    let best: (typeof f.far)[number] | null = null;
+    let bd = Infinity;
+    for (const o of f.far) {
+      if (!inRect(x, y, o.rect)) continue;
+      const d = Math.hypot(x - (o.rect.x + o.rect.w / 2), y - (o.rect.y + o.rect.h / 2));
+      if (d < bd) {
+        bd = d;
+        best = o;
+      }
+    }
+    if (best) return { verb: 'walk', to: best.at, via: 'approach', then: strikeOf(best.kind, best.id, 'ray') };
+  }
   // Explore: a floor, a ledge or a stair (or the foot of a wall) walks there.
   if (walking && hit.kind === 'walk') return { verb: 'walk', to: hit.point, via: 'floor' };
   if (hit.kind === 'deep' && near) return { verb: 'tunk', point: hit.point, hint: f.hint };

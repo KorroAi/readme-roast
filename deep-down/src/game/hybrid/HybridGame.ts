@@ -29,7 +29,7 @@ import { createIdle, stepIdle, STEP_DT } from '../../idle/model/step';
 import { returnFromAway, collectOffline } from '../../idle/model/offline';
 import { sealTimeLeft } from '../../idle/model/seals';
 import { format, formatRate, setNotation } from '../../idle/num/notation';
-import { hasText, t, type TextKey } from '../../i18n';
+import { t, type TextKey } from '../../i18n';
 import { DepthScene } from '../../render/hybrid/DepthScene';
 import type { CameraPose as ScenePose, Pick, ScreenTarget } from '../../render/hybrid/types';
 import { FOCUS_KINDS, STRIKE_KINDS } from '../../render/hybrid/types';
@@ -68,6 +68,7 @@ import { createWorld } from './world';
 import { IrradianceVolume } from './irradiance';
 import { DeepWorld } from '../../world/hybrid/DeepWorld';
 import { templateFor } from '../../world/hybrid/kits/templates';
+import { tx } from './text';
 import { loadPrefs, savePrefs, type ShellPrefs } from './prefs';
 import type { V3 } from './ropeRide';
 
@@ -113,10 +114,6 @@ function newSeed(): number {
 }
 
 /** A key's text, or '' when the table has no such key (never a raw key on screen). */
-function tx(key: string, params?: Record<string, string | number>): string {
-  return key && hasText(key) ? t(key as TextKey, params) : '';
-}
-
 /** The shell's touch phase for the model's phase. */
 function touchPhaseOf(p: string): TouchPhase {
   return p === 'dig' ? 'drift' : p === 'explore' ? 'explore' : p === 'ride' ? 'ride' : p === 'seal' ? 'seal' : 'camp';
@@ -170,6 +167,8 @@ export class HybridGame {
   private readonly actions: NodeAction[] = [];
   private readonly disposers: Array<() => void> = [];
   private readonly recent: Array<{ name: string; payload: unknown; t: number; mt: number; f: number }> = [];
+  /** The touch phase each live finger went down in ('skipped' when its press skipped a move): its later events must match. */
+  private readonly gesturePhase = new Map<number, string>();
   private readonly touchLog: Array<{ x: number; y: number; kind: string; verb: string; target: string; t: number; f: number }> = [];
   private readonly downFrames: number[] = [];
   private readonly tapFrames: number[] = [];
@@ -235,7 +234,7 @@ export class HybridGame {
         campNav: () => deep.campNav(),
       });
       this.world = world;
-      deep.prime(this.focusY(), this.state.run.depth, this.openedIds());
+      deep.prime(this.focusY(), this.state.run.depth, this.openedIds(), { sync: 2 });
       this.irr = new IrradianceVolume(deep.light.data);
     }
     this.world = world;
@@ -304,13 +303,15 @@ export class HybridGame {
     return n.phase === 'dig' ? p.drift.stand.pos.y : (p.chamber.stands[0]?.pos.y ?? p.drift.stand.pos.y);
   }
 
-  /** Socket ids this run opened in the world (secrets, mined skin): the regenerated slabs keep them open. */
+  /** Socket ids this run opened or lit in the world (secrets, mined skin, relit lamps): the regenerated slabs keep them. */
   private openedIds(): string[] {
     const out: string[] = [];
     for (const [k, c] of Object.entries(this.state.node.chambers)) {
       const node = Number(k);
       for (const id of c.secrets) out.push(globalId(node, id));
       for (const [id, left] of Object.entries(c.skin)) if (left <= 0) out.push(id.includes(':') ? id : globalId(node, id));
+      // Relit lamps: the regenerated slabs bake their light again.
+      for (const l of c.lamps) out.push(l.includes(':') ? l : globalId(node, l));
     }
     return out;
   }
@@ -565,7 +566,7 @@ export class HybridGame {
         'biome:reveal', 'tutorial:step', 'tutorial:done', 'goal:change', 'goal:done', 'offline:ready', 'offline:collect', 'skill:dynamite', 'firsttime', 'crew:star',
         'phase:change', 'node:arrive', 'node:breach', 'node:firstLight', 'node:leave', 'tappable:hit', 'chamber:harvest', 'skin:strike', 'skin:pocket', 'secret:found',
         'lamp:relight', 'chamber:charted', 'stand:move', 'focus:open', 'focus:close', 'relic:grade', 'note:read', 'ride:start', 'ride:glint', 'ride:end', 'drift:slice',
-        'drift:creep', 'lantern:raise', 'rock:tunk', 'leash:full', 'works:haul', 'seal:closed', 'camp:enter', 'camp:descend', 'rack:add',
+        'drift:creep', 'lantern:raise', 'rock:tunk', 'leash:full', 'works:haul', 'seal:closed', 'camp:enter', 'camp:descend', 'rack:add', 'crew:strike',
       ];
       for (const k of names) this.disposers.push(ev.on(k, (payload) => keep(k, payload)));
     }
@@ -719,6 +720,7 @@ export class HybridGame {
     const nav: NodeFrame['nav'][number][] = [];
     const focusables: NodeFrame['focusables'][number][] = [];
     const strikeables: NodeFrame['strikeables'][number][] = [];
+    const far: NonNullable<NodeFrame['far']>[number][] = [];
     const rack: NodeFrame['rack'][number][] = [];
     let focus: NodeFrame['focus'] = null;
     for (const tg of targets) {
@@ -728,14 +730,17 @@ export class HybridGame {
       else if (tg.type === 'rack') rack.push({ id: tg.kind || tg.id, rect: tg.hit, ready: (tg.state ?? 1) >= 1 });
       else if (tg.type === 'lamp') {
         if (!tg.state && tg.dist <= 3.5) strikeables.push({ id: tg.id, kind: 'lamp', rect: tg.hit, dist: tg.dist, at: at ?? undefined });
+        else if (!tg.state && at) far.push({ id: tg.id, kind: 'lamp', rect: tg.hit, dist: tg.dist, at });
       } else if (tg.type === 'tappable') {
         const k = tg.kind as never;
         if (FOCUS_KINDS.has(k)) {
           if (v.focus && localId(tg.id) === v.focus) focus = { id: tg.id, kind: tg.kind as never, rect: tg.hit, resolved: false };
           else focusables.push({ id: tg.id, kind: tg.kind as never, rect: tg.hit, dist: tg.dist, at: at ?? undefined });
-        } else if (STRIKE_KINDS.has(k) && (tg.state ?? 0) < 1 && tg.dist <= 3.5) {
-          // (state is the harvested fraction: a spent vein is no longer a fat-finger candidate.)
-          strikeables.push({ id: tg.id, kind: (tg.kind === 'secret' || tg.kind === 'glint' ? 'vein' : tg.kind) as never, rect: tg.hit, dist: tg.dist, at: at ?? undefined });
+        } else if (STRIKE_KINDS.has(k) && (tg.state ?? 0) < 1) {
+          // (state is the harvested fraction: a spent vein is no longer a candidate.)
+          const kind = (tg.kind === 'secret' || tg.kind === 'glint' ? 'vein' : tg.kind) as never;
+          if (tg.dist <= 3.5) strikeables.push({ id: tg.id, kind, rect: tg.hit, dist: tg.dist, at: at ?? undefined });
+          else if (at) far.push({ id: tg.id, kind, rect: tg.hit, dist: tg.dist, at });
         }
       }
     }
@@ -758,6 +763,7 @@ export class HybridGame {
       nav,
       focusables,
       strikeables,
+      far,
       face,
       weakestCol: this.weakestCol(),
       hint: strikeables[0]?.id ?? '',
@@ -779,7 +785,7 @@ export class HybridGame {
   private targetPoint(tg: ScreenTarget): V3 | null {
     const node = nodeOfId(tg.id);
     if (tg.type === 'nav' && tg.kind === 'station') {
-      const st = this.world?.camp()?.stations.find((x) => x.id === tg.id);
+      const st = this.world?.camp()?.stations.find((x) => x.id === tg.id.replace(/^camp:/, ''));
       return st ? { ...st.feet } : null;
     }
     const p = this.placement(node >= 0 ? node : this.state.node.node);
@@ -855,15 +861,30 @@ export class HybridGame {
     const ti: TouchIn = { x: e.x, y: e.y, kind: e.kind, t: e.t, id: e.id, heldMs: e.heldMs, downX: e.downX, downY: e.downY, dx: e.dx, dy: e.dy };
     if (e.kind === 'press') {
       this.downFrames.push(this.frames);
+      this.gesturePhase.set(e.id, f.phase);
       // A press skips a running ceremony (L9) and still acts where the phase acts on presses.
       if (this.fx.ceremony && this.fx.ceremony !== 'chest' && this.fx.skipCeremony()) {
         if (this.cam.skippable) this.cam.skip();
+        this.gesturePhase.set(e.id, 'skipped');
         this.log(ti, 'navigation', 'skip', now);
         return;
       }
+    } else if (e.kind === 'up') {
+      const was = this.gesturePhase.get(e.id);
+      this.gesturePhase.delete(e.id);
+      if (was !== undefined && was !== f.phase) return;
+    } else if (e.kind !== 'key') {
+      // One gesture, one phase: the tap, hold or drag of a finger that went down in another phase (the last strikes of a
+      // drift that landed after the breach, a press that skipped a glide) is spent; it never walks the player off.
+      const was = this.gesturePhase.get(e.id);
+      if (was !== undefined && was !== f.phase) return;
     }
+    // A scripted camera move (the breakthrough glide, a stand change, the return glimpses) owns Explore's taps and drags
+    // until it ends: they never cut it short with a walk or a look (a long one is skipped by a press, above).
+    if ((f.phase === 'explore' || f.phase === 'camp') && this.cam.running !== '' && (e.kind === 'tap' || e.kind === 'drag' || e.kind === 'hold')) return;
     const r = resolve(ti, f);
     if (!r) return;
+    if (e.kind === 'press' && r.verb === 'navigation' && r.nav === 'skip') this.gesturePhase.set(e.id, 'skipped');
     this.lastInput = now;
     this.log(ti, r.verb, describe(r), now);
     this.dispatch(r, ti, now);
@@ -988,7 +1009,9 @@ export class HybridGame {
   }
 
   /** The camp's stations: walk there; the adit descends, the board opens the Crew sheet, the maker the Dig sheet. */
-  private station(id: string): void {
+  private station(sceneId: string): void {
+    // The scene names stations 'camp:<id>'; the camp placement names them '<id>'.
+    const id = sceneId.replace(/^camp:/, '');
     const c = this.world?.camp();
     const st = c?.stations.find((x) => x.id === id);
     const act = () => {
@@ -1006,7 +1029,18 @@ export class HybridGame {
       act();
       return;
     }
-    this.cam.walk(plan.eye, { face: st.pos, done: (a) => a && act() });
+    this.ex.walks++;
+    this.ex.marker = { ...plan.end, at: performance.now() };
+    this.scene.walkMarker(plan.end);
+    this.cam.walk(plan.eye, {
+      face: st.pos,
+      done: (a) => {
+        if (!a) return;
+        this.ex.arrivals++;
+        this.ex.acts++;
+        act();
+      },
+    });
   }
 
   /**

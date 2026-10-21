@@ -136,17 +136,20 @@ export function makeSource(d: SourceDeps): DepthSource {
       exits: c.exits.map((e) => ({ id: e.id, pos: e.pos, plate: e.plate, ride: e.ride, type: e.type })),
       sockets: c.sockets.map((so) => ({ id: so.id, kind: so.kind, pos: so.pos, normal: so.normal, bound: so.bound })),
       content: (id) => {
+        // An empty socket answers 'sign' (drawn as nothing), not null: ChamberProps.build reads null as "no model" and
+        // falls back to the placement's default (a vein, a lamp…), which drew props the model holds empty, so taps on
+        // them did nothing (L2). 1C is asked to treat null as empty; until then 'sign' is the safe "nothing here".
         const m = model();
         const local = localId(id);
         if (!m) {
           // Closed (not yet broken into): what the run's contents will hold, so a dark mouth shows its silhouettes.
           const con = contentsOf(d.state(), i);
           const sc = con.sockets[local];
-          return sc ? (tappableKindOf(sc.kind) as ReturnType<ChamberView['content']>) : null;
+          return (sc ? tappableKindOf(sc.kind) : null) ?? 'sign';
         }
         const k = m.content(local);
-        if (k === 'empty') return null;
-        return tappableKindOf(k) as ReturnType<ChamberView['content']>;
+        if (k === 'empty') return 'sign';
+        return tappableKindOf(k) ?? 'sign';
       },
       left: (id) => {
         const m = model();
