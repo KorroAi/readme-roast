@@ -19,6 +19,9 @@ type Win = Window & {
   __e2e: { firstThrow: number; crashAt: number; panelAt: number; toasts: string[]; throws: number[] };
 };
 
+// First person on an upright phone.
+test.use({ viewport: { width: 390, height: 844 } });
+
 async function waitMode(page: Page, mode: string, timeout = 180_000) {
   await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout, polling: 200 });
 }

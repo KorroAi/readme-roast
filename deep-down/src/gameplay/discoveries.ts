@@ -35,6 +35,11 @@ export const DISCOVERIES: readonly DiscoveryDef[] = [
   // The deep tier and the finale (final pass W3; the Rift is the world's 'undercroft').
   { id: 'echo', major: false },
   { id: 'answer', major: true },
+  // Beyond the rift (finished game, content): three caverns, and the stone that holds a flame.
+  { id: 'lanternstone', major: false },
+  { id: 'glowroot', major: true },
+  { id: 'choir', major: true },
+  { id: 'emberDeep', major: true },
 ];
 
 /** Number of discoveries in the game. */

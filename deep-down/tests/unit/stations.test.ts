@@ -29,7 +29,8 @@ const plotBox = (p: PlotDef) => new THREE.Box3(new THREE.Vector3(p.x - 1, p.y, p
 
 describe('the camp plots and stations', () => {
   it('keeps every earlier prop id and landmark (the progression pass only appends)', () => {
-    const ids = layout.props.map((p) => p.id).filter((id) => !/^(plotStake|runeStone)_\d+$/.test(id));
+    // The deep beyond the rift (f_glowroot_, f_choir_, f_ember_) and the content pass (c_) come after.
+    const ids = layout.props.map((p) => p.id).filter((id) => !/^(plotStake|runeStone)_\d+$/.test(id) && !/^(f_(glowroot|choir|ember)|c)_/.test(id));
     expect(ids).toEqual(W2_PROP_IDS);
     for (const [k, v] of Object.entries(W2_LANDMARKS)) {
       expect(layout.landmarks[k], k).toBeDefined();
@@ -111,10 +112,12 @@ describe('the camp plots and stations', () => {
   });
 });
 
-describe('the progression save (v2, frozen as the 1.0 format at W3)', () => {
+describe('the progression save (v2 as frozen at W3, plus the v3 content fields)', () => {
   it('fills every field with its default, and keeps what it knows', () => {
     const d = defaultProgression();
-    expect(Object.keys(d).sort()).toEqual(['cache', 'compassTarget', 'day', 'expeditions', 'finale', 'foundAt', 'gear', 'hintsShown', 'minedDay', 'records', 'relics', 'seams', 'stations', 'trip'].sort());
+    expect(Object.keys(d).sort()).toEqual(['cache', 'compassTarget', 'day', 'expeditions', 'feats', 'finale', 'foundAt', 'gear', 'hintsShown', 'life', 'looted', 'minedDay', 'records', 'relics', 'seams', 'stations', 'trip'].sort());
+    expect(d).toMatchObject({ looted: [], feats: [], life: { blocksMined: 0, embers: 0, caches: 0, secrets: 0, firsts: [] } });
+    expect(normalizeProgression({ looted: ['c_chest_1', 3], feats: ['firstCopper'], life: { blocksMined: 5, walked: -3, firsts: ['copperOre', 2] } })).toMatchObject({ looted: ['c_chest_1'], feats: ['firstCopper'], life: { blocksMined: 5, walked: 0, firsts: ['copperOre'] } });
     expect(d).toMatchObject({ day: 0, expeditions: 0, trip: null, cache: null, stations: [], gear: [], relics: [], seams: [], minedDay: [], hintsShown: [], finale: false, compassTarget: null, foundAt: {} });
     // An empty or old progression object normalizes to the defaults.
     expect(normalizeProgression({})).toMatchObject({ stations: [], gear: [], relics: [], finale: false, compassTarget: null, foundAt: {} });

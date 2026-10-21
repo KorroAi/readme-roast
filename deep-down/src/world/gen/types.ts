@@ -48,7 +48,11 @@ export interface PropSpec {
   /** Rune stones (interact 'rune'): the rune's key item and its glyph (config/runes). */
   rune?: { item: string; glyph: number };
   /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
-  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith'; id: string; end?: 'top' | 'bottom' };
+  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache'; id: string; end?: 'top' | 'bottom' };
+  /** Halden caches, supply crates and the builders' coffers (feature 'cache'): what is inside (game/Progression). */
+  loot?: Partial<Record<'stone' | 'rootFibre' | 'copperOre' | 'ironOre' | 'glimmerShard' | 'echoShard', number>>;
+  /** A secret alcove's reward (content pass): opening it counts the secret. */
+  secret?: string;
   /** Minable props (crystal clusters) drop items when broken. */
   minable?: { hardness: number; tier: number; drop: 'glimmerShard' | 'echoShard'; min: number; max: number };
   /** Variation seed for procedural mesh details. */
@@ -244,6 +248,8 @@ export interface WorldLayout {
   features?: FeatureLayout;
   /** The progression pass (final pass W3, world/gen/progression): camp plots, runes, Ironbound niches. */
   progression?: ProgressionLayout;
+  /** The content pass (finished game, world/gen/content): finds on every stretch of floor, secrets. */
+  content?: import('./content').ContentLayout;
 }
 
 /** A camp plot: where a station rises once it is built (a chalk outline and a stake until then). */

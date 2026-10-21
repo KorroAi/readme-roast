@@ -162,7 +162,7 @@ const hud: HudState = {
   objectiveText: t('objective.findCopper', { have: 3, need: 8 }),
   interactLabel: null,
   target: { name: t('block.copperOre'), progress: 0.45, blocked: false },
-  showCrosshair: false,
+  showCrosshair: true,
   fps: 58,
   frameMs: 12.4,
   drawCalls: 118,

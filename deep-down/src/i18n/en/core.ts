@@ -105,12 +105,12 @@ export const core = {
   'hud.backpackLabel': 'Backpack {used} of {max} slots',
 
   // Hints & tutorial
-  'hint.move': 'Drag the left side of the screen to walk.',
-  'hint.look': 'Drag the right side to look around.',
-  'hint.mine': 'Press and hold a block to mine it.',
+  'hint.move': 'Tap the floor to walk there. Drag anywhere to look.',
+  'hint.look': 'Drag anywhere to look around.',
+  'hint.mine': 'Tap a rock to mine it to the end. Hold to keep mining.',
   'hint.mineDesktop': 'Hold the left mouse button on a block to mine it.',
   'hint.moveDesktop': 'WASD to move · Mouse to look · Space to jump.',
-  'hint.pickup': 'Resources fly to you when your backpack has room.',
+  'hint.pickup': 'Your finds fly into your bag. Tap the bag at the top to look inside.',
   'hint.camp': 'Return to camp to bank your finds and refill your lantern.',
   'hint.workbench': 'Use the Workbench to craft upgrades.',
   'hint.tooHard': 'Too hard. You need a {tool}.',

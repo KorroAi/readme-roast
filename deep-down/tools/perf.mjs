@@ -6,14 +6,14 @@
 // Measures the production build in dist/ (run `npm run build` first) served by `vite preview`;
 // pass --dev 1 to measure the dev server (unbundled modules) instead.
 //
-// Usage: node tools/perf.mjs [--quality balanced] [--size 915x412] [--out artifacts/perf.json] [--dev 1]
+// Usage: node tools/perf.mjs [--quality balanced] [--size 390x844] [--out artifacts/perf.json] [--dev 1] [--dist dir]
 import { chromium } from '@playwright/test';
 import { createServer, preview } from 'vite';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = { quality: 'balanced', size: '915x412', out: 'artifacts/perf.json', seconds: '4' };
+const opt = { quality: 'balanced', size: '390x844', out: 'artifacts/perf.json', seconds: '4' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 
@@ -22,8 +22,9 @@ if (opt.dev) {
   server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
   await server.listen();
 } else {
-  if (!existsSync('dist/index.html')) throw new Error('dist/ missing: run npm run build first (or pass --dev 1)');
-  server = await preview({ preview: { port: 5197, strictPort: false }, logLevel: 'error' });
+  const outDir = opt.dist ?? 'dist';
+  if (!existsSync(`${outDir}/index.html`)) throw new Error(`${outDir}/ missing: run npm run build first (or pass --dev 1, or --dist <dir>)`);
+  server = await preview({ build: { outDir }, preview: { port: 5197, strictPort: false }, logLevel: 'error' });
 }
 const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
@@ -48,18 +49,23 @@ await page.evaluate(async (q) => {
 }, opt.quality);
 await page.waitForFunction(() => window.__DD__.state().mode === 'playing');
 
+// First-person views of the spaces the visual budget is judged on (BRIEF §2.7: Balanced holds
+// <= 150 draw calls and <= 250k triangles visible). The ledge vista is the widest view in the game.
 const spots = {
-  camp: { lm: 'campfire', dx: -2, yaw: -0.6, pitch: -0.25 },
-  tunnel: { lm: 'firstCrystals', dx: -4, yaw: -2.3, pitch: -0.15 },
-  ledgeVista: { lm: 'ledge', dx: 2, yaw: -2.5, pitch: -0.35 },
-  hollowFloor: { lm: 'stairsBottom', dx: -4, yaw: 1.2, pitch: -0.05 },
-  bridge: { lm: 'bridge', dx: 0, yaw: 3.1, pitch: -0.4 },
+  camp: { lm: 'campfire', dx: -2, yaw: -0.6, pitch: -0.2 },
+  tunnel: { lm: 'firstCrystals', dx: -4, yaw: -2.3, pitch: -0.1 },
+  ledgeVista: { lm: 'ledge', dx: 0, yaw: -2.6, pitch: -0.3 },
+  hollowFloor: { lm: 'stairsBottom', dx: -4, yaw: 1.2, pitch: 0.05 },
+  bridge: { lm: 'bridge', dx: 0, yaw: 3.1, pitch: -0.25 },
+  glowroot: { lm: 'glowroot', dx: 5, yaw: 1.57, pitch: -0.05 },
 };
+const BUDGET = { calls: 150, trianglesK: 250 };
 const results = { quality: opt.quality, viewport: opt.size, bootToMenuMs: bootMs, boot, spots: {}, mining: null, save: null, memory: null };
 for (const [name, s] of Object.entries(spots)) {
   await page.evaluate(({ s }) => {
     const dd = window.__DD__;
     const p = dd.landmarks()[s.lm];
+    if (!p) return;
     const st = dd.standableNear(p[0] + s.dx, p[1], p[2]);
     dd.teleport(st[0], st[1], st[2]);
     dd.look(s.yaw, s.pitch);
@@ -94,6 +100,7 @@ for (const [name, s] of Object.entries(spots)) {
       particles: r.particles,
     };
   }, Number(opt.seconds));
+  sample.withinBudget = sample.drawCalls <= BUDGET.calls && sample.trianglesK <= BUDGET.trianglesK;
   results.spots[name] = sample;
   console.log(name, JSON.stringify(sample));
 }

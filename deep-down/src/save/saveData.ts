@@ -3,6 +3,7 @@ import { ITEMS, type ItemId } from '../config/items';
 import { isItemId } from '../gameplay/counts';
 import { OBJECTIVE_CHAIN } from '../gameplay/Objectives';
 import { NO_RECORDS, normalizeRecords, normalizeTrip } from '../gameplay/Records';
+import { NO_LIFE, normalizeLife } from '../gameplay/Feats';
 import type { CacheState } from '../gameplay/Expedition';
 import type { WorldLayout } from '../world/gen/types';
 import type { ItemCounts, ProgressionSave, SaveData, SlotData } from './types';
@@ -27,6 +28,9 @@ export function defaultProgression(): ProgressionSave {
     finale: false,
     compassTarget: null,
     foundAt: {},
+    looted: [],
+    feats: [],
+    life: { ...NO_LIFE, firsts: [] },
   };
 }
 
@@ -217,6 +221,9 @@ export function normalizeProgression(x: unknown, report?: NormalizeReport): Prog
     finale: p.finale === true,
     compassTarget: typeof p.compassTarget === 'string' ? p.compassTarget : null,
     foundAt: normalizeFoundAt(p.foundAt),
+    looted: strs(p.looted, def.looted),
+    feats: strs(p.feats, def.feats),
+    life: normalizeLife(p.life),
   };
 }
 
@@ -258,6 +265,22 @@ export function migrateV1(old: Record<string, unknown>): Record<string, unknown>
 }
 
 /**
+ * Save format v2 -> v3 (finished game, content): the progression block gains the opened caches,
+ * the feats and the lifetime counters (defaults: nothing opened, nothing earned, the lifetime
+ * counters seeded from the v2 stats). Nothing else changes.
+ */
+export function migrateV2(old: Record<string, unknown>): Record<string, unknown> {
+  const d = normalizeSave({ ...old }).data;
+  const stats = isObj(old.stats) ? old.stats : {};
+  const p = d.progression as unknown as Record<string, unknown>;
+  const life = normalizeLife(p.life);
+  if (life.blocksMined === 0 && count(stats.blocksMined)) life.blocksMined = stats.blocksMined as number;
+  if (life.itemsBanked === 0 && count(stats.itemsBanked)) life.itemsBanked = stats.itemsBanked as number;
+  p.life = life;
+  return d;
+}
+
+/**
  * A save made by another world generator: its world edits and removed props would land in a
  * different world, so they are dropped, the explorer wakes at camp and a pack left behind is
  * carried to camp storage. Inventory, equipment, journal, records and stats are kept.
@@ -265,6 +288,8 @@ export function migrateV1(old: Record<string, unknown>): Record<string, unknown>
  */
 export function shiftWorldIfNeeded(d: SaveData, spawn: WorldLayout['spawn'], genVersion: number = WORLD.genVersion): { data: SaveData; shifted: boolean } {
   if (d.genVersion === genVersion) return { data: d, shifted: false };
+  // A compatible older generator (WORLD.genCompatible): its edits land on the same cells here.
+  if (genVersion === WORLD.genVersion && WORLD.genCompatible.includes(d.genVersion)) return { data: { ...d, genVersion }, shifted: false };
   const storage: ItemCounts = { ...d.storage };
   const cache = d.progression.cache;
   if (cache) for (const [k, v] of Object.entries(cache.items) as Array<[ItemId, number]>) storage[k] = (storage[k] ?? 0) + v;

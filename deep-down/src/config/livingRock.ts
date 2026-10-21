@@ -6,7 +6,7 @@ import { B } from './blocks';
  * Other streams may append rows (for example a deep ore on the rift walls); counts per site must
  * stay within 38 % of its cells so one expedition's veins never land where the last one's were.
  */
-export const LIVING_TABLES: Record<'haldenFace' | 'riftWalls', Array<{ block: number; count: number }>> = {
+export const LIVING_TABLES: Record<'haldenFace' | 'riftWalls' | 'emberWalls', Array<{ block: number; count: number }>> = {
   /** The Halden Face (the adit off the yard): the copper that "grew back by Friday". */
   haldenFace: [
     { block: B.COPPER_ORE, count: 10 },
@@ -17,6 +17,12 @@ export const LIVING_TABLES: Record<'haldenFace' | 'riftWalls', Array<{ block: nu
     { block: B.IRON_ORE, count: 12 },
     { block: B.COPPER_ORE, count: 4 },
     { block: B.CRYSTAL, count: 2 },
+  ],
+  /** The Ember Deep's walls (content, finished game): iron, and lanternstone to feed the lantern. */
+  emberWalls: [
+    { block: B.IRON_ORE, count: 8 },
+    { block: B.LANTERNSTONE, count: 4 },
+    { block: B.COPPER_ORE, count: 2 },
   ],
 };
 

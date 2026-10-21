@@ -1,4 +1,3 @@
-import { PLAYER } from '../config/balance';
 import { BLOCKS, SOLID } from '../config/blocks';
 import type { EventBus, GameEvents } from '../core/events';
 import { t } from '../i18n';
@@ -8,6 +7,7 @@ import { raycastVoxels } from '../world/raycast';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import type { PropSpec } from '../world/gen/types';
 import type { MiningController, MiningTarget } from './MiningController';
+import { EYE_HEIGHT, REACH } from './fp/constants';
 
 /**
  * Tap to act (touch). One tap does what the player obviously means:
@@ -31,6 +31,11 @@ export interface TapHost {
   hint(text: string): void;
   /** Small mark where a walk ends. */
   ping(x: number, y: number, z: number): void;
+  /**
+   * A tap that found nothing to act on (the dark, the far roof, rock no pick can break): the view
+   * turns a little toward it and the lantern is raised, so no tap does nothing.
+   */
+  nudge(ndcX: number, ndcY: number): void;
 }
 
 type Goal = { kind: 'walk' } | { kind: 'mine' } | { kind: 'use'; id: string };
@@ -242,7 +247,29 @@ export class TapController {
       return;
     }
     const hit = r.hit;
-    if (hit && hit.ny === 1 && standable(this.host.world, hit.x, hit.y + 1, hit.z)) this.walkTo(hit.x, hit.y + 1, hit.z);
+    if (hit && hit.ny === 1 && standable(this.host.world, hit.x, hit.y + 1, hit.z)) {
+      this.walkTo(hit.x, hit.y + 1, hit.z);
+      return;
+    }
+    // Nothing to act on: look that way, lantern raised.
+    this.host.nudge(input.tapX, input.tapY);
+  }
+
+  /** The way the current walk goes (world x, z unit vector), or null when not walking. */
+  heading(): [number, number] | null {
+    if (!this.goal || this.idx >= this.path.length / 3) return null;
+    const p = this.host.player();
+    // Look a couple of cells ahead along the path, so corners are turned smoothly.
+    const j = Math.min(this.path.length / 3 - 1, this.idx + 2);
+    const dx = this.path[j * 3] + 0.5 - p.x;
+    const dz = this.path[j * 3 + 2] + 0.5 - p.z;
+    const len = Math.hypot(dx, dz);
+    return len > 0.4 ? [dx / len, dz / len] : null;
+  }
+
+  /** What the walk is for: 'walk', 'mine', 'use', or null. */
+  get goalKind(): 'walk' | 'mine' | 'use' | null {
+    return this.goal?.kind ?? null;
   }
 
   /** Something the pick may try (protected and invisible blocks are not targets). */
@@ -295,10 +322,10 @@ export class TapController {
     const cy = tg.kind === 'block' ? tg.y + 0.5 : tg.y + 0.4;
     const cz = tg.kind === 'block' ? tg.z + 0.5 : tg.z;
     const w = this.host.world;
-    const reach = PLAYER.reach - REACH_MARGIN;
+    const reach = REACH - REACH_MARGIN;
     const from = (x: number, y: number, z: number): boolean => {
       const hx = x + 0.5;
-      const hy = y + 1.25;
+      const hy = y + EYE_HEIGHT;
       const hz = z + 0.5;
       const d = Math.hypot(cx - hx, cy - hy, cz - hz);
       if (d > reach) return false;
@@ -308,6 +335,7 @@ export class TapController {
     };
     if (!this.plan(from, [cx, cy, cz], false)) {
       this.host.hint(t('tap.noPath'));
+      this.host.nudge(input.tapX, input.tapY);
       return;
     }
     input.lock = lock;

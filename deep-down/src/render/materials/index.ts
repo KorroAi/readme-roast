@@ -147,6 +147,11 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   // The deep tier (final pass W3): Echo crystal, and Ironbound (the seal-stone with a rune band).
   [B.ECHO_CRYSTAL]: { top: 'echoCrystal', side: 'echoCrystal', bottom: 'echoCrystal', family: FAMILY.CRYSTAL, rigidity: 1 },
   [B.IRONBOUND]: { top: 'sealStone', side: 'sealStone', bottom: 'sealStone', family: FAMILY.NONE, rigidity: 2, rune: true },
+  // The content pass (finished game): lanternstone (warm-veined stone holding a flame: the hearth's
+  // ember veins) and ember glass (the Ember Deep's black seal: bedrock's dark glassy stone; its red
+  // light comes from the block's emission in the light volume).
+  [B.LANTERNSTONE]: { top: 'hearth', side: 'hearth', bottom: 'hearth', family: FAMILY.NONE, rigidity: 2 },
+  [B.EMBER_GLASS]: { top: 'bedrock', side: 'bedrock', bottom: 'bedrock', family: FAMILY.NONE, rigidity: 1 },
 };
 
 /** Per block id: lowest-rigidity lookup used by the mesher (255 = not solid / no constraint). */

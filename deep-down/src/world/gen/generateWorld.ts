@@ -6,6 +6,7 @@ import { VoxelWorld } from '../VoxelWorld';
 import type { PropSpec, Region, StructureSpec, WorldLayout } from './types';
 import { BRIDGE_NEWEL, STAIR_COPING, bayIntrados, bridgeIntrados, columnNeck, columnOutline, fractureHeight, plinthHalf, type ColumnShape } from './architecture';
 import { buildProgression } from './progression';
+import { placeContent } from './content';
 import { buildFeatures } from './features';
 
 /**
@@ -49,6 +50,8 @@ export interface GenTimings {
 /** `features: false` leaves out the feature pass (world/gen/features), for the containment test. */
 export interface GenerateOptions {
   features?: boolean;
+  /** The content pass (world/gen/content): finds on every stretch of floor (default on). */
+  content?: boolean;
 }
 
 export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions = {}): WorldLayout & { timings: GenTimings } {
@@ -1070,6 +1073,12 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   const features = opts.features === false ? undefined : buildFeatures({ world: w, seed, props, structures, discoveries, landmarks, blob, crystalSeam, groundAt });
   mark('features');
 
+  // ------------------------------------------------------------------------------------
+  // 15. Content (world/gen/content, finished game): something to find on every stretch of floor:
+  // ore veins, Halden caches and crates, glimmer, secret alcoves. Its own stream, after everything.
+  const content = opts.content === false ? undefined : placeContent({ world: w, seed, layout: { props, landmarks, structures, camp, spawn }, features });
+  mark('content');
+
   // Re-assert the bedrock shell (decoration passes must never open the world boundary).
   for (let z = 0; z < sz; z++)
     for (let y = 0; y < sy; y++) {
@@ -1083,7 +1092,7 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   mark('seal');
 
   const totalMs = Math.round(performance.now() - t0);
-  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, progression, ...(features ? { features } : {}), timings: { totalMs, phases } };
+  return { world: w, seed, spawn, camp, discoveries, props, route, landmarks, structures, progression, ...(features ? { features } : {}), ...(content ? { content } : {}), timings: { totalMs, phases } };
 
   // ------------------------------------------------------------------------------------
   // helpers (hoisted)

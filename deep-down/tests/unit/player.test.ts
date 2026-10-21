@@ -33,9 +33,21 @@ describe('PlayerController', () => {
     run(p, 0.5, 0, 0);
     expect(p.grounded).toBe(true);
     expect(p.y).toBeCloseTo(5, 3);
-    run(p, 1, 0, 1);
-    expect(p.x).toBeGreaterThan(11.5);
+    // First person: about 3.3 m/s once in stride, eased in over a quarter second.
+    run(p, 0.1, 0, 1);
+    expect(p.speed).toBeGreaterThan(0.8);
+    expect(p.speed).toBeLessThan(2.2);
+    run(p, 0.9, 0, 1);
+    expect(p.speed).toBeCloseTo(3.3, 2);
+    expect(p.x).toBeGreaterThan(11);
     expect(Math.abs(p.z - 16.5)).toBeLessThan(0.05);
+    // ... and eased to a stop (no snap), within a few tenths of a metre.
+    const x0 = p.x;
+    run(p, 0.05, 0, 0);
+    expect(p.speed).toBeGreaterThan(1.5);
+    run(p, 0.5, 0, 0);
+    expect(p.speed).toBe(0);
+    expect(p.x - x0).toBeLessThan(0.45);
   });
 
   it('auto-steps onto a one-block ledge but not a two-block wall', () => {

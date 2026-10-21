@@ -5,6 +5,7 @@ import type { PropSpec } from '../types';
 import type { FeatureBuilder } from './index';
 import { applyLiving, rollLiving } from './living';
 import type { LivingSite, V3 } from './types';
+import { deepZones } from './deep';
 
 /**
  * The places of the feature pass, in build order. Coordinates are world voxels; "walk y" is the
@@ -23,6 +24,8 @@ export function buildPlaces(b: FeatureBuilder): void {
   frayedRope(b);
   bloomSites(b);
   areas(b);
+  // The deep beyond the rift (finished game, content): last, with its own random stream.
+  deepZones(b);
 }
 
 const ROCK = new Set<number>([B.SLATE, B.DEEP_SLATE, B.UMBER, B.GRAVEL, B.SOIL, B.MOSS]);

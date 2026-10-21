@@ -235,6 +235,58 @@ All lit materials share `LightingRig` uniforms (`render/lighting.ts`):
 6. Halos: additive camera-facing quads on placed lights (one draw call). Quads rather than
    point sprites, because GPUs drop a whole point once its centre leaves the screen.
 
+## First-person visual pass (finished game, 2026-10)
+
+The game is played in first person (eye 1.62 m, lantern in the left hand, pick in the right), so
+every surface is seen from 0.5 m to 15 m. What changed in the renderer for that view:
+
+- **HD stone** (`render/detail.ts`): six detail layers (rock facets, worn floor, earth, dressed
+  stone, timber, crystal) at 512² over 2 m (256 texels/m), painted once on the GPU at startup into
+  one mipmapped array (tangent normal xy, height, tone; ~5 MB with mips, no read-back). The terrain
+  and structure shaders sample them in world space with the material's own projection (warped
+  biplanar on natural rock, per face on cut stone, dominant axis on structures), bend the shading
+  normal by them and darken their creases. Facets are bevelled plates whose borders fade in places
+  (one stone, weathered planes), so walls read as chunky cut rock, not as crazed paving. The 16 t/m
+  material layers keep the colour and identity; their sharp-bilinear sampling eases into plain
+  bilinear once a texel spans more than ~3 px, so nothing shows a texel stair-step at arm's length.
+  Every material has a detail layer and a roughness (`detailOf`), unit-tested.
+- **Specular**: one GGX lobe from the lantern (`lanternSpec`, the mobile Cook-Torrance
+  approximation, Schlick Fresnel, roughness widened by the normal's screen derivative so it never
+  sparkles) on terrain, structures and props; damp stone is glossier, ore metal (copper, iron,
+  by the vein's saturation) reflects its own colour. Copper nuggets are re-sharpened from the vein
+  layer's bilinear mask (crisp outlines at any magnification), seated with a dark rim and bulged
+  along the mask's world-space gradient. Natural rock's 16 t/m colour comes from a softer mip at
+  arm's length (its painted pixel features would otherwise read as blurred pixel art).
+- **The lantern in the hand**: the light sits where the drawn lantern hangs (FP's
+  `Viewmodel.lightWorld`); falloff K 16 (1 m 0.86, 3 m 0.4, 6 m 0.12 of the gain), so the pool reads
+  6-8 m across and the far dark keeps its depth (gain 11.5; floors take more wrap than walls); pale gold at the core, amber by 3 m, deep
+  amber at the rim (`uLanternColor` #ffb878); the floor right ahead takes 30 % less so it stays
+  golden, the near field is held back (0.62x at 1 m, 1x from 2.2 m) so a wall at arm's length keeps
+  its colour; the tank only shades the floor almost straight below. Cool placed light (crystals, the rift) gives way
+  up to 60 % where the lantern owns a face, so pools read amber against cyan, not lavender.
+- **Exposure 1.0, the lights carry the brightness**: each zone preset has `exposure: 1.0` (x 1.05 at
+  the player's default brightness) and a `lightGain` (camp 1.8, tunnel 1.36, Hollow 2.25, rift 2.09,
+  Glowroot and Ember Deep 1.98) on its ambient, open fill, haze colours, placed lights
+  (`uEmitGain` = 3.6 x gain) and emission (`uAtmos.w`: terrain, props, halos, spores, beams, fall).
+- **Clear air**: the haze starts 12 m out and is fully in by 18 m (`FOG_START`); densities were
+  raised so the far dark still fades into each zone's hued haze.
+- **Deep zones' own air**: `LightingRig.setZoneAnchors` (from the `glowroot` and `emberDeep`
+  landmarks, 20 m): moss-green air over the Glowroot, smoky red over the Ember Deep.
+- **Post**: Khronos PBR Neutral tone map (hue and saturation kept; its highlight desaturation halved), the Lantern Voxel grade (cool
+  teal lift of the darks, warm gain, saturation 1.06), a portrait vignette with a darker crown,
+  triangular dither, then **FXAA** (Balanced; High has MSAA, Battery neither). Feedback tints
+  (damage, a rune waking) are drawn at the screen edge only, never as a full-screen flash.
+- **Beams** (`game/effects/LightBeams.ts`): the only volumetric light, three soft additive cones in
+  one draw call (the rift's violet light rising past the monolith, the Spindle's uplight, the light
+  on the shrine's tablet), dust drifting slowly through them, faded near the lens and into the haze.
+- **Calm FX**: a burst throws at most 9 chunks (`CRUMBLE_MAX`), dust and glints are capped per call
+  (`FX_MAX`); the lumen moths are drawn as glow spores (round breathing motes, no wings).
+- **Draw distance**: chunks and structures stop at the zone's haze (`FOG_CULL`: where distance fog
+  reaches 97 %, e.g. ~60 m in passages), props smaller than 2 m at 45 m; measured first-person
+  views stay at 31-125 draw calls and 17-134k triangles on Balanced (`tools/perf.mjs`).
+- Tools: `tools/fp-shots.mjs` (+ `fp-shots.json`) captures the spaces at 390 x 844 @2 in first
+  person; `tools/perf.mjs` now measures first-person portrait views against the budget below.
+
 ## Rendering budgets (target device class: 2022 mid-range Android, e.g. Mali-G68 / Adreno 642L)
 
 | Budget | High | Balanced (default) | Battery |
@@ -319,89 +371,70 @@ panels average the cap). Behind the pause and death overlays the game renders at
   (`DEBUG_CLIP`) does, as a compile-time define, so tile-based mobile GPUs keep early depth
   rejection / hidden-surface removal.
 
-## Camera
+## Camera (first person, `game/CameraRig.ts`, `game/fp/*`)
 
-Third-person over-the-shoulder rig (`game/CameraRig.ts`).
+- The eye is 1.62 m above the feet (`fp/constants.ts`). The lens is 78° tall on an upright phone
+  and 90° wide on wide screens (`fpVerticalFov`); the near plane is 0.05 m.
+- A clearance guard (`clearOfRock`, sphere against voxel boxes) keeps the eye 0.42 m from whole
+  rock, moving it at most 0.32 m; stair-flight cells do not count. It applies deeper pushes at
+  once and eases back out. Unit tests: a 1 x 2 tunnel brushed and turned in, and a fuzz over the
+  real zone standing and at a Grip Boots jump.
+- `yaw` / `pitch` are the look; the lens eases to them (26/s, ~40 ms). Pitch is held within ±75°,
+  no roll, no head bob. A landing dips the view (`addTrauma`); mining never shakes it.
+- The body faces the view (`player.yaw = cameraRig.yaw + π`). The explorer model is never
+  constructed in play (the Visual Lab keeps `ExplorerModel`).
 
-**Lens**
-- 90° horizontal, locked in landscape. The vertical angle comes from the aspect every frame
-  through `lockedVerticalFov()`: 48.5° at 915×412, 58.7° at 16:9.
-- At most 72° vertical in portrait and 4:3.
-- The lens opens toward 106° only while rock holds the boom short. It eases in, is full at 3 m
-  and gone from 7.8 m, and fades out when looking up (pitch 0.1–0.4).
-
-**Framing**
-- 8.3 m boom: the explorer is 90–111 px tall at 412 px.
-- 1.0 m shoulder, 0.14 rad pitch framing, 0.21 rad yaw framing.
-- The explorer's centre sits at about 33–35 % of the width, feet at about 85 % of the height,
-  clear of the joystick zone.
-
-**Space-aware**
-- In a passage (roof within 4–6.5 m, walls all round, mean free length 3.8–6 m), the boom eases
-  to 5.4 m.
-- The boom eases in to keep the route 3.5 m ahead in view on bends.
-- Facing rock within 2.2–3.8 m, the yaw framing eases out, so the crosshair lands on the face
-  being mined.
-- Looking down, the boom comes in to 62 % and the shoulder to 55 %.
-- Looking up, past 0.08 rad below the pivot, only 15 % of the extra pitch tips the boom down.
-
-**Short boom**
-- The yaw framing gives back what the shorter boom adds, so the explorer keeps its screen place
-  down to about a 2.9 m boom.
-- Slides scale the shoulder and the yaw framing together (0.7, 0.4).
-- The rig steps to the other shoulder when no framing gets 4.4 m and that side gets 2 m more
-  (with at least half a shoulder of side room). It steps back when the first side has 4.8 m,
-  or is within 0.4 m of the other.
-- Boom regrowth is capped at 5 m/s.
-
-**Cost and aim**
-- About 19 short rays per frame in open space, up to about 90 while a cut boom is judged; 12 µs
-  per update in Node.
-- Mining aim succeeds on 54.6 % of 260 sampled spots (round-3 rig: 50.0 %). The rest are blocks
-  with no face toward the camera, which the touch aim assist covers.
-
-The shoulder offset is cast sideways first and shortened against walls: room shrinks at once and
-grows back slowly (no jerks along rough walls); when the right side is walled in and the left is
-open, the rig swaps shoulders through a critically damped spring (no overshoot, with the
-step-over rule above as hysteresis); when a post or corner behind the shoulder cuts the boom short, the shoulder slides
-in to 0.7 or 0.4 of its width and back out once clear. The boom is a bundle of 9 rays from the
-shoulder point: it snaps in at once and eases back out, and a last check pulls the lens out of
-rock if a ray grazed a corner. Unit tests sweep fast turns in a tight tunnel, fuzz 400 poses
-over the real zone, and assert the camera is never inside or behind rock. When the camera is
-genuinely close, the explorer fades with true alpha: each part writes depth first, then draws
-its colour with constant blend alpha after the opaque scene, so only its nearest surface shows
-and no dither pattern is printed over the world.
+**Viewmodel (`game/fp/Viewmodel.ts`, `viewmodelParts.ts`).** The pickaxe (lower right) and the
+lantern (lower left; mirrored left-handed), each in a gloved hand with a sleeve, built from
+bevelled primitives by tier: four pick heads (rusty, copper, iron, glimmer) and three lanterns
+(iron, copper with a cage, attuned brass with a rune ring). The meshes sit in the world scene at
+the camera, but every vertex goes through the viewmodel's own 60° projection into the nearest
+1.5 % of the depth range, so the tools never clip into a wall and pass through the same post
+chain. They carry `userData.viewmodel` and layer 5, cast no shadow, and are lit in display terms:
+the flame as the key light, the light volume at the eye as the ambient. The pick swings at each
+strike (`swingAngle`): lift, an accelerating strike that lands on the frame of the hit
+(MiningController's `contact` = 0.55 of the swing), a small rebound; the arc aims at the struck
+point. The lantern hangs on a stiff damped pendulum driven by sideways walking and turning, still
+at rest; a raise lifts it (and its light) for 1.4 s. The world's lantern light hangs at
+`LANTERN_LIGHT_CAM` from the eye, kept off rock and on the eye's side of any wall.
 
 ## Touch input and phone screen format
 
-- `ui/TouchControls.ts` writes the same `InputState` as the desktop input. The left half of the
-  screen is a floating joystick: radius `joystickRadiusFor(w, h)` (54–72 px), and the base
-  follows the thumb past 1.2 × the radius (`touchMath.followBase`). The right half drags to look.
-  A press and hold on the world (230 ms, 14 px slop) mines the pressed block
-  (`aimFromPointer`). The action cluster holds Mine (hold), Jump and Use.
-- `game/TapController.ts` (tap to act) runs at the start of `Game.updatePlaying`. TouchControls
-  reports a world tap as `input.tapPressed`/`tapX`/`tapY` (NDC). The controller casts it with
-  `MiningController.pick()` and either:
-  - locks a target (`input.lock`), which MiningController mines while it is set, until it is gone
-    or too hard;
-  - plans a path (`findPath`, a BFS over standable cells, about 7000 nodes) and walks it through
-    `input.autoMoveX/Y`; Game merges these with the stick, and the stick wins;
-  - or presses Use on arrival at an object.
-  A lock out of reach that nothing walks toward is released after 1.2 s. The Mine button's
-  `lockAssistPressed` locks the highlighted (aim-assisted) target.
-- `game/aimAssist.ts`: with a touch device and no finger aim, `MiningController.findTarget`
-  keeps the centre ray when it hits something minable in reach. Otherwise it scans the cells in
-  reach and keeps solid, visible, unprotected blocks within 62° of the view direction that have
-  an open face toward the hand. They are scored `2·cos − 0.35·distance` (−1.5 when the pick is
-  too weak), and the winner must be the first cell a ray from the hand to that face hits.
-- `game/touchCamera.ts`: `followYaw()` damps the camera yaw toward behind the body at
-  `0.4 × sideways share × stick` per second. `Game.step` applies it on touch when the look
-  input has been still for 0.8 s, nothing is being mined, and the setting is on.
+- `ui/TouchControls.ts` writes the same `InputState` as the desktop input, first person:
+  - a tap on the world is `input.tapPressed`/`tapX`/`tapY` (NDC) for `game/TapController`;
+  - a drag anywhere looks;
+  - a still hold (230 ms, 14 px slop) mines at the finger and locks that block. After a break
+    the held finger moves on to the next block of the same kind near it
+    (`MiningController.sameKindNear`). The hold decision waits one animation frame, so a move
+    already queued behind a busy frame still makes it a drag.
+  - The optional joystick lives in the lower part of the outer third (`touchSide`). It is drawn
+    only where the thumb lands, with radius `joystickRadiusFor(w, h)` (54–72 px). A quick tap
+    there is still a world tap.
+  - The Use chip sits bottom centre. There are no Mine or Jump buttons: the auto-step takes
+    1-block ledges. The bag and the menu are the HUD's top-bar plates.
+- `game/TapController.ts` runs at the start of `Game.updatePlaying`. It casts a tap with
+  `MiningController.pick()` and does one of these:
+  - locks a target in reach (≤ 3.5 m from the eye), which is mined until it is gone or too hard;
+  - plans a path (`findPath`, a BFS over standable cells) to ground, to a block out of reach
+    (then mines it) or to an object (then uses it);
+  - when nothing can be done, nudges: the view turns 30 % toward the tap and the lantern is
+    raised, so no tap does nothing.
+
+  While a tapped walk runs and the look is still, `Game.followWalk` turns the view along the
+  path (Camera follow setting). On arrival, a locked block off to the side is turned toward.
+- First person shows only what the dot (or the finger) is on: touch aim assist is off
+  (`MiningController.assist`).
+- `ui/hud/Hud.ts` + `hud/fp.css`. The top bar holds depth (Lintel numerals), the lantern's oil
+  with the turn-back tick, the pack count (a button: the bag) and ≡ (pause). Under it are the
+  compass chip(s) and the objective line, always on. Hearts show only when hurt or cold. The
+  centre dot brightens over a target in reach or something usable, turns red on rock too hard,
+  and a thin ring fills as the block cracks. Nothing covers the centre: the hints and the Use
+  chip sit at the bottom between the tools, and pickups rise on the left above the lantern.
 - `ui/haptics.ts` maps bus events to short `navigator.vibrate` patterns, rate-limited per kind.
   It is gated on the Vibration setting, the last input device being touch, and play mode.
 - `ui/screenFormat.ts`: `enterGameScreen()` runs synchronously in the Start / Continue tap
-  (fullscreen needs a user gesture), then locks landscape. It is skipped in the Android shell,
-  on fine or hovering pointers, and when `navigator.webdriver` is set.
+  (fullscreen needs a user gesture). It is skipped in the Android shell, on fine or hovering
+  pointers, and when `navigator.webdriver` is set.
 - `vite.config.ts` → `webApp()` emits the manifest and icons at build time, and serves them from
   memory in dev.
 

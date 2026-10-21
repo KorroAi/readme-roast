@@ -102,10 +102,9 @@ const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([px, py]) 
  */
 async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{ x: number; y: number } | null> {
   const vp = page.viewportSize()!;
-  // The block is next to the explorer, near the line the centre ray takes past the shoulder, so
-  // it takes a wide turn to move it off the crosshair.
+  // First person: a modest turn moves the block off the crosshair while it stays in view.
   const turns: Array<[number, number]> = [];
-  for (const yaw of [0.75, -0.75, 0.9, -0.9, 0.6, -0.6, 1.05, -1.05]) for (const pitch of [0.15, 0, 0.3]) turns.push([yaw, pitch]);
+  for (const yaw of [0.3, -0.3, 0.45, -0.45, 0.2, -0.2, 0.6, -0.6]) for (const pitch of [0.12, 0, -0.12, 0.25]) turns.push([yaw, pitch]);
   for (const [turnYaw, turnPitch] of turns) {
     const found = await page.evaluate(
       ([bx, by, bz, turnYaw, turnPitch, w, h]) => {
@@ -116,11 +115,12 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
         if (!dd.aimAt(bx, by, bz, 0, 0)) return null;
         rig.yaw += turnYaw;
         rig.pitch += turnPitch;
-        // Let the boom, pivot and shoulder settle at the new heading, as aimAt does.
-        for (let i = 0; i < 16; i++) rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+        // Let the lens settle at the new heading, as aimAt does.
+        for (let i = 0; i < 16; i++) rig.update(0.25, p.x, p.y + 1.62 - p.stepOffset, p.z, rig.camera.aspect);
         const key = `${bx},${by},${bz}`;
         const hits = (nx: number, ny: number, fromPointer = true) => {
-          const t = g.mining.findTarget({ aimFromPointer: fromPointer, aimX: nx, aimY: ny }, p.x, p.y + 1.25, p.z);
+          const e = rig.eye;
+          const t = g.mining.findTarget({ aimFromPointer: fromPointer, aimX: nx, aimY: ny }, e.x, e.y, e.z);
           return !!t && t.key === key && t.inReach;
         };
         if (hits(0, 0, false)) return null; // still under the crosshair: would not test cursor aim

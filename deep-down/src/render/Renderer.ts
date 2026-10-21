@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PostFX } from './PostFX';
+import { disposeDetail, paintDetail } from './detail';
 
 export type QualityLevel = 'battery' | 'balanced' | 'high';
 
@@ -24,12 +25,14 @@ export interface QualityPreset {
    * fragment, so the backs of forms in a lamp pool fall to the cool fill). Off on Battery.
    */
   lampDirection: boolean;
+  /** FXAA after the grade (presets without MSAA). */
+  fxaa: boolean;
 }
 
 export const QUALITY: Record<QualityLevel, QualityPreset> = {
-  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120, terrainBlend: false, lampDirection: false },
-  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220, terrainBlend: true, lampDirection: true },
-  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400, terrainBlend: true, lampDirection: true },
+  battery: { maxDpr: 1.25, renderScale: 0.8, bloom: false, msaa: 0, fpsCap: 30, viewDistance: 64, particleBudget: 120, terrainBlend: false, lampDirection: false, fxaa: false },
+  balanced: { maxDpr: 1.75, renderScale: 0.9, bloom: true, msaa: 0, fpsCap: 60, viewDistance: 88, particleBudget: 220, terrainBlend: true, lampDirection: true, fxaa: true },
+  high: { maxDpr: 2.5, renderScale: 1, bloom: true, msaa: 4, fpsCap: 60, viewDistance: 110, particleBudget: 400, terrainBlend: true, lampDirection: true, fxaa: false },
 };
 
 /** WebGL2 renderer + post chain + resize handling, shared by the game and the Visual Lab. */
@@ -78,9 +81,14 @@ export class Renderer {
     this.gl.info.autoReset = false;
     // ?ldr=1 forces the 8-bit fallback targets (devices without EXT_color_buffer_float), to test it.
     const forceLdr = typeof location !== 'undefined' && /[?&]ldr=1(&|$)/.test(location.search);
-    this.post = new PostFX(this.gl, { bloom: this.preset.bloom, msaa: this.preset.msaa, forceLdr });
+    this.post = new PostFX(this.gl, { bloom: this.preset.bloom, msaa: this.preset.msaa, fxaa: this.preset.fxaa, forceLdr });
+    // HD stone: the close-up detail layers, painted once on the GPU (render/detail.ts).
+    this.detailMs = paintDetail(this.gl);
     this.resize();
   }
+
+  /** Time the HD stone detail paint took at startup (ms, CPU side). */
+  readonly detailMs: number;
 
   setQuality(level: QualityLevel): void {
     this.quality = level;
@@ -101,7 +109,7 @@ export class Renderer {
   }
 
   private applyPostOptions(): void {
-    this.post.setOptions({ bloom: this.preset.bloom && this.userBloom, msaa: this.preset.msaa });
+    this.post.setOptions({ bloom: this.preset.bloom && this.userBloom, msaa: this.preset.msaa, fxaa: this.preset.fxaa });
   }
 
   /**
@@ -167,6 +175,7 @@ export class Renderer {
   }
 
   dispose(): void {
+    disposeDetail(this.gl);
     this.post.dispose();
     this.gl.dispose();
   }

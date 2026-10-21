@@ -1,7 +1,6 @@
 import { t } from '../i18n';
 import type { InputState } from '../input/types';
 import { h } from './dom';
-import { equipmentIconDataUrl, iconPx } from './icons';
 import {
   advanceLookPhase,
   clampBase,
@@ -42,13 +41,15 @@ interface LookTouch {
 const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [data-touch-ignore]';
 
 /**
- * Mobile controls: a floating joystick on the move side (sized to the screen, following the
- * thumb; on an upright screen only the lower left), drag-to-look elsewhere, and taps. A tap on the
- * world anywhere (even where the joystick would start) is reported as input.tap*: the game
- * (game/TapController) mines the tapped block until it breaks, walks to tapped ground, or uses the
- * tapped object. Press-and-hold on a block mines there at once and locks it the same way. The Mine
- * button locks and mines what aim assist highlights. Plus Jump / Use / Bag / Pause buttons. Writes
- * only InputState.
+ * First-person touch controls, one thumb first:
+ * - tap the world: game/TapController mines the tapped block to the end, walks to tapped ground,
+ *   or walks to a tapped object and uses it (a tap on nothing turns the view toward it);
+ * - drag anywhere: look;
+ * - hold still on a block: mine at the finger, on to the next block of the same kind;
+ * - an optional floating joystick in the lower part of the left third (right third left-handed),
+ *   shown only where the thumb lands;
+ * - a Use chip when something usable is near. The bag and the menu are HUD plates.
+ * Writes only InputState.
  *
  * Touches are tracked by pointerId from window-level pointer events, so the layer itself
  * stays transparent to the mouse (desktop play goes to DesktopInput through the canvas).
@@ -58,11 +59,11 @@ export class TouchControls {
   readonly el: HTMLElement;
   private enabled = false;
   private leftHanded = false;
-  private touchUi: boolean;
+  private touchUi = false;
   private stick: StickTouch | null = null;
   private look: LookTouch | null = null;
   private ownsMining = false;
-  /** The Mine button is held (mines the assisted target, no finger on the world). */
+  /** A held Mine control (none in first person; kept so a blur releases any mining this layer started). */
   private mineHeld = false;
   private holdTimer = 0;
   private tapTimer = 0;
@@ -87,44 +88,21 @@ export class TouchControls {
       input.interactPressed = true;
     });
     this.useBtn.hidden = true;
-    const mine = this.button('dd-tbtn dd-mine', [h('span', { class: 'dd-mine-glyph', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pickaxe', 2, iconPx(34))}")` }), h('span', { text: t('hud.mine') })], () => {
-      this.mineHeld = true;
-      window.clearTimeout(this.aimResetTimer);
-      // Aim assist: no finger on the world, so mining goes to the highlighted block, and one press
-      // locks it: it is mined until it breaks, even after the button is let go.
-      this.input.aimFromPointer = false;
-      this.input.mining = true;
-      this.input.lockAssistPressed = true;
-    }, () => {
-      this.mineHeld = false;
-      if (this.look?.phase !== 'mine') this.input.mining = false;
-    });
-    mine.setAttribute('aria-label', t('hud.mine'));
-    const jump = this.button('dd-tbtn dd-jump', [h('span', { class: 'dd-jump-glyph', 'aria-hidden': 'true' }), h('span', { text: t('hud.jump') })], () => {
-      input.jumpPressed = true;
-      input.jumpHeld = true;
-    }, () => {
-      input.jumpHeld = false;
-    });
-    const bag = this.button('dd-tbtn dd-sysbtn dd-tb-bag', [h('span', { class: 'dd-bag-glyph', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 2, iconPx(26))}")` })], () => {
-      input.inventoryPressed = true;
-    });
-    bag.setAttribute('aria-label', t('hud.inventory'));
-    const pause = this.button('dd-tbtn dd-sysbtn dd-tb-pause', [h('span', { class: 'dd-pause-glyph', 'aria-hidden': 'true' })], () => {
-      input.pausePressed = true;
-    });
-    pause.setAttribute('aria-label', t('hud.pause'));
-
+    // First person: no Mine or Jump buttons (a tap mines, holding mines on, ledges are stepped up
+    // on their own); the bag and the menu are plates of the HUD's top bar.
     this.el = h(
       'div',
-      { class: 'dd-touch' },
+      { class: 'dd-touch dd-fp' },
       this.base,
       this.ring,
-      h('div', { class: 'dd-action-cluster' }, this.useBtn, jump, mine),
-      h('div', { class: 'dd-sys' }, bag, pause),
+      h('div', { class: 'dd-action-cluster' }, this.useBtn),
     );
     root.appendChild(this.el);
     this.sizeStick(window.innerWidth, window.innerHeight);
+    this.wire(root);
+  }
+
+  private wire(root: HTMLElement): void {
     const onResize = () => this.sizeStick(window.innerWidth, window.innerHeight);
     window.addEventListener('resize', onResize);
     this.disposers.push(() => window.removeEventListener('resize', onResize));
@@ -324,6 +302,13 @@ export class TouchControls {
   private onHoldTimer(): void {
     const look = this.look;
     if (!look || look.phase !== 'pending') return;
+    // A busy frame can hold back a move that already happened: let queued input run first (input
+    // events are dispatched before animation frames), then decide.
+    requestAnimationFrame(() => this.decideHold(look));
+  }
+
+  private decideHold(look: LookTouch): void {
+    if (this.look !== look || look.phase !== 'pending') return;
     look.phase = advanceLookPhase('pending', look.lastX - look.startX, look.lastY - look.startY, Math.max(HOLD_TO_MINE_MS, performance.now() - look.startT));
     if (look.phase === 'mine') {
       this.beginMine();

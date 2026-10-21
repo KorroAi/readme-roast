@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { B } from '../config/blocks';
 import { CACHE, COLD, GEAR, HOME, PLAYER, WORLD, lanternForTier, packForTier } from '../config/balance';
-import { RUNE_ITEMS, type ItemId } from '../config/items';
+import { ITEMS, RELIC_ITEMS, RUNE_ITEMS, type ItemId } from '../config/items';
 import { NODES, isNodeId, type NodeId, type Place, type StationId } from '../config/recipes';
 import { damp } from '../core/math';
 import { t } from '../i18n';
@@ -14,7 +14,12 @@ import { nextLine, type NextLine } from '../gameplay/NextStep';
 import { Records, type ExpeditionReport, type ReportOvernight, type TripOutcome } from '../gameplay/Records';
 import { craft as craftNode, type CraftContext, type CraftResult } from '../gameplay/Crafting';
 import { Health } from '../gameplay/Health';
+import { Backpack } from '../gameplay/Inventory';
 import { buildJournalView } from '../gameplay/Journal';
+import { NO_LIFE, buildFeatsView, featDef, newFeats, rewardText, type FeatSnapshot, type FeatsView } from '../gameplay/Feats';
+import { CONTENT } from '../config/content';
+import { StuckWatch } from '../gameplay/Hints';
+import { DISCOVERIES } from '../gameplay/discoveries';
 import { anyCraftable, availableCounts, buildTreeView, closestNode } from '../gameplay/Tree';
 import { defaultProgression } from '../save/saveData';
 import type { ItemCounts, ProgressionSave, SaveData } from '../save/types';
@@ -132,6 +137,18 @@ export class Progression {
   private treeFocus: { place: Place; select: NodeId | null } = { place: 'workbench', select: null };
   private journalFocus: JournalTab = 'discoveries';
 
+  // Content (finished game): feats waiting for their toast, the feat check's timer, the walk meter.
+  private readonly featQueue: string[] = [];
+  private featTimer = 0;
+  private featToastTimer = 0;
+  private walkFrom: [number, number] | null = null;
+  private secretsTotalV = -1;
+  private lastYaw: number | null = null;
+  private readonly stuck = new StuckWatch();
+  private tripStart = { feats: 0, caches: 0, secrets: 0 };
+  /** The first feat check after a load catches up quietly (a save from before the feats existed). */
+  private featsCatchUp = true;
+
   constructor(private readonly game: Game) {
     this.stations = new Stations(game);
     this.runes = new Runes(game);
@@ -149,6 +166,13 @@ export class Progression {
       if (e.propId.startsWith('bloom_e')) this.rumoursChanged();
     });
     bus.on('world:monolith', () => this.runes.onStoneTouched());
+    // Content (finished game): lanternstone feeds the lantern; lifetime counters and firsts for the feats.
+    bus.on('block:broken', (e) => this.onBroken(e.block, e.x, e.y, e.z));
+    bus.on('item:picked', (e) => this.first(e.item));
+    bus.on('items:banked', (e) => {
+      this.extra.life.itemsBanked += Math.max(0, e.total | 0);
+    });
+    bus.on('cache:recovered', () => this.first('recovered'));
   }
 
   // ------------------------------------------------------------------------------------
@@ -224,6 +248,10 @@ export class Progression {
     this.runes.attach();
     this.applyGear();
     this.rumoursChanged();
+    this.featsCatchUp = true;
+    this.featQueue.length = 0;
+    this.secretsTotalV = -1;
+    this.markTripStart();
     if (!atCamp && !this.records.trip) this.startTrip();
     // A save written at camp with the trip still open (by builds before the camp-save fix) would
     // merge it into the next trip: close it quietly, as returned.
@@ -368,6 +396,10 @@ export class Progression {
     this.updateTarget();
     this.stations.update(dt);
     this.runes.update(dt);
+
+    const walked = this.updateWalk();
+    this.updateTutorial(dt, walked);
+    this.updateFeats(dt);
 
     this.rumourTimer -= dt;
     this.nextTimer -= dt;
@@ -539,12 +571,211 @@ export class Progression {
   }
 
   // ------------------------------------------------------------------------------------
+  // Content (finished game): Halden caches and secrets, lanternstone, feats, lifetime counters
+
+  /** This cache, crate or coffer has been opened (it stays as scenery). */
+  looted(id: string): boolean {
+    return this.extra.looted.includes(id);
+  }
+
+  /** Open a cache: its loot flies to the pack (what does not fit waits on the floor). */
+  openCache(spec: PropSpec): void {
+    const g = this.game;
+    if (this.looted(spec.id)) {
+      g.ui.hint(t('toast.cacheEmpty'), 2200);
+      return;
+    }
+    const loot = spec.loot && Object.keys(spec.loot).length ? spec.loot : { stone: 2 };
+    // Open it only when everything inside fits the pack (nothing is left to fade on the floor).
+    const sim = new Backpack(g.backpack.slotCount, g.backpack.pouchSlots);
+    g.backpack.slots.forEach((sl) => sl && sim.add(sl.item, sl.count));
+    for (const [item, n] of Object.entries(loot) as Array<[ItemId, number]>) {
+      if (n > 0 && sim.add(item, n) < n) {
+        g.ui.hint(t('toast.cacheFull'), 2800);
+        return;
+      }
+    }
+    this.extra.looted.push(spec.id);
+    for (const [item, n] of Object.entries(loot) as Array<[ItemId, number]>) {
+      if (n > 0) g.drops.spawn(item, n, spec.x, spec.y + 0.7, spec.z, g.rng);
+    }
+    const life = this.extra.life;
+    life.caches++;
+    g.particles.sparkle(spec.x, spec.y + 0.6, spec.z, 0xffd9a0, 10, g.rng, 1.4);
+    if (spec.secret) {
+      life.secrets++;
+      g.ui.toast(t('toast.secret', { found: life.secrets, total: this.secretsTotal }), 'good');
+    } else g.ui.toast(t('toast.cacheLoot', { items: rewardText(loot, (i) => t(ITEMS[i].name)) }), 'good');
+    g.clearFocus();
+    this.featTimer = 0;
+  }
+
+  /** Secret alcoves in this world (props with a secret tag). */
+  get secretsTotal(): number {
+    if (this.secretsTotalV < 0) this.secretsTotalV = this.game.session.layout.props.filter((p) => p.secret).length;
+    return this.secretsTotalV;
+  }
+
+  private onBroken(block: number, x: number, y: number, z: number): void {
+    const life = this.extra.life;
+    life.blocksMined++;
+    if (block === B.COPPER_ORE || block === B.IRON_ORE || block === B.CRYSTAL || block === B.ECHO_CRYSTAL || block === B.LANTERNSTONE) life.oreMined++;
+    if (block === B.COPPER_ORE) this.first('copperOre');
+    else if (block === B.IRON_ORE) this.first('ironOre');
+    if (block === B.LANTERNSTONE) this.ember(x, y, z);
+  }
+
+  /** Lanternstone broke: its ember leaps into the lantern (+CONTENT.emberSeconds, up to full). */
+  private ember(x: number, y: number, z: number): void {
+    const g = this.game;
+    const added = g.lanternFuel.add(CONTENT.emberSeconds);
+    this.extra.life.embers++;
+    g.particles.sparkle(x + 0.5, y + 0.5, z + 0.5, 0xffc76f, 12, g.rng, 1.8);
+    if (added > 0) g.bus.emit('lantern:refueled', {});
+    g.ui.toast(added >= CONTENT.emberSeconds - 0.5 ? t('toast.ember', { s: Math.round(added) }) : t('toast.emberFull'), 'good');
+    if (!g.journal.hasDiscovery('lanternstone')) g.discover('lanternstone');
+    this.invalidateNext();
+  }
+
+  /** Record a first (an item picked, an ore mined, a pack recovered) for the feats. */
+  private first(id: string): void {
+    const f = this.extra.life.firsts;
+    if (f.includes(id)) return;
+    f.push(id);
+    this.featTimer = 0;
+  }
+
+  /** Metres walked on foot this frame (rides and teleports are not walking). */
+  private updateWalk(): number {
+    const p = this.game.player;
+    const riding = this.game.features?.riding ?? false;
+    if (riding || !p.grounded) {
+      if (riding) this.walkFrom = null;
+      return 0;
+    }
+    let walked = 0;
+    if (this.walkFrom) {
+      const d = Math.hypot(p.x - this.walkFrom[0], p.z - this.walkFrom[1]);
+      if (d < 0.25) return 0;
+      // A teleport is not walking; a slow frame's long step is.
+      if (d < 8) {
+        walked = d;
+        this.extra.life.walked += d;
+      }
+    }
+    this.walkFrom = [p.x, p.z];
+    return walked;
+  }
+
+  /**
+   * The tutorial taught by doing (gameplay/Objectives: look round, then walk), the hints for when
+   * the objective line has not moved for a while (gameplay/Hints), and the lanternstone hint the
+   * first time the flame runs tight down in the deep.
+   */
+  private updateTutorial(dt: number, walked: number): void {
+    const g = this.game;
+    const yaw = g.cameraRig.yaw;
+    let turned = 0;
+    if (this.lastYaw !== null) {
+      const d = Math.abs(Math.atan2(Math.sin(yaw - this.lastYaw), Math.cos(yaw - this.lastYaw)));
+      // A snap (a respawn, a ride's end) is not looking round; a fast drag on a slow frame is.
+      if (d < 2.5) turned = (d * 180) / Math.PI;
+    }
+    this.lastYaw = yaw;
+    const o = g.objectives;
+    let moved = o.setTotals({ touch: g.isTouch() });
+    if (turned > 0 || walked > 0) moved = o.noteControls(turned, walked) || moved;
+    if (moved) {
+      g.bus.emit('objective:changed', { id: o.current().id });
+      this.invalidateNext();
+    }
+    if (g.inCamp && this.next.id !== 'look' && this.next.id !== 'walk' && this.next.id !== 'craftPickaxe' && !this.next.id.startsWith('craft:')) this.stuck.reset();
+    else {
+      const node = this.next.id.startsWith('craft:') ? closestNode(this.craftContext()) : null;
+      const key = this.stuck.update(dt, this.next.id, this.next.text, node?.short?.[0] ?? null);
+      if (key) g.ui.hint(t(key), 6500);
+    }
+    if (this.fuelStateV === 'tight' && !this.hintsShown.has('lanternstone') && g.player.y < 45) {
+      this.hintsShown.add('lanternstone');
+      g.ui.hint(t('hint.lanternstone'), 6000);
+    }
+  }
+
+  /** What the feats read right now. */
+  featSnapshot(): FeatSnapshot {
+    const g = this.game;
+    const r = this.records.records;
+    let treeBuilt = 0;
+    const built = this.built;
+    for (const n of Object.values(NODES)) {
+      const res = n.result;
+      if (res.kind === 'equip' ? g.equipment.tiers[res.slot] >= res.tier : built.has(n.id)) treeBuilt++;
+    }
+    return {
+      life: this.extra.life,
+      deepest: r.deepest,
+      expeditions: Math.max(0, r.expeditions - r.blackouts),
+      biggestHaul: r.biggestHaul,
+      bestStreak: r.bestStreak,
+      discoveries: new Set(g.journal.discoveries),
+      keyItems: new Set(g.journal.keyItems),
+      runes: this.runes.count,
+      runesTotal: RUNES_TOTAL,
+      relics: RELIC_ITEMS.filter((id) => g.journal.hasKeyItem(id)).length,
+      relicsTotal: RELIC_ITEMS.length,
+      discoveryIds: DISCOVERIES.map((d) => d.id),
+      secretsTotal: this.secretsTotal,
+      treeBuilt,
+      treeTotal: Object.keys(NODES).length,
+      finale: this.extra.finale,
+      recovered: this.extra.life.firsts.includes('recovered'),
+    };
+  }
+
+  /** Check the feats once a second; announce each new one with a calm toast, one at a time. */
+  private updateFeats(dt: number): void {
+    const g = this.game;
+    this.featTimer -= dt;
+    this.featToastTimer -= dt;
+    if (this.featTimer <= 0) {
+      this.featTimer = 1;
+      const earned = new Set(this.extra.feats);
+      const fresh = newFeats(earned, this.featSnapshot());
+      const quiet = this.featsCatchUp && fresh.length > 2;
+      this.featsCatchUp = false;
+      for (const f of fresh) {
+        this.extra.feats.push(f.id);
+        for (const [item, n] of Object.entries(f.reward) as Array<[ItemId, number]>) if (n > 0) g.storage.add(item, n);
+        if (!quiet) this.featQueue.push(f.id);
+      }
+      if (quiet) g.ui.toast(t('toast.featsCaughtUp', { n: fresh.length }), 'good');
+    }
+    if (this.featQueue.length && this.featToastTimer <= 0) {
+      const id = this.featQueue.shift() as string;
+      const f = featDef(id);
+      const name = t(`feat.${id}.name` as never);
+      const reward = f ? rewardText(f.reward, (i) => t(ITEMS[i].name)) : '';
+      g.ui.toast(reward ? t('toast.featReward', { name, reward }) : t('toast.feat', { name }), 'good');
+      g.bus.emit('feat:earned', { id });
+      this.featToastTimer = CONTENT.featToastGap;
+      this.invalidateNext();
+    }
+  }
+
+  /** The Journal's Feats page (requested from the screens: a 'feats' tab). */
+  featsView(): FeatsView {
+    const r = this.records.records;
+    return buildFeatsView(new Set(this.extra.feats), this.extra.life, { expeditions: r.expeditions, deepest: r.deepest, blackouts: r.blackouts }, (i) => t(ITEMS[i].name));
+  }
+
+  // ------------------------------------------------------------------------------------
   // Internals
 
   private startTrip(): void {
     const g = this.game;
     if (this.records.trip) return;
     const n = this.records.start(g.playTime, WORLD.depthOffset - g.player.y);
+    this.markTripStart();
     this.turnBackShown = false;
     this.coldHinted = false;
     g.bus.emit('expedition:started', { n });
@@ -750,7 +981,19 @@ export class Progression {
       finale: this.extra.finale,
       rumour: r ? { id: r.id, what: r.kind === 'bloom' ? t('rumour.bloom', { area: r.areaName }) : r.text.split(' — ')[0], distance: r.id === this.targetFieldFor && this.targetDistance !== null && !g.inCamp ? this.targetDistance : r.distance } : null,
       bestDepth: this.records.records.deepest,
+      beyond: this.nextBeyond(),
     });
+  }
+
+  /** The next cavern beyond the rift to find, once the rift floor is reached (content). */
+  private nextBeyond(): { id: 'glowroot' | 'choir' | 'emberDeep'; open: boolean } | null {
+    const j = this.game.journal;
+    if (!j.hasDiscovery('undercroft')) return null;
+    const tier = this.game.equipment.tiers.pickaxe;
+    if (!j.hasDiscovery('glowroot')) return { id: 'glowroot', open: true };
+    if (!j.hasDiscovery('choir')) return { id: 'choir', open: tier >= 3 };
+    if (!j.hasDiscovery('emberDeep')) return { id: 'emberDeep', open: tier >= 4 };
+    return null;
   }
 
   // ------------------------------------------------------------------------------------
@@ -883,10 +1126,11 @@ export class Progression {
     this.stations.setShelfMask(this.runes.mask);
   }
 
-  journalView(): JournalView {
+  journalView(): JournalView & { feats: FeatsView } {
     const g = this.game;
     const r = this.records.records;
-    return buildJournalView({
+    // The Feats page rides along (content): the screens read view.feats for a Feats tab.
+    const view = buildJournalView({
       discoveries: g.journal.discoveries,
       keyItems: g.journal.keyItems,
       foundAt: this.extra.foundAt,
@@ -896,6 +1140,7 @@ export class Progression {
       playTime: g.playTime,
       focus: this.journalFocus,
     });
+    return Object.assign(view, { feats: this.featsView() });
   }
 
   // ------------------------------------------------------------------------------------
@@ -1025,6 +1270,17 @@ export class Progression {
     } else report.next = null;
     report.craftableNow = anyCraftable({ ...ctx, atCamp: true });
     report.overnight = breathed ? this.overnight() : null;
+    // Content: what this trip found besides ore (the report's feats and finds lines).
+    const life = this.extra.life;
+    report.feats = this.extra.feats.slice(this.tripStart.feats).map((id) => t(`feat.${id}.name` as never));
+    report.caches = life.caches - this.tripStart.caches;
+    report.secrets = life.secrets - this.tripStart.secrets;
+    this.markTripStart();
+  }
+
+  /** Where the trip's counters began (the report's feats and finds lines count from here). */
+  private markTripStart(): void {
+    this.tripStart = { feats: this.extra.feats.length, caches: this.extra.life.caches, secrets: this.extra.life.secrets };
   }
 
   private overnight(): ReportOvernight {
@@ -1063,7 +1319,18 @@ function strip(p: ProgressionSave): Omit<ProgressionSave, 'expeditions' | 'trip'
   const { expeditions: _e, trip: _t, records: _r, cache: _c, hintsShown: _h, ...rest } = p;
   const foundAt: Record<string, [number, number]> = {};
   for (const [k, v] of Object.entries(rest.foundAt ?? {})) foundAt[k] = [v[0], v[1]];
-  return { ...rest, stations: [...rest.stations], gear: [...rest.gear], relics: [...rest.relics], seams: [...rest.seams], minedDay: [...rest.minedDay], foundAt };
+  return {
+    ...rest,
+    stations: [...rest.stations],
+    gear: [...rest.gear],
+    relics: [...rest.relics],
+    seams: [...rest.seams],
+    minedDay: [...rest.minedDay],
+    foundAt,
+    looted: [...(rest.looted ?? [])],
+    feats: [...(rest.feats ?? [])],
+    life: { ...(rest.life ?? NO_LIFE), firsts: [...(rest.life?.firsts ?? [])] },
+  };
 }
 
 /** Ease the compass aim point toward a new target (snap the first time). */

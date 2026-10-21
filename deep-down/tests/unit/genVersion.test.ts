@@ -17,6 +17,9 @@ const RECORDED: Record<number, string> = {
   // Final pass W3 (tree and runes): camp plots, rune stones and Ironbound niches, Echo crystal,
   // iron for a tier.
   3: 'b30a78bd',
+  // Finished game (content): the deep beyond the rift (the Glowroot, the Crystal Choir, the Ember
+  // Deep) and the content pass (finds on every stretch of floor, secret alcoves, lanternstone).
+  4: 'a3013d11',
 };
 
 let layout: WorldLayout;

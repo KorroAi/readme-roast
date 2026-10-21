@@ -16,7 +16,14 @@ export type ItemId =
   | 'runeSpire'
   | 'runeGate'
   | 'runeWaves'
-  | 'runeChasm';
+  | 'runeChasm'
+  // Relics (key items with one lore line in the Journal): the reliquary's and the gallery's tablets,
+  // and the three beyond the rift (finished game, content).
+  | 'bearerLens'
+  | 'firstLamp'
+  | 'relicGlowroot'
+  | 'relicChoir'
+  | 'relicEmber';
 
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'relic';
 
@@ -112,10 +119,22 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   runeGate: rune('runeGate'),
   runeWaves: rune('runeWaves'),
   runeChasm: rune('runeChasm'),
+  bearerLens: relic('bearerLens', 0xbfe9ff),
+  firstLamp: relic('firstLamp', 0xffd28a),
+  relicGlowroot: relic('relicGlowroot', 0xc8f08a),
+  relicChoir: relic('relicChoir', 0x9ff6ff),
+  relicEmber: relic('relicEmber', 0xff9a5a),
 };
+
+/** The relics, in Journal order (found in the world, never lost). */
+export const RELIC_ITEMS = ['bearerLens', 'firstLamp', 'relicGlowroot', 'relicChoir', 'relicEmber'] as const satisfies readonly ItemId[];
 
 /** The eight runes: the Ancient Tablet (the Lantern rune) plus seven rune stones. */
 export const RUNE_ITEMS = ['runeDescent', 'runeEye', 'runeStar', 'ancientTablet', 'runeSpire', 'runeGate', 'runeWaves', 'runeChasm'] as const satisfies readonly ItemId[];
+
+function relic(id: ItemId, color: number): ItemDef {
+  return { id, name: `item.${id}` as TextKey, desc: `item.${id}.desc` as TextKey, stackSize: 1, rarity: 'relic', icon: { kind: 'tablet' }, color, keyItem: true };
+}
 
 function rune(id: ItemId): ItemDef {
   return { id, name: `item.${id}` as TextKey, desc: `item.${id}.desc` as TextKey, stackSize: 1, rarity: 'relic', icon: { kind: 'tablet' }, color: 0x7ff0ff, keyItem: true };

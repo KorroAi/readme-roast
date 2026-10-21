@@ -13,6 +13,7 @@ import type { ObjectiveView } from './Objectives';
  *   3. the cheapest MUST node with prereqs met   -> "Next: Forge — Iron Ore 1/3"
  *   4. runes still out there                     -> "Find the runes — 5/8"
  *   5. all eight found, the stone not woken      -> "Take the eight runes to the black stone"
+ *   5b. a cavern beyond the rift still unfound   -> "Find what lies west of the black stone"
  *   6. a rumour (the living rock, the bloom)     -> "Fresh iron at the Halden Face — 61 m"
  *   7. otherwise                                 -> "Go deeper — your best is -96 m"
  */
@@ -33,6 +34,11 @@ export interface NextInput {
   targeted?: boolean;
   /** Deepest depth ever reached, metres. */
   bestDepth: number;
+  /**
+   * The next cavern beyond the rift still to find (content): its id and whether the pick can open
+   * its seal yet. Null before the rift, or once all three are found.
+   */
+  beyond?: { id: 'glowroot' | 'choir' | 'emberDeep'; open: boolean } | null;
 }
 
 export interface NextLine {
@@ -57,6 +63,7 @@ export function nextLine(s: NextInput): NextLine {
   }
   if (s.runes < s.runesTotal) return { id: 'runes', text: t('next.runes', { have: s.runes, total: s.runesTotal }) };
   if (!s.finale) return { id: 'stone', text: t('next.stone') };
+  if (s.beyond) return { id: `beyond:${s.beyond.id}`, text: t(`next.beyond.${s.beyond.id}${s.beyond.open ? '' : '.locked'}` as never) };
   if (s.rumour) return rumourLine(s.rumour);
   return { id: 'deeper', text: t('next.deeper', { depth: Math.max(0, Math.round(s.bestDepth)) }) };
 }

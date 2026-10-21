@@ -3,6 +3,9 @@ import { LIGHTING_GLSL, type LightingUniforms } from '../../render/lighting';
 import type { Rng } from '../../core/rng';
 import { hash3, hexToLinear } from '../../core/math';
 
+/** Calm FX caps per call (finished-game rules: short crumbles, a few motes, no fountains). */
+export const FX_MAX = { dust: 6, sparkle: 8 } as const;
+
 const vert = /* glsl */ `
 in float aSize;
 in float aAlpha;
@@ -46,7 +49,7 @@ void main() {
   vec4 ls = lightSample(vWorldPos);
   // Distance clamped to 1.2 m: motes drifting past the flame must not flash brighter than it.
   vec3 light = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos), 0.5, 1.2) * 0.8;
-  vec3 col = vColor * mix(light, vec3(1.0), vGlow);
+  vec3 col = vColor * mix(light, vec3(uAtmos.w), vGlow);
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   col = mix(col, atm.rgb, atm.a);
   float a = vAlpha * soft * (1.0 - atm.a * 0.85);
@@ -167,6 +170,8 @@ export class ParticleSystem {
   dust(x: number, y: number, z: number, hex: number, count: number, rng: Rng, spread = 0.45): void {
     // Colors are sRGB hex like the rest of the palette; the shader works in linear light.
     const [r, g, b] = hexToLinear(hex);
+    // Calm FX: a few motes per call, never a cloud over the view.
+    count = Math.min(count, FX_MAX.dust);
     for (let i = 0; i < count; i++) {
       this.spawn({
         x: x + rng.range(-spread, spread), y: y + rng.range(-spread, spread), z: z + rng.range(-spread, spread),
@@ -179,6 +184,7 @@ export class ParticleSystem {
   /** Bright glints (crystal hits, pickups, discoveries). */
   sparkle(x: number, y: number, z: number, hex: number, count: number, rng: Rng, speed = 2.2): void {
     const [r, g, b] = hexToLinear(hex);
+    count = Math.min(count, FX_MAX.sparkle);
     for (let i = 0; i < count; i++) {
       const a = rng.range(0, Math.PI * 2);
       const e = rng.range(-0.3, 1);

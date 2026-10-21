@@ -2,7 +2,7 @@ import { MOTHS } from '../config/balance';
 import { hash32 } from '../core/math';
 
 /**
- * Lumen moths: a little pale life in the dark that points at secrets without a word. Pure
+ * Glow spores (formerly lumen moths; the class keeps its name): ambient motes of light. Pure
  * simulation on typed arrays (no allocation per frame); game/effects/LumenMoths draws them.
  *
  * - Roost: each moth orbits its anchor on a slow Lissajous loop. At a secret anchor (the grotto's
@@ -171,7 +171,8 @@ export class MothFlock {
       const hz = lantern.z - a.z;
       const lanternFromHome = Math.sqrt(hx * hx + hy * hy + hz * hz);
       // The first few at a secret anchor keep tapping at it whatever the lantern does: they are the hint.
-      const tapper = a.secret === true && this.rank[i] < 3;
+      // Spores do not tap: a secret anchor only keeps its motes close (a smaller drift loop).
+      const tapper = false && a.secret === true && this.rank[i] < 3;
       if (mode === DRAWN && (!pull || lanternFromHome > MOTHS.dropOff || drawn >= MOTHS.drawnMax)) mode = ROOST;
       else if (mode === ROOST && !tapper && pull && toLantern < MOTHS.drawRadius && lanternFromHome < MOTHS.dropOff && drawn < MOTHS.drawnMax) mode = DRAWN;
       if (mode === SCATTER || mode === SPIRAL) {

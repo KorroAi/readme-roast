@@ -4,7 +4,8 @@ import { SCENE_ENCODE } from './lighting';
 /**
  * Lightweight HDR post chain tuned for mobile:
  *   scene (HalfFloat, optional MSAA) -> bright pass -> 4-level dual-filter bloom
- *   -> composite: exposure, hue-preserving tone map, light grade, vignette, dither, sRGB.
+ *   -> composite: exposure, PBR Neutral tone map, grade (cool lift, warm gain, saturation),
+ *      portrait vignette and a darker crown, dither, sRGB -> FXAA (no-MSAA presets).
  *
  * Bloom is optional; with it disabled the chain is a single fullscreen pass.
  *
@@ -112,32 +113,31 @@ uniform float uTime;
 uniform vec2 uResolution;
 uniform float uFlash;
 uniform vec3 uFlashColor;
+uniform vec3 uLift;
+uniform vec3 uGain;
+uniform float uSat;
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
 
 const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
-const float CONTRAST = 1.3;
-const float CONTRAST_PIVOT = 0.1;
 
-// Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep
-// and the lit mids carry the contrast; white is reached around x = 6. Navigable darks come from
-// the zones' cool fill and haze, not from lifting black.
-float curve(float x) {
-  return clamp((x * (2.51 * x + 0.035)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);
-}
-
-// Hue-preserving tone map: in the highlights the curve drives the brightest channel and the
-// other channels keep their ratio to it, so cyan and amber lights stay cyan and amber. In the
-// shadows and mids half of the per-channel curve is kept (its toe deepens the weaker channels,
-// which keeps dark stone and cloth rich instead of milky). Only very hot cores (flame centres,
-// flashes) roll partly toward white.
-vec3 tonemap(vec3 x) {
-  float peak = max(x.r, max(x.g, x.b));
-  vec3 hue = x * (curve(peak) / max(peak, 1e-5));
-  vec3 per = vec3(curve(x.r), curve(x.g), curve(x.b));
-  float w = 0.5 * (1.0 - smoothstep(0.35, 1.5, peak)) + 0.6 * smoothstep(2.5, 9.0, peak);
-  return mix(hue, per, w);
+// Khronos PBR Neutral tone mapping (the Lantern Voxel look the director picked): linear up to
+// ~0.76, a soft shoulder above, hue and saturation kept, so amber pools stay amber and cyan
+// crystals stay cyan instead of bleaching; only very hot cores roll toward white.
+vec3 neutral(vec3 c) {
+  const float startCompression = 0.8 - 0.04;
+  const float desaturation = 0.08; // half Khronos' 0.15: bright lantern-lit stone stays warm
+  float x = min(c.r, min(c.g, c.b));
+  float offset = x < 0.08 ? x - 6.25 * x * x : 0.04;
+  c -= offset;
+  float peak = max(c.r, max(c.g, c.b));
+  if (peak < startCompression) return c;
+  const float d = 1.0 - startCompression;
+  float newPeak = 1.0 - d * d / (peak + d - startCompression);
+  c *= newPeak / peak;
+  float g = 1.0 - 1.0 / (desaturation * (peak - newPeak) + 1.0);
+  return mix(c, vec3(newPeak), g);
 }
 
 vec3 toSrgb(vec3 c) {
@@ -154,46 +154,107 @@ void main() {
   hdr += texture(tBloom, vUv).rgb * uBloomStrength;
   #endif
   hdr *= uExposure;
-  hdr += uFlashColor * uFlash;
-  vec3 c = tonemap(hdr);
-  // Split balance (the look): blue-black shadows (toward a cool neutral of the same luminance, so
-  // black stays black) and amber highlights; the mids keep the light's own colour (warm pools stay
-  // warm, haze stays blue).
-  // Weights are in display-linear luminance: 0.03 ~ sRGB 48, 0.12 ~ sRGB 97, 0.5 ~ sRGB 188.
-  float lum = dot(c, LUMA);
-  // Contrast: an S-curve on luminance around a pivot (display-linear 0.1 ~ sRGB 89), a power
-  // below it and a mirrored power above it, so black and white stay fixed and the hue is kept.
-  // It separates the mid-tones where the stone's texture and form live.
-  float sl = lum < CONTRAST_PIVOT
-    ? CONTRAST_PIVOT * pow(lum / CONTRAST_PIVOT, CONTRAST)
-    : 1.0 - (1.0 - CONTRAST_PIVOT) * pow(max(1.0 - lum, 0.0) / (1.0 - CONTRAST_PIVOT), CONTRAST);
-  c *= sl / max(lum, 1e-5);
-  lum = sl;
-  float ws = 1.0 - smoothstep(0.0, 0.16, lum);
-  float wh = smoothstep(0.2, 0.75, lum);
-  // Shadows are chroma-aware: a neutral dark drifts toward a cool blue-black of the same luminance,
-  // while a dark that already has a colour (amber falloff, cyan glow, violet haze) keeps its hue.
-  // A plain multiply would add blue to the amber falloff of every lamp and turn it rose and mauve.
-  // Saturation is measured in display-linear (dark neutral stone ~0.2-0.3, lamp falloff 0.5+).
-  float cmx = max(c.r, max(c.g, c.b));
-  float sat = (cmx - min(c.r, min(c.g, c.b))) / max(cmx, 1e-5);
-  c = mix(c, vec3(lum) * vec3(0.8, 1.01, 1.5), ws * 0.85 * (1.0 - smoothstep(0.15, 0.45, sat)));
-  c *= mix(vec3(1.0), vec3(1.07, 1.0, 0.86), wh * 0.6);
-  // Vignette: elliptical (follows the landscape screen), heavier toward the top, light at the
-  // bottom where the joystick and jump button sit.
+  // Feedback tint (damage, a rune waking): at the screen's edge only and gentle, never a full-screen
+  // flash over the play.
   vec2 q = vUv - 0.5;
-  q.y *= q.y > 0.0 ? 1.25 : 0.55;
-  c *= 1.0 - uVignette * smoothstep(0.42, 0.85, length(q));
-  c = toSrgb(c);
-  // Dither to hide banding in the dark fog gradients.
-  c += (ign(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
-  fragColor = vec4(c, 1.0);
+  float edge = smoothstep(0.25, 0.75, length(q * vec2(1.0, 0.7)));
+  hdr += uFlashColor * uFlash * edge * 0.6;
+  vec3 c = neutral(hdr);
+  // Grade: hued (never crushed) darks lifted toward a cool teal, warm highlights, gentle saturation.
+  float l = dot(c, LUMA);
+  c += uLift * (1.0 - smoothstep(0.0, 0.35, l));
+  c *= mix(vec3(1.0), uGain, smoothstep(0.25, 0.9, l));
+  c = max(mix(vec3(l), c, uSat), 0.0);
+  // Vignette for the portrait frame, and a darker crown: the vault frames the view, the eye falls
+  // to the lit middle (the HUD corners at the bottom stay clean).
+  vec2 qa = q;
+  qa.x *= uResolution.x / max(uResolution.y, 1.0);
+  c *= 1.0 - uVignette * smoothstep(0.25, 0.85, length(qa * vec2(1.25, 0.95)));
+  c *= 1.0 - 0.2 * smoothstep(0.62, 1.0, vUv.y);
+  c = toSrgb(clamp(c, 0.0, 1.0));
+  // Triangular dither (+-1 LSB) against banding in the dark gradients.
+  float n = ign(gl_FragCoord.xy + fract(uTime) * 61.0) + ign(gl_FragCoord.xy + 17.3) - 1.0;
+  c += n / 255.0;
+  // FXAA reads luma from alpha (computed on the graded image).
+  fragColor = vec4(c, dot(c, vec3(0.299, 0.587, 0.114)));
+}
+`;
+
+// FXAA (after Lottes' FXAA 3.11 "quality" preset, reduced to 5 search steps): smooths the stair
+// steps of voxel silhouettes and thin props on presets without MSAA. Luma comes from alpha.
+const fxaaFrag = /* glsl */ `
+precision highp float;
+uniform sampler2D tInput;
+uniform vec2 uTexel;
+in vec2 vUv;
+layout(location = 0) out highp vec4 fragColor;
+float lumaAt(vec2 uv) { return texture(tInput, uv).a; }
+void main() {
+  vec4 rgbM = texture(tInput, vUv);
+  float lM = rgbM.a;
+  float lN = lumaAt(vUv + vec2(0.0, uTexel.y));
+  float lS = lumaAt(vUv - vec2(0.0, uTexel.y));
+  float lE = lumaAt(vUv + vec2(uTexel.x, 0.0));
+  float lW = lumaAt(vUv - vec2(uTexel.x, 0.0));
+  float lMax = max(lM, max(max(lN, lS), max(lE, lW)));
+  float lMin = min(lM, min(min(lN, lS), min(lE, lW)));
+  float range = lMax - lMin;
+  if (range < max(0.0312, lMax * 0.125)) { fragColor = vec4(rgbM.rgb, 1.0); return; }
+  float lNW = lumaAt(vUv + vec2(-uTexel.x, uTexel.y));
+  float lNE = lumaAt(vUv + uTexel);
+  float lSW = lumaAt(vUv - uTexel);
+  float lSE = lumaAt(vUv + vec2(uTexel.x, -uTexel.y));
+  float edgeH = abs(lNW + lNE - 2.0 * lN) + 2.0 * abs(lW + lE - 2.0 * lM) + abs(lSW + lSE - 2.0 * lS);
+  float edgeV = abs(lNW + lSW - 2.0 * lW) + 2.0 * abs(lN + lS - 2.0 * lM) + abs(lNE + lSE - 2.0 * lE);
+  bool horz = edgeH >= edgeV;
+  float l1 = horz ? lS : lW;
+  float l2 = horz ? lN : lE;
+  float g1 = abs(l1 - lM);
+  float g2 = abs(l2 - lM);
+  float stepLen = horz ? uTexel.y : uTexel.x;
+  float lLocal;
+  float gScaled;
+  if (g1 >= g2) { stepLen = -stepLen; lLocal = 0.5 * (l1 + lM); gScaled = 0.25 * g1; }
+  else { lLocal = 0.5 * (l2 + lM); gScaled = 0.25 * g2; }
+  vec2 uvE = vUv;
+  if (horz) uvE.y += stepLen * 0.5; else uvE.x += stepLen * 0.5;
+  vec2 off = horz ? vec2(uTexel.x, 0.0) : vec2(0.0, uTexel.y);
+  vec2 uv1 = uvE - off;
+  vec2 uv2 = uvE + off;
+  float e1 = lumaAt(uv1) - lLocal;
+  float e2 = lumaAt(uv2) - lLocal;
+  bool d1 = abs(e1) >= gScaled;
+  bool d2 = abs(e2) >= gScaled;
+  const float QUALITY[5] = float[](1.5, 2.0, 4.0, 8.0, 12.0);
+  for (int i = 0; i < 5; i++) {
+    if (d1 && d2) break;
+    if (!d1) { uv1 -= off * QUALITY[i]; e1 = lumaAt(uv1) - lLocal; d1 = abs(e1) >= gScaled; }
+    if (!d2) { uv2 += off * QUALITY[i]; e2 = lumaAt(uv2) - lLocal; d2 = abs(e2) >= gScaled; }
+  }
+  float dist1 = horz ? vUv.x - uv1.x : vUv.y - uv1.y;
+  float dist2 = horz ? uv2.x - vUv.x : uv2.y - vUv.y;
+  bool closer1 = dist1 < dist2;
+  float dMin = min(dist1, dist2);
+  float edgeLen = dist1 + dist2;
+  float pixOff = -dMin / max(edgeLen, 1e-6) + 0.5;
+  bool smaller = lM < lLocal;
+  bool good = ((closer1 ? e1 : e2) < 0.0) != smaller;
+  float finalOff = good ? pixOff : 0.0;
+  float lAvg = (2.0 * (lN + lS + lE + lW) + lNW + lNE + lSW + lSE) / 12.0;
+  float sub = clamp(abs(lAvg - lM) / range, 0.0, 1.0);
+  sub = (-2.0 * sub + 3.0) * sub * sub;
+  finalOff = max(finalOff, sub * sub * 0.75);
+  vec2 uv = vUv;
+  if (horz) uv.y += finalOff * stepLen; else uv.x += finalOff * stepLen;
+  fragColor = vec4(texture(tInput, uv).rgb, 1.0);
 }
 `;
 
 export interface PostFXOptions {
   bloom: boolean;
   msaa: number;
+  /** FXAA after the grade (one more full-screen pass): on where there is no MSAA, off on Battery. */
+  fxaa?: boolean;
   /** Debug: use the 8-bit fallback targets even when float targets are renderable. */
   forceLdr?: boolean;
 }
@@ -223,7 +284,21 @@ export class PostFX {
    * threshold is scene-linear luminance (lamp glass and flames sit at 1.5-3, lit rock below 0.5);
    * zoneExposure is the current atmosphere's exposure multiplier (LightingRig.exposure).
    */
-  readonly params = { bloomStrength: 0.4, threshold: 1.2, exposure: 1.0, zoneExposure: 1, vignette: 0.25, flash: 0, flashColor: new THREE.Color(1, 1, 1) };
+  readonly params = {
+    bloomStrength: 0.42,
+    threshold: 1.6,
+    exposure: 1.0,
+    zoneExposure: 1,
+    vignette: 0.28,
+    flash: 0,
+    flashColor: new THREE.Color(1, 1, 1),
+    /** Grade (display-linear): cool lift of the darks, warm gain of the highlights, saturation. */
+    lift: new THREE.Color(0.0024, 0.0052, 0.0072),
+    gain: new THREE.Color(1.05, 1.0, 0.93),
+    saturation: 1.12,
+  };
+  private ldrRT: THREE.WebGLRenderTarget | null = null;
+  private readonly fxaa: THREE.ShaderMaterial;
 
   constructor(renderer: THREE.WebGLRenderer, options: PostFXOptions) {
     const ext = renderer.extensions;
@@ -254,9 +329,13 @@ export class PostFX {
         uResolution: { value: new THREE.Vector2(1, 1) },
         uFlash: { value: 0 },
         uFlashColor: { value: new THREE.Color() },
+        uLift: { value: new THREE.Color() },
+        uGain: { value: new THREE.Color(1, 1, 1) },
+        uSat: { value: 1 },
       },
       { ...enc, ...(options.bloom ? { USE_BLOOM: '' } : {}) },
     );
+    this.fxaa = mk(fxaaFrag, { tInput: { value: null }, uTexel: { value: new THREE.Vector2() } });
     this.quad = new THREE.Mesh(geo, this.composite);
     this.quad.frustumCulled = false;
     this.quadScene.add(this.quad);
@@ -279,7 +358,9 @@ export class PostFX {
   setOptions(options: PostFXOptions): void {
     const msaaChanged = options.msaa !== this.options.msaa;
     const bloomChanged = options.bloom !== this.options.bloom;
+    const fxaaChanged = !!options.fxaa !== !!this.options.fxaa;
     this.options = { ...options };
+    if (fxaaChanged && !bloomChanged) this.setSize(this.width, this.height);
     if (msaaChanged) {
       this.sceneRT.dispose();
       this.sceneRT = this.makeSceneRT(this.width, this.height);
@@ -309,6 +390,13 @@ export class PostFX {
       }
     }
     this.composite.uniforms.uResolution.value.set(this.width, this.height);
+    this.ldrRT?.dispose();
+    this.ldrRT = null;
+    if (this.options.fxaa) {
+      this.ldrRT = new THREE.WebGLRenderTarget(this.width, this.height, { type: THREE.UnsignedByteType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
+      this.fxaa.uniforms.tInput.value = this.ldrRT.texture;
+      this.fxaa.uniforms.uTexel.value.set(1 / this.width, 1 / this.height);
+    }
   }
 
   private pass(material: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null): void {
@@ -353,7 +441,13 @@ export class PostFX {
     u.uTime.value = time;
     u.uFlash.value = this.params.flash;
     u.uFlashColor.value.copy(this.params.flashColor);
-    this.pass(this.composite, null);
+    u.uLift.value.copy(this.params.lift);
+    u.uGain.value.copy(this.params.gain);
+    u.uSat.value = this.params.saturation;
+    if (this.ldrRT) {
+      this.pass(this.composite, this.ldrRT);
+      this.pass(this.fxaa, null);
+    } else this.pass(this.composite, null);
   }
 
   // Upsampling reads level i-1 as the base and writes the combined result; WebGL forbids
@@ -385,5 +479,7 @@ export class PostFX {
     this.down.dispose();
     this.up.dispose();
     this.composite.dispose();
+    this.fxaa.dispose();
+    this.ldrRT?.dispose();
   }
 }

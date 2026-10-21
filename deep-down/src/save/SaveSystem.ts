@@ -1,5 +1,5 @@
 import { SAVE } from '../config/balance';
-import { migrateV1, normalizeSave, validateSaveData } from './saveData';
+import { migrateV1, migrateV2, normalizeSave, validateSaveData } from './saveData';
 import { sanitizeSettings } from './settings';
 import type { SaveData, Settings } from './types';
 
@@ -120,8 +120,9 @@ export type Migration = (old: Record<string, unknown>) => Record<string, unknown
  * Save format history. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
  * - 1 -> 2: the progression block and genVersion; stacks above the new stack sizes move into
  *   camp storage (save/saveData migrateV1).
+ * - 2 -> 3: opened caches, feats and lifetime counters in the progression block (migrateV2).
  */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1 };
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1, 2: migrateV2 };
 
 export type SaveErrorCode = 'invalid' | 'serialize' | 'quota' | 'unavailable' | 'verify';
 export type LoadErrorCode = 'corrupt' | 'version';

@@ -36,6 +36,9 @@ export interface BurstOptions {
   spread?: number;
 }
 
+/** Most chunks one burst may throw (a block's break crumbles into a handful, never a fountain). */
+export const CRUMBLE_MAX = 9;
+
 /**
  * Cubic debris with simple voxel collision: chips on each impact, chunks when a block
  * breaks. Two instanced meshes (lit and glowing) keep it to two draw calls. Capped by the
@@ -81,7 +84,8 @@ export class DebrisSystem {
   }
 
   burst(x: number, y: number, z: number, colors: readonly number[], rng: Rng, o: BurstOptions): void {
-    const count = Math.min(o.count, this.budget);
+    // Calm FX (finished-game rules): a crumble is at most CRUMBLE_MAX chunks, whatever the caller asks.
+    const count = Math.min(o.count, CRUMBLE_MAX, this.budget);
     for (let i = 0; i < count; i++) {
       const c = this.pool[this.next];
       this.next = (this.next + 1) % this.budget;

@@ -1,6 +1,7 @@
 import { PLAYER } from '../config/balance';
 import { RAMP, SOLID, rampPlane } from '../config/blocks';
 import { damp, dampAngle } from '../core/math';
+import { WALK_ACCEL, WALK_DECEL, WALK_SPEED } from './fp/constants';
 
 /** On a stair flight, how far (m) the box may overlap the top edge of a cube beside the feet. */
 const STAIR_EDGE = 0.34;
@@ -43,6 +44,8 @@ export class PlayerController {
   stepOffset = 0;
   /** Multiplier applied to walk speed (e.g. while mining). */
   speedFactor = 1;
+  /** Walking speed (m/s): the first-person stride (fp/constants). */
+  walkSpeed = WALK_SPEED;
   frozen = false;
 
   private coyote = 0;
@@ -121,8 +124,10 @@ export class PlayerController {
       wz /= wl;
     }
     const intent = Math.min(1, wl);
-    const target = PLAYER.walkSpeed * this.speedFactor;
-    const accel = PLAYER.accel * (this.grounded ? 1 : PLAYER.airControl);
+    const target = this.walkSpeed * this.speedFactor;
+    // First person: eased starts and stops (a quarter second to full stride), not a snap.
+    const speeding = wx * this.vx + wz * this.vz >= 0 && intent > 0.01;
+    const accel = (speeding ? WALK_ACCEL : WALK_DECEL) * (this.grounded ? 1 : PLAYER.airControl * 2);
     const tvx = wx * target;
     const tvz = wz * target;
     // Accelerate toward the target velocity (frame-rate independent, capped by accel).

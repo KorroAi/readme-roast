@@ -118,18 +118,27 @@ describe('world generation', () => {
     // and tablet, violet in the chasm), lamps <= 6.3 m. The round-4 warm practicals (a lamp in the
     // shrine's first bay, one at the Spindle's foot) are warm and do not count against it.
     // The 120 cap is unchanged.
+    // The deep beyond the rift (content, finished game) has its own light and budget: each cavern
+    // at most 70 cold emitters (the Crystal Choir is the cold one; the others are green and red).
     const w = layout.world;
     let cyan = 0;
     const warm: [number, number, number][] = [];
+    const deep = (layout.features?.boxes ?? []).filter((b) => b.id.startsWith('deep.'));
+    const deepCyan = new Map<string, number>();
     for (let y = 0; y < w.sy; y++)
       for (let z = 0; z < w.sz; z++)
         for (let x = 0; x < w.sx; x++) {
           const e = BLOCKS[w.get(x, y, z)]?.emission;
           if (!e) continue;
-          if (e[2] > e[0]) cyan++;
-          else warm.push([x + 0.5, y + 0.5, z + 0.5]);
+          const box = deep.find((b) => x >= b.min[0] && x <= b.max[0] && y >= b.min[1] && y <= b.max[1] && z >= b.min[2] && z <= b.max[2]);
+          if (e[2] > e[0]) {
+            if (box) deepCyan.set(box.id, (deepCyan.get(box.id) ?? 0) + 1);
+            else cyan++;
+          } else warm.push([x + 0.5, y + 0.5, z + 0.5]);
         }
     expect(cyan).toBeLessThanOrEqual(120);
+    expect(deep.length).toBe(3);
+    for (const [id, n] of deepCyan) expect(n, id).toBeLessThanOrEqual(70);
     const L = layout.landmarks;
     // The world-variety places (final pass W2) add the office, both ends of the hoist and of the rope,
     // and the Halden's last camp on the rift floor.

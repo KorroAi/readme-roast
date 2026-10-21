@@ -1,11 +1,12 @@
 // Scripted play session in headless Chromium for visual/gameplay checks.
-// Usage: node tools/play.mjs script.json   (script: [{ "eval": "js", "wait": ms, "shot": "name" }, ...])
+// Usage: node tools/play.mjs script.json [outDir] [WxH] [dpr] [touch]
+//   (script: [{ "eval": "js", "wait": ms, "shot": "name" }, ...])
 // Each step may: evaluate JS in the page (with window.__DD__ available), wait, take a screenshot.
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 import { mkdirSync, readFileSync } from 'node:fs';
 
-const [, , scriptPath, outDir = 'artifacts/play', size = '1280x720'] = process.argv;
+const [, , scriptPath, outDir = 'artifacts/play', size = '1280x720', dpr = '1', touch = '0'] = process.argv;
 const steps = JSON.parse(readFileSync(scriptPath, 'utf8'));
 const [width, height] = size.split('x').map(Number);
 mkdirSync(outDir, { recursive: true });
@@ -13,7 +14,7 @@ const server = await createServer({ server: { port: 5196, strictPort: false, hmr
 await server.listen();
 const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'] });
-const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1, hasTouch: true });
+const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: Number(dpr), hasTouch: true, isMobile: touch === '1' });
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack}`));

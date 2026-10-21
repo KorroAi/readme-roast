@@ -4,7 +4,8 @@ import { PLAYER, SAVE, WORLD, lanternForTier, packForTier, pickaxeForTier } from
 import { ITEMS, type ItemId } from '../config/items';
 import { NODES, type NodeId, type Place } from '../config/recipes';
 import { EventBus, type GameEvents } from '../core/events';
-import { clamp, damp } from '../core/math';
+import { clamp, damp, dampAngle } from '../core/math';
+import { raycastVoxels } from '../world/raycast';
 import { Rng } from '../core/rng';
 import { t, type TextKey } from '../i18n';
 import { DesktopInput } from '../input/DesktopInput';
@@ -14,7 +15,6 @@ import type { PropSpec, Region } from '../world/gen/types';
 import type { GameUi, UiFactory } from './GameUi';
 import type { HudState, InventoryView, JournalTab, SaveSummary, UiActions } from '../ui/types';
 import { AudioSystem } from '../audio/AudioSystem';
-import { ExplorerModel } from '../entities/character/ExplorerModel';
 import { Backpack } from '../gameplay/Inventory';
 import { CampStorage } from '../gameplay/Storage';
 import { Equipment } from '../gameplay/Equipment';
@@ -26,7 +26,11 @@ import { Journal } from '../gameplay/Journal';
 import { SaveSystem, LocalStorageStore } from '../save/SaveSystem';
 import { shiftWorldIfNeeded } from '../save/saveData';
 import { DEFAULT_SETTINGS, type ItemCounts, type SaveData, type Settings } from '../save/types';
-import { CameraRig } from './CameraRig';
+import { CameraRig, clearOfRock } from './CameraRig';
+import { Viewmodel } from './fp/Viewmodel';
+// VIS: light beams.
+import { LightBeams, beamsFor, zoneAnchorsFor } from './effects/LightBeams';
+import { EYE_HEIGHT } from './fp/constants';
 import { PlayerController } from './PlayerController';
 import { MiningController } from './MiningController';
 import { DropSystem } from './Drops';
@@ -39,7 +43,6 @@ import { WorldSession } from './WorldSession';
 import { installDebugApi } from '../debug/DebugApi';
 import { enterGameScreen } from '../ui/screenFormat';
 import { Haptics } from '../ui/haptics';
-import { FOLLOW_LOOK_IDLE_S, followYaw } from './touchCamera';
 import { Progression, summarizeSave } from './Progression';
 import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
 import { FrameGuard } from './FrameGuard';
@@ -79,7 +82,8 @@ export class Game {
   desktop!: DesktopInput;
   cameraRig!: CameraRig;
   player!: PlayerController;
-  explorer!: ExplorerModel;
+  /** First person: the pickaxe and the lantern in view (the explorer is never drawn). */
+  viewmodel!: Viewmodel;
   mining!: MiningController;
   miningRules = new MiningProgress();
   drops!: DropSystem;
@@ -130,6 +134,8 @@ export class Game {
   private healthLowWarned = false;
   private campRegenCarry = 0;
   private readonly tmpV = new THREE.Vector3();
+  private readonly tmpQ = new THREE.Quaternion();
+  private readonly lightGuard = new THREE.Vector3();
   private readonly tmpP = new THREE.Vector3();
   private disposers: Array<() => void> = [];
   ready = false;
@@ -168,8 +174,9 @@ export class Game {
     this.scene.add(s.chunks.group, s.props.group);
     this.cameraRig = new CameraRig(s.world);
     this.player = new PlayerController(s.world);
-    this.explorer = new ExplorerModel(s.rig.uniforms);
-    this.scene.add(this.explorer.root);
+    this.viewmodel = new Viewmodel();
+    this.viewmodel.setVisible(false);
+    this.scene.add(this.viewmodel.group);
     const preset = this.renderer.preset;
     this.drops = new DropSystem(s.world, s.rig.uniforms, s.atlas);
     this.debris = new DebrisSystem(s.world, s.rig.uniforms, preset.particleBudget);
@@ -186,6 +193,11 @@ export class Game {
     }
     this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
     this.scene.add(this.halos.mesh);
+    // VIS: light beams (the only volumetric light: the rift's rising light, the Spindle, the tablet)
+    // and the deep zones' own air.
+    const visLandmarks = s.layout.landmarks as Record<string, readonly number[] | undefined>;
+    this.scene.add(new LightBeams(s.rig.uniforms, s.terrain.noiseTex, beamsFor(visLandmarks)).mesh);
+    s.rig.setZoneAnchors(zoneAnchorsFor(visLandmarks));
     this.features = new WorldFeatures(this);
     this.scene.add(this.features.moths.mesh, this.features.cage);
     this.menuCamera = new MenuCamera(layout.landmarks.ledge);
@@ -195,8 +207,12 @@ export class Game {
       propBroken: (spec) => this.onPropBroken(spec),
       rollDrop: (drop) => rollDrop(drop, this.rng),
       pickaxe: () => pickaxeForTier(this.equipment.tiers.pickaxe),
-      swing: (d) => this.explorer.swing(d),
-      face: (x, z, dt) => this.player.faceToward(x, z, dt),
+      swing: (d, contact, point) => this.viewmodel.swing(d, contact, point, this.cameraRig.camera),
+      // A tapped block off to the side comes into view as it is mined (never while a finger holds:
+      // the block under the finger would slide away).
+      face: (x, y, z, dt) => {
+        if (this.input.lock && !this.input.mining && this.lookStill > 0.3) this.cameraRig.faceToward(x, y, z, dt, 3.5, 16);
+      },
       hint: (text) => this.ui.hint(text, 2600),
       propRaycast: (o, d, m) => s.props.raycast(o, d, m),
       propById: (id) => s.liveProps.get(id) ?? null,
@@ -213,7 +229,11 @@ export class Game {
       propById: (id) => s.liveProps.get(id) ?? null,
       viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
       hint: (text) => this.ui.hint(text, 2200),
-      ping: (x, y, z) => this.particles.sparkle(x, y, z, 0xffd29a, 8, this.rng, 1.1),
+      ping: (x, y, z) => this.particles.sparkle(x, y, z, 0xffd29a, 5, this.rng, 0.9),
+      nudge: (x, y) => {
+        this.cameraRig.turnToward(x, y, 0.3);
+        this.viewmodel.raise();
+      },
     }, this.mining, this.bus);
 
     this.desktop = new DesktopInput(this.canvas, this.input);
@@ -306,6 +326,7 @@ export class Game {
     this.ui.setGameplayActive(false);
     this.ui.showScreen('menu');
     this.audio.setPaused(false);
+    this.viewmodel.setVisible(false);
     // Stage the explorer on the lip of the ledge overlooking the Hollow, like a title card.
     const pose = menuExplorerPose(this.session.world, this.session.layout.landmarks.ledge);
     this.player.teleport(pose.x, pose.y, pose.z, pose.yaw);
@@ -383,8 +404,9 @@ export class Game {
     this.ui.setGameplayActive(true);
     this.audio.setPaused(false);
     this.cameraRig.yaw = this.player.yaw + Math.PI;
-    this.cameraRig.pitch = -0.2;
-    this.cameraRig.snapTo(this.player.x, this.player.y + 1.45, this.player.z);
+    this.cameraRig.pitch = -0.12;
+    this.cameraRig.snapTo(this.player.x, this.player.y + EYE_HEIGHT, this.player.z);
+    this.viewmodel.setVisible(true);
     this.atCamp = this.inRegion(this.session.layout.camp);
     this.refreshEquipmentVisuals();
     // Rides become edges of the walking fields before attachWorld computes them.
@@ -602,7 +624,6 @@ export class Game {
     // A slow cinematic drift just past the ledge rim (game/MenuCamera), in the gameplay lens.
     this.menuCamera?.update(dt, this.cameraRig.camera, this.renderer.aspect);
     this.player.update(dt, 0, 0, false, 0, false);
-    this.updateExplorer(dt, 0);
     this.updateLantern(dt, false);
     this.audio.update(dt, this.audioState(true));
   }
@@ -610,10 +631,10 @@ export class Game {
   private updateIdle(dt: number): void {
     // Paused or dead: keep the scene alive but frozen in gameplay terms.
     if (this.mode === 'paused' && this.input.pausePressed && this.ui.screen === 'pause') this.resume();
-    this.updateExplorer(0, 0);
+    this.cameraRig.update(0, this.player.x, this.player.y + EYE_HEIGHT - this.player.stepOffset, this.player.z, this.renderer.aspect);
+    this.updateViewmodel(0);
     this.updateLantern(0, false);
     this.audio.update(dt, this.audioState(true));
-    this.cameraRig.update(0, this.player.x, this.player.y + 1.45 - this.player.stepOffset, this.player.z, this.renderer.aspect);
   }
 
   private updatePlaying(dt: number): void {
@@ -650,11 +671,11 @@ export class Game {
     p.speedFactor = swinging ? 0.55 : 1;
     const mx = blocked || riding ? 0 : input.moveX || input.autoMoveX;
     const my = blocked || riding ? 0 : input.moveY || input.autoMoveY;
-    const ev = riding ? this.features.updateRide(dt) : p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, !swinging);
+    const ev = riding ? this.features.updateRide(dt) : p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, false);
+    // First person: the body faces the view (rides turn the view themselves).
+    if (!riding) p.yaw = this.cameraRig.yaw + Math.PI;
     this.lookStill = input.lookDX !== 0 || input.lookDY !== 0 ? 0 : this.lookStill + dt;
-    if (!blocked && !swinging && this.settings.cameraFollow && input.lastDevice === 'touch' && this.lookStill >= FOLLOW_LOOK_IDLE_S) {
-      this.cameraRig.yaw = followYaw(this.cameraRig.yaw, p.yaw, mx, my, dt);
-    }
+    this.followWalk(dt, blocked || riding);
     if (ev.jumped) this.bus.emit('player:jump', {});
     if (ev.footstep) this.bus.emit('player:footstep', { block: ev.footBlock, speed: p.speed });
     if (ev.landedSpeed > 0) this.onLanded(ev.landedSpeed);
@@ -663,8 +684,8 @@ export class Game {
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
     if (!blocked && this.isTouch() && this.progression.hintsShown.has('mine')) this.tutorial('look', 'hint.look', 5000, 11);
 
-    this.cameraRig.update(dt, p.x, p.y + 1.45 - p.stepOffset, p.z, this.renderer.aspect);
-    this.updateExplorer(dt, swinging ? 1 : 0);
+    this.cameraRig.update(dt, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, this.renderer.aspect);
+    this.updateViewmodel(dt);
     this.updateLantern(dt, true);
 
     this.drops.update(
@@ -702,39 +723,81 @@ export class Game {
     this.ui.setHud(this.hudState());
   }
 
+  /** Where the pick is swung from: the eye (reach is measured from it). */
   private handPosition(): THREE.Vector3 {
-    return this.tmpV.set(this.player.x, this.player.y + 1.25, this.player.z);
+    const e = this.cameraRig.eye;
+    if (Number.isFinite(e.x) && e.lengthSq() > 0) return this.tmpV.copy(e);
+    return this.tmpV.set(this.player.x, this.player.y + EYE_HEIGHT, this.player.z);
+  }
+
+  /**
+   * Tap to walk in first person: while the explorer walks a tapped path and the player is not
+   * looking around, the view turns gently along the way (and levels a downward look), so a walk
+   * reads like walking. Off with the Camera follow setting.
+   */
+  private followWalk(dt: number, blocked: boolean): void {
+    if (blocked || !this.settings.cameraFollow || this.lookStill < 0.35) return;
+    const hd = this.tap.heading();
+    if (!hd) return;
+    const rig = this.cameraRig;
+    rig.yaw = dampAngle(rig.yaw, Math.atan2(-hd[0], -hd[1]), this.tap.goalKind === 'walk' ? 2.4 : 1.6, dt);
+    if (rig.pitch < -0.25) rig.pitch = damp(rig.pitch, -0.25, 1.2, dt);
   }
 
   private onLanded(speed: number): void {
     const below = this.session.world.get(Math.floor(this.player.x), Math.floor(this.player.y - 0.1), Math.floor(this.player.z));
     this.bus.emit('player:land', { fallSpeed: speed, block: below });
-    this.cameraRig.addTrauma(clamp((speed - 6) / 20, 0, 0.6));
+    // A landing dips the view a little (no shake, no roll).
+    this.cameraRig.addTrauma(clamp((speed - 5) / 16, 0, 0.6));
     const dmg = Health.fallDamage(speed, this.player.safeFallSpeed);
     if (dmg > 0) {
       const dealt = this.health.damage(dmg);
       if (dealt > 0) this.bus.emit('player:damaged', { amount: dealt, cause: 'fall' });
-      this.renderer.post.params.flash = 0.25;
+      this.renderer.post.params.flash = 0.12;
       this.renderer.post.params.flashColor.setRGB(0.6, 0.05, 0.02);
       if (this.health.dead) this.die();
     }
   }
 
-  private updateExplorer(dt: number, _mining: number): void {
+  private readonly vmAmbient = new THREE.Color();
+  private readonly vmFlame = new THREE.Color();
+  private readonly vmGrey = new THREE.Color();
+  private readonly vmVel = new THREE.Vector3();
+
+  /** The pickaxe and the lantern in view: placed for this frame's lens, lit by the flame and the room. */
+  private updateViewmodel(dt: number): void {
+    const vm = this.viewmodel;
+    if (!vm.visible) return;
     const p = this.player;
-    const e = this.explorer;
-    e.root.position.set(p.x, p.y - p.stepOffset, p.z);
-    e.root.rotation.y = p.yaw;
-    e.update(dt, {
-      speed: p.speed,
-      grounded: p.grounded,
-      verticalVelocity: p.vy,
-      aimPitch: this.mode === 'menu' ? -0.3 : -this.cameraRig.pitch * 0.5,
-      time: this.time,
-    });
-    const camDist = this.cameraRig.camera.position.distanceTo(this.tmpV.set(p.x, p.y + 1.2, p.z));
-    // In tight tunnels the boom is short and the explorer would hide the crosshair: dither them out.
-    e.setFade(this.mode === 'menu' ? 1 : clamp((camDist - 0.7) / 1.3, 0.25, 1));
+    const cam = this.cameraRig.camera;
+    // Sideways speed in the view (drives the lantern's sway).
+    const v = this.vmVel.set(p.vx, 0, p.vz).applyQuaternion(this.tmpQ.copy(cam.quaternion).invert());
+    // The room's light at the eye (the light volume, as the world shader reads it).
+    const s = this.session;
+    const l = s.sampleLight(cam.position.x, cam.position.y, cam.position.z);
+    const u = s.rig.uniforms;
+    const gain = typeof u.uEmitGain?.value === 'number' ? (u.uEmitGain.value as number) : 1.6;
+    const amb = u.uAmbient?.value as THREE.Color | undefined;
+    const open = u.uOpenAmbient?.value as THREE.Color | undefined;
+    const a2 = l.open * l.open;
+    // The tools are shaded in display terms: undo the scene exposure (the world's light and the
+    // flame then read the same whatever a zone's exposure is).
+    const post = this.renderer.post.params as { exposure?: number; zoneExposure?: number };
+    const inv = 1 / Math.max(0.3, (post.exposure ?? 1) * (post.zoneExposure ?? 1));
+    this.vmAmbient.setRGB(
+      (amb?.r ?? 0.02) + (open?.r ?? 0.04) * a2 + Math.pow(l.r, 1.55) * gain,
+      (amb?.g ?? 0.02) + (open?.g ?? 0.05) * a2 + Math.pow(l.g, 1.55) * gain,
+      (amb?.b ?? 0.03) + (open?.b ?? 0.06) * a2 + Math.pow(l.b, 1.55) * gain,
+    ).multiplyScalar(0.6 * inv);
+    const lc = u.uLanternColor?.value as THREE.Color | undefined;
+    const li = typeof u.uLanternIntensity?.value === 'number' ? (u.uLanternIntensity.value as number) : 1;
+    // The flame on the tools: a little less saturated than the world's lantern colour (the tools
+    // sit a hand's width from it and must not out-shine the way on).
+    this.vmFlame.setRGB(lc?.r ?? 1, lc?.g ?? 0.62, lc?.b ?? 0.32);
+    const fl = this.vmFlame.r * 0.2126 + this.vmFlame.g * 0.7152 + this.vmFlame.b * 0.0722;
+    this.vmFlame.lerp(this.vmGrey.setScalar(fl), 0.35).multiplyScalar(1.5 * li * inv);
+    vm.flame = this.lanternFuel.lit ? 0.55 + 0.45 * Math.min(1, this.lanternFuel.fraction * 4) : 0.2;
+    vm.update(dt, cam, this.renderer.aspect, p.speed, v.x, this.vmAmbient, this.vmFlame);
   }
 
   private updateLantern(dt: number, burn: boolean): void {
@@ -758,9 +821,7 @@ export class Game {
     }
     const fuel = menu ? 1 : this.lanternFuel.fraction;
     const lit = menu || this.lanternFuel.lit;
-    this.explorer.setLantern(fuel, lit);
-    this.explorer.getLanternWorldPosition(this.lanternPos);
-    if (!Number.isFinite(this.lanternPos.x)) this.lanternPos.set(this.player.x, this.player.y + 1, this.player.z);
+    this.lanternLightPosition(menu, this.lanternPos);
     // Smooth the light source a little so walking bob does not shimmer the whole scene.
     const lp = this.lanternSmoothed;
     if (lp.lengthSq() === 0 || dt === 0) lp.copy(this.lanternPos);
@@ -779,6 +840,38 @@ export class Game {
     if (s.lantern.update(lp.x, lp.y, lp.z, radius)) {
       s.rig.markLanternDirty({ x: s.lantern.originX, y: s.lantern.originY, z: s.lantern.originZ });
     }
+  }
+
+  /**
+   * The lantern light: where the drawn lantern hangs (low left of the eye), kept off rock and on
+   * the eye's side of any wall (a light inside rock would light nothing, or the far side). On the
+   * title screen it stands on the ledge lip, where the explorer waits.
+   */
+  private lanternLightPosition(menu: boolean, out: THREE.Vector3): void {
+    const p = this.player;
+    if (menu) {
+      out.set(p.x, p.y + 1.0, p.z);
+      return;
+    }
+    const cam = this.cameraRig.camera;
+    const e = cam.position;
+    this.viewmodel.lightWorld(cam, out);
+    const w = this.session.world;
+    clearOfRock(w, out.x, out.y, out.z, 0.3, this.lightGuard);
+    out.copy(this.lightGuard);
+    // Between the eye and the light: pull the light back toward the eye if rock comes between.
+    const dx = out.x - e.x;
+    const dy = out.y - e.y;
+    const dz = out.z - e.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len > 1e-4) {
+      const hit = raycastVoxels(w, e.x, e.y, e.z, dx / len, dy / len, dz / len, len + 0.25);
+      if (hit) {
+        const k = Math.max(0, hit.distance - 0.25) / len;
+        out.set(e.x + dx * k, e.y + dy * k, e.z + dz * k);
+      }
+    }
+    if (!Number.isFinite(out.x)) out.set(p.x, p.y + 1.2, p.z);
   }
 
   private collect(item: ItemId, count: number, x?: number, y?: number, z?: number): number {
@@ -865,7 +958,7 @@ export class Game {
     const n = this.progression.onDiscovery(id);
     this.ui.showDiscovery({ id, title: t(titleKey), body: t(bodyKey), index: n.index, total: n.total, major: n.major });
     this.bus.emit('discovery', { id });
-    this.renderer.post.params.flash = 0.18;
+    this.renderer.post.params.flash = 0.08;
     this.renderer.post.params.flashColor.setRGB(0.25, 0.75, 0.9);
     this.particles.sparkle(this.player.x, this.player.y + 1.6, this.player.z, 0x8ff6ff, 16, this.rng, 2.2);
     this.saveNow('discovery');
@@ -1006,8 +1099,8 @@ export class Game {
     this.ui.showScreen('none');
     this.ui.setGameplayActive(true);
     this.cameraRig.yaw = this.player.yaw + Math.PI;
-    this.cameraRig.pitch = -0.2;
-    this.cameraRig.snapTo(spawn.x, spawn.y + 1.45, spawn.z);
+    this.cameraRig.pitch = -0.12;
+    this.cameraRig.snapTo(spawn.x, spawn.y + EYE_HEIGHT, spawn.z);
     this.atCamp = true;
     this.bus.emit('player:respawned', {});
     this.saveNow('respawn');
@@ -1044,7 +1137,8 @@ export class Game {
   }
 
   private refreshEquipmentVisuals(): void {
-    this.explorer.setEquipment(this.equipment.tiers.pickaxe, this.equipment.tiers.lantern);
+    // The pick's head and the lantern's cage change with the tiers (first person).
+    this.viewmodel.set({ pickTier: this.equipment.tiers.pickaxe, lanternTier: this.equipment.tiers.lantern, mirror: this.settings.leftHanded });
   }
 
   openInventory(): void {
@@ -1137,7 +1231,9 @@ export class Game {
     h.atCamp = this.atCamp;
     h.interactLabel = this.focusedProp ? this.interactLabel(this.focusedProp) : null;
     h.target = this.mining.hudTarget();
-    h.showCrosshair = this.desktop.pointerLocked;
+    // First person: the dot is there on touch and with the mouse captured (a free desktop cursor
+    // aims where it points instead). It brightens over a target.
+    h.showCrosshair = this.desktop.pointerLocked || this.input.lastDevice === 'touch';
     h.fps = this.fps;
     h.frameMs = Math.round(this.frameMs * 10) / 10;
     h.drawCalls = info.calls;
@@ -1218,6 +1314,7 @@ export class Game {
     }
     if ('bloom' in patch) this.renderer.setUserBloom(this.settings.bloom);
     if ('brightness' in patch) this.renderer.setBrightness(this.settings.brightness);
+    if ('leftHanded' in patch) this.viewmodel?.set({ mirror: this.settings.leftHanded });
     this.applyAudioSettings();
     this.ui.applySettings(this.settings);
   }

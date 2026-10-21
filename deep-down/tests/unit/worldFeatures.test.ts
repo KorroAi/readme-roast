@@ -14,16 +14,20 @@ import { emptyFloor, measureSpacing, openWorld } from '../../tools/poi-density';
  */
 let layout: WorldLayout;
 let off: WorldLayout;
+/** The world with the feature pass and without the content pass (which fills both worlds' floors differently). */
+let bare: WorldLayout;
 
 beforeAll(() => {
   layout = generateWorld();
-  off = generateWorld(undefined, { features: false });
+  off = generateWorld(undefined, { features: false, content: false });
+  bare = generateWorld(undefined, { content: false });
 });
 
 const inBox = (b: Region, x: number, y: number, z: number) => x >= b.min[0] && x <= b.max[0] && y >= b.min[1] && y <= b.max[1] && z >= b.min[2] && z <= b.max[2];
 
 describe('the feature pass', () => {
   it('leaves every earlier prop and every voxel outside its boxes as they were', () => {
+    const layout = bare;
     const F = layout.features!;
     expect(off.features).toBeUndefined();
     // Earlier props keep their ids, kinds and places (the black stone is bedded 0.25 m deeper and
@@ -48,7 +52,7 @@ describe('the feature pass', () => {
     }
     expect(outside).toBe(0);
     // Deterministic.
-    const again = generateWorld();
+    const again = generateWorld(undefined, { content: false });
     expect(again.props.map((p) => p.id)).toEqual(layout.props.map((p) => p.id));
     let diff = 0;
     for (let i = 0; i < w.blocks.length; i++) if (again.world.blocks[i] !== w.blocks[i]) diff++;
@@ -84,6 +88,23 @@ describe('the feature pass', () => {
     const bal = layout.landmarks.balcony;
     expect(nearReachable(layout.world, sealed, bal[0], bal[1], bal[2], 2, 1), 'balcony sealed').toBe(false);
     expect(nearReachable(layout.world, sealed, camp[0], camp[1], camp[2], 2, 1), 'rift floor sealed').toBe(false);
+    // Beyond the rift (content): the Glowroot is open from the rift floor; the Choir waits behind
+    // Ironbound (an iron pick) and the Ember Deep behind ember glass (a glimmer pick).
+    const keepSeal = (id: number) => {
+      const w = openWorld(layout);
+      for (let i = 0; i < w.blocks.length; i++) if (layout.world.blocks[i] === id) w.blocks[i] = id;
+      return w;
+    };
+    const g = layout.landmarks.glowroot;
+    expect(nearReachable(open, reach, g[0], g[1], g[2], 2, 1), 'glowroot by the rope').toBe(true);
+    expect(nearReachable(open, noRope, g[0], g[1], g[2], 2, 1), 'glowroot without the rope').toBe(false);
+    for (const [id, block] of [['choir', B.IRONBOUND], ['emberDeep', B.EMBER_GLASS]] as const) {
+      const w = keepSeal(block);
+      const r = reachableCells(w, ...start, 3, F.links);
+      const p = layout.landmarks[id];
+      expect(nearReachable(w, r, p[0], p[1], p[2], 2, 1), `${id} sealed`).toBe(false);
+      expect(nearReachable(open, reach, p[0], p[1], p[2], 2, 1), `${id} open`).toBe(true);
+    }
   });
 
   it('gives each ride a clear path for the explorer and standable, reachable stands', () => {
@@ -125,12 +146,15 @@ describe('the feature pass', () => {
     let cyan = 0;
     let cyanOff = 0;
     const warm: Array<[number, number, number]> = [];
+    // The deep beyond the rift has its own light (its own budget: tests/unit/worldgen.test.ts).
+    const deep = layout.features!.boxes.filter((b) => b.id.startsWith('deep.'));
     for (let i = 0; i < w.blocks.length; i++) {
       const e = BLOCKS[w.blocks[i]]?.emission;
-      if (e && e[2] > e[0]) cyan++;
+      const isDeep = deep.some((b) => inBox(b, i % w.sx, Math.floor(i / w.sx) % w.sy, Math.floor(i / (w.sx * w.sy))));
+      if (e && e[2] > e[0]) cyan += isDeep ? 0 : 1;
       else if (e) warm.push([(i % w.sx) + 0.5, (Math.floor(i / w.sx) % w.sy) + 0.5, Math.floor(i / (w.sx * w.sy)) + 0.5]);
       const e2 = BLOCKS[off.world.blocks[i]]?.emission;
-      if (e2 && e2[2] > e2[0]) cyanOff++;
+      if (e2 && e2[2] > e2[0] && !isDeep) cyanOff++;
     }
     // At most 14 more cold emitters than the world without the pass, and under the cap with the bloom.
     expect(cyan - cyanOff).toBeLessThanOrEqual(14);

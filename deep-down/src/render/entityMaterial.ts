@@ -104,9 +104,11 @@ void main() {
   }
   vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
   vec3 color = albedo * light;
+  // The flame glints on crafted things (wood, iron, brass) as it moves: soft lobe, low reflectance.
+  color += lanternSpec(n, normalize(cameraPosition - vWorldPos), 0.5, vec3(0.04)) * contact;
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
-  color += emissive * (1.0 - atm.a * uAtmos.z);
+  color += emissive * uAtmos.w * (1.0 - atm.a * uAtmos.z);
   color += uFlash * vec3(1.0, 0.95, 0.85);
   fragColor = vec4(sceneOut(color), 1.0);
 }

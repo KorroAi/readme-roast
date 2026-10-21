@@ -99,6 +99,10 @@ describe('the Next line', () => {
 
   it('then the chain, the cheapest node, the runes, the stone, a rumour; never empty, never "done"', () => {
     const o = new Objectives();
+    // The control steps first (look round, walk), then the loop.
+    expect(nextLine(base({ chain: o.step() })).text).toBe('Drag anywhere to look around');
+    o.setTotals({ touch: false });
+    o.noteControls(90, 6);
     expect(nextLine(base({ chain: o.step() })).text).toBe('Mine stone (0/12)');
     // Finish the chain.
     o.onEvent('item:picked', { item: 'stone', count: 12 });
@@ -146,7 +150,8 @@ describe('the Next line', () => {
     expect(closestNode(later)).toBeNull();
   });
 
-  it('the chain still has its six steps', () => {
-    expect(OBJECTIVE_CHAIN.length).toBe(6);
+  it('the chain has its two control steps and the six steps of the loop', () => {
+    expect(OBJECTIVE_CHAIN.length).toBe(8);
+    expect(OBJECTIVE_CHAIN.slice(0, 2)).toEqual(['look', 'walk']);
   });
 });

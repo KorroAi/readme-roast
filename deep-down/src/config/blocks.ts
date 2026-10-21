@@ -52,12 +52,18 @@ export const B = {
   RAMP_BASE_NX: 31,
   RAMP_BASE_PZ: 32,
   RAMP_BASE_NZ: 33,
-  // 34..38 belong to the content stream (W4): TIN_ORE 34, LANTERNSTONE 35, LIGHT_RESONANCE 36,
-  // STATUE_SOLID 37, FOSSIL 38. Until it defines them they are reserved as air (see below).
+  // 34, 36..38 stay reserved for the content stream (tin, resonance, statues, fossils): air for now.
+  /** Lanternstone (content): warm-veined stone; breaking it frees a Lantern Ember (+30 s of flame). */
+  LANTERNSTONE: 35,
   /** Echo crystal (final pass W3): the rift's pale glass. Tier 3; it glows in the shader only, no light. */
   ECHO_CRYSTAL: 39,
   /** Ironbound stone (final pass W3): the seal-stone of the relic niches, with a rune band. Tier 3. */
   IRONBOUND: 40,
+  /** The deep zones beyond the rift (content): the Glowroot's green-gold and the Ember Deep's red light. */
+  LIGHT_GLOWROOT: 41,
+  LIGHT_MAGMA: 42,
+  /** Ember glass (content): the black glass sealing the Ember Deep. Tier 4: only a Glimmer-edged Pickaxe cuts it. */
+  EMBER_GLASS: 43,
 } as const;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
@@ -155,9 +161,20 @@ def({
 });
 // Ironbound: the seal-stone with a rune band; it closes the relic niches until an iron pick opens them.
 def({ id: B.IRONBOUND, name: 'block.ironbound', solid: true, visible: true, hardness: 12, tier: 3, drop: stoneDrop, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x2b2f3a, 0x4a4f5a, 0x1f222b] });
-// Ids not defined yet (34..38, the content stream's) behave as air, so tables and loops over
-// BLOCKS have no holes. A definition above or added later replaces the reservation.
-for (let id = 0; id < B.IRONBOUND; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
+// The content pass (finished game): the lantern gamble and the deep zones beyond the rift.
+// Lanternstone holds a flame: no drop (breaking it refuels the lantern, game/Progression).
+def({
+  id: B.LANTERNSTONE, name: 'block.lanternstone', solid: true, visible: true, hardness: 3, tier: 1, drop: noDrop, sound: 'crystal', tiles: same(TILE.hearth),
+  emission: [0.55, 0.36, 0.14], glow: 0.8, debris: [0xffc76f, 0xd18a34, 0x5a2c0c],
+});
+// The deep zones' light: a soft green-gold from the glowroot moss, a low red from the ember fissures.
+def({ id: B.LIGHT_GLOWROOT, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.24, 0.36, 0.13] });
+def({ id: B.LIGHT_MAGMA, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.85, 0.32, 0.1] });
+// Ember glass: black glass with a red heart, tier 4. It glows faintly so the seal reads in the dark.
+def({ id: B.EMBER_GLASS, name: 'block.emberGlass', solid: true, visible: true, hardness: 14, tier: 4, drop: stoneDrop, sound: 'crystal', tiles: same(TILE.hardenedSlate), emission: [0.16, 0.05, 0.02], glow: 0.4, debris: [0x1a1014, 0x5a1a0c, 0x2b2f3a] });
+// Ids not defined yet (34, 36..38) behave as air, so tables and loops over BLOCKS have no holes.
+// A definition above or added later replaces the reservation.
+for (let id = 0; id < B.EMBER_GLASS; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
 
 export const BLOCKS: readonly BlockDef[] = defs;
 export const BLOCK_COUNT = defs.length;

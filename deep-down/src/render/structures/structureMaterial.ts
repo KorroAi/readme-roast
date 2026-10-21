@@ -4,6 +4,7 @@ import { MAT, MATERIAL_NAMES } from '../materials';
 import { courseGlsl } from '../materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from '../materials/paint';
 import type { TerrainUniforms } from '../terrainRig';
+import { DETAIL_UNIFORM, detailGlsl } from '../detail';
 
 /**
  * Material of the built forms drawn as structure meshes (stairs, columns, the bridge, coping,
@@ -74,7 +75,10 @@ function fragment(): string {
 vec2 sharpUv(vec2 uv, vec2 gx, vec2 gy, float soft) {
   vec2 t = uv * ${MAT_SIZE}.0;
   vec2 c = floor(t + 0.5);
-  vec2 w = max((abs(gx) + abs(gy)) * ${MAT_SIZE}.0, vec2(soft));
+  vec2 fw = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
+  vec2 w = max(fw, vec2(soft));
+  // HD: plain bilinear once a texel spans more than ~3 px (as the terrain does).
+  w = mix(w, vec2(1.0), smoothstep(2.5, 6.0, 1.0 / max(max(fw.x, fw.y), 1e-4)));
   return (c + clamp((t - c) / w, -0.5, 0.5)) * (1.0 / ${MAT_SIZE}.0);
 }`;
   const soft = /\bSOFT_CUT\b\s*=/.test(course) ? '' : 'const float SOFT_CUT = 0.12;';
@@ -89,6 +93,23 @@ uniform float uMatGlow[${MATERIAL_NAMES.length}];
 // Monolith mode: per 8-row band of the masonry layer, the longest joint-free stone of the strip
 // starting there (first texel, width), measured from the painted layer (StructureRenderer).
 uniform vec2 uSpan[16];
+uniform sampler2DArray uDetail; // HD stone (render/detail.ts)
+${detailGlsl(MATERIAL_NAMES)}
+
+// HD detail projected on the plane of the dominant normal axis (lathed columns, arches, treads):
+// xyz the bend of the shading normal, w the tone.
+vec4 detailAt(vec3 p, vec3 n, int l) {
+  vec3 a = abs(n);
+  vec2 m;
+  vec3 T;
+  vec3 B;
+  if (a.y >= a.x && a.y >= a.z) { m = p.xz; T = vec3(1.0, 0.0, 0.0); B = vec3(0.0, 0.0, 1.0); }
+  else if (a.x >= a.z) { m = vec2(p.z, -p.y); T = vec3(0.0, 0.0, 1.0); B = vec3(0.0, -1.0, 0.0); }
+  else { m = vec2(p.x, -p.y); T = vec3(1.0, 0.0, 0.0); B = vec3(0.0, -1.0, 0.0); }
+  vec4 d = texture(uDetail, vec3(m * DETAIL_INV, float(l)));
+  vec2 t = d.xy * 2.0 - 1.0;
+  return vec4(T * t.x + B * t.y, d.w);
+}
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -140,7 +161,11 @@ void main() {
   float macro = textureLod(uNoise, vWorldPos * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
 
-  vec3 ng = normalize(vNormal);
+  vec3 ng0 = normalize(vNormal);
+  vec4 det = detailAt(vWorldPos, ng0, DETAIL_L[layer]);
+  float dk = DETAIL_K[layer];
+  vec3 ng = normalize(ng0 + det.xyz * dk);
+  albedo *= mix(1.0, 0.5 + det.w, dk);
   vec4 ls = lightSample(vLight);
   float ao = vAo;
   float aoCurve = 0.18 + 0.82 * ao;
@@ -153,6 +178,8 @@ void main() {
   vec3 ambient = ambientFrom(ls, ng, facing, ao) * shade * aoCurve;
   vec3 lantern = lanternLight(vLight, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  float rough = clamp(max(DETAIL_R[layer] + (0.5 - det.w) * 0.3, length(fwidth(ng)) * 1.5), 0.12, 1.0);
+  color += lanternSpec(ng, normalize(cameraPosition - vWorldPos), rough, vec3(0.035)) * (0.3 + 0.7 * ao);
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
   fragColor = vec4(sceneOut(color), 1.0);
@@ -202,6 +229,7 @@ export function createStructureMaterial(lighting: LightingUniforms, terrain: Ter
       uNoise: terrain.uNoise,
       uMatGlow: terrain.uMatGlow,
       uSpan: { value: spans },
+      uDetail: DETAIL_UNIFORM,
     },
     vertexShader: vertex,
     fragmentShader: fragment(),

@@ -1,3 +1,4 @@
+import type { LifeStats } from '../gameplay/Feats';
 import type { ItemId } from '../config/items';
 import type { CacheState } from '../gameplay/Expedition';
 import type { RecordsState, TripState } from '../gameplay/Records';
@@ -87,6 +88,12 @@ export interface ProgressionSave {
   compassTarget: string | null;
   /** When each discovery and rune was found: [expedition number, displayed depth m] (the Journal). */
   foundAt: Record<string, [number, number]>;
+  /** Halden caches, crates and coffers already opened (prop ids; save v3, content). */
+  looted: string[];
+  /** Feats earned (gameplay/Feats ids; save v3). */
+  feats: string[];
+  /** Lifetime counters (gameplay/Feats LifeStats; save v3). */
+  life: LifeStats;
 }
 
 /** Everything needed to resume an expedition. Versioned; see save/SaveSystem migrations. */

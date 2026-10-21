@@ -68,12 +68,30 @@ describe('the rift (reached by the world\'s rope)', () => {
     for (const [x, y, z] of [[141, 42, 100], [136, 25, 127], [124, 6, 128]]) expect(tier1[w.index(x, y, z)], `${x},${y},${z}`).toBe(0);
   });
 
-  it('the depth record can reach 144 m on the rift floor', () => {
-    const seen = reach({ open: ALL, rope: true, boots: false });
+  it('the depth record can reach 144 m on the rift floor, 146 m in the Choir and 148 m in the Ember Deep', () => {
     const w = layout.world;
-    let lowest = Infinity;
-    for (let i = 0; i < seen.length; i++) if (seen[i]) lowest = Math.min(lowest, Math.floor(i / w.sx) % w.sy);
-    expect(WORLD.depthOffset - lowest).toBe(144);
+    const lowest = (open: number[]) => {
+      const seen = reach({ open, rope: true, boots: false });
+      let low = Infinity;
+      for (let i = 0; i < seen.length; i++) if (seen[i]) low = Math.min(low, Math.floor(i / w.sx) % w.sy);
+      return WORLD.depthOffset - low;
+    };
+    // Beyond the rift (content): the Glowroot's floor is a little lower than the rift's; the seals
+    // (Ironbound, then ember glass) open the deeper floors.
+    expect(lowest([B.CRUMBLING_BRICK, B.HARDENED_SLATE])).toBe(146);
+    expect(lowest(ALL)).toBe(146);
+    expect(lowest([...ALL, B.EMBER_GLASS])).toBe(148);
+    // The rift floor itself is still 144 m.
+    const seen = reach({ open: ALL, rope: true, boots: false });
+    let riftLow = Infinity;
+    for (let i = 0; i < seen.length; i++) {
+      if (!seen[i]) continue;
+      const x = i % w.sx;
+      const y = Math.floor(i / w.sx) % w.sy;
+      const z = Math.floor(i / (w.sx * w.sy));
+      if (x >= 114 && x <= 144 && z >= 112 && z <= 152) riftLow = Math.min(riftLow, y);
+    }
+    expect(WORLD.depthOffset - riftLow).toBe(144);
   });
 
   it('Echo crystal grows only on the rift floor side (the rope and an iron pick)', () => {
@@ -119,7 +137,8 @@ describe('rumours (the Survey Table) from the living rock and the bloom', () => 
     // The seal broken (beyond it no walk reaches until then: those rumours have no distance).
     const w = layout.world;
     const saved = w.blocks.slice();
-    for (let i = 0; i < w.blocks.length; i++) if (w.blocks[i] === B.HARDENED_SLATE) w.blocks[i] = B.AIR;
+    // ...and the ember glass (the Ember Deep's walls breathe too, behind it).
+    for (let i = 0; i < w.blocks.length; i++) if (w.blocks[i] === B.HARDENED_SLATE || w.blocks[i] === B.EMBER_GLASS) w.blocks[i] = B.AIR;
     const home = new HomeField(layout.world);
     for (const e of rideEdges(layout.features!.links, true, RIDES.stepsPerSecond)) home.addEdge(e.from, e.to, e.cost);
     home.computeToRegion(layout.camp);
@@ -137,7 +156,7 @@ describe('rumours (the Survey Table) from the living rock and the bloom', () => 
     const b = layout.features!.blooms[0];
     sites.push({ kind: 'bloom', id: 'bloom_e0', area: b.area, x: b.p[0], y: b.p[1], z: b.p[2], epoch: 0, ore: [{ block: B.CRYSTAL, count: 3 }], present: true });
     const rumours = buildRumours(sites, home, 'riftWalls');
-    expect(rumours.length).toBe(3);
+    expect(rumours.length).toBe(4);
     expect(rumours[0].kind).toBe('bloom'); // the bloom first
     for (const r of rumours) {
       expect(r.distance, r.id).not.toBeNull();

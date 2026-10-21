@@ -4,9 +4,10 @@ import type { GameEvents } from '../core/events';
 import { t, type TextKey } from '../i18n';
 
 /**
- * The first-expedition objective chain, shown one at a time on the HUD:
+ * The first-expedition objective chain, shown one at a time on the HUD. It teaches by doing: the
+ * first two steps are the controls (look round, walk), then the loop:
  *
- *   mineStone → findCopper → returnToCamp → craftPickaxe → breakSeal → goDeeper
+ *   look → walk → mineStone → findCopper → returnToCamp → craftPickaxe → breakSeal → goDeeper
  *
  * After the last step the HUD shows the Next line (gameplay/NextStep) instead.
  *
@@ -15,9 +16,12 @@ import { t, type TextKey } from '../i18n';
  * never get stuck behind a step the player already did out of order (or in an older save).
  */
 
-export type ObjectiveId = 'mineStone' | 'findCopper' | 'returnToCamp' | 'craftPickaxe' | 'breakSeal' | 'goDeeper';
+export type ObjectiveId = 'look' | 'walk' | 'mineStone' | 'findCopper' | 'returnToCamp' | 'craftPickaxe' | 'breakSeal' | 'goDeeper';
 
-export const OBJECTIVE_CHAIN: readonly ObjectiveId[] = ['mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe', 'breakSeal', 'goDeeper'];
+export const OBJECTIVE_CHAIN: readonly ObjectiveId[] = ['look', 'walk', 'mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe', 'breakSeal', 'goDeeper'];
+
+/** The control steps: degrees of turning, metres walked (content, finished game). */
+export const TUTORIAL_NEED = { lookDegrees: 70, walkMetres: 5 } as const;
 
 /** Targets match the Copper Pickaxe node (it makes pickaxe tier 2), so finishing the steps means it can be made. */
 export const OBJECTIVE_NEED = {
@@ -45,12 +49,16 @@ export interface ObjectiveTotals {
   /** True while the player is inside the camp region. */
   atCamp?: boolean;
   pickaxeTier?: number;
+  /** A touch screen (the steps say tap; otherwise click and keys). */
+  touch?: boolean;
 }
 
 export type ObjectiveEventType = 'item:picked' | 'block:broken' | 'camp:entered' | 'craft:done' | 'discovery';
 
 /** Progress counters persisted in SaveData.objectives.stats. */
 const STATS = [
+  'looked',
+  'walked',
   'stoneMined',
   'stonePicked',
   'copperPicked',
@@ -75,6 +83,7 @@ export class Objectives {
   private index = 0;
   private copperOwned: number | null = null;
   private pickaxeTier = 1;
+  private touch = true;
   // current() is read every frame by the HUD; rebuild its text only after a change.
   private view: ObjectiveView | null = null;
   private hint: ObjectiveView | null | undefined;
@@ -131,7 +140,22 @@ export class Objectives {
       this.view = null;
     }
     if (totals.pickaxeTier !== undefined) this.pickaxeTier = totals.pickaxeTier;
+    if (totals.touch !== undefined && totals.touch !== this.touch) {
+      this.touch = totals.touch;
+      this.view = null;
+    }
     if (totals.atCamp) this.checkReturn();
+    return this.advance();
+  }
+
+  /**
+   * The control steps (content): degrees the view turned and metres walked since the last call.
+   * @returns true if the current objective changed.
+   */
+  noteControls(lookDegrees: number, walkMetres: number): boolean {
+    if (this.index > 1) return false;
+    if (lookDegrees > 0 && Number.isFinite(lookDegrees)) this.bump('looked', lookDegrees);
+    if (walkMetres > 0 && Number.isFinite(walkMetres)) this.bump('walked', walkMetres);
     return this.advance();
   }
 
@@ -158,8 +182,12 @@ export class Objectives {
     const copper = this.copperOwned;
     if (id === 'returnToCamp' && copper !== null && copper < OBJECTIVE_NEED.copper) {
       this.view = { id: 'findCopper', text: counted('objective.findCopper', copper, OBJECTIVE_NEED.copper) };
+    } else if (id === 'look') {
+      this.view = { id, text: t(this.touch ? 'objective.look' : 'objective.lookDesktop') };
+    } else if (id === 'walk') {
+      this.view = { id, text: t(this.touch ? 'objective.walk' : 'objective.walkDesktop') };
     } else if (id === 'mineStone') {
-      this.view = { id, text: counted('objective.mineStone', this.stoneProgress(), OBJECTIVE_NEED.stone) };
+      this.view = { id, text: counted(this.touch ? 'objective.mineStoneTap' : 'objective.mineStone', this.stoneProgress(), OBJECTIVE_NEED.stone) };
     } else if (id === 'findCopper') {
       this.view = { id, text: counted('objective.findCopper', this.copperProgress(), OBJECTIVE_NEED.copper) };
     } else if (id === 'done') {
@@ -200,6 +228,11 @@ export class Objectives {
     const saved = OBJECTIVE_CHAIN.indexOf(state.current as ObjectiveId);
     let firstOpen = OBJECTIVE_CHAIN.findIndex((id) => !completed.has(id));
     if (firstOpen < 0) firstOpen = OBJECTIVE_CHAIN.length;
+    // A save from before the control steps existed: its finished chain never listed them, so
+    // resume past the furthest step it completed (a finished chain stays finished).
+    let furthest = -1;
+    for (const id of completed) furthest = Math.max(furthest, OBJECTIVE_CHAIN.indexOf(id as ObjectiveId));
+    if (saved < 0 && furthest >= 0) firstOpen = Math.max(firstOpen, furthest + 1);
     this.index = saved >= 0 ? saved : firstOpen;
   }
 
@@ -229,6 +262,10 @@ export class Objectives {
 
   private satisfied(id: ObjectiveId): boolean {
     switch (id) {
+      case 'look':
+        return this.stat('looked') >= TUTORIAL_NEED.lookDegrees;
+      case 'walk':
+        return this.stat('walked') >= TUTORIAL_NEED.walkMetres;
       case 'mineStone':
         return this.stoneProgress() >= OBJECTIVE_NEED.stone;
       case 'findCopper':

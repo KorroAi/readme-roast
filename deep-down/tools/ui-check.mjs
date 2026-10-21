@@ -256,18 +256,14 @@ if (opt.touch) {
   s = await input();
   check('multi-touch: all released', s.moveY === 0 && !s.mining, s);
 
-  // Jump button: edge + hold, and it never looks or mines.
-  const jump = await page.locator('.dd-jump').boundingBox();
-  before = await seen();
-  await touch('touchStart', [{ x: jump.x + jump.width / 2, y: jump.y + jump.height / 2 }]);
-  await wait(250);
-  s = await input();
-  check('jump held while pressed', s.jumpHeld && !s.mining, { jumpHeld: s.jumpHeld, mining: s.mining });
-  await touch('touchEnd', []);
-  await wait(40);
-  s = await input();
-  after = await seen();
-  check('jump pressed once, released', after.jump === before.jump + 1 && !s.jumpHeld && after.lookDX === before.lookDX && after.miningFrames === before.miningFrames, { jumps: after.jump - before.jump });
+  // First person: no Mine or Jump buttons (a tap mines, ledges are stepped up); the bag and the
+  // menu are the HUD's top-bar plates, at the 48 px floor.
+  check('first person: no Mine or Jump buttons', (await page.locator('.dd-mine, .dd-jump').count()) === 0);
+  const plates = await page.evaluate(() => ['.dd-hud .dd-tb-bag', '.dd-hud .dd-tb-pause'].map((q) => {
+    const r = document.querySelector(q)?.getBoundingClientRect();
+    return r ? { w: r.width, h: r.height, top: r.top } : null;
+  }));
+  check('bag and menu plates in the top bar, >= 48 px', plates.every((r) => r && r.w >= 48 && r.h >= 48 && r.top < 80), plates);
 
   // Bag and Pause buttons open their screens; touches are ignored while a screen is open.
   await page.locator('.dd-tb-bag').tap();

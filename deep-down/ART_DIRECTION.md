@@ -48,6 +48,21 @@ Agreed top three: (1) continuous world-space materials with natural transitions,
 geology and large-format architecture instead of brick boxes, (3) a strict cyan budget with
 carved, clustered inscriptions and an authored lighting/atmosphere model.
 
+## The first-person look (finished game, "Lantern Voxel")
+
+The game is seen through the explorer's eyes, lantern in the left hand. What the frame follows now
+(it overrides older lines above where they disagree, e.g. the faint blue haze in big spaces):
+- **Clear air.** No haze within 12 m; the far dark fades into each zone's hued haze by 18-30 m.
+  Volumetric light only in real beams (the rift's rising light, the Spindle, the shrine's tablet).
+- **The pool.** The lantern throws a golden pool 6-8 m across; the darks beyond keep a cool hue
+  (teal-blue in the passages and the Hollow, violet over the rift, moss-green in the Glowroot,
+  smoky red in the Ember Deep), lifted, never crushed. Exposure stays at 1.0: the lights carry it.
+- **Chunky cut stone.** Every rock face is a few bevelled plates with dark joints that fade in
+  places; floors are worn flagstones; dressed stone is tooled; nothing shows a texel at arm's length.
+  Wet stone, ore and crafted metal glint as the flame moves.
+- **Calm.** A break crumbles into at most nine chunks and a few motes; no shake, rings or flashes;
+  feedback tints only touch the screen edge. Glow spores drift; nothing else moves in the background.
+
 ## Material families
 
 | Family | Materials | Boundary rule | Sculpting |

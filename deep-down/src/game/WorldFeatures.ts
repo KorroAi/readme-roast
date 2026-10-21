@@ -78,7 +78,7 @@ export class WorldFeatures {
   /** The hoist's cage and its rope (they move with the ride). */
   readonly cage: THREE.Group;
   /** Key items the relics give, once progression defines them (W3): relic id -> item. */
-  relicItems: Partial<Record<string, string>> = { reliquary: 'bearerLens', gallery: 'firstLamp' };
+  relicItems: Partial<Record<string, string>> = { reliquary: 'bearerLens', gallery: 'firstLamp', glowroot: 'relicGlowroot', choir: 'relicChoir', ember: 'relicEmber' };
   /** The finale (W3) sets this once the stone should wake: then a touch is left to it. */
   stoneAwake: () => boolean = () => false;
   private active: ActiveRide | null = null;
@@ -239,6 +239,8 @@ export class WorldFeatures {
         return t(f.end === 'top' ? 'hint.ropeDown' : 'hint.ropeUp');
       case 'hoist':
         return t(f.end === 'bottom' && !this.hoistReleased ? 'hint.hoistRelease' : 'hint.hoistRide');
+      case 'cache':
+        return t(spec.kind === 'crate' || spec.kind === 'barrel' ? 'hint.openCrate' : 'hint.openCache');
     }
   }
 
@@ -259,6 +261,8 @@ export class WorldFeatures {
       const s = f.end === 'top' ? l.top : l.bottom;
       return Math.hypot(s[0] - px, (s[1] - py) * 0.7, s[2] - pz);
     }
+    // An opened cache is scenery: no focus, no use button.
+    if (f.kind === 'cache' && this.game.progression.looted(spec.id)) return Infinity;
     if (f.kind === 'monolith') {
       // Outside the shaft's faces (half-width 4.9 at the foot), within 3 m above the plinth.
       const dx = Math.max(0, Math.abs(px - spec.x) - 4.9);
@@ -288,6 +292,9 @@ export class WorldFeatures {
       }
       case 'hoist':
         this.useHoist(f.end ?? 'bottom');
+        break;
+      case 'cache':
+        this.game.progression.openCache(spec);
         break;
     }
   }
@@ -576,11 +583,16 @@ export class WorldFeatures {
   private takeRelic(spec: PropSpec, id: string): void {
     const g = this.game;
     const item = this.relicItems[id];
-    if (item && item in ITEMS) g.grant(item as ItemId, 1);
+    if (item && item in ITEMS) {
+      g.grant(item as ItemId, 1);
+      g.ui.toast(t('toast.relic', { name: t(ITEMS[item as ItemId].name) }), 'good');
+    }
     g.session.removeProp(spec.id);
     g.clearFocus();
     g.markHalosDirty();
-    g.discover(id === 'reliquary' ? 'reliquary' : 'lampGallery');
+    // The rooms behind the rune doors are discoveries; the relics beyond the rift are found with their caverns.
+    if (id === 'reliquary') g.discover('reliquary');
+    else if (id === 'gallery') g.discover('lampGallery');
   }
 
   private touchStone(spec: PropSpec): void {

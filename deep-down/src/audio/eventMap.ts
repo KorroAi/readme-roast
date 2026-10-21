@@ -38,6 +38,8 @@ export const EVENT_SOUNDS: EventSounds = {
   'craft:done': () => req('craft'),
   'craft:failed': () => req('ui.error'),
   discovery: () => req('discovery'),
+  // A feat: the relic pickup's rising notes, quietly (content, finished game).
+  'feat:earned': () => req('pickup.relic', { gain: 0.6 }),
   'player:footstep': (p) => req(`step.${stepKindOf(p.block)}`, { gain: 0.7 + 0.3 * saturate(p.speed / PLAYER.walkSpeed) }),
   'player:jump': () => req('jump'),
   'player:land': (p) => req('land', { intensity: saturate((p.fallSpeed - 3) / 17), material: stepKindOf(p.block) }),

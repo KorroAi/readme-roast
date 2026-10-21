@@ -46,29 +46,18 @@ describe('lumen moths', () => {
     }
   });
 
-  it('come to a lit lantern 5 m away (4 or more within 2 m in 4 s), and go home when it fails', () => {
+  it('are glow spores, not creatures: a lit lantern 5 m away does not draw them; they keep drifting at home', () => {
     const a = anchor('grotto');
     const f = new MothFlock([a], 5, 32);
     for (let k = 0; k < 60; k++) f.step(1 / 30, dark, a.x, a.y, a.z, isOpen);
-    // A lantern 5 m off in the open geode.
     const L = { x: a.x - 4, y: a.y - 1.5, z: a.z + 2.4, lit: true, fuelFrac: 0.9 };
     expect(isOpen(Math.floor(L.x), Math.floor(L.y), Math.floor(L.z))).toBe(true);
-    expect(Math.hypot(L.x - a.x, L.y - a.y, L.z - a.z)).toBeGreaterThan(4.9);
-    let t = 0;
-    let close = 0;
-    while (t < 4 && close < 4) {
-      f.step(1 / 30, L, L.x, L.y - 1, L.z, isOpen);
-      t += 1 / 30;
-      close = 0;
-      for (let i = 0; i < f.active; i++) if (Math.hypot(f.positions[i * 3] - L.x, f.positions[i * 3 + 1] - L.y, f.positions[i * 3 + 2] - L.z) <= 2) close++;
+    expect(MOTHS.drawnMax).toBe(0);
+    for (let k = 0; k < 120; k++) {
+      expect(f.step(1 / 30, L, L.x, L.y - 1, L.z, isOpen)).toBe(0);
+      for (let i = 0; i < f.active; i++) expect(Math.hypot(f.positions[i * 3] - L.x, f.positions[i * 3 + 1] - L.y, f.positions[i * 3 + 2] - L.z)).toBeGreaterThan(2);
     }
-    expect(close, `moths within 2 m of the lantern after ${t.toFixed(1)} s`).toBeGreaterThanOrEqual(4);
-    // Not more than drawnMax at a time.
-    for (let k = 0; k < 60; k++) expect(f.step(1 / 30, L, L.x, L.y - 1, L.z, isOpen)).toBeLessThanOrEqual(MOTHS.drawnMax);
-    // Low fuel releases them: all back within 2 m of the roost in 6 s.
-    const low = { ...L, fuelFrac: 0.15 };
-    for (let k = 0; k < 180; k++) f.step(1 / 30, low, L.x, L.y - 1, L.z, isOpen);
-    for (const d of homeDistances(f, a)) expect(d).toBeLessThanOrEqual(2);
+    for (const d of homeDistances(f, a)) expect(d).toBeLessThanOrEqual(MOTHS.roostRadius[1] + 1);
   });
 
   it('keep tapping at a secret (the slit, a rune door) even with a lantern beside them', () => {

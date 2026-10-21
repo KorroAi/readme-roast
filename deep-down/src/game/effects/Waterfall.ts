@@ -126,7 +126,7 @@ void main() {
   // The haze absorbs it like any emission (the zone's absorb share, uAtmos.z), so from the ledge
   // it still reads as the Hollow's cold landmark; fade right in front of the lens so it never blinds.
   float fog = atmosphere(vWorldPos, depth, ls.rgb).a;
-  col *= (1.0 - fog * uAtmos.z) * smoothstep(1.0, 6.0, depth);
+  col *= (1.0 - fog * uAtmos.z) * smoothstep(1.0, 6.0, depth) * uAtmos.w;
   fragColor = vec4(sceneOut(col), 1.0); // additive blending
 }
 `;

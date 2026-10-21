@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import { ChunkMeshData, OFFSET_RANGE, PADDED_VOXELS, VERTEX_BYTES, copyPadded, meshChunk } from './mesher';
 import { MeshPool, meshBuildOnWorkers, meshWorkerCount, spawnMeshWorker, type MeshJob, type MeshResult, type WorkerLike } from './meshPool';
+import { FOG_CULL } from './lighting';
 
 export interface ChunkStats {
   chunks: number;
@@ -403,14 +404,15 @@ export class ChunkRenderer {
   /** Hide chunks far beyond the fog. */
   cull(focus: THREE.Vector3): void {
     const cs = this.world.chunkSize;
-    const maxD2 = (this.viewDistance + cs) ** 2;
+    // Never past the zone's haze (FOG_CULL: nothing there is visible), never past the preset.
+    const maxD2 = (Math.min(this.viewDistance, FOG_CULL.value) + cs) ** 2;
     for (const m of this.meshes) {
       if (!m) continue;
       const c = m.userData.center as THREE.Vector3;
       m.visible = c.distanceToSquared(focus) < maxD2;
     }
     for (const a of this.attached) {
-      a.viewDistance = this.viewDistance;
+      a.viewDistance = Math.min(this.viewDistance, FOG_CULL.value);
       a.cull(focus);
     }
   }

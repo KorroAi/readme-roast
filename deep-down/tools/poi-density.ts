@@ -42,7 +42,7 @@ export function openWorld(layout: WorldLayout): VoxelWorld {
   const copy = Object.create(Object.getPrototypeOf(w)) as VoxelWorld;
   Object.assign(copy, w, { blocks: w.blocks.slice() });
   const b = copy.blocks;
-  for (let i = 0; i < b.length; i++) if (b[i] === B.CRUMBLING_BRICK || b[i] === B.HARDENED_SLATE) b[i] = B.AIR;
+  for (let i = 0; i < b.length; i++) if (b[i] === B.CRUMBLING_BRICK || b[i] === B.HARDENED_SLATE || b[i] === B.IRONBOUND || b[i] === B.EMBER_GLASS) b[i] = B.AIR;
   const F = layout.features;
   if (F) {
     for (const d of F.runeDoors) for (const [x, y, z] of d.cells) b[copy.index(x, y, z)] = B.AIR;
@@ -149,6 +149,7 @@ export function collectPois(layout: WorldLayout, w: VoxelWorld): Poi[] {
   for (const [k, v] of Object.entries(layout.landmarks)) pois.push({ name: 'L:' + k, cat: 'landmark', p: [v[0], v[1] + 1, v[2]] });
   for (const s of layout.structures) if (s.kind === 'column') pois.push({ name: s.id, cat: 'column', p: [s.x, s.y + 3, s.z] });
   for (const f of layout.features?.pois ?? []) pois.push({ name: f.id, cat: f.kind, p: f.p });
+  for (const c of layout.content?.pois ?? []) pois.push({ name: c.id, cat: c.kind === 'ore' || c.kind === 'lanternstone' ? 'ore' : 'pickup', p: c.p });
   const seen: P[] = [];
   for (let z = 1; z < w.sz - 1; z++)
     for (let y = 1; y < w.sy - 1; y++)
@@ -247,6 +248,7 @@ export function emptyFloor(layout: WorldLayout): { columns: number; over10: numb
     else if (st.kind === 'deck') things.push([(st.x0 + st.x1) / 2, st.y, (st.z0 + st.z1) / 2]);
   }
   for (const f of layout.features?.pois ?? []) things.push(f.p);
+  for (const c of layout.content?.pois ?? []) things.push(c.p);
   const cols = new Map<number, number>();
   const sxy = w.sx * w.sy;
   for (let i = 0; i < par.length; i++) {
@@ -281,4 +283,10 @@ export default function poiDensity(args: string[] = []): void {
     if (args.includes('-v')) console.log('   ', events.join(' '));
   }
   console.log('empty floor', JSON.stringify(emptyFloor(layout)));
+  const c = layout.content;
+  if (c) {
+    const kinds: Record<string, number> = {};
+    for (const p of c.pois) kinds[p.kind] = (kinds[p.kind] ?? 0) + 1;
+    console.log('content', JSON.stringify(kinds), 'secrets', c.secrets.length, 'genMs', JSON.stringify((layout as { timings?: { phases: Record<string, number> } }).timings?.phases.content));
+  }
 }

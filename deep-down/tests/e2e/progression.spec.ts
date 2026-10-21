@@ -98,7 +98,12 @@ test('the tree: copper pick, Survey Table, Forge, iron pick; the Next line moves
   await craft(page, 'surveyTable');
   await page.waitForFunction(() => window.__DD__.events('station:built').some((e) => e.payload.id === 'surveyTable'), null, { timeout: LOADED_CEILING_MS });
   next = await nextChanges(page, next);
-  expect(next).toBe('Next: Forge — Stone 6/24');
+  // The Forge's stone, counted from what is left after the pick and the table (costs are content's).
+  const stoneLeft = await page.evaluate(() => {
+    const g = window.__DD__.game;
+    return (g.backpack.count('stone') as number) + (g.storage.count('stone') as number);
+  });
+  expect(next).toBe(`Next: Forge — Stone ${stoneLeft}/24`);
 
   // 3. The Forge: it needs iron from beyond the seal.
   await bank(page, { stone: 24, copperOre: 6, ironOre: 3 });
@@ -230,9 +235,11 @@ test('the Survey Table: rumours from the living rock and the bloom, a compass ta
   for (const r of survey.rumours) {
     expect(r.text.length).toBeGreaterThan(0);
     expect(r.areaName.length).toBeGreaterThan(0);
-    // The rift floor lies past the seal: no walk reaches it yet, so no distance (and none shown).
+    // The rift floor (and anything else past the seal) has no walk yet, so no distance (and none
+    // shown); the Halden Face and the bloom are walkable from camp.
     if (r.id === 'riftWalls') expect(r.distance).toBeNull();
-    else expect(r.distance).toBeGreaterThan(0);
+    else if (r.id === 'haldenFace' || r.id === 'bloom_e0') expect(r.distance).toBeGreaterThan(0);
+    else expect(r.distance === null || r.distance > 0).toBe(true);
   }
   // Pick the Halden Face: the Next line leads there (after the tutorial's first steps).
   await page.evaluate(() => window.__DD__.progression.setTarget('haldenFace'));

@@ -79,7 +79,7 @@ export interface MothAnchorDef {
 }
 
 export interface LivingSite {
-  id: 'haldenFace' | 'riftWalls';
+  id: 'haldenFace' | 'riftWalls' | 'emberWalls';
   /** Voxel indices of the living cells, and the host rock each one returns to. */
   cells: Int32Array;
   host: Uint8Array;

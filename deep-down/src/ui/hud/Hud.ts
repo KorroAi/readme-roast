@@ -1,4 +1,5 @@
 import './wake.css';
+import './fp.css';
 import { t } from '../../i18n';
 import type { HudState } from '../types';
 import { h } from '../dom';
@@ -17,10 +18,25 @@ const WAKE_C = 2 * Math.PI * 9;
 const ARROW_SVG =
   '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M12 2 L19 19 L12 15 L5 19 Z" fill="currentColor" stroke="#05080d" stroke-width="1.6" stroke-linejoin="round"/></svg>';
 
+/** Circumference of the crosshair's progress ring (r = 10 in a 28 x 28 box). */
+const RING_C = 2 * Math.PI * 10;
+
+/** What the HUD's own buttons do (the pack plate opens the bag, the menu plate pauses). */
+export interface HudActions {
+  bag(): void;
+  menu(): void;
+}
+
 /**
- * The in-game HUD. update() runs every frame but only writes to the DOM when a displayed
- * value changes (cached primitives, quantized bars), so a steady frame costs no style or
- * layout work at all.
+ * The first-person HUD, calm and out of the middle of the view:
+ * - top: one row of octagon plates: depth (Lintel numerals), the lantern's oil, the pack count
+ *   (a button: the bag) and the menu (a button: pause); under it the compass chip(s) and the
+ *   one objective line, always on; hearts only when hurt or cold;
+ * - centre: a small dot that brightens over something to mine or use, with a thin ring that
+ *   fills as the block cracks (nothing else ever covers the centre);
+ * - bottom: the hint line and the rune-door wake ring.
+ * update() runs every frame but only writes to the DOM when a displayed value changes (cached
+ * primitives, quantized bars), so a steady frame costs no style or layout work at all.
  */
 export class Hud {
   readonly el: HTMLElement;
@@ -42,6 +58,11 @@ export class Hud {
   private readonly pillText: HTMLElement;
   private readonly objective: HTMLElement;
   private readonly crosshair: HTMLElement;
+  private readonly ringArc: SVGCircleElement;
+  private chHot: boolean | null = null;
+  private chBlocked: boolean | null = null;
+  private chQ = -1;
+  private heartsShown: boolean | null = null;
   private readonly target: HTMLElement;
   private readonly targetName: HTMLElement;
   private readonly targetFill: HTMLElement;
@@ -88,7 +109,7 @@ export class Hud {
   private perfAt = 0;
   private perfText = '';
 
-  constructor() {
+  constructor(private readonly actions: HudActions = { bag: () => {}, menu: () => {} }) {
     for (let i = 0; i < HEART_COUNT; i++) this.heartEls.push(h('span', { class: 'dd-heart f2' }));
     this.hearts = h('div', { class: 'dd-hearts', role: 'img' }, ...this.heartEls);
     this.fuelFill = h('div', { class: 'dd-bar-fill' });
@@ -125,9 +146,15 @@ export class Hud {
       this.cacheText,
     );
     this.pillText = h('span');
-    this.pill = h('div', { class: 'dd-pill' }, h('span', { class: 'dd-pill-icon', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 1, iconPx(20))}")` }), this.pillText);
-    this.objective = h('div', { class: 'dd-objective', 'aria-live': 'polite' });
+    // The pack count is the bag button (one plate, one thumb target).
+    this.pill = h('button', { class: 'dd-pill dd-tb-bag', type: 'button' }, h('span', { class: 'dd-pill-icon', 'aria-hidden': 'true', style: `background-image: url("${equipmentIconDataUrl('pack', 1, iconPx(20))}")` }), this.pillText);
+    this.pill.addEventListener('click', () => this.actions.bag());
+    // A click must not leave focus on the plate (Space would press it instead of jumping).
+    this.pill.addEventListener('mousedown', (e) => e.preventDefault());
+    this.objective = h('div', { class: 'dd-objective on', 'aria-live': 'polite' });
     this.crosshair = h('div', { class: 'dd-crosshair', 'aria-hidden': 'true' });
+    this.crosshair.innerHTML = `<svg viewBox="0 0 28 28" width="28" height="28"><circle class="dd-ch-track" cx="14" cy="14" r="10"/><circle class="dd-ch-ring" cx="14" cy="14" r="10" stroke-dasharray="${RING_C.toFixed(2)}" stroke-dashoffset="${RING_C.toFixed(2)}" transform="rotate(-90 14 14)"/></svg><span class="dd-ch-dot"></span>`;
+    this.ringArc = this.crosshair.querySelector('.dd-ch-ring') as SVGCircleElement;
     this.targetName = h('span', { class: 'dd-target-name' });
     this.targetFill = h('div', { class: 'dd-bar-fill' });
     this.target = h('div', { class: 'dd-target' }, this.targetName, h('div', { class: 'dd-bar thin' }, this.targetFill));
@@ -140,20 +167,31 @@ export class Hud {
     this.wakeArc = ring.querySelector('.dd-wake-arc') as SVGCircleElement;
     this.wake = h('div', { class: 'dd-wake', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100 }, ring, h('span', { class: 'dd-wake-text', text: t('ui.wake.label') }));
 
+    const menu = h('button', { class: 'dd-hud-menu dd-tb-pause', type: 'button', 'aria-label': t('hud.pause') }, h('span', { class: 'dd-menu-glyph', 'aria-hidden': 'true' }));
+    menu.addEventListener('click', () => this.actions.menu());
+    menu.addEventListener('mousedown', (e) => e.preventDefault());
     this.el = h(
       'div',
-      { class: 'dd-hud' },
-      h('div', { class: 'dd-hud-tl' }, this.hearts, this.lantern),
+      { class: 'dd-hud dd-fp' },
       h(
         'div',
-        { class: 'dd-hud-tr' },
-        h('div', { class: 'dd-depth' }, h('span', { class: 'dd-depth-label', text: t('hud.depth') }), this.depth),
-        h('div', { class: 'dd-hud-row' }, this.cacheChip, this.compass, this.pill),
-        this.objective,
+        { class: 'dd-hud-top' },
+        h(
+          'div',
+          { class: 'dd-hud-bar' },
+          h('div', { class: 'dd-depth' }, h('span', { class: 'dd-depth-label', text: t('hud.depth') }), this.depth),
+          this.lantern,
+          this.pill,
+          menu,
+        ),
+        h('div', { class: 'dd-hud-row' }, this.compass, this.cacheChip, this.objective),
+        this.hearts,
       ),
       this.perf,
       this.crosshair,
-      h('div', { class: 'dd-hud-bottom' }, this.hintEl, this.wake, this.usePrompt, this.target),
+      // The target's name and state stay readable to assistive tech; on screen the dot says it.
+      h('div', { class: 'dd-hud-bottom' }, this.hintEl, this.wake, this.usePrompt),
+      this.target,
     );
     this.el.style.setProperty('--heart-0', `url("${heartDataUrl(0)}")`);
     this.el.style.setProperty('--heart-1', `url("${heartDataUrl(1)}")`);
@@ -165,7 +203,7 @@ export class Hud {
   }
 
   update(s: HudState, showPerf: boolean, now: number): void {
-    this.updateHealth(s.health, s.maxHealth);
+    this.updateHealth(s.health, s.maxHealth, s.cold > 0);
 
     const fuelQ = Math.round(Math.max(0, Math.min(1, s.lantern)) * FUEL_STEPS);
     if (fuelQ !== this.fuelQ) {
@@ -250,6 +288,7 @@ export class Hud {
       this.objectiveText = s.objectiveText;
       this.objective.textContent = s.objectiveText;
       this.objective.classList.toggle('on', s.objectiveText.length > 0);
+      this.objective.title = s.objectiveText;
     }
 
     if (s.interactLabel !== this.interact) {
@@ -259,6 +298,7 @@ export class Hud {
     }
 
     this.updateTarget(s.target);
+    this.updateCrosshair(s.target, s.interactLabel !== null);
     if (this.wakeOn && now - this.wakeAt > WAKE_HOLD_MS) this.setWakeOn(false);
 
     if (s.showCrosshair !== this.crosshairOn) {
@@ -315,7 +355,13 @@ export class Hud {
     window.clearTimeout(this.hintTimer);
   }
 
-  private updateHealth(health: number, max: number): void {
+  private updateHealth(health: number, max: number, cold = false): void {
+    // Calm: the hearts show only when they matter (hurt, or the cold biting).
+    const shown = health < max - 0.5 || cold;
+    if (shown !== this.heartsShown) {
+      this.heartsShown = shown;
+      this.hearts.classList.toggle('shown', shown);
+    }
     const halves = healthHalves(health, max);
     if (halves !== this.halves) {
       const hurt = this.halves > halves && this.halves >= 0;
@@ -354,6 +400,26 @@ export class Hud {
     if (dist !== this.cacheDist) {
       this.cacheDist = dist;
       this.cacheText.textContent = t('hud.cacheDistance', { distance: dist });
+    }
+  }
+
+  /** The dot: hot over a target in reach (or something to use), red over rock too hard, the ring is the crack. */
+  private updateCrosshair(target: HudState['target'], interact: boolean): void {
+    const hot = (target !== null && !target.blocked) || interact;
+    const blocked = target !== null && target.blocked;
+    if (hot !== this.chHot) {
+      this.chHot = hot;
+      this.crosshair.classList.toggle('hot', hot);
+    }
+    if (blocked !== this.chBlocked) {
+      this.chBlocked = blocked;
+      this.crosshair.classList.toggle('blocked', blocked);
+    }
+    const q = target && !target.blocked ? Math.round(Math.max(0, Math.min(1, target.progress)) * PROGRESS_STEPS) : 0;
+    if (q !== this.chQ) {
+      this.chQ = q;
+      this.ringArc.setAttribute('stroke-dashoffset', (RING_C * (1 - q / PROGRESS_STEPS)).toFixed(2));
+      this.crosshair.classList.toggle('cracking', q > 0);
     }
   }
 

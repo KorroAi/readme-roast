@@ -27,7 +27,7 @@ const since = () => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 console.log(`apk-sim: ${apk}; load average ${load()}`);
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
 const refused = [];
 const served = [];
 await ctx.route('**/*', async (route) => {

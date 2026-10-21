@@ -164,7 +164,14 @@ export const WORLD = {
    * (tests/unit/genVersion.test.ts pins the fingerprint): a save from another version keeps
    * everything but its world edits, and wakes the explorer at camp.
    */
-  genVersion: 3,
+  genVersion: 4,
+  /**
+   * Older generator versions whose world edits still apply to this one, cell for cell: version 4
+   * (finished game, content) only carves the deep beyond the rift into rock nobody could reach and
+   * adds ore, caches and secrets, so a version 3 save keeps its mined cells, opened doors and taken
+   * props (save/saveData shiftWorldIfNeeded).
+   */
+  genCompatible: [3] as readonly number[],
 } as const;
 
 export const LIGHT = {
@@ -176,48 +183,52 @@ export const LIGHT = {
 } as const;
 
 export const SAVE = {
-  version: 2,
+  version: 3,
   autosaveSeconds: 45,
 } as const;
 
-/** Lumen moths (game/moths.ts, game/effects/LumenMoths.ts). */
+/**
+ * Glow spores (game/moths.ts, drawn by game/effects/LumenMoths.ts): ambient motes of light that
+ * drift in the still air of the caves. No creatures: they carry no gameplay, do not come to the
+ * lantern and do not flee; a pick strike only stirs the air round them. (The config keeps its old
+ * name, MOTHS, so the simulation and the renderer keep their contracts.)
+ */
 export const MOTHS = {
-  /** Moths simulated at once per quality preset. */
+  /** Spores simulated at once per quality preset. */
   cap: { high: 40, balanced: 32, battery: 16 },
-  /** Only anchors this close to the explorer have moths (m). */
+  /** Only anchors this close to the explorer have spores (m). */
   simRadius: 45,
-  /** Roost loop radius range (m) and vertical swing (m). */
-  roostRadius: [0.3, 1.1] as readonly [number, number],
-  roostVertical: 0.42,
-  /** Cruise speed range (m/s) on the roost loop, and when drawn to the lantern or rising. */
-  speed: [0.6, 1.3] as readonly [number, number],
-  drawnSpeed: 2.8,
+  /** Drift loop radius range (m) and vertical swing (m). */
+  roostRadius: [0.5, 1.8] as readonly [number, number],
+  roostVertical: 0.6,
+  /** Drift speed range (m/s), and the speed when rising round the black stone. */
+  speed: [0.12, 0.3] as readonly [number, number],
+  drawnSpeed: 0.8,
   /** Steering: velocity per metre off the target (1/s), and how fast velocity follows (1/s). */
-  gain: 2.4,
-  steer: 5,
-  /** Wing-beat flutter added to the velocity (m/s). */
-  flutter: 0.16,
-  /** A lit lantern with at least this much fuel within drawRadius pulls up to drawnMax moths. */
-  drawRadius: 7,
-  drawnMax: 8,
-  drawnMinFuel: 0.2,
+  gain: 1.2,
+  steer: 1.6,
+  /** A slow wander added to the velocity (m/s). */
+  flutter: 0.04,
+  /** Spores are not drawn to the lantern (drawnMax 0); kept for the simulation's contract. */
+  drawRadius: 0,
+  drawnMax: 0,
+  drawnMinFuel: 1,
   drawnOrbit: 0.9,
-  /** Drawn moths go home once the lantern is this far from their roost (m). */
   dropOff: 12,
-  /** A mining hit within this radius throws moths outward; they come back after a few seconds. */
-  scatterRadius: 4,
-  scatterImpulse: 3,
-  scatterSeconds: [2, 4] as readonly [number, number],
-  /** Touching the black stone: moths within this radius rise for spiralSeconds at spiralRise m/s. */
+  /** A pick strike within this radius stirs the air: spores drift outward, then settle back. */
+  scatterRadius: 2.5,
+  scatterImpulse: 0.6,
+  scatterSeconds: [3, 6] as readonly [number, number],
+  /** Touching the black stone: spores within this radius rise for spiralSeconds at spiralRise m/s. */
   spiralRadius: 40,
   spiralSeconds: 6,
-  spiralRise: 0.8,
-  /** Wing beats per second (drawn as a flutter, not counted). */
-  wingHz: [7, 11] as readonly [number, number],
-  /** Wingspan (m) and colour (linear, times intensity). */
-  wingspan: 0.15,
+  spiralRise: 0.6,
+  /** A slow pulse of their glow per second (the renderer's flutter; no wings). */
+  wingHz: [0.3, 0.7] as readonly [number, number],
+  /** Mote size (m) and colour (linear, times intensity). */
+  wingspan: 0.07,
   color: [0.78, 0.95, 1.0] as readonly [number, number, number],
-  intensity: 1.15,
+  intensity: 1.0,
 } as const;
 
 /** Rides (game/ropeRide.ts) and the interaction ranges of the world features. */

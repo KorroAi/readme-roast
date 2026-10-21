@@ -163,7 +163,7 @@ describe('touch geometry', () => {
     expect(toNdc(-50, 900, 800, 400, o)).toEqual({ x: -1, y: -1 });
   });
 
-  it('splits the screen into move and look halves, swapped when left-handed', () => {
+  it('splits the screen into the move third and the look area, swapped when left-handed', () => {
     expect(touchSide(100, 900, false)).toBe('move');
     expect(touchSide(800, 900, false)).toBe('look');
     expect(touchSide(450, 900, false)).toBe('look');

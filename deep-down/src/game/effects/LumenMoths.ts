@@ -20,16 +20,16 @@ void main() {
   vWorldPos = iOffset;
   vDepth = length(mv.xyz);
   float z = max(0.1, -mv.z);
-  // The wing beat: the span opens and closes with |sin|; never thinner than a pixel and a half.
-  float flap = abs(sin(iPhase * 6.2831853));
-  float span = max(uSpan, 1.5 * z / uPixelScale);
-  mv.x += aCorner.x * span * 0.5 * (0.25 + 0.75 * flap);
-  mv.y += aCorner.y * span * 0.34;
+  // Glow spores (no creatures): a round mote that breathes slowly; never smaller than ~3 px so
+  // a far spore still reads as a point of light, never a sub-pixel flicker.
+  float breathe = 0.85 + 0.15 * sin(iPhase * 1.3);
+  float span = max(uSpan * 0.42 * breathe, 3.0 * z / uPixelScale);
+  mv.xy += aCorner * span * 0.5;
   gl_Position = projectionMatrix * mv;
   vUv = aCorner;
-  vGlow = iGlow;
-  // A moth right in front of the lens would be a big pale blot: fade it out.
-  vNear = smoothstep(0.9, 2.6, vDepth);
+  vGlow = iGlow * (0.8 + 0.2 * sin(iPhase * 0.7 + iOffset.x));
+  // A spore right in front of the lens would be a big blot: fade it out.
+  vNear = smoothstep(0.7, 2.2, vDepth);
 }
 `;
 
@@ -44,22 +44,20 @@ in vec3 vWorldPos;
 in float vNear;
 layout(location = 0) out highp vec4 fragColor;
 void main() {
-  // Two wing lobes either side of a thin body, drawn procedurally (no texture).
-  vec2 p = vUv;
-  vec2 l = vec2((abs(p.x) - 0.52) / 0.5, (p.y - 0.12) / 0.86);
-  float wing = 1.0 - smoothstep(0.75, 1.0, dot(l, l));
-  float body = (1.0 - smoothstep(0.06, 0.12, abs(p.x))) * (1.0 - smoothstep(0.55, 0.8, abs(p.y + 0.1)));
-  float a = max(wing * 0.85, body);
-  if (a < 0.02) discard;
-  // Far moths fade into the haze like everything else.
+  // A glowing spore: a bright core in a soft halo, drawn procedurally (no texture).
+  float d = dot(vUv, vUv);
+  if (d > 1.0) discard;
+  float a = exp(-d * 14.0) * 1.4 + exp(-d * 3.5) * 0.22;
+  // Far spores fade into the haze like everything else.
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
-  vec3 col = uMothColor * vGlow * a * vNear * (1.0 - fog * 0.85);
+  vec3 col = uMothColor * vGlow * a * vNear * (1.0 - fog * 0.85) * uAtmos.w;
   fragColor = vec4(sceneOut(col), 1.0);
 }
 `;
 
 /**
- * Draws the lumen moths: one instanced camera-facing quad per moth with procedural wings, additive,
+ * Draws the glow spores (the first version's lumen moths, now ambient light motes that carry no
+ * gameplay and no creature): one instanced camera-facing quad per spore, a soft round glow, additive,
  * no depth write, fading with the zone's haze. One draw call; the instance buffers are the
  * flock's own typed arrays, uploaded each frame up to the active count.
  */

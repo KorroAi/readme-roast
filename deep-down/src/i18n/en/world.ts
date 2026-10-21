@@ -1,8 +1,8 @@
-// English text for the world variety: places, Halden logs, rides, rune doors, moths, the living rock.
+// English text for the world variety: places, Halden logs, rides, rune doors, glow spores, the living rock.
 
 export const world = {
-  'discovery.mothGrotto.title': 'The Moth Grotto',
-  'discovery.mothGrotto.body': 'A hollow of crystal behind a cracked wall, alive with pale moths. They followed your light here.',
+  'discovery.mothGrotto.title': 'The Spore Grotto',
+  'discovery.mothGrotto.body': 'A hollow of crystal behind a cracked wall. Glow spores hang in its still air like dust in a sunbeam.',
   'discovery.hoist.title': 'The Halden Hoist',
   'discovery.hoist.body': 'The old ore lift still runs. The way back up to the ledge is a short ride now.',
   'discovery.reliquary.title': 'The Reliquary',
@@ -33,10 +33,10 @@ export const world = {
   'hint.runesWake': 'The runes answer your lantern…',
   'hint.runesDark': 'The runes are dark. They need light.',
   'hint.runesWeak': 'The runes stir, but your lantern is too weak to wake them.',
-  'toast.deepBreathes': 'The deep breathes: fresh veins, and the moths have found somewhere new.',
+  'toast.deepBreathes': 'The deep breathes: fresh veins, and the glow spores have drifted somewhere new.',
   // Named areas (rumours and compass targets on the Survey Table read these).
   'area.office': 'the Survey Office',
-  'area.grotto': 'the Moth Grotto',
+  'area.grotto': 'the Spore Grotto',
   'area.yard': 'the Halden Yard',
   'area.adit': 'the Halden Face',
   'area.hall': 'the Hollow floor',
@@ -80,7 +80,7 @@ export const world = {
   'journal.hint.tablet': 'Inside the sealed shrine.',
   'journal.hint.gate': 'A sealed door in the east wall.',
   'journal.hint.ironVein': 'Dark ore, too hard for copper alone.',
-  'journal.hint.mothGrotto': 'The moths know a way through the tunnel wall.',
+  'journal.hint.mothGrotto': 'Glow spores drift from a crack in the tunnel wall.',
   'journal.hint.hoist': 'Someone built a lift down to the hall.',
   'journal.hint.reliquary': 'Beyond the bridge, a door waits for light.',
   'journal.hint.lampGallery': 'At the foot of the far stair, a door wants a stronger lantern.',

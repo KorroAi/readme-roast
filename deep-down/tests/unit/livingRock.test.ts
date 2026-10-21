@@ -16,13 +16,15 @@ beforeAll(() => {
   generated = layout.world.blocks.slice();
 });
 
-const ORE = new Set<number>([B.COPPER_ORE, B.IRON_ORE, B.CRYSTAL]);
+const ORE = new Set<number>([B.COPPER_ORE, B.IRON_ORE, B.CRYSTAL, B.LANTERNSTONE]);
 const orePositions = (ids: Uint8Array) => new Set([...ids.keys()].filter((k) => ORE.has(ids[k])));
 
 describe('the living rock ("the deep breathes")', () => {
-  it('has two sites of the expected size, and the generated world is epoch 0', () => {
+  it('has three sites of the expected size (the Ember Deep breathes too), and the generated world is epoch 0', () => {
     const L = layout.features!.living;
-    expect(L.map((s) => s.id).sort()).toEqual(['haldenFace', 'riftWalls']);
+    expect(L.map((s) => s.id).sort()).toEqual(['emberWalls', 'haldenFace', 'riftWalls']);
+    const ember = L.find((s) => s.id === 'emberWalls')!;
+    expect(ember.cells.length).toBeGreaterThanOrEqual(40);
     const face = L.find((s) => s.id === 'haldenFace')!;
     const rift = L.find((s) => s.id === 'riftWalls')!;
     expect(face.cells.length).toBeGreaterThanOrEqual(45);
@@ -93,10 +95,17 @@ describe('the living rock ("the deep breathes")', () => {
   it('keeps the cyan budget at every epoch (the bloom included)', () => {
     const w = layout.world;
     const cyanIn = (b: Uint8Array) => {
+      // The deep beyond the rift keeps its own light budget (worldgen.test.ts).
+      const deep = layout.features!.boxes.filter((bx) => bx.id.startsWith('deep.'));
       let n = 0;
       for (let i = 0; i < b.length; i++) {
         const e = BLOCKS[b[i]]?.emission;
-        if (e && e[2] > e[0]) n++;
+        if (!(e && e[2] > e[0])) continue;
+        const x = i % w.sx;
+        const y = Math.floor(i / w.sx) % w.sy;
+        const z = Math.floor(i / (w.sx * w.sy));
+        if (deep.some((bx) => x >= bx.min[0] && x <= bx.max[0] && y >= bx.min[1] && y <= bx.max[1] && z >= bx.min[2] && z <= bx.max[2])) continue;
+        n++;
       }
       return n;
     };

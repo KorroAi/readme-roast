@@ -61,22 +61,23 @@ function v1Fixture(): Record<string, unknown> {
 }
 
 describe('save v2', () => {
-  it('is the current format, with a migration from v1', () => {
-    expect(SAVE.version).toBe(2);
+  it('is the current format, with migrations from v1 and v2', () => {
+    expect(SAVE.version).toBe(3);
     expect(typeof MIGRATIONS[1]).toBe('function');
+    expect(typeof MIGRATIONS[2]).toBe('function');
     const d = createNewSave(SPAWN, WORLD.seed, 1);
     expect(d.genVersion).toBe(WORLD.genVersion);
     expect(d.progression).toEqual(defaultProgression());
     expect(validateSaveData(d)).toBe(true);
   });
 
-  it('a v1 save migrates to v2: oversized stacks move into storage and no item is lost', () => {
+  it('a v1 save migrates to v3: oversized stacks move into storage and no item is lost', () => {
     const old = v1Fixture();
     const before = totals(old as unknown as SaveData);
     const res = new SaveSystem(store(old)).load();
     expect(res.error).toBeUndefined();
     const d = res.data!;
-    expect(d.version).toBe(2);
+    expect(d.version).toBe(3);
     expect(totals(d)).toEqual(before);
     // The Sturdy Pack now has 8 slots, and every stack is within the new stack sizes.
     expect(d.backpack.length).toBe(8);
@@ -87,7 +88,10 @@ describe('save v2', () => {
     expect(d.storage.copperOre).toBe(18 + 15 + 4); // the 30-stack's extra 15 and slot 8's stack
     // Everything else is kept; the v1 world is unknown (genVersion 0), so its edits drop on load.
     expect(d.genVersion).toBe(0);
-    expect(d.progression).toEqual(defaultProgression());
+    // v3: the lifetime counters start from the old stats.
+    const st = old.stats as { blocksMined: number; itemsBanked: number };
+    const life = { ...defaultProgression().life, blocksMined: st.blocksMined, itemsBanked: st.itemsBanked };
+    expect(d.progression).toEqual({ ...defaultProgression(), life });
     expect(d.player).toEqual(old.player);
     expect(d.journal).toEqual(['ancientTablet']);
     expect(d.stats).toEqual(old.stats);
@@ -182,5 +186,32 @@ describe('save v2', () => {
     // The same version changes nothing.
     const same = createNewSave(SPAWN, WORLD.seed, 1);
     expect(shiftWorldIfNeeded(same, SPAWN)).toEqual({ data: same, shifted: false });
+  });
+
+  it('a v2 save migrates to v3: nothing opened, nothing earned, lifetime counters from its stats; its world edits still apply', () => {
+    const v2 = createNewSave(SPAWN, WORLD.seed, 9) as unknown as Record<string, unknown> & SaveData;
+    v2.version = 2;
+    v2.genVersion = 3;
+    v2.worldEdits = [12345, 0];
+    v2.stats = { blocksMined: 321, deaths: 2, itemsBanked: 99 };
+    const p = v2.progression as unknown as Record<string, unknown>;
+    delete p.looted;
+    delete p.feats;
+    delete p.life;
+    const res = new SaveSystem(store(v2 as never)).load();
+    expect(res.error).toBeUndefined();
+    const d = res.data!;
+    expect(d.version).toBe(3);
+    expect(d.progression.looted).toEqual([]);
+    expect(d.progression.feats).toEqual([]);
+    expect(d.progression.life.blocksMined).toBe(321);
+    expect(d.progression.life.itemsBanked).toBe(99);
+    expect(validateSaveData(d)).toBe(true);
+    // Generator 4 keeps generator 3's edits (it only adds rock-locked places, finds and secrets).
+    const shifted = shiftWorldIfNeeded(d, SPAWN);
+    expect(shifted.shifted).toBe(false);
+    expect(shifted.data.worldEdits).toEqual([12345, 0]);
+    expect(shifted.data.genVersion).toBe(WORLD.genVersion);
+    expect(shiftWorldIfNeeded({ ...d, genVersion: 2 }, SPAWN).shifted).toBe(true);
   });
 });

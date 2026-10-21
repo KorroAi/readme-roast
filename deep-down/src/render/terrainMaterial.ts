@@ -8,6 +8,7 @@ import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
 import { AO_SCALE, OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
 import type { TileAtlas } from './textures';
+import { DETAIL_UNIFORM, detailGlsl } from './detail';
 
 /** Builds the sRGB texture array from the procedural tiles, with mipmaps for distant faces. */
 export function createTileTexture(atlas: TileAtlas): THREE.DataArrayTexture {
@@ -99,6 +100,8 @@ uniform float uMatGlow[${MATERIAL_NAMES.length}];
 uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: none)
 uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
 uniform vec4 uTargetHit; // xyz = where the mining ray hits the block, w = 1 when known
+uniform sampler2DArray uDetail; // HD stone (render/detail.ts): rg normal, b height, a tone
+${detailGlsl(MATERIAL_NAMES)}
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -140,9 +143,60 @@ vec2 sharpUv(vec2 uv, vec2 gx, vec2 gy, float soft) {
   vec2 fw = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
   vec2 s = soft >= 0.0 ? vec2(soft) : clamp(-soft / max(fw, vec2(1e-4)), 0.15, 0.55);
   vec2 w = max(fw, s);
+  // HD: once a texel spans more than ~3 px (first person, arm's length) its steps would read as
+  // blocks, so the sample eases into plain bilinear; the detail layer carries the form there.
+  w = mix(w, vec2(1.0), smoothstep(2.5, 6.0, 1.0 / max(max(fw.x, fw.y), 1e-4)));
   return (c + clamp((t - c) / w, -0.5, 0.5)) * (1.0 / ${MAT_SIZE}.0);
 }
+
+// HD stone detail in world space (render/detail.ts), matching the material projections: xyz is the
+// bend of the shading normal in world space (from the layer's tangent normal), w its tone.
+vec4 dTex(vec2 m, int l) { return texture(uDetail, vec3(m * DETAIL_INV, float(l))); }
+vec4 detailTop(vec3 p, float s, int l) {
+  vec4 d = dTex(vec2(p.x, p.z * s), l);
+  vec2 t = d.xy * 2.0 - 1.0;
+  return vec4(t.x, 0.0, t.y * s, d.w);
+}
+vec4 detailSide(vec3 p, vec3 n, int l) {
+  float sx = n.x >= 0.0 ? 1.0 : -1.0;
+  float sz = n.z >= 0.0 ? 1.0 : -1.0;
+  vec2 w = n.xz * n.xz;
+  w *= w;
+  float tz = w.y / max(w.x + w.y, 1e-6);
+  float wa = tz < 0.03 ? 0.0 : (tz > 0.97 ? 1.0 : tz);
+  vec4 r = vec4(0.0);
+  if (wa < 1.0) {
+    vec4 d = dTex(vec2(-p.z * sx, -p.y), l);
+    vec2 t = d.xy * 2.0 - 1.0;
+    r += vec4(0.0, -t.y, -sx * t.x, d.w) * (1.0 - wa);
+  }
+  if (wa > 0.0) {
+    vec4 d = dTex(vec2(p.x * sz, -p.y), l);
+    vec2 t = d.xy * 2.0 - 1.0;
+    r += vec4(sz * t.x, -t.y, 0.0, d.w) * wa;
+  }
+  return r;
+}
+vec4 detailFace(vec3 p, int face, int l) {
+  vec4 d = dTex(worldUv(p, face) * MAT_PERIOD, l);
+  vec2 t = d.xy * 2.0 - 1.0;
+  vec3 T = face == 0 ? vec3(0.0, 0.0, -1.0) : face == 1 ? vec3(0.0, 0.0, 1.0) : face == 5 ? vec3(-1.0, 0.0, 0.0) : vec3(1.0, 0.0, 0.0);
+  vec3 B = face == 2 ? vec3(0.0, 0.0, 1.0) : face == 3 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, -1.0, 0.0);
+  return vec4(T * t.x + B * t.y, d.w);
+}
 vec4 matGrad(vec2 uv, float layer, vec2 gx, vec2 gy, float soft) {
+  // Natural rock (soft < 0) at arm's length: the 16 t/m layer's painted pixel features (strata
+  // cracks, pebbles) would read as blurred pixel art over the HD detail, so its colour comes from a
+  // softer mip there (up to ~2 levels); the detail layer draws the form.
+  if (soft < 0.0) {
+    vec2 fw = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
+    float ppt = 1.0 / max(max(fw.x, fw.y), 1e-4);
+    // Ore veins keep their nuggets (the vein is the find): only a light softening there.
+    int li = int(layer + 0.5);
+    bool ore = li == ${MAT.copperVein} || li == ${MAT.copperTop} || li == ${MAT.ironVein} || li == ${MAT.ironTop};
+    float b = (ore ? 0.6 : 2.0) * smoothstep(3.0, 10.0, ppt);
+    if (b > 0.01) return textureLod(uMat, vec3(uv, layer), b);
+  }
   return textureGrad(uMat, vec3(sharpUv(uv, gx, gy, soft), layer), gx, gy);
 }
 
@@ -303,7 +357,10 @@ void main() {
     // shows its beds. The threshold wanders with the world noise, and inside the band the
     // taller of the two layers at this texel claims it, so the boundary follows the stone.
     float t = (ng.y - 0.79 - (macroN.b - 0.5) * 0.18) * (1.0 / 0.13);
-    if (topL == sideL) t = ng.y > 0.0 ? 2.0 : -2.0;
+    // One layer for top and side (gravel, bedrock, the seal stone): the projection still follows the
+    // surface, from above only on floor-like slopes (a wall leaning 1 degree up must not take the
+    // top projection: its texture would smear into vertical streaks).
+    if (topL == sideL) t = ng.y > 0.72 ? 2.0 : -2.0;
     if (t >= 1.0) {
       tex = rockTop(rp, rpDx, rpDy, ng, float(topL));
       topShown = true;
@@ -389,11 +446,39 @@ void main() {
     }
   }
 
+  // HD stone: the detail layer bends the shading normal (facets, creases, grain) and darkens its
+  // creases; natural rock takes it through the same warped biplanar projection as its material.
+  int dl = DETAIL_L[shownLayer];
+  float dk = DETAIL_K[shownLayer];
+  vec4 det = natural ? (topShown || ng.y < -0.72 ? detailTop(rp, ng.y >= 0.0 ? 1.0 : -1.0, dl) : detailSide(rp, ng, dl)) : detailFace(vGrid, vFace, dl);
+  vec3 nd = normalize(ng + det.xyz * dk);
+  albedo *= mix(1.0, 0.5 + det.w, dk);
+  // Ore veins up close: the nuggets are the saturated texels of the vein layer. Their bilinear mask
+  // is re-sharpened (a narrow smoothstep: crisp, smooth outlines at any magnification), their rim
+  // darkened like a seat in the rock, and the normal bulges out along the mask's screen gradient,
+  // so each nugget reads as a rounded lump of metal, not as a blurred orange stain.
+  float oreMetal = 0.0;
+  if (shownLayer == ${MAT.copperVein} || shownLayer == ${MAT.copperTop}) {
+    float cmx = max(tex.r, max(tex.g, tex.b));
+    float sat = (cmx - min(tex.r, min(tex.g, tex.b))) / max(cmx, 1e-3);
+    float m = smoothstep(0.4, 0.62, sat) * smoothstep(0.06, 0.16, cmx);
+    float crisp = smoothstep(0.42, 0.58, m);
+    float rim = smoothstep(0.12, 0.4, m) * (1.0 - smoothstep(0.45, 0.6, m));
+    // World-space gradient of the mask (1/m) from its screen derivatives: the nugget as a height
+    // field about 2 cm tall, so its flanks tilt outward.
+    vec3 px = dFdx(vWorldPos);
+    vec3 py = dFdy(vWorldPos);
+    vec3 gw = px * (dFdx(m) / max(dot(px, px), 1e-10)) + py * (dFdy(m) / max(dot(py, py), 1e-10));
+    nd = normalize(nd - gw * 0.02);
+    albedo = mix(albedo * (1.0 - 0.45 * rim), albedo * 1.25, crisp);
+    oreMetal = crisp;
+  }
+
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
   float ao = vAo / 3.0;
   float aoCurve = 0.18 + 0.82 * ao;
-  float shade = shadeOf(ng);
+  float shade = shadeOf(normalize(ng + det.xyz * (dk * 0.6)));
   // Placed lights (lamps, crystals) come from one side (LAMP_DIR: from the light volume's
   // gradient), so faces turned away and recesses lose them faster than the all-round cool fill: a
   // crevice inside a warm pool falls to blue-black, not to dark amber.
@@ -402,7 +487,7 @@ void main() {
 #else
   vec2 facing = vec2(1.0);
 #endif
-  vec3 lantern = lanternLight(samplePos, vWorldPos, ng, ls.a) * (0.4 + 0.6 * ao);
+  vec3 lantern = lanternLight(samplePos, vWorldPos, nd, ls.a) * (0.4 + 0.6 * ao);
   // The lantern and the lamps own the faces they light (the cool fill is cut there): warm against
   // cold per face, not lavender everywhere.
   vec3 ambient = ambientFrom(ls, ng, facing, ao, lantern) * shade * aoCurve;
@@ -410,6 +495,23 @@ void main() {
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
   vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  // The flame's specular on the detailed surface: wet stone and ore metal glint as the lantern
+  // moves, dry rubble barely. Roughness widens where the normal changes fast on screen (no sparkle).
+  {
+    vec3 toEye = normalize(cameraPosition - vWorldPos);
+    float rough = clamp(max(DETAIL_R[shownLayer] + (0.5 - det.w) * 0.3, length(fwidth(nd)) * 1.5), 0.12, 1.0);
+    vec3 f0 = vec3(0.035);
+    if (oreMetal > 0.0) {
+      // Copper nuggets: metal, their own colour in the reflection, a soft lobe.
+      f0 = mix(f0, tex.rgb * 0.9, oreMetal);
+      rough = mix(rough, 0.42, oreMetal);
+      color *= 1.0 - 0.45 * oreMetal;
+    } else if (shownLayer == ${MAT.ironVein} || shownLayer == ${MAT.ironTop}) {
+      f0 = vec3(0.07);
+      rough = min(rough, 0.46);
+    }
+    color += lanternSpec(nd, toEye, rough, f0) * (0.3 + 0.7 * ao);
+  }
 
   float glow = tex.a * uMatGlow[shownLayer];
   vec3 emissive = tex.rgb * glow;
@@ -469,7 +571,6 @@ void main() {
       float dmg = (uTarget.w - CRACK0 + 1.0) / CRACKS;
       // In-plane offset around the hit, snapped to the material texels: crisp pixel cracks.
       vec2 q = worldUv(dh, vFace) * MAT_PERIOD;
-      q = (floor(q * ${MAT_DENSITY}.0) + 0.5) * (1.0 / ${MAT_DENSITY}.0);
       vec2 fr = fracture(q, dmg, hash13(vec3(cell)));
       float joints = (1.0 - smoothstep(0.1, 0.17, heightOf(tex, shownLayer))) * (1.0 - smoothstep(0.1 + dmg * 0.55, 0.22 + dmg * 0.55, r));
       float crack = max(fr.x, joints * smoothstep(0.1, 0.3, dmg));
@@ -483,7 +584,7 @@ void main() {
   // surface, and emission fades into it too, so distant glows become glowing air, not specks.
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
-  color += emissive * (1.0 - atm.a * uAtmos.z);
+  color += emissive * uAtmos.w * (1.0 - atm.a * uAtmos.z);
   fragColor = vec4(sceneOut(color), 1.0);
 }
 `;
@@ -507,6 +608,7 @@ export function createTerrainMaterial(lighting: LightingUniforms, tiles: THREE.D
       // The tile atlas is no longer sampled here (inscriptions come from the script layer of
       // uMat, mining fractures are computed); kept bound for callers that read it back.
       uTiles: { value: tiles },
+      uDetail: DETAIL_UNIFORM,
     },
     vertexShader: vertex,
     fragmentShader: fragment,

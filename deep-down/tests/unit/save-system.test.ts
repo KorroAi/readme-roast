@@ -427,7 +427,7 @@ describe('validateSaveData / createNewSave', () => {
       player: { x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, health: 100, lanternFuel: 300 },
       storage: {},
       equipment: { pickaxe: 1, lantern: 1, pack: 1 },
-      objectives: { completed: [], current: 'mineStone', stats: {} },
+      objectives: { completed: [], current: 'look', stats: {} },
       worldEdits: [],
       stats: { blocksMined: 0, deaths: 0, itemsBanked: 0 },
     });

@@ -170,3 +170,16 @@ balcony). What it adds, each item testable:
 | 6 | The decision | a rich glimmer pocket beyond the bridge with the lantern below half: the HUD shows fuel vs. distance home so the choice is informed | unit test of the fuel/distance estimate |
 | 7 | Black-out cache | dying drops the unbanked backpack as a cache marked on the compass; picking it up restores the items | unit + e2e: die, return, recover |
 | 8 | Return | camp banks, refuels, heals, plays the home cue; the expedition summary lists found / banked / lost | e2e |
+
+## The finished game: content (first-person round)
+
+- **Beyond the rift** (world/gen/features/deep.ts), carved into the rock under the Hollow and reached from the rift floor's west edge through the Rootway:
+  - the **Glowroot Cavern** (open): hanging roots, moss that gives a green-gold light of its own, soil banks, copper, the first lanternstone, a builders' tablet;
+  - the **Crystal Choir** (behind an Ironbound seal, tier 3): echo-crystal spires round a builders' dais, cyan and violet, echo and iron;
+  - the **Ember Deep** (behind ember glass, tier 4, so the Glimmer-edged Pickaxe opens new rock): red fissures, lanternstone, rich iron, the builders' hearth and the last relic; its floor at 148 m is the deepest point. Its walls breathe like the Halden Face.
+- **Lanternstone**: warm-veined stone; breaking it frees an ember that adds 30 s to the lantern on the spot (the lantern gamble: push on to that warm glint, or turn home).
+- **Never empty** (world/gen/content.ts): no reachable floor is more than 10 m from a find. The pass adds ore of the depth's tier, Halden supply crates and caches with loot, glimmer clusters, and 10 secret alcoves behind loose masonry (3 high, 4 in the Hollow, 3 deep), each with a cache and a warm lamp whose light spills out when the wall breaks.
+- **Relics**: five key items with one line each (the reliquary's lens, the gallery's lamp, and one in each cavern beyond the rift).
+- **Feats** (gameplay/Feats.ts): 29 milestones (firsts, depths, labour, finds, story), each with a calm toast, a small reward paid into camp storage, and a Journal page with lifetime numbers.
+- **Guidance**: the chain now starts by doing (look round, then walk); a hint comes when the objective line has not moved for 75 s; after the finale the Next line leads to each cavern beyond the rift in turn.
+- **No creatures**: the lumen moths are now glow spores, drifting motes of light that carry no gameplay.

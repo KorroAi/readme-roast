@@ -4,6 +4,10 @@ import type { LightingUniforms } from '../lighting';
 import { createEntityMaterial } from '../entityMaterial';
 import { hash32 } from '../../core/math';
 import { PROP_VARIANTS, buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
+import { FOG_CULL } from '../lighting';
+
+/** Draw distance of props smaller than 2 m in radius (m). */
+const SMALL_PROP_FAR = 45;
 
 export interface PropHit {
   id: string;
@@ -208,9 +212,14 @@ export class PropRenderer {
 
   update(dt: number, time: number, cameraPos: THREE.Vector3): void {
     const highlightPulse = 0.75 + 0.25 * Math.sin(time * 4.2);
+    // Small props (crates, lamps, stakes) are a few pixels past ~45 m in the first-person lens: they
+    // stop drawing there (their light stays in the light volume, their halos stay lit), which keeps
+    // the open-space views inside the draw-call budget; big ones (radius >= 2 m) go to the full
+    // view distance, and nothing draws past the zone's haze.
+    const far = Math.min(this.viewDistance, FOG_CULL.value);
     for (const e of this.list) {
       const dist = cameraPos.distanceTo(e.center) - e.radius;
-      e.root.visible = dist < this.viewDistance;
+      e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, SMALL_PROP_FAR));
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt / FLASH_TIME);
       const lit = this.highlighted === e;
       if (lit || e.flash > 0 || e.fxActive) this.applyFx(e, lit ? highlightPulse : 0);

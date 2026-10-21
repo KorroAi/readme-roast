@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { EYE_HEIGHT } from '../game/fp/constants';
 import { raycastVoxels } from '../world/raycast';
 import type { Game } from '../game/Game';
 import type { ItemId } from '../config/items';
@@ -37,6 +38,8 @@ export function installDebugApi(game: Game): void {
     'lantern:low', 'lantern:empty', 'lantern:refueled', 'game:saved', 'game:saveFailed', 'tool:swing',
     // Loop core (W1). Later waves append theirs.
     'expedition:started', 'expedition:ended', 'cache:created', 'cache:recovered', 'lantern:turnBack', 'player:cold', 'record:depth',
+    // Content (finished game): feats.
+    'feat:earned',
     // World variety (W2).
     'world:ride', 'world:runeWake', 'world:runeOpen', 'world:hoistReleased', 'world:note', 'world:monolith', 'world:regrow', 'world:bloom', 'moths:startled',
     // The tree, the runes, the finale (W3).
@@ -75,7 +78,7 @@ export function installDebugApi(game: Game): void {
     if (!best) return null;
     const [sx, sy, sz] = best.stand;
     game.player.teleport(sx + 0.5, sy, sz + 0.5);
-    game.cameraRig.snapTo(sx + 0.5, sy + 1.45, sz + 0.5);
+    game.cameraRig.snapTo(sx + 0.5, sy + EYE_HEIGHT, sz + 0.5);
     // Look from behind the player toward the block, then aim precisely after the camera settles.
     const [bx, , bz] = best.block;
     game.cameraRig.yaw = Math.atan2(-(bx + 0.5 - (sx + 0.5)), -(bz + 0.5 - (sz + 0.5)));
@@ -110,7 +113,7 @@ export function installDebugApi(game: Game): void {
     mutations: allowed,
     teleport: gate((x: number, y: number, z: number, yaw?: number) => {
       game.player.teleport(x, y, z, yaw);
-      game.cameraRig.snapTo(x, y + 1.45, z);
+      game.cameraRig.snapTo(x, y + EYE_HEIGHT, z);
     }, undefined),
     look: (yaw: number, pitch: number) => {
       game.cameraRig.yaw = yaw;
@@ -133,7 +136,7 @@ export function installDebugApi(game: Game): void {
       const settle = () => {
         for (let i = 0; i < 300; i++) {
           prev.copy(rig.camera.position);
-          rig.update(1 / 30, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+          rig.update(1 / 30, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, rig.camera.aspect);
           if (i > 10 && prev.distanceToSquared(rig.camera.position) < 1e-10) break;
         }
       };
@@ -143,14 +146,14 @@ export function installDebugApi(game: Game): void {
         for (let round = 0; round < 4; round++) {
           // Damped corrections: the lens moves with the aim (orbit), so full steps can oscillate.
           for (let i = 0; i < 24; i++) {
-            rig.update(0.25, p.x, p.y + 1.45 - p.stepOffset, p.z, rig.camera.aspect);
+            rig.update(0.25, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, rig.camera.aspect);
             rig.rayThrough(ndcX, ndcY, o, d);
             const len = Math.hypot(tx - o.x, ty - o.y, tz - o.z);
             const yawErr = wrap(Math.atan2(-(tx - o.x), -(tz - o.z)) - Math.atan2(-d.x, -d.z));
             const pitchErr = Math.asin((ty - o.y) / len) - Math.asin(d.y);
             // Wrap and clamp like the rig's own look input, or off-centre aims can run away.
             rig.yaw = wrap(rig.yaw + yawErr * 0.6);
-            rig.pitch = Math.max(-1.2, Math.min(0.85, wrap(rig.pitch + pitchErr * 0.6)));
+            rig.pitch = Math.max(-1.3, Math.min(1.3, wrap(rig.pitch + pitchErr * 0.6)));
           }
           settle();
         }

@@ -1,0 +1,315 @@
+/* First-person HUD (Hud.ts) and touch layer (TouchControls.ts): calm, branded, out of the centre.
+   Loaded after ui.css; every rule is scoped to .dd-fp so it wins over the older layout. */
+
+.dd-hud.dd-fp .dd-hud-top {
+  position: absolute;
+  top: calc(10px + var(--safe-top));
+  left: calc(12px + var(--safe-left));
+  right: calc(12px + var(--safe-right));
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  pointer-events: none;
+}
+.dd-hud.dd-fp .dd-hud-bar {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  height: 48px;
+}
+.dd-hud.dd-fp .dd-hud-bar > * {
+  --cut: var(--cut-chip);
+  --fill: rgba(9, 13, 19, 0.74);
+  --rim: rgba(94, 66, 32, 0.9);
+}
+/* Depth: label over Lintel numerals on a plate. */
+.dd-hud.dd-fp .dd-depth {
+  margin: 0;
+  min-height: 0;
+  padding: 0 10px;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 3px;
+  box-sizing: border-box;
+  border: 1px solid var(--rim);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background: var(--fill);
+}
+.dd-hud.dd-fp .dd-depth-label {
+  font-size: calc(10px * var(--s));
+  letter-spacing: 0.2em;
+}
+.dd-hud.dd-fp .dd-depth-value {
+  font-size: calc(21px * var(--s));
+}
+/* The lantern's oil: icon and gauge on a plate that takes the spare width. */
+.dd-hud.dd-fp .dd-lantern {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0 10px 0 8px;
+  gap: 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--rim);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background: var(--fill);
+}
+.dd-hud.dd-fp .dd-lantern .dd-bar {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 40px;
+  height: 9px;
+}
+/* The pack count is the bag button; the menu plate is the pause. Thumb targets stay >= 48 px. */
+.dd-hud.dd-fp .dd-pill,
+.dd-hud.dd-fp .dd-hud-menu {
+  pointer-events: auto;
+  height: 48px;
+  min-width: 48px;
+  color: var(--bone-100);
+  font: 700 calc(14px * var(--s)) / 1 var(--font);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-hud.dd-fp .dd-pill {
+  padding: 0 10px 0 7px;
+  gap: 6px;
+}
+.dd-hud.dd-fp .dd-pill:active,
+.dd-hud.dd-fp .dd-hud-menu:active {
+  --fill: rgba(255, 179, 92, 0.3);
+  --rim: var(--amber-300);
+}
+.dd-hud.dd-fp .dd-hud-menu {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--rim);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background: var(--fill);
+}
+/* The menu glyph: three bars. */
+.dd-hud.dd-fp .dd-menu-glyph {
+  width: 18px;
+  height: 14px;
+  background:
+    linear-gradient(currentColor, currentColor) 0 0 / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 50% / 100% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 0 100% / 100% 2px no-repeat;
+}
+/* The second row: the compass chip(s) and the one objective line, always on. */
+.dd-hud.dd-fp .dd-hud-row {
+  gap: 6px;
+  align-items: flex-start;
+}
+.dd-hud.dd-fp .dd-compass {
+  flex: none;
+  height: 30px;
+}
+.dd-hud.dd-fp .dd-cache-chip {
+  flex: none;
+  height: 30px !important;
+}
+.dd-hud.dd-fp .dd-objective {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+  min-height: 30px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  text-align: left;
+  font-size: calc(13px * var(--s));
+  line-height: 1.25;
+  padding: 5px 10px 5px 22px;
+  opacity: 1;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dd-hud.dd-fp .dd-objective::before {
+  top: 15px;
+}
+/* Hearts: only when hurt or cold (Hud toggles .shown). */
+.dd-hud.dd-fp .dd-hearts {
+  display: none;
+  align-self: flex-start;
+}
+.dd-hud.dd-fp .dd-hearts.shown {
+  display: flex;
+}
+
+/* The crosshair: a small dot; brightens over a target; a thin ring fills as the block cracks. */
+.dd-hud.dd-fp .dd-crosshair {
+  display: none;
+}
+.dd-hud.dd-fp .dd-crosshair.on {
+  display: block;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  pointer-events: none;
+}
+.dd-hud.dd-fp .dd-crosshair::before,
+.dd-hud.dd-fp .dd-crosshair::after {
+  content: none;
+}
+.dd-hud.dd-fp .dd-crosshair svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+}
+.dd-hud.dd-fp .dd-ch-track,
+.dd-hud.dd-fp .dd-ch-ring {
+  fill: none;
+  stroke-width: 1.6;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dd-hud.dd-fp .dd-ch-track {
+  stroke: rgba(239, 231, 216, 0.22);
+}
+.dd-hud.dd-fp .dd-ch-ring {
+  stroke: var(--amber-300);
+}
+.dd-hud.dd-fp .dd-crosshair.cracking .dd-ch-track,
+.dd-hud.dd-fp .dd-crosshair.cracking .dd-ch-ring {
+  opacity: 1;
+}
+.dd-hud.dd-fp .dd-ch-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: rgba(239, 231, 216, 0.5);
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.45);
+  transition: background 0.12s, transform 0.12s;
+}
+.dd-hud.dd-fp .dd-crosshair.hot .dd-ch-dot {
+  background: var(--amber-300);
+  transform: scale(1.5);
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.6), 0 0 6px rgba(255, 179, 92, 0.7);
+}
+.dd-hud.dd-fp .dd-crosshair.blocked .dd-ch-dot {
+  background: var(--danger-400);
+  transform: scale(1.3);
+}
+
+/* The bottom line: hints and the wake ring, at the foot of the screen between the tools (the
+   pick's head and the centre stay clear). */
+.dd-hud.dd-fp .dd-hud-bottom {
+  bottom: calc(14px + var(--safe-bottom));
+  width: min(420px, 64vw);
+  gap: 6px;
+}
+.dd-hud.dd-fp .dd-hint {
+  font-size: calc(13px * var(--s));
+  padding: 6px 12px;
+}
+/* The target's name stays for assistive tech only: the dot and the cracks say it on screen. */
+.dd-hud.dd-fp .dd-target {
+  position: absolute;
+  left: 0;
+  top: 0;
+  align-items: flex-start;
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Touch: the joystick appears only where the thumb lands; no ring at the finger. */
+.dd-touch.dd-fp .dd-stick.idle {
+  opacity: 0;
+}
+.dd-touch.dd-fp .dd-stick {
+  opacity: 0.8;
+  transition: opacity 0.12s;
+}
+.dd-touch.dd-fp .dd-mine-ring {
+  display: none;
+}
+/* The Use chip: bottom centre, above the hint line (the tools frame it). */
+.dd-touch.dd-fp .dd-action-cluster {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  bottom: calc(68px + var(--safe-bottom));
+  width: auto;
+  height: auto;
+  transform: translateX(-50%);
+}
+.dd-touch.dd-fp .dd-use {
+  position: static;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 48px;
+  padding: 0 16px 0 10px;
+  --cut: var(--cut-chip);
+  --fill: rgba(40, 24, 10, 0.72);
+  --rim: var(--amber-400);
+  color: var(--amber-300);
+  font: 800 calc(13px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.06em;
+  text-transform: none;
+}
+.dd-touch.dd-fp .dd-use[hidden] {
+  display: none;
+}
+
+@media (orientation: landscape) {
+  .dd-hud.dd-fp .dd-hud-top {
+    right: auto;
+    width: min(520px, 60vw);
+  }
+  .dd-hud.dd-fp .dd-hud-bottom {
+    bottom: calc(10px + var(--safe-bottom));
+  }
+  .dd-touch.dd-fp .dd-action-cluster {
+    bottom: calc(62px + var(--safe-bottom));
+  }
+}
+
+/* Pickups: a short feed on the left, above the lantern, rising (never over the centre). The
+   toasts keep the top centre, under the top bar. */
+.dd-notices .dd-pickups {
+  top: auto;
+  left: calc(12px + var(--safe-left));
+  bottom: calc(27% + var(--safe-bottom));
+  flex-direction: column-reverse;
+  max-width: 46vw;
+}
+@media (orientation: portrait) {
+  .dd-notices .dd-pickups {
+    bottom: calc(27% + var(--safe-bottom));
+  }
+  /* Toasts under the top bar, the objective line and the hearts row. */
+  .dd-ui .dd-toasts {
+    top: calc(146px + var(--safe-top));
+  }
+}
+@media (orientation: landscape) {
+  .dd-notices .dd-pickups {
+    bottom: calc(20% + var(--safe-bottom));
+  }
+}
+@media (orientation: landscape) {
+  /* Toasts below the top bar, centred (the bar now runs along the top left). */
+  .dd-ui .dd-toasts {
+    top: calc(98px + var(--safe-top));
+    left: 50%;
+    right: auto;
+    width: min(330px, 44vw);
+    transform: translateX(-50%);
+  }
+}

@@ -71,6 +71,8 @@ export interface GameEvents {
   'relic:found': { id: string; count: number; total: number };
   /** The black stone answered: the end card follows. Once per game, saved. */
   'finale:reached': Record<string, never>;
+  /** A feat was announced (gameplay/Feats; content, finished game). */
+  'feat:earned': { id: string };
 }
 
 type Handler<T> = (payload: T) => void;

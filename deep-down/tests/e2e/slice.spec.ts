@@ -2,9 +2,11 @@ import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
 import { LOADED_CEILING_MS, untilGame, waitPlay } from './dd';
 
-// The brief's definition of success, step by step, on a phone-sized landscape viewport:
-// start -> underground -> move with touch -> mine & collect -> discover -> return to camp ->
-// craft -> feel the difference -> save and resume.
+// The brief's definition of success, step by step, in first person on an upright phone
+// (390 x 844, real touches): start -> underground -> move with touch -> mine & collect ->
+// discover -> return to camp -> craft -> feel the difference -> save and resume.
+
+test.use({ viewport: { width: 390, height: 844 } });
 
 
 const B = { SLATE: 1, COPPER_ORE: 7, HARDENED_SLATE: 10, AIR: 0 };
@@ -66,8 +68,8 @@ async function mineWithTouch(page: Page, touch: Touch, block: [number, number, n
   const vp = page.viewportSize()!;
   await page.evaluate(() => window.__DD__.clearEvents());
   await page.waitForTimeout(250);
-  // The look/mine zone is the right half of the screen: press just right of the center.
-  const at = { x: Math.ceil(vp.width / 2) + 6, y: Math.round(vp.height * 0.5) };
+  // First person: hold on the block at the dot (anywhere outside the joystick corner mines).
+  const at = { x: Math.round(vp.width / 2), y: Math.round(vp.height * 0.5) };
   await page.evaluate(([x, y, z, ax, ay]) => window.__DD__.aimAt(x, y, z, ax, ay), [...block, (at.x / vp.width) * 2 - 1, 1 - (at.y / vp.height) * 2]);
   await touch.down(at);
   // Rock in front of the target is mined through first, as a player would.
@@ -119,10 +121,18 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   await expect(page.getByText(/-\d+ m/).first()).toBeVisible();
   const hud = page.locator('.dd-hud');
   await expect(hud).toHaveClass(/\bon\b/);
-  await expect(hud.locator('.dd-hearts')).toBeVisible();
+  // Calm HUD: at full health the hearts stay hidden (they show when hurt or cold).
+  await expect(hud.locator('.dd-hearts')).toBeHidden();
   await expect(hud.locator('.dd-hearts .dd-heart')).toHaveCount(5);
   await expect(hud.locator('.dd-hearts .dd-heart.f2')).toHaveCount(5); // full health: five full hearts
   await expect(hud.locator('.dd-hearts')).toHaveAttribute('aria-label', /^Health (\d+) of \1$/);
+  // First person: the dot at the centre, the pickaxe and the lantern in view, never the explorer.
+  await expect(hud.locator('.dd-crosshair')).toHaveClass(/\bon\b/);
+  expect(await page.evaluate(() => window.__DD__.game.viewmodel.visible)).toBe(true);
+  expect(await page.evaluate(() => 'explorer' in window.__DD__.game)).toBe(false);
+  // The top bar: depth, oil, the pack (the bag button) and the menu.
+  await expect(hud.locator('.dd-hud-bar .dd-tb-bag')).toBeVisible();
+  await expect(hud.locator('.dd-hud-bar .dd-tb-pause')).toBeVisible();
   const lantern = hud.locator('.dd-lantern[role="meter"]');
   await expect(lantern.locator('.dd-bar-fill')).toBeVisible();
   await expect(lantern).toHaveAttribute('aria-label', /^Lantern fuel \d+%$/);
@@ -139,9 +149,9 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   await expect(hud.locator('.dd-objective')).toHaveText(firstObjective);
   await expect(hud.locator('.dd-objective')).toHaveClass(/\bon\b/);
 
-  // 3. Move naturally with the floating joystick (left half of the screen).
+  // 3. Move naturally with the floating joystick (lower left third of the screen).
   const before = s.player;
-  await dragFor(page, { x: 140, y: 300 }, { x: 140, y: 230 }, 1.3);
+  await dragFor(page, { x: 70, y: 720 }, { x: 70, y: 650 }, 1.6);
   s = await state(page);
   const moved = Math.hypot(s.player.x - before.x, s.player.z - before.z);
   expect(moved).toBeGreaterThan(1.5);

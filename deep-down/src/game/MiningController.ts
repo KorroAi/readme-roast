@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../config/blocks';
-import { PLAYER, type PickaxeDef } from '../config/balance';
+import type { PickaxeDef } from '../config/balance';
+import { REACH } from './fp/constants';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Rng } from '../core/rng';
 import { t, type TextKey } from '../i18n';
@@ -54,10 +55,13 @@ export interface MiningHooks {
   propBroken(spec: PropSpec): void;
   rollDrop(drop: NonNullable<ReturnType<typeof blockDef>['drop']>): number;
   pickaxe(): PickaxeDef;
-  /** Start the pickaxe swing animation (duration in seconds). */
-  swing(duration: number): void;
-  /** Rotate the explorer toward the target. */
-  face(x: number, z: number, dt: number): void;
+  /**
+   * Start the pickaxe swing (duration in seconds); the head meets the rock at `contact` of it
+   * (the impact frame), at `point`.
+   */
+  swing(duration: number, contact: number, point: THREE.Vector3): void;
+  /** Turn the view toward the target (first person: only when it is off to the side). */
+  face(x: number, y: number, z: number, dt: number): void;
   hint(text: string): void;
   propRaycast(origin: THREE.Vector3, dir: THREE.Vector3, maxDist: number): { id: string; distance: number; point: THREE.Vector3 } | null;
   propById(id: string): PropSpec | null;
@@ -104,15 +108,84 @@ export class MiningController {
     // Tap to mine: a locked block stays the target until it breaks (game/TapController).
     if (input.lock) return this.lockedTarget(input.lock, handX, handY, handZ);
     const direct = this.rayTarget(input, handX, handY, handZ);
-    if (input.aimFromPointer || input.lastDevice !== 'touch') return direct;
+    // Holding on a vein: after a break, the next block of the same kind (the vein's next block
+    // beside the one that broke, then anything of that kind near the thumb).
+    if (input.mining && input.aimFromPointer && this.heldKind !== null && (!direct || !direct.inReach || direct.block !== this.heldKind)) {
+      const thumb = this.dirTmp.copy(this.dir);
+      const same = this.veinNext(this.heldKind, handX, handY, handZ, thumb) ?? this.sameKindNear(input.aimX, input.aimY, handX, handY, handZ, this.heldKind);
+      if (same) return same;
+    }
+    if (!input.mining) this.heldKind = null;
+    // First person: what the dot (or the finger) is on, never a guess elsewhere in the view.
+    if (input.aimFromPointer || input.lastDevice !== 'touch' || !this.assist) return direct;
     if (direct && direct.inReach && direct.protectedReason === null) return direct;
     return this.assisted(handX, handY, handZ) ?? direct;
+  }
+
+  /** Touch aim assist (the third-person Mine button's helper): off in first person. */
+  assist = false;
+
+  /** The kind of block a held finger broke last (the vein it is following), or null. */
+  private heldKind: number | null = null;
+  /** Where that block was. */
+  private readonly heldAt = { x: 0, y: 0, z: 0 };
+  private readonly dirTmp = new THREE.Vector3();
+
+  /**
+   * The vein's next block: a block of `kind` touching the one that broke (26 neighbours), in reach
+   * with a clear line from the hand, the one nearest the thumb's ray.
+   */
+  private veinNext(kind: number, hx: number, hy: number, hz: number, thumb: THREE.Vector3): MiningTarget | null {
+    let best: MiningTarget | null = null;
+    let bestDot = -Infinity;
+    const { x: bx, y: by, z: bz } = this.heldAt;
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy && !dz) continue;
+          const x = bx + dx;
+          const y = by + dy;
+          const z = bz + dz;
+          if (this.world.get(x, y, z) !== kind) continue;
+          const tg = this.lockedTarget({ kind: 'block', x, y, z }, hx, hy, hz);
+          if (!tg || !tg.inReach || tg.protectedReason !== null) continue;
+          const vx = x + 0.5 - hx;
+          const vy = y + 0.5 - hy;
+          const vz = z + 0.5 - hz;
+          const dot = (vx * thumb.x + vy * thumb.y + vz * thumb.z) / (Math.hypot(vx, vy, vz) || 1);
+          if (dot > bestDot) {
+            bestDot = dot;
+            best = tg;
+          }
+        }
+    return best;
+  }
+
+  /** The minable block of `kind` in reach nearest a screen point (two rings round it), or null. */
+  private sameKindNear(ndcX: number, ndcY: number, hx: number, hy: number, hz: number, kind: number): MiningTarget | null {
+    const aspect = this.cameraRig.camera.aspect || 1;
+    let best: MiningTarget | null = null;
+    let bestD = Infinity;
+    for (const ring of [0.07, 0.14, 0.22]) {
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        const r = this.pick(ndcX + Math.cos(a) * ring, ndcY + Math.sin(a) * ring * Math.min(1, aspect * 1.2), hx, hy, hz, REACH + 1.5).target;
+        if (!r || r.kind !== 'block' || r.block !== kind || !r.inReach || r.protectedReason !== null) continue;
+        const d = Math.hypot(r.point.x - hx, r.point.y - hy, r.point.z - hz) + ring * 4;
+        if (d < bestD) {
+          bestD = d;
+          best = r;
+        }
+      }
+      if (best) return best;
+    }
+    return null;
   }
 
   /** Aim assist (touch): see findTarget. Uses the centre ray direction computed by rayTarget. */
   private assisted(handX: number, handY: number, handZ: number): MiningTarget | null {
     const tier = this.hooks.pickaxe().tier;
-    const a = assistTarget(this.world, handX, handY, handZ, this.dir.x, this.dir.y, this.dir.z, PLAYER.reach, (id) => {
+    const a = assistTarget(this.world, handX, handY, handZ, this.dir.x, this.dir.y, this.dir.z, REACH, (id) => {
       const def = BLOCKS[id];
       if (!def?.visible || def.protectedReason) return null;
       // Prefer what the pick can break; a too-hard block is still shown (it tells the player why).
@@ -148,7 +221,7 @@ export class MiningController {
       return {
         kind: 'prop', key: `prop:${spec.id}`, x: spec.x, y: spec.y, z: spec.z, nx: 0, ny: 1, nz: 0, point,
         block: B.CRYSTAL, prop: spec, name: t('block.crystal'), hardness: m.hardness, tier: m.tier,
-        protectedReason: null, inReach: point.distanceTo(hand) <= PLAYER.reach,
+        protectedReason: null, inReach: point.distanceTo(hand) <= REACH,
       };
     }
     const { x, y, z } = lock;
@@ -171,7 +244,7 @@ export class MiningController {
     const [nx, ny, nz] = FACES[best];
     const point = new THREE.Vector3(x + 0.5 + nx * 0.5, y + 0.5 + ny * 0.5, z + 0.5 + nz * 0.5);
     const d = Math.hypot(x + 0.5 - hx, y + 0.5 - hy, z + 0.5 - hz);
-    let inReach = d <= PLAYER.reach;
+    let inReach = d <= REACH;
     if (inReach) {
       // A clear line from the hand: the first solid cell toward the face must be this block.
       const tx = point.x - hx;
@@ -193,7 +266,7 @@ export class MiningController {
     const ndcY = input.aimFromPointer ? input.aimY : 0;
     this.cameraRig.rayThrough(ndcX, ndcY, this.origin, this.dir);
     const camToHand = this.origin.distanceTo(this.tmp.set(handX, handY, handZ));
-    return this.cast(handX, handY, handZ, camToHand + PLAYER.reach + 1.5).target;
+    return this.cast(handX, handY, handZ, camToHand + REACH + 1.5).target;
   }
 
   /** Cast the ray in origin/dir: see pick(). */
@@ -209,7 +282,7 @@ export class MiningController {
       const target: MiningTarget = {
         kind: 'prop', key: `prop:${propSpec.id}`, x: propSpec.x, y: propSpec.y, z: propSpec.z, nx: -this.dir.x, ny: -this.dir.y, nz: -this.dir.z,
         point: propHit.point.clone(), block: B.CRYSTAL, prop: propSpec, name: t('block.crystal'), hardness: m.hardness, tier: m.tier,
-        protectedReason: null, inReach: d <= PLAYER.reach,
+        protectedReason: null, inReach: d <= REACH,
       };
       return { target, prop: propSpec, hit };
     }
@@ -223,14 +296,19 @@ export class MiningController {
     const target: MiningTarget = {
       kind: 'block', key: `${hit.x},${hit.y},${hit.z}`, x: hit.x, y: hit.y, z: hit.z, nx: hit.nx, ny: hit.ny, nz: hit.nz, point,
       block: hit.block, prop: null, name: t(def.name), hardness: def.hardness, tier: def.tier,
-      protectedReason: def.protectedReason ?? null, inReach: d <= PLAYER.reach,
+      protectedReason: def.protectedReason ?? null, inReach: d <= REACH,
     };
     return { target, prop: propFirst, hit };
   }
 
+  /** The last update ran with a finger held on the world (hold to mine, not a tap lock). */
+  private heldByFinger = false;
+
   /** @returns true while a swing is in progress (used to slow movement). */
   update(dt: number, input: InputState, active: boolean, handX: number, handY: number, handZ: number): boolean {
     this.time += dt;
+    this.heldByFinger = input.mining && input.aimFromPointer && input.lastDevice === 'touch';
+    if (!this.heldByFinger) this.heldKind = null;
     this.rules.update(dt);
     // Held (button, finger, mouse) or locked by a tap (mined until it breaks).
     const wantsMine = active && (input.mining || input.lock !== null);
@@ -246,10 +324,10 @@ export class MiningController {
       this.impactPending = true;
       this.impactAt = pick.swingInterval * 0.55;
       this.swingKey = tgt.key;
-      this.hooks.swing(pick.swingInterval);
+      this.hooks.swing(pick.swingInterval, 0.55, tgt.point);
       this.bus.emit('tool:swing', { tier: pick.tier });
     }
-    if (tgt && wantsMine) this.hooks.face(tgt.kind === 'block' ? tgt.x + 0.5 : tgt.x, tgt.kind === 'block' ? tgt.z + 0.5 : tgt.z, dt);
+    if (tgt && wantsMine) this.hooks.face(tgt.point.x, tgt.point.y, tgt.point.z, dt);
 
     if (this.swingTimer > 0) {
       const before = this.swingTimer;
@@ -281,8 +359,8 @@ export class MiningController {
     const p = tgt.point;
     if (res.blocked) {
       this.bus.emit('block:tooHard', { x: tgt.x, y: tgt.y, z: tgt.z, block: tgt.block, requiredTier: tgt.tier });
-      this.cameraRig.addTrauma(0.12);
-      this.particles.sparkle(p.x, p.y, p.z, 0xffd9a0, 4, this.rng, 1.6);
+      // The pick glances off: a few sparks, no shake (calm feedback; the hint says why).
+      this.particles.sparkle(p.x, p.y, p.z, 0xffd9a0, 3, this.rng, 1.2);
       if (this.time - this.lastBlockedHint > 2.5) {
         this.lastBlockedHint = this.time;
         if (tgt.protectedReason === 'protected') this.hooks.hint(t('hint.protected'));
@@ -296,13 +374,16 @@ export class MiningController {
     }
     const def = BLOCKS[tgt.block];
     this.marker.impact(1);
-    this.cameraRig.addTrauma(res.broken ? 0.22 : 0.09);
+    // No screen shake on mining: the pick's contact, the crack and a few chips carry the hit.
     const n: [number, number, number] = [tgt.nx, tgt.ny, tgt.nz];
-    this.debris.burst(p.x + n[0] * 0.05, p.y + n[1] * 0.05, p.z + n[2] * 0.05, def.debris, this.rng, {
-      count: 4, speed: 3.2, size: [0.05, 0.1], dir: n, life: [0.4, 0.8], glow: def.sound === 'crystal',
-    });
-    if (def.sound === 'crystal') this.particles.sparkle(p.x, p.y, p.z, 0x8ff6ff, 6, this.rng);
-    else this.particles.dust(p.x, p.y, p.z, def.debris[0], 2, this.rng, 0.1);
+    if (!res.broken) {
+      // Chips fall off the face (first person: never spat at the eye).
+      this.debris.burst(p.x + n[0] * 0.05, p.y + n[1] * 0.05, p.z + n[2] * 0.05, def.debris, this.rng, {
+        count: 3, speed: 1.0, size: [0.02, 0.04], dir: [n[0] * 0.12, -0.9, n[2] * 0.12], life: [0.3, 0.5], glow: def.sound === 'crystal',
+      });
+      if (def.sound === 'crystal') this.particles.sparkle(p.x, p.y, p.z, 0x8ff6ff, 3, this.rng);
+      else this.particles.dust(p.x, p.y, p.z, def.debris[0], 1, this.rng, 0.1);
+    }
 
     if (tgt.kind === 'prop' && tgt.prop) {
       this.hooks.propFlash(tgt.prop.id);
@@ -311,8 +392,8 @@ export class MiningController {
         const spec = tgt.prop;
         const m = spec.minable!;
         const count = m.min + Math.floor(this.rng.next() * (m.max - m.min + 1));
-        this.particles.sparkle(spec.x, spec.y + 0.5, spec.z, 0x8ff6ff, 22, this.rng, 3.2);
-        this.debris.burst(spec.x, spec.y + 0.4, spec.z, [0x52e8f5, 0x9ff6ff, 0x1b8aa8], this.rng, { count: 14, speed: 4, size: [0.06, 0.16], glow: true, spread: 0.3 });
+        this.particles.sparkle(spec.x, spec.y + 0.5, spec.z, 0x8ff6ff, 8, this.rng, 2);
+        this.debris.burst(spec.x, spec.y + 0.4, spec.z, [0x52e8f5, 0x9ff6ff, 0x1b8aa8], this.rng, { count: 8, speed: 1.6, size: [0.05, 0.12], glow: true, spread: 0.3, dir: [0, -0.7, 0], life: [0.7, 1.2] });
         this.drops.spawn(m.drop, count, spec.x, spec.y + 0.5, spec.z, this.rng);
         this.bus.emit('prop:broken', { propId: spec.id, x: spec.x, y: spec.y, z: spec.z });
         this.hooks.propBroken(spec);
@@ -327,9 +408,17 @@ export class MiningController {
     const cx = tgt.x + 0.5;
     const cy = tgt.y + 0.5;
     const cz = tgt.z + 0.5;
-    this.debris.burst(cx, cy, cz, def.debris, this.rng, { count: 12, speed: 4.2, size: [0.09, 0.22], spread: 0.35, glow: def.sound === 'crystal' });
-    this.particles.dust(cx, cy, cz, def.debris[0], 7, this.rng);
-    if (isEmitter(oldId)) this.particles.sparkle(cx, cy, cz, 0x8ff6ff, 18, this.rng, 3);
+    // A short crumble: at most 8 chunks and a few dust motes (calm FX).
+    // The block crumbles where it stood: the chunks drop and settle (none fly at the eye).
+    this.debris.burst(cx - tgt.nx * 0.15, cy, cz - tgt.nz * 0.15, def.debris, this.rng, { count: 8, speed: 1.4, size: [0.05, 0.12], spread: 0.3, dir: [tgt.nx * 0.1, -0.85, tgt.nz * 0.1], life: [0.7, 1.1], glow: def.sound === 'crystal' });
+    this.particles.dust(cx, cy, cz, def.debris[0], 4, this.rng);
+    if (isEmitter(oldId)) this.particles.sparkle(cx, cy, cz, 0x8ff6ff, 8, this.rng, 2.2);
+    if (this.heldByFinger) {
+      this.heldKind = oldId;
+      this.heldAt.x = tgt.x;
+      this.heldAt.y = tgt.y;
+      this.heldAt.z = tgt.z;
+    }
     if (def.drop) {
       const count = this.hooks.rollDrop(def.drop);
       if (count > 0) this.drops.spawn(def.drop.item, count, cx, cy, cz, this.rng);

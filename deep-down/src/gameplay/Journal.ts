@@ -1,5 +1,5 @@
 import { RUNES_BY_GLYPH, RUNE_GLYPH } from '../config/runes';
-import { ITEMS } from '../config/items';
+import { ITEMS, RELIC_ITEMS } from '../config/items';
 import { hasText, t, type TextKey } from '../i18n';
 import type { EndingView, JournalEntry, JournalTab, JournalView, JournalZone, RelicText, RunePage } from '../ui/types';
 import { DISCOVERIES } from './discoveries';
@@ -79,7 +79,7 @@ function validIds(x: unknown): string[] {
 // The Journal as the screens see it (final pass W3)
 
 /** Zone of each discovery (the Journal's headers); anything not listed is the deep. */
-export const JOURNAL_ZONES: Readonly<Record<string, 'tunnel' | 'hollow' | 'deep'>> = {
+export const JOURNAL_ZONES: Readonly<Record<string, 'tunnel' | 'hollow' | 'deep' | 'beyond'>> = {
   crystals: 'tunnel',
   mothGrotto: 'tunnel',
   'note.office': 'tunnel',
@@ -90,8 +90,11 @@ export const JOURNAL_ZONES: Readonly<Record<string, 'tunnel' | 'hollow' | 'deep'
   reliquary: 'hollow',
   'note.landing': 'hollow',
   'note.yard': 'hollow',
-};
-const ZONE_ORDER = ['tunnel', 'hollow', 'deep'] as const;
+  glowroot: 'beyond',
+  choir: 'beyond',
+  emberDeep: 'beyond',
+} as Readonly<Record<string, 'tunnel' | 'hollow' | 'deep' | 'beyond'>>;
+const ZONE_ORDER = ['tunnel', 'hollow', 'deep', 'beyond'] as const;
 
 /** The found texts the Relic tab collects (the tablets in the shrine, the reliquary and the gallery). */
 const RELIC_TEXTS = ['tablet', 'reliquary', 'lampGallery'] as const;
@@ -151,6 +154,8 @@ export function buildJournalView(j: JournalInput): JournalView {
     };
   });
   const relics: RelicText[] = RELIC_TEXTS.map((id) => ({ id, title: text(`discovery.${id}.title`, id), body: text(`discovery.${id}.body`), found: found.has(id) }));
+  // The relics themselves (key items): their names and one line each.
+  for (const item of RELIC_ITEMS) relics.push({ id: item, title: t(ITEMS[item].name), body: t(ITEMS[item].desc), found: keys.has(item) });
   const ending: EndingView = { reached: j.finale, expeditions: j.expeditions, deepest: j.deepest, playTime: j.playTime, answer: t('discovery.answer.body') };
   return {
     discoveries,

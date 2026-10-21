@@ -107,6 +107,10 @@ export interface ExpeditionReport {
   craftableNow?: boolean;
   /** The deep breathed after this trip (it went into the Hollow): null otherwise. */
   overnight?: ReportOvernight | null;
+  /** Content (finished game): feats earned on this trip (names), and caches and secrets opened. */
+  feats?: string[];
+  caches?: number;
+  secrets?: number;
 }
 
 export const NO_RECORDS: Readonly<RecordsState> = { deepest: 0, biggestHaul: 0, expeditions: 0, blackouts: 0, bestStreak: 0, streak: 0 };

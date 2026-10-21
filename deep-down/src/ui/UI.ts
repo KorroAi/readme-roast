@@ -53,7 +53,7 @@ const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: '
 export class UI implements GameUi {
   readonly touch: TouchControls;
   private readonly el: HTMLElement;
-  private readonly hud = new Hud();
+  private readonly hud: Hud;
   private readonly toasts = new Toasts();
   private readonly pickups = new PickupFeed();
   private readonly discovery = new DiscoveryBanner();
@@ -108,6 +108,14 @@ export class UI implements GameUi {
     // The host page may give its direct children pointer events; this layer must stay
     // transparent so the canvas below still receives mouse input. Inline beats any selector.
     this.el.style.pointerEvents = 'none';
+    this.hud = new Hud({
+      bag: () => {
+        input.inventoryPressed = true;
+      },
+      menu: () => {
+        input.pausePressed = true;
+      },
+    });
     this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el));
     root.appendChild(this.el);
     this.touch = new TouchControls(this.el, input);

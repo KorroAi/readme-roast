@@ -26,6 +26,13 @@ import { hexToLinear } from '../core/math';
  */
 export const SCENE_ENCODE: THREE.IUniform<number> = { value: 0 };
 
+/**
+ * Distance (m) past which the current zone's haze hides everything (distance fog >= ~97 %, the low
+ * pool ignored, so it is conservative): the chunk renderer draws nothing beyond it, which keeps
+ * enclosed passages far under the draw-call budget. Set by the active LightingRig.
+ */
+export const FOG_CULL = { value: Infinity };
+
 export interface LightingUniforms {
   [name: string]: THREE.IUniform;
   uLightTex: THREE.IUniform<THREE.Data3DTexture>;
@@ -47,7 +54,8 @@ export interface LightingUniforms {
   // uniform sets in unit tests stay valid; a missing uniform reads as 0 in GLSL):
   //   uFogLow  vec3  haze that pools low in a space (darker blue-black, violet over the rift)
   //   uFogPool vec4  x: pool level (world y), y: 1 / pool thickness, z: pool density (1/m)
-  //   uAtmos   vec4  x: light-volume in-scatter, y: lantern bounce, z: emission absorbed by fog
+  //   uAtmos   vec4  x: light-volume in-scatter, y: lantern bounce, z: emission absorbed by fog,
+  //                  w: the zone's light gain (terrain and prop emission take it)
 }
 
 export const LIGHTING_GLSL = /* glsl */ `
@@ -108,6 +116,11 @@ vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
   vec3 placed = ls.rgb * (facing.x * (1.0 - 0.6 * (1.0 - ao)));
   vec3 fill = uOpenAmbient * (ls.a * ls.a * (0.4 + 0.6 * n.y) * facing.y);
   const vec3 LUM = vec3(0.2126, 0.7152, 0.0722);
+  // Cool placed light (crystals, the rift) gives way where the lantern clearly owns the face, so
+  // the pool reads amber against cyan around it instead of lavender where the two overlap.
+  float pl = max(dot(placed, LUM), 1e-4);
+  float cool = smoothstep(0.0, 0.6, (placed.b + 0.5 * placed.g - 1.5 * placed.r) / pl);
+  placed *= 1.0 - 0.6 * cool * smoothstep(0.7, 2.2, dot(lantern, LUM) / pl);
   float own = 1.0 - 0.75 * smoothstep(0.6, 1.8, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004));
   return uAmbient + fill * own + placed;
 }
@@ -160,8 +173,17 @@ float lanternVisibility(vec3 samplePos) {
 // leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
 // in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
 // who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
-const float LANTERN_K = 6.0;
-const float LANTERN_GAIN = 1.6;
+// First person (2026-10 visual pass): the flame hangs in the hand low left of the eye (about 1.2 m
+// above the feet, a little ahead), so the pool is the floor and walls ahead of the player. The
+// falloff is steeper (K 16: 1 m 0.86, 2 m 0.6, 3 m 0.4, 4 m 0.28, 6 m 0.12 of the gain), so the
+// pool reads 6-8 m across and the far dark keeps its depth; the tank only shades the floor
+// almost straight below the flame (out of view), and the near ground is no longer held back.
+const float LANTERN_K = 16.0;
+const float LANTERN_GAIN = 11.5;
+// Set by lanternLight for lanternSpec (the same flame, no second visibility fetch): the radiance
+// reaching the fragment (shadowed, tank-shaded, tinted) and the direction to the flame.
+vec3 gLanternRad = vec3(0.0);
+vec3 gLanternL = vec3(0.0, 1.0, 0.0);
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
@@ -169,19 +191,46 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float x = max(dist, minDist) / max(uLanternRadius, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
-  float tank = 1.0 - 0.9 * smoothstep(0.3, 0.75, -l.y);
+  // Arm's length: a wall right in front of the flame would wash to cream; the near field is held
+  // back (0.45x at 0.3 m, 0.62x at 1 m, 1x from 2.2 m), so close stone keeps its colour and form.
+  att *= 1.0 - 0.55 * (1.0 - smoothstep(0.3, 2.2, dist));
+  float tank = 1.0 - 0.75 * smoothstep(0.8, 0.97, -l.y);
   // Ground (up-facing) takes the light with more wrap, as rough rubble does, so the pool still
   // reads 3-6 m out where the flame grazes it (the flame hangs only ~0.7 m above the floor); within
   // ~4 m it takes less, so the ground at the carrier's feet is never the largest bright area.
   float up = smoothstep(0.5, 0.9, n.y);
-  float wrap = 0.05 + 0.2 * up;
+  float wrap = 0.08 + 0.27 * up;
   float diff = clamp(dot(n, l) * (1.0 - wrap) + wrap, 0.0, 1.0);
-  diff *= 1.0 - 0.6 * up * (1.0 - smoothstep(2.5, 4.5, dist));
-  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, x));
+  // The floor right ahead is the largest lit area of a first-person frame: it takes a little less,
+  // so the pool stays golden there instead of washing out, and the walls carry the light.
+  diff *= 1.0 - 0.3 * up * (1.0 - smoothstep(1.2, 3.5, dist));
+  // Pale gold within ~1 m, amber by ~3 m, deep amber at the rim of the pool (uLanternColor is the
+  // amber of the flame; the core is paler).
+  vec3 tint = mix(mix(vec3(1.0, 1.05, 1.12), vec3(1.0, 0.92, 0.82), smoothstep(0.04, 0.26, x)), vec3(1.0, 0.8, 0.62), smoothstep(0.3, 0.75, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
+  gLanternRad = uLanternColor * tint * (LANTERN_GAIN * tank * uLanternIntensity * vis * att);
+  gLanternL = l;
   return uLanternColor * (tint * (LANTERN_GAIN * diff * tank) + bounceTint * (bounce * (0.3 + 0.7 * tank))) * (uLanternIntensity * vis * att);
+}
+
+// Specular of the lantern on a surface (call after lanternLight): GGX distribution with the
+// mobile visibility approximation (Unity's "minimalist" Cook-Torrance), Schlick Fresnel. n: the
+// detailed shading normal, rough: perceptual roughness, f0: reflectance at normal incidence.
+// Wet stone, ore metal and dressed faces catch the flame as it moves; dry rubble barely does.
+vec3 lanternSpec(vec3 n, vec3 v, float rough, vec3 f0) {
+  vec3 l = gLanternL;
+  vec3 h = normalize(l + v);
+  float ndl = max(dot(n, l), 0.0);
+  float ndh = max(dot(n, h), 0.0);
+  float ldh = max(dot(l, h), 0.0);
+  float a = rough * rough;
+  float a2 = a * a;
+  float d = ndh * ndh * (a2 - 1.0) + 1.0;
+  float spec = a2 / (4.0 * 3.14159 * d * d * max(0.1, ldh * ldh) * (rough + 0.5));
+  vec3 f = f0 + (1.0 - f0) * pow(1.0 - ldh, 5.0);
+  return gLanternRad * f * min(spec, 24.0) * ndl;
 }
 
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open) {
@@ -216,9 +265,13 @@ float poolDepth(vec3 wp, float depth) {
 // instead of being cut out of a flat fog. Aerial perspective: a thin veil of haze is dark and a
 // deep one glows (light scattered many times), so mid-distance forms (pillars, the Spindle, stair
 // flights) stand as darker silhouettes against the lighter depth behind them.
+// Clear air near the player: the haze starts 12 m out and is fully in by 18 m (first person: the
+// room around the lantern is never veiled; depth reads in the far dark, in a hued haze).
+const float FOG_START = 12.0;
 vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
-  float f = depth * uFogDensity;
-  float od = f * f * 0.6 + f * 0.4 + poolDepth(wp, depth);
+  float fd = max(depth - FOG_START, 0.0) * smoothstep(FOG_START, FOG_START + 6.0, depth);
+  float f = fd * uFogDensity;
+  float od = f * f * 0.6 + f * 0.4 + poolDepth(wp, fd);
   float a = 1.0 - exp(-od);
   float lift = smoothstep(-3.0, 10.0, wp.y - uFogPool.x);
   // In-scatter saturates softly: a lamp warms the air around it without a solid glowing cloud.
@@ -274,18 +327,28 @@ export interface AtmospherePreset {
   absorb: number;
   /**
    * Scene exposure of the zone for the post chain (times the player's brightness, 1.05 at the
-   * default setting). The albedos are real reflectances (palette.ts), so this is about 2.
+   * default setting): 1.0-1.15. The brightness comes from the lights (lightGain), not the exposure.
    */
   exposure: number;
+  /**
+   * Gain on the zone's lights: ambient, open fill, haze colours, placed lights (uEmitGain) and
+   * terrain emission (uAtmos.w). The albedos are real reflectances (palette.ts), so a zone's light
+   * is about 1.2-2x what an exposure of 1 alone would show.
+   */
+  lightGain: number;
 }
 
-export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift';
+export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift' | 'glowroot' | 'ember';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
-  camp: { fog: 0x1b1a1c, fogLow: 0x101116, density: 0.026, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 1.6, open: 0x3e4a60, openGain: 1.4, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.8 },
-  tunnel: { fog: 0x161a20, fogLow: 0x0e1014, density: 0.03, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x141c2e, ambientGain: 0.6, open: 0x5a6a84, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.36 },
-  hollow: { fog: 0x203046, fogLow: 0x121638, density: 0.013, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2640, ambientGain: 0.6, open: 0x8a9ab5, openGain: 0.95, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 2.25 },
-  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.022, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 2.1 },
+  camp: { fog: 0x1b1a1c, fogLow: 0x101116, density: 0.04, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 1.6, open: 0x3e4a60, openGain: 1.4, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.0, lightGain: 1.8 },
+  tunnel: { fog: 0x14202a, fogLow: 0x0c1218, density: 0.05, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x12243a, ambientGain: 0.6, open: 0x4f7088, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.0, lightGain: 1.36 },
+  hollow: { fog: 0x1c3248, fogLow: 0x121638, density: 0.022, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2a44, ambientGain: 0.6, open: 0x84a0bc, openGain: 0.95, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 1.0, lightGain: 2.25 },
+  rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.035, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 2.09 },
+  // The deep zones beyond the rift (content pass), told apart by the hue of their own light:
+  // the Glowroot's moss-green air over green-gold drifts, the Ember Deep's smoky red over its fissures.
+  glowroot: { fog: 0x0f2216, fogLow: 0x0c1a0c, density: 0.035, poolLevel: 0, poolThickness: 5, poolDensity: 0.02, ambient: 0x0c1a12, ambientGain: 0.55, open: 0x5f8a56, openGain: 0.75, scatter: 0.16, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 1.98 },
+  ember: { fog: 0x26100c, fogLow: 0x341208, density: 0.04, poolLevel: -2, poolThickness: 4, poolDensity: 0.03, ambient: 0x160a0a, ambientGain: 0.55, open: 0x7a4a3c, openGain: 0.7, scatter: 0.18, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 1.98 },
 };
 
 /** Axis-aligned box (world units) used to find the camp. */
@@ -300,22 +363,26 @@ interface AtmosphereMix {
   fogLow: THREE.Color;
   ambient: THREE.Color;
   open: THREE.Color;
-  /** density, poolLevel, 1/poolThickness, poolDensity, scatter, bounce, absorb, exposure */
+  /** density, poolLevel, 1/poolThickness, poolDensity, scatter, bounce, absorb, exposure, lightGain */
   k: number[];
 }
 
 function linearPreset(p: AtmospherePreset): AtmosphereMix {
-  const c = (hex: number, gain = 1) => new THREE.Color().setRGB(...hexToLinear(hex)).multiplyScalar(gain);
+  const g = p.lightGain;
+  const c = (hex: number, gain = 1) => new THREE.Color().setRGB(...hexToLinear(hex)).multiplyScalar(gain * g);
   return {
     fog: c(p.fog),
     fogLow: c(p.fogLow),
     ambient: c(p.ambient, p.ambientGain),
     open: c(p.open, p.openGain),
-    k: [p.density, p.poolLevel, 1 / p.poolThickness, p.poolDensity, p.scatter, p.bounce, p.absorb, p.exposure],
+    k: [p.density, p.poolLevel, 1 / p.poolThickness, p.poolDensity, p.scatter, p.bounce, p.absorb, p.exposure, p.lightGain],
   };
 }
 
-const ZONES: AtmosphereZone[] = ['camp', 'tunnel', 'hollow', 'rift'];
+/** The placed-light gain at lightGain 1 (the light volume's emitters, uEmitGain). */
+export const EMIT_GAIN = 3.6;
+
+const ZONES: AtmosphereZone[] = ['camp', 'tunnel', 'hollow', 'rift', 'glowroot', 'ember'];
 const LINEAR: Record<AtmosphereZone, AtmosphereMix> = Object.fromEntries(ZONES.map((z) => [z, linearPreset(ATMOSPHERES[z])])) as Record<AtmosphereZone, AtmosphereMix>;
 
 function addScaled(out: THREE.Color, c: THREE.Color, w: number): void {
@@ -338,10 +405,23 @@ export class LightingRig {
   private readonly sy: number;
   private readonly sz: number;
   private pending: Box3i | null = null;
-  /** Current zone weights (camp, tunnel, hollow, rift), smoothed over time. */
-  readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0 };
-  /** Exposure multiplier of the current atmosphere (the post chain applies it). */
+  /** Anchors of the zones with their own air (the deep zones), see setZoneAnchors. */
+  private anchors: ReadonlyArray<{ zone: 'glowroot' | 'ember'; at: readonly [number, number, number]; radius: number }> = [];
+
+  /**
+   * Places that keep their own air: within `radius` of `at` (vertical distance counts 1.5x) the
+   * zone's preset takes over, easing out over the outer 45 %.
+   */
+  setZoneAnchors(anchors: ReadonlyArray<{ zone: 'glowroot' | 'ember'; at: readonly [number, number, number]; radius: number }>): void {
+    this.anchors = anchors.slice();
+  }
+
+  /** Current zone weights (camp, tunnel, hollow, rift, glowroot, ember), smoothed over time. */
+  readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0, glowroot: 0, ember: 0 };
+  /** Exposure multiplier of the current atmosphere (the post chain applies it): 1.0-1.15. */
   exposure = 1;
+  /** Light gain of the current atmosphere (uAtmos.w; uEmitGain = EMIT_GAIN x this). */
+  lightGain = 1;
   private readonly mixed = linearPreset(ATMOSPHERES.hollow);
   private readonly fogLow = new THREE.Color();
   private readonly fogPool = new THREE.Vector4();
@@ -383,13 +463,13 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m).
-      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) },
+      // The flame's amber (the shader pales it toward gold at the core and deepens it at the rim).
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffb878)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
       uOpenAmbient: { value: new THREE.Color() },
-      uEmitGain: { value: 3.6 },
+      uEmitGain: { value: EMIT_GAIN },
       uFogColor: { value: new THREE.Color() },
       uFogLow: { value: this.fogLow },
       uFogPool: { value: this.fogPool },
@@ -419,6 +499,7 @@ export class LightingRig {
     const d = this.field.data;
     let sum = 0;
     let n = 0;
+
     for (let dz = -4; dz <= 4; dz += 2)
       for (let dy = 0; dy <= 4; dy += 2)
         for (let dx = -4; dx <= 4; dx += 2) {
@@ -430,6 +511,14 @@ export class LightingRig {
           sum += d[(xi + this.sx * (yi + this.sy * zi)) * 4 + 3];
         }
     const open = sum / (n * 255);
+    // The deep zones beyond the rift carry their own air around their anchors (setZoneAnchors).
+    let green = 0;
+    let red = 0;
+    for (const an of this.anchors) {
+      const w = 1 - smooth(an.radius * 0.55, an.radius, Math.hypot(x - an.at[0], (y - an.at[1]) * 1.5, z - an.at[2]));
+      if (an.zone === 'glowroot') green = Math.max(green, w);
+      else red = Math.max(red, w);
+    }
     let campW = 0;
     if (camp) {
       const ex = Math.max(camp.min[0] - x, 0, x - camp.max[0]);
@@ -437,8 +526,11 @@ export class LightingRig {
       const ez = Math.max(camp.min[2] - z, 0, z - camp.max[2]);
       campW = 1 - smooth(0, 8, Math.hypot(ex, ey, ez));
     }
-    const riftW = smooth(37.5, 30, y) * (1 - campW);
-    const rest = 1 - campW - riftW;
+    const glowW = green * (1 - red) * (1 - campW);
+    const emberW = red * (1 - campW);
+    const left = 1 - campW - glowW - emberW;
+    const riftW = smooth(37.5, 30, y) * left;
+    const rest = left - riftW;
     const hollowW = smooth(0.12, 0.42, open) * rest;
     // Ease toward the target (time constant ~0.7 s) so crossing a threshold never pops; snap on a
     // jump of more than 6 m in one frame (respawn, return to camp, debug teleport).
@@ -453,6 +545,8 @@ export class LightingRig {
     zw.tunnel += (rest - hollowW - zw.tunnel) * a;
     zw.hollow += (hollowW - zw.hollow) * a;
     zw.rift += (riftW - zw.rift) * a;
+    zw.glowroot += (glowW - zw.glowroot) * a;
+    zw.ember += (emberW - zw.ember) * a;
     this.applyAtmosphere();
   }
 
@@ -493,8 +587,12 @@ export class LightingRig {
     u.uOpenAmbient.value.copy(m.open);
     u.uFogDensity.value = m.k[0];
     this.fogPool.set(m.k[1], m.k[2], m.k[3], 0);
-    this.atmos.set(m.k[4], m.k[5], m.k[6], 0);
+    this.atmos.set(m.k[4], m.k[5], m.k[6], m.k[8]);
+    // f^2 0.6 + f 0.4 = 3.5 at f = 2.12 (optical depth 3.5: 97 % haze), past FOG_START.
+    FOG_CULL.value = m.k[0] > 1e-4 ? 12 + 2.12 / m.k[0] + 6 : Infinity;
     this.exposure = m.k[7];
+    this.lightGain = m.k[8];
+    u.uEmitGain.value = EMIT_GAIN * m.k[8];
   }
 
   /** Queue a sub-region of the world light texture for upload. */

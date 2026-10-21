@@ -50,7 +50,7 @@ void main() {
   // Halos are the breadcrumbs across the dark: the haze dims them but never erases them.
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
   float flicker = 0.92 + 0.08 * sin(uTime * 9.0 + gl_FragCoord.x * 0.01);
-  vec3 col = vColor * (core + glow) * (1.0 - fog * 0.6) * vNear * flicker;
+  vec3 col = vColor * (core + glow) * (1.0 - fog * 0.6) * vNear * flicker * uAtmos.w;
   fragColor = vec4(sceneOut(col), 1.0);
 }
 `;

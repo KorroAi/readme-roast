@@ -65,6 +65,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'station:built': { id: 'forge', x: 42, y: 101, z: 33 },
   'relic:found': { id: 'runeEye', count: 2, total: 8 },
   'finale:reached': {},
+  'feat:earned': { id: 'firstCopper' },
 };
 
 const WORLD_STATE: AudioWorldState = {

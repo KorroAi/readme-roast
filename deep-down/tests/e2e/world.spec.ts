@@ -8,6 +8,8 @@ import { LOADED_CEILING_MS, waitPlay } from './dd';
 
 // SwiftShader under load renders a frame or two per second: give the test a generous budget.
 test.describe.configure({ timeout: 900_000 });
+// First person on an upright phone, with real touches.
+test.use({ viewport: { width: 390, height: 844 } });
 
 
 const IRON_ORE = 8;
@@ -74,7 +76,7 @@ test('every discovery triggers; a black-out leaves a cache, respawns at camp, is
   const iron = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(8, x, y, z, 60), lm.stairsBottom);
   expect(iron, 'a reachable iron vein').not.toBeNull();
   const vp = page.viewportSize()!;
-  const at = { x: Math.ceil(vp.width / 2) + 6, y: Math.round(vp.height / 2) };
+  const at = { x: Math.round(vp.width / 2), y: Math.round(vp.height / 2) };
   await page.evaluate(([x, y, z, ax, ay]) => window.__DD__.aimAt(x, y, z, ax, ay), [...iron!.block, (at.x / vp.width) * 2 - 1, 1 - (at.y / vp.height) * 2]);
   await touch.down(at);
   await page.waitForFunction(
@@ -98,6 +100,8 @@ test('every discovery triggers; a black-out leaves a cache, respawns at camp, is
   expect(hp, 'health after a 6 m fall').toBeGreaterThan(0);
   expect(hp).toBeLessThan(100);
   await expect(hearts).toHaveAttribute('aria-label', `Health ${Math.ceil(hp)} of 100`);
+  // Calm HUD: the hearts come into view once hurt.
+  await expect(hearts).toBeVisible();
   // Half-heart units, as specified for the HUD: nearest half heart, 1..9 while hurt but alive.
   const fullHearts = Math.floor(Math.max(1, Math.min(9, Math.round((hp / 100) * 10))) / 2);
   await expect(hearts.locator('.dd-heart.f2')).toHaveCount(fullHearts);

@@ -6,6 +6,14 @@ import { OBJECTIVE_CHAIN, OBJECTIVE_NEED, Objectives } from '../../src/gameplay/
 
 const at = (x: number) => ({ x, y: 0, z: 0 });
 
+/** A new chain past the control steps (look round, walk), on a desktop (the texts say click and keys). */
+function fresh(): Objectives {
+  const o = new Objectives();
+  o.setTotals({ touch: false });
+  o.noteControls(90, 6);
+  return o;
+}
+
 function mineStone(o: Objectives, n: number): void {
   for (let i = 0; i < n; i++) o.onEvent('block:broken', { ...at(i), block: B.SLATE });
 }
@@ -30,15 +38,32 @@ function playTo(o: Objectives, stop: (typeof OBJECTIVE_CHAIN)[number] | 'done'):
 }
 
 describe('Objectives', () => {
-  it('starts with mining stone, showing have/need', () => {
+  it('starts with the controls (look round, then walk), then mining stone, showing have/need', () => {
     const o = new Objectives();
+    expect(o.current()).toEqual({ id: 'look', text: t('objective.look') });
+    expect(o.noteControls(40, 0)).toBe(false);
+    expect(o.noteControls(40, 0)).toBe(true);
+    expect(o.current()).toEqual({ id: 'walk', text: t('objective.walk') });
+    o.setTotals({ touch: false });
+    expect(o.current().text).toBe(t('objective.walkDesktop'));
+    expect(o.noteControls(0, 5.5)).toBe(true);
     expect(o.current()).toEqual({ id: 'mineStone', text: t('objective.mineStone', { have: 0, need: OBJECTIVE_NEED.stone }) });
     expect(o.current().text).toBe('Mine stone (0/12)');
-    expect(o.completed).toEqual([]);
+    expect(o.completed).toEqual(['look', 'walk']);
+    o.setTotals({ touch: true });
+    expect(o.current().text).toBe('Tap a rock wall to mine it (0/12)');
+    // Later steps do not count turning or walking.
+    expect(o.noteControls(500, 500)).toBe(false);
+  });
+
+  it('never holds a player back on the controls: mining first skips them', () => {
+    const o = new Objectives();
+    mineStone(o, OBJECTIVE_NEED.stone);
+    expect(o.currentId).toBe('findCopper');
   });
 
   it('counts broken blocks that drop stone, but not other blocks', () => {
-    const o = new Objectives();
+    const o = fresh();
     mineStone(o, 3);
     o.onEvent('block:broken', { ...at(0), block: B.SOIL }); // drops nothing
     o.onEvent('block:broken', { ...at(0), block: B.COPPER_ORE });
@@ -47,7 +72,7 @@ describe('Objectives', () => {
   });
 
   it('counts picked-up stone without double counting broken blocks', () => {
-    const o = new Objectives();
+    const o = fresh();
     mineStone(o, 5);
     o.onEvent('item:picked', { item: 'stone', count: 5 });
     expect(o.current().text).toBe('Mine stone (5/12)');
@@ -56,7 +81,7 @@ describe('Objectives', () => {
   });
 
   it('walks the whole chain in order and reports changes', () => {
-    const o = new Objectives();
+    const o = fresh();
     mineStone(o, OBJECTIVE_NEED.stone - 1);
     expect(o.currentId).toBe('mineStone');
     expect(o.onEvent('block:broken', { ...at(99), block: B.SLATE })).toBe(true);
@@ -86,7 +111,7 @@ describe('Objectives', () => {
   });
 
   it('moves on as soon as a count target is reached', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.onEvent('item:picked', { item: 'stone', count: 4 });
     o.onEvent('item:picked', { item: 'copperOre', count: 3 });
     expect(o.current().text).toBe('Mine stone (4/12)');
@@ -95,7 +120,7 @@ describe('Objectives', () => {
   });
 
   it('returning to camp needs enough copper owned at entry', () => {
-    const o = new Objectives();
+    const o = fresh();
     playTo(o, 'returnToCamp');
     o.setTotals({ copperOwned: 3 }); // lost some on the way back (death)
     expect(o.current().text).toBe('Find copper ore (3/8)');
@@ -108,7 +133,7 @@ describe('Objectives', () => {
   });
 
   it('completes the return when the last copper is picked up inside camp', () => {
-    const o = new Objectives();
+    const o = fresh();
     playTo(o, 'returnToCamp');
     o.setTotals({ copperOwned: 7, atCamp: true });
     expect(o.currentId).toBe('returnToCamp');
@@ -117,7 +142,7 @@ describe('Objectives', () => {
   });
 
   it('entering camp before having copper does not complete the return', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.setTotals({ copperOwned: 0 });
     o.onEvent('camp:entered', {});
     playTo(o, 'returnToCamp');
@@ -125,20 +150,20 @@ describe('Objectives', () => {
   });
 
   it('skips forward when a later objective is already satisfied', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.onEvent('craft:done', { recipe: 'copperPickaxe' });
     expect(o.currentId).toBe('breakSeal');
-    expect(o.completed).toEqual(['mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe']);
+    expect(o.completed).toEqual(['look', 'walk', 'mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe']);
   });
 
   it('skips forward from equipment that is already upgraded', () => {
-    const o = new Objectives();
+    const o = fresh();
     expect(o.setTotals({ pickaxeTier: 2 })).toBe(true);
     expect(o.currentId).toBe('breakSeal');
   });
 
   it('skips several steps at once when they were done out of order', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.onEvent('item:picked', { item: 'copperOre', count: 8 });
     o.setTotals({ copperOwned: 8 });
     mineStone(o, 12);
@@ -148,7 +173,7 @@ describe('Objectives', () => {
   });
 
   it('exposes the shrine as a side hint once the Hollow is found', () => {
-    const o = new Objectives();
+    const o = fresh();
     expect(o.sideHint()).toBeNull();
     o.onEvent('discovery', { id: 'hollow' });
     expect(o.sideHint()).toEqual({ id: 'findShrine', text: t('objective.findShrine') });
@@ -158,7 +183,7 @@ describe('Objectives', () => {
   });
 
   it('caches the current view until something changes', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.setTotals({ copperOwned: 0 });
     const a = o.current();
     expect(o.current()).toBe(a);
@@ -169,19 +194,19 @@ describe('Objectives', () => {
   });
 
   it('round-trips through JSON mid-chain', () => {
-    const o = new Objectives();
+    const o = fresh();
     playTo(o, 'craftPickaxe');
     mineStone(o, 2);
     const json = JSON.parse(JSON.stringify(o.toJSON()));
     expect(json.current).toBe('craftPickaxe');
-    expect(json.completed).toEqual(['mineStone', 'findCopper', 'returnToCamp']);
+    expect(json.completed).toEqual(['look', 'walk', 'mineStone', 'findCopper', 'returnToCamp']);
     const r = Objectives.fromJSON(json);
     expect(r.currentId).toBe('craftPickaxe');
     expect(r.toJSON()).toEqual(o.toJSON());
   });
 
   it('serializes the finished chain with current = null', () => {
-    const o = new Objectives();
+    const o = fresh();
     playTo(o, 'done');
     const j = o.toJSON();
     expect(j.current).toBeNull();
@@ -189,9 +214,12 @@ describe('Objectives', () => {
   });
 
   it('restores from partial or damaged state without getting stuck', () => {
-    expect(Objectives.fromJSON(null).currentId).toBe('mineStone');
+    expect(Objectives.fromJSON(null).currentId).toBe('look');
     expect(Objectives.fromJSON({ completed: ['mineStone'], current: 'bogus', stats: { stoneMined: 'x' } }).currentId).toBe('findCopper');
-    expect(Objectives.fromJSON({ completed: [], current: null, stats: {} }).currentId).toBe('mineStone');
+    expect(Objectives.fromJSON({ completed: [], current: null, stats: {} }).currentId).toBe('look');
+    // A save from before the control steps: its finished chain stays finished, a mid-chain one resumes.
+    expect(Objectives.fromJSON({ completed: ['mineStone', 'findCopper', 'returnToCamp', 'craftPickaxe', 'breakSeal', 'goDeeper'], current: null, stats: {} }).done).toBe(true);
+    expect(Objectives.fromJSON({ completed: ['mineStone'], current: 'findCopper', stats: {} }).currentId).toBe('findCopper');
     // Stats that already satisfy later steps move the chain forward on load.
     const o = Objectives.fromJSON({ completed: [], current: 'mineStone', stats: { craftedPickaxe: 1, sealBroken: 1 } });
     expect(o.currentId).toBe('goDeeper');
@@ -205,7 +233,7 @@ describe('Objectives', () => {
   });
 
   it('ignores negative pickup counts', () => {
-    const o = new Objectives();
+    const o = fresh();
     o.onEvent('item:picked', { item: 'stone', count: -50 });
     expect(o.current().text).toBe('Mine stone (0/12)');
   });
