@@ -1,5 +1,28 @@
 # DEEP DOWN — Test Report
 
+## 1.1.0 gate — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21, commit 524b08d)
+
+Run by the lead on a quiet machine, on the tree that ships:
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `npx vitest run` | 69 files, **738/738** |
+| `npx playwright test` (touch specs at 390 × 844 with real CDP touches) | **26 passed, 1 skipped** (28.0 min). desktop 2, mobs 6, progression 3, release 6, slice 1, tap 6, world 2. The skipped test is the opt-in creature capture sheet. |
+| `tools/apk-sim.mjs` on the 1.1.0 APK (shared debug key 47facb26…) | APK_SIM_RESULT |
+| Real-camera captures (VIS, `tools/fp-shots.mjs`, 49 views at 390 × 844 @2) | 0 console errors. At most 143 draw calls and 151k triangles (budget 150 / 250k). |
+
+The mobs e2e covers: catching a Glimmerkin and harvesting a Shellback; fighting crawlers with the machete; shooting a wisp with
+the sling; the Stone Sentinel; a Hollow Stalker held off by the flame; and a black-out to monsters that leaves a cache.
+
+**Known small visual leftovers:**
+- a short dashed rim along one ceiling crease;
+- crystal and gem cells still read as boxy up close;
+- a cyan seam on the Stone Sentinel;
+- in the Lantern Vault, some mid-balcony lamps are hidden by the slab from one floor spot.
+
+**Not covered here:** a real Android device (frame rate, heat, touch latency, haptics), and audio by ear.
+
 ## 1.0.0 candidate gate — the finished first-person game (2026-10-21, commit after 1945565)
 
 Run by the lead on a quiet machine (load ≈ 1–5), on the tree that ships:
