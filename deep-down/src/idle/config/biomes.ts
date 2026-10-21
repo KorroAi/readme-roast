@@ -1,5 +1,5 @@
-// The biome ladder (SPEC §6.5): 14 authored biomes at fixed depths, then Echo strata forever. Each
-// biome lists its ore, creature and Warden ids, what unlocks on entry and its music. Looks live in
+// The biome ladder (hybrid SPEC §4.3): 14 authored biomes at fixed depths, then Echo strata forever. Each biome lists its
+// ores, the mechanism sealing its exit, its signature event and its music. Looks live in
 // biomeLooks.ts (B). Echo strata come every ECHO_SPACING rows (CRITIQUE MUST 3: 550 m, not 1,100 m,
 // so a new stratum arrives at least every play day in week 1) and replay base biome
 // 1 + ((n − 1) mod 13) with a mutator.
@@ -11,32 +11,39 @@ export interface BiomeDef {
   start: number;
   /** Ore ids: common, rich (i18n `idle.ore.<id>`). */
   ores: readonly [string, string];
-  /** Creature ids (W2 Bestiary). */
-  creatures: readonly [string, string, string];
-  /** The Warden holding the seal at this biome's exit (into the next biome); i18n `idle.warden.<id>`. */
-  warden: string;
+  /**
+   * The mechanism sealing this biome's exit into the next biome (hybrid SPEC §4.3; i18n `idle.seal.<id>`): a hatch, a
+   * root knot, a prism lock… Seals are machines and locks, never beings.
+   */
+  seal: string;
   /** Signature event id (W2). */
   event: string;
   /** Music: mode and tempo (C's MusicScheduler). */
   music: { mode: string; root: string; bpm: number };
+  creatures: readonly string[]; // always empty: read by the pre-switch world files until the purge switch deletes them
+  warden: string; // = the old seal id, read by the pre-switch shell until the purge switch deletes it
 }
 
-/** The 14 authored biomes. */
+const B = (id: string, start: number, ores: readonly [string, string], seal: string, old: string, event: string, music: BiomeDef['music']): BiomeDef => ({
+  id, start, ores, seal, event, music, creatures: [], warden: old, // the two purge shims (see BiomeDef)
+});
+
+/** The 14 authored biomes (seal ids are mechanism ids, SPEC §4.3). */
 export const BIOMES: readonly BiomeDef[] = [
-  { id: 'topsoil', start: 0, ores: ['copper', 'amber'], creatures: ['rootGrub', 'burrowBeetle', 'lampBeetle'], warden: 'haldenHatch', event: 'rootPull', music: { mode: 'majorPentatonic', root: 'D', bpm: 84 } },
-  { id: 'glowroot', start: 40, ores: ['tin', 'jade'], creatures: ['glowMoth', 'rootCrawler', 'glowToad'], warden: 'rootKnot', event: 'mothSwarm', music: { mode: 'dorian', root: 'D', bpm: 86 } },
-  { id: 'crystal', start: 120, ores: ['quartz', 'sapphire'], creatures: ['echoBat', 'crystalCrab', 'shardHermit'], warden: 'prismWarden', event: 'crystalBloom', music: { mode: 'lydian', root: 'E', bpm: 76 } },
-  { id: 'halden', start: 240, ores: ['iron', 'silver'], creatures: ['railRat', 'cartGhost', 'steamWisp'], warden: 'crusher', event: 'pressureValves', music: { mode: 'mixolydian', root: 'C', bpm: 96 } },
-  { id: 'fungal', start: 400, ores: ['gold', 'sporePearl'], creatures: ['sporeToad', 'capSnail', 'puffcap'], warden: 'motherSpore', event: 'sporeBurst', music: { mode: 'lydian', root: 'G', bpm: 72 } },
-  { id: 'drowned', start: 600, ores: ['pearl', 'lapis'], creatures: ['glassEel', 'lampFish', 'glassJelly'], warden: 'drownedBell', event: 'pearlBubbles', music: { mode: 'aeolian', root: 'Bb', bpm: 70 } },
-  { id: 'magma', start: 900, ores: ['ruby', 'fireOpal'], creatures: ['salamander', 'ashBeetle', 'emberNewt'], warden: 'forgeHeart', event: 'lavaSurge', music: { mode: 'phrygian', root: 'D', bpm: 100 } },
-  { id: 'fossil', start: 1300, ores: ['boneGold', 'insectAmber'], creatures: ['fossilCrab', 'boneWyrm', 'marrowWorm'], warden: 'singingSkull', event: 'boneRattle', music: { mode: 'aeolian', root: 'C#', bpm: 66 } },
-  { id: 'frost', start: 1800, ores: ['rimeSilver', 'frostDiamond'], creatures: ['iceMoth', 'frostFox', 'iceWyrmling'], warden: 'rimeWyrm', event: 'iceShatter', music: { mode: 'minor', root: 'B', bpm: 74 } },
-  { id: 'loom', start: 2400, ores: ['lumenCrystal', 'loomstone'], creatures: ['threadSpider', 'archivistWisp', 'loomMoth'], warden: 'loomKeeper', event: 'threadWeave', music: { mode: 'lydian', root: 'A', bpm: 68 } },
-  { id: 'ironCore', start: 3100, ores: ['mythril', 'magnetite'], creatures: ['ironMite', 'coreRay', 'clockworkBeetle'], warden: 'escapement', event: 'gearLock', music: { mode: 'major', root: 'Eb', bpm: 90 } },
-  { id: 'starHeart', start: 3900, ores: ['starShard', 'plasmaPearl'], creatures: ['starSprite', 'novaMoth', 'starJelly'], warden: 'astralGeode', event: 'starFall', music: { mode: 'lydian', root: 'E', bpm: 74 } },
-  { id: 'voidSea', start: 4800, ores: ['voidPearl', 'nullGlass'], creatures: ['voidRay', 'driftJelly', 'watcherEye'], warden: 'reflection', event: 'gravityFlip', music: { mode: 'wholeTone', root: 'C', bpm: 60 } },
-  { id: 'gate', start: 5800, ores: ['gateStone', 'sigilOre'], creatures: ['gatekeeper', 'echoOfYou', 'runeMoth'], warden: 'keeper', event: 'runeLock', music: { mode: 'runes', root: 'D', bpm: 64 } },
+  B('topsoil', 0, ['copper', 'amber'], 'haldenHatch', 'haldenHatch', 'rootPull', { mode: 'majorPentatonic', root: 'D', bpm: 84 }),
+  B('glowroot', 40, ['tin', 'jade'], 'rootKnot', 'rootKnot', 'seedFall', { mode: 'dorian', root: 'D', bpm: 86 }),
+  B('crystal', 120, ['quartz', 'sapphire'], 'prismLock', 'prismLock', 'crystalBloom', { mode: 'lydian', root: 'E', bpm: 76 }),
+  B('halden', 240, ['iron', 'silver'], 'crusher', 'crusher', 'pressureValves', { mode: 'mixolydian', root: 'C', bpm: 96 }),
+  B('fungal', 400, ['gold', 'sporePearl'], 'sporeValve', 'sporeValve', 'sporeBurst', { mode: 'lydian', root: 'G', bpm: 72 }),
+  B('drowned', 600, ['pearl', 'lapis'], 'drownedBell', 'drownedBell', 'pearlBubbles', { mode: 'aeolian', root: 'Bb', bpm: 70 }),
+  B('magma', 900, ['ruby', 'fireOpal'], 'forgeHeart', 'forgeHeart', 'lavaSurge', { mode: 'phrygian', root: 'D', bpm: 100 }),
+  B('fossil', 1300, ['boneGold', 'insectAmber'], 'boneOrgan', 'boneOrgan', 'boneRattle', { mode: 'aeolian', root: 'C#', bpm: 66 }),
+  B('frost', 1800, ['rimeSilver', 'frostDiamond'], 'iceLockWheel', 'iceLockWheel', 'iceShatter', { mode: 'minor', root: 'B', bpm: 74 }),
+  B('loom', 2400, ['lumenCrystal', 'loomstone'], 'threadLock', 'threadLock', 'threadWeave', { mode: 'lydian', root: 'A', bpm: 68 }),
+  B('ironCore', 3100, ['mythril', 'magnetite'], 'escapement', 'escapement', 'gearLock', { mode: 'major', root: 'Eb', bpm: 90 }),
+  B('starHeart', 3900, ['starShard', 'plasmaPearl'], 'astralGeode', 'astralGeode', 'starFall', { mode: 'lydian', root: 'E', bpm: 74 }),
+  B('voidSea', 4800, ['voidPearl', 'nullGlass'], 'mirrorGate', 'mirrorGate', 'gravityFlip', { mode: 'wholeTone', root: 'C', bpm: 60 }),
+  B('gate', 5800, ['gateStone', 'sigilOre'], 'lastLintel', 'lastLintel', 'runeLock', { mode: 'runes', root: 'D', bpm: 64 }),
 ];
 
 /** Authored biome count. */

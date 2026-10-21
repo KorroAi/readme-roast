@@ -1,91 +1,77 @@
+// The hybrid's ring (BUILD §3.2 MUST 1: RingWorld without the cut): 0.5 m voxels, a y ring of 6 slabs, no cut plane,
+// no apron, no open back; the dead slot is the light barrier; the light keeps its reach in metres at 0.5 m steps.
 import { describe, expect, it } from 'vitest';
-import * as THREE from 'three';
 import { B } from '../../../src/config/blocks';
-import { LightField } from '../../../src/world/light';
-import { DEAD, RING_SY, RingWorld, SLOTS, slotOfSlab, storageRow } from '../../../src/world/descent/RingWorld';
-import { DescentWorld } from '../../../src/render/descent/DescentWorld';
-import { CELL_Z0, CELL_Z1, SHAFT_X0 } from '../../../src/world/descent/slab';
-import { kindsFor, ringAt } from './ringFixture';
+import { LightField, LIGHT_REACH } from '../../../src/world/light';
+import { VoxelRing } from '../../../src/world/hybrid/VoxelRing';
+import { DEAD_SLAB } from '../../../src/world/hybrid/ringConsts';
+import { RING_SX, RING_SY, RING_SZ, SLAB_ROWS, SLOTS, slotOfSlab, storageRow } from '../../../src/world/hybrid/grid';
+import { LIGHT_OPTIONS } from '../../../src/world/hybrid/slabLight';
 
-/** A renderer stand-in: the light uploads only flag the texture (no GL in Node). */
-const glStub = { properties: { get: () => ({}) }, getContext: () => null, state: null } as unknown as THREE.WebGLRenderer;
+const slab = (fill: number) => new Uint8Array(RING_SX * SLAB_ROWS * RING_SZ).fill(fill);
 
-describe('RingWorld (SPEC §6.2)', () => {
-  it('maps depth rows to storage rows and slabs to slots', () => {
-    expect(storageRow(-1)).toBe(RING_SY - 1);
-    expect(storageRow(-160)).toBe(0);
-    expect(storageRow(-161)).toBe(RING_SY - 1);
-    expect(slotOfSlab(0)).toBe(SLOTS - 1);
-    expect(slotOfSlab(1)).toBe(SLOTS - 2);
-    expect(slotOfSlab(10)).toBe(SLOTS - 1);
-    expect(slotOfSlab(-1)).toBe(0);
-    expect(RingWorld.windowFor(0)).toEqual({ first: -2, last: 6 });
-    expect(RingWorld.windowFor(37)).toEqual({ first: 0, last: 8 });
+describe('VoxelRing (the ring without the cut)', () => {
+  it('is 128 x 192 x 128 voxels of 0.5 m: 64 x 96 x 64 m, 6 slots of 32 rows', () => {
+    const r = new VoxelRing();
+    expect([r.sx, r.sy, r.sz]).toEqual([128, 192, 128]);
+    expect(SLOTS * SLAB_ROWS).toBe(RING_SY);
+    expect(r.slotSlab.every((k) => k === DEAD_SLAB)).toBe(true);
   });
 
-  it('reads the sky and the apron as air, the outside of the window as stone, and writes in world y', () => {
-    const ring = ringAt(7, 50);
-    expect(ring.get(31, 0, 30)).toBe(B.AIR);
-    expect(ring.get(31, 5, 30)).toBe(B.AIR);
-    expect(ring.get(31, -60, 60)).toBe(B.AIR);
-    expect(ring.get(31, -60, 63)).toBe(B.AIR);
-    expect(ring.get(-1, -60, 30)).toBe(B.BEDROCK);
-    // Outside the live window (slab 9 is not loaded at 50 m: the window is 1..9 minus the dead slot).
-    expect(ring.get(31, -16 * 12 - 3, 30)).toBe(B.BEDROCK);
-    // One slot is always dead: the light barrier between the window's ends.
-    expect(Array.from(ring.slotSlab).filter((k) => k === DEAD).length).toBe(1);
-    const x = SHAFT_X0 + 2;
-    expect(ring.set(x, -51, CELL_Z1, B.AIR)).toBe(true);
-    expect(ring.get(x, -51, CELL_Z1)).toBe(B.AIR);
-    expect(ring.blocks[ring.indexW(x, -51, CELL_Z1)]).toBe(B.AIR);
+  it('reads the sky above y = 0, bedrock outside the footprint and the live window, and has no cut or apron', () => {
+    const r = new VoxelRing();
+    r.writeSlab(0, slab(B.AIR));
+    expect(r.get(10, 5, 10)).toBe(B.AIR); // sky
+    expect(r.get(-1, -5, 10)).toBe(B.BEDROCK);
+    expect(r.get(10, -5, RING_SZ)).toBe(B.BEDROCK);
+    expect(r.get(10, -40, 10)).toBe(B.BEDROCK); // slab 1 not written
+    // The old cut plane z = 60 at 1 m is z voxel 120 here: it is just rock or air like anywhere else.
+    expect(r.get(10, -5, 120)).toBe(B.AIR);
+    expect(r.get(10, -5, 127)).toBe(B.AIR);
   });
 
-  it('W4: after 200 recycles the light equals a fresh compute (RGB exactly, openness exactly)', async () => {
-    const world = new DescentWorld();
-    const seed = 7;
-    let floor = 0;
-    const kinds = (k: number) => kindsFor(seed, k, floor);
-    await world.build(seed, 0, kinds);
-    const focus = new THREE.Vector3(31.5, 0, 70);
-    for (let step = 1; step <= 200; step++) {
-      floor = step * 16;
-      focus.y = -floor;
-      for (let i = 0; i < 12 && (i === 0 || world.pendingSlabs > 0); i++) world.update(floor, focus, glStub);
-      expect(world.pendingSlabs, `step ${step}`).toBe(0);
-      // Break a few floor cells too (the incremental light and openness rules).
-      if (step % 20 === 0) world.breakCells([{ row: floor, col: 1 }, { row: floor, col: 4 }, { row: floor + 1, col: 4 }]);
+  it('maps slab k to slot (-k - 1) mod 6 and world rows through the ring', () => {
+    const r = new VoxelRing();
+    for (let k = 0; k < 8; k++) {
+      expect(slotOfSlab(k)).toBe((((-k - 1) % SLOTS) + SLOTS) % SLOTS);
+      // Slab k's top row is world row -32k - 1; its storage row is the top of its slot.
+      expect(storageRow(-SLAB_ROWS * k - 1)).toBe(slotOfSlab(k) * SLAB_ROWS + SLAB_ROWS - 1);
     }
-    const { first, last } = world.window;
-    expect(first).toBe(200 - 2);
-    expect(last).toBe(200 + 6);
-    const check = world.lightCheck();
-    expect(check.mismatched, `max diff ${check.maxDiff}`).toBe(0);
-    // Openness (W2 MUST 0): the worker's band, the drops and the 30 broken cells all equal a full compute.
-    expect(check.openMismatched, `openness max diff ${check.openMaxDiff}`).toBe(0);
-  }, 180_000);
+    r.writeSlab(2, slab(B.SLATE));
+    expect(r.hasSlab(2)).toBe(true);
+    expect(r.get(5, -SLAB_ROWS * 2 - 1, 5)).toBe(B.SLATE);
+    expect(r.worldChunkY(slotOfSlab(2) * 2)).toBe(-2 * 2 - 2);
+    expect(r.worldChunkY(slotOfSlab(2) * 2 + 1)).toBe(-2 * 2 - 1);
+    r.killSlot(slotOfSlab(2));
+    expect(r.hasSlab(2)).toBe(false);
+    expect(r.get(5, -SLAB_ROWS * 2 - 1, 5)).toBe(B.BEDROCK);
+  });
 
-  it('a break sets the cell to air and lights it like a fresh compute', async () => {
-    const world = new DescentWorld();
-    await world.build(9, 30, (k) => kindsFor(9, k, 30));
-    const ids = world.breakCells([{ row: 30, col: 0 }, { row: 30, col: 1 }, { row: 31, col: 1 }]);
-    expect(ids.length).toBe(3);
-    for (const [row, col] of [[30, 0], [30, 1], [31, 1]]) for (let z = CELL_Z0; z <= CELL_Z1; z++) expect(world.ring.get(SHAFT_X0 + col, -row - 1, z)).toBe(B.AIR);
-    const c = world.lightCheck();
-    expect(c.mismatched).toBe(0);
-    expect(c.openMismatched, `openness after breaks (max diff ${c.openMaxDiff})`).toBe(0);
-  }, 60_000);
+  it('writes only into live slabs and marks the chunks the mesher pads into', () => {
+    const r = new VoxelRing();
+    r.writeSlab(1, slab(B.SLATE));
+    r.dirty.fill(0);
+    expect(r.set(0, -SLAB_ROWS - 1, 0, B.AIR)).toBe(true);
+    expect(r.set(0, -SLAB_ROWS * 3 - 1, 0, B.AIR)).toBe(false); // slab 3 is not live
+    expect([...r.dirty].filter(Boolean).length).toBeGreaterThan(0);
+    const out = new Uint8Array(20 * 20 * 20);
+    r.copyPaddedWorld(0, slotOfSlab(1) * 2 + 1, 0, out);
+    // The padding outside the footprint reads bedrock.
+    expect(out[0]).toBe(B.BEDROCK);
+  });
 
-  it('computeOpennessBox equals the full compute inside its box (wrapping rows included)', () => {
-    const ring = ringAt(5, 40);
-    const a = new LightField(ring, undefined, { wrapY: true });
-    a.computeAll();
-    // Carve a hole, then recompute a box around it; the result must equal a fresh full compute everywhere.
-    for (let x = 20; x < 30; x++) for (let z = 40; z < 60; z++) for (let y = -45; y < -38; y++) ring.set(x, y, z, B.AIR);
-    a.computeOpennessBox(20 - 7, 29 + 7, storageRow(-45) - 7, storageRow(-45) - 7 + 7 + 7 + 7, 40 - 7, 63);
-    const b = new LightField(ring, undefined, { wrapY: true });
-    b.computeAll();
-    let diff = 0;
-    for (let i = 3; i < a.data.length; i += 4) if (a.data[i] !== b.data[i]) diff++;
-    expect(diff).toBe(0);
+  it('keeps the light reach in metres at 0.5 m steps, and the dead slot stops light through the ring', () => {
+    const r = new VoxelRing();
+    r.writeSlab(0, slab(B.AIR));
+    r.writeSlab(1, slab(B.AIR));
+    const light = new LightField(r, undefined, LIGHT_OPTIONS);
+    expect(light.reach).toBeGreaterThanOrEqual(2 * LIGHT_REACH - 6);
+    expect(light.reach).toBeLessThanOrEqual(2 * LIGHT_REACH + 6);
+    r.set(64, -20, 64, B.LIGHT_LAMP);
+    light.computeAll();
+    const at = (j: number) => light.data[(64 + RING_SX * (storageRow(j) + RING_SY * 64)) * 4];
+    // 5 m away (10 steps) the lamp still lights; through the dead slots on the far side of the ring it does not.
+    expect(at(-30)).toBeGreaterThan(0);
+    expect(at(-20 + 96)).toBe(0);
   });
 });

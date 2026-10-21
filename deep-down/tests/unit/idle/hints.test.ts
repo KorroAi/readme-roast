@@ -4,7 +4,7 @@ import { createIdleBus } from '../../../src/idle/bus';
 import { crewLine } from '../../../src/idle/config/crew';
 import { impactsIn, stepCrew, strikePhase } from '../../../src/idle/model/crew';
 import { tickHints } from '../../../src/idle/model/hints';
-import { catchMoth, tickMoth } from '../../../src/idle/model/moth';
+import { catchEmber, EMBER, tickEmber } from '../../../src/idle/model/ember';
 import { resetWindow } from '../../../src/idle/model/shaft';
 import { createIdle } from '../../../src/idle/model/step';
 
@@ -40,7 +40,7 @@ describe('hints H1, H2, H10 (SPEC §8.7)', () => {
   });
 });
 
-describe('the crew strike schedule (BUILD §2.1 MUST 4) and the Lucky Moth', () => {
+describe('the crew strike schedule (BUILD §2.1 MUST 4) and the Drifting Ember', () => {
   it('damage lands only on impact frames, the same instants the rig plays', () => {
     const s = createIdle(5, 0);
     s.meta.sealsOpened = [1, 2, 3];
@@ -62,27 +62,41 @@ describe('the crew strike schedule (BUILD §2.1 MUST 4) and the Lucky Moth', () 
     }
   });
 
-  it('the Lucky Moth comes on its own clock in active play, and the first catch is a Gold Shower', () => {
+  it('the Drifting Ember is dormant in W1; switched on it comes on its own clock in active play, and the first catch is a Gold Shower', () => {
     const s = createIdle(5, 0);
-    s.meta.tutorial.done = true;
-    s.tutorial.done = true;
-    s.meta.revealed.push('surge');
     s.rates.goldPerSec = Big.from(100);
     const bus = createIdleBus();
     let spawned = 0;
-    bus.on('moth:spawn', () => spawned++);
-    for (let t = 0; t < 200 && !s.moth; t += 0.1) {
+    bus.on('ember:spawn', () => spawned++);
+    // Dormant: nothing in 15 minutes of active play.
+    for (let t = 0; t < 900; t += 0.5) {
       s.time = t;
       s.playTime = t;
-      s.hints.lastHitAt = t; // active
-      tickMoth(s, 0.1, bus);
+      s.hints.lastHitAt = t;
+      tickEmber(s, 0.5, bus);
     }
-    expect(spawned).toBe(1);
-    expect(s.playTime).toBeGreaterThanOrEqual(100);
-    let outcome = '';
-    bus.on('moth:catch', (e) => (outcome = e.outcome));
-    expect(catchMoth(s, bus)).toBe(true);
-    expect(outcome).toBe('gold');
-    expect(s.run.gold.toNumber()).toBeCloseTo(6000, 6);
+    expect(EMBER.enabled).toBe(false);
+    expect(spawned).toBe(0);
+    // On (W2): the first ember after ≈ 11 min of play.
+    (EMBER as { enabled: boolean }).enabled = true;
+    try {
+      const s2 = createIdle(5, 0);
+      s2.rates.goldPerSec = Big.from(100);
+      for (let t = 0; t < 900 && !s2.ember; t += 0.1) {
+        s2.time = t;
+        s2.playTime = t;
+        s2.hints.lastHitAt = t; // active
+        tickEmber(s2, 0.1, bus);
+      }
+      expect(spawned).toBe(1);
+      expect(s2.playTime).toBeGreaterThanOrEqual(EMBER.firstAt);
+      let outcome = '';
+      bus.on('ember:catch', (e) => (outcome = e.outcome));
+      expect(catchEmber(s2, bus)).toBe(true);
+      expect(outcome).toBe('gold');
+      expect(s2.run.gold.toNumber()).toBeCloseTo(6000, 6);
+    } finally {
+      (EMBER as { enabled: boolean }).enabled = false;
+    }
   });
 });

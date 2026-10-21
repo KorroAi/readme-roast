@@ -64,7 +64,7 @@ export interface CardView {
 
 // ----- multipliers ------------------------------------------------------------------------------------
 
-/** log10 of M_all (SPEC §5.6) for W1: Embers, planted lanterns, the Moth Frenzy and boosts. */
+/** log10 of M_all (SPEC §5.6) for W1: Embers, planted lanterns, the Ember Frenzy and boosts. */
 export function mAllLog10(s: IdleState): number {
   const kindle = 0.1 + ((s.meta.feats.emberborn ?? 0) >= 10 ? 0.01 : 0) + 0.01 * (s.meta.loom.kindling ?? 0);
   let l = embersLog10(s.meta.embers.log10(), kindle);
@@ -80,7 +80,7 @@ function embersLog10(eLog10: number, kindle: number): number {
   return x > 15 ? x : L10(1 + Math.pow(10, x));
 }
 
-/** log10 of the active skill multiplier on all damage (Moth Frenzy ×7, Cataclysm ×2). */
+/** log10 of the active skill multiplier on all damage (Ember Frenzy ×7, Cataclysm ×2). */
 export function skillMultLog10(s: IdleState): number {
   let l = 0;
   if (s.run.frenzyEnd > s.time) l += L10(7);

@@ -4,7 +4,7 @@ import type { IdleEvents } from '../idle/bus';
 import { CELL } from '../idle/model/state';
 import type { SfxName, SfxParams } from './sfx';
 
-// Which sound each IdleEvent makes (SPEC §10.10), with the ladders that make a spree sound like music: breaks climb a
+// Which sound each IdleEvent makes (hybrid SPEC §9.2; the idle SPEC §10.10's ladders kept), with the ladders that make a spree sound like music: breaks climb a
 // 2-octave major pentatonic (reset after 1 s without a break; a row clear plays a chord on the current step);
 // purchases climb the arpeggio (reset 1.5 s after the last; the 10th note jumps an octave); pierce chains +2
 // semitones per cell; combo tiers a step per tier; taps +1 semitone per 5 combo (cap +12). Every ladder sits in
@@ -124,9 +124,6 @@ export class SoundCues {
       case 'seal:hit':
         out.push({ name: 'seal.hit', params: {} });
         break;
-      case 'moth:catch':
-        out.push({ name: 'moth', params: {} });
-        break;
       case 'skill:dynamite':
         out.push({ name: 'boom', params: { intensity: 1 } });
         break;
@@ -159,6 +156,87 @@ export class SoundCues {
       case 'facet:offer':
         out.push({ name: 'chest.creak', params: {} });
         break;
+      // ----- the node crawl (hybrid SPEC §9.2) -----------------------------------------------------------------
+      case 'drift:slice': {
+        // Each slice cleared plays one note up the biome's pentatonic scale (resetting per drift): a rising phrase.
+        const e = p as IdleEvents['drift:slice'];
+        const step = Math.max(0, Math.min(PENTATONIC.length - 1, e.slice - 1));
+        out.push({ name: 'row.clear', params: { pitch: this.keyAt(e.depth) * semis(PENTATONIC[step] - 12) } });
+        break;
+      }
+      case 'node:breach': {
+        const e = p as IdleEvents['node:breach'];
+        if (e.by === 'player') out.push({ name: 'breach.rush', params: {} });
+        break;
+      }
+      case 'node:firstLight': {
+        const e = p as IdleEvents['node:firstLight'];
+        out.push({ name: 'light.chord', params: { pitch: semis(KEY_SEMIS[Math.min(KEY_SEMIS.length - 1, e.biome)] ?? 0), gain: e.first ? 1 : 0.7 } });
+        break;
+      }
+      case 'lamp:relight':
+        out.push({ name: 'lamp.whoomp', params: {} });
+        break;
+      case 'chamber:charted':
+        out.push({ name: 'chart.chime', params: { pitch: this.key } });
+        break;
+      case 'tappable:hit': {
+        const e = p as IdleEvents['tappable:hit'];
+        const mat = e.kind === 'gem' || e.kind === 'geode' ? 'crystal' : e.kind === 'secret' || e.kind === 'stash' ? 'ancient' : 'metal';
+        out.push({ name: `tap.${mat}`, params: { progress: 1 - e.left } });
+        if (e.crit) out.push({ name: 'crit', params: {} });
+        break;
+      }
+      case 'chamber:harvest': {
+        const e = p as IdleEvents['chamber:harvest'];
+        if (now - this.lastBreak > 1) this.breakStep = -1;
+        this.lastBreak = now;
+        this.breakStep = Math.min(PENTATONIC.length - 1, this.breakStep + 1);
+        const pitch = this.key * semis(PENTATONIC[this.breakStep]);
+        const crystal = e.kind === 'gem' || e.kind === 'geode';
+        out.push({ name: crystal ? 'break.crystal' : e.kind === 'secret' ? 'break.ancient' : 'break.metal', params: { pitch } });
+        out.push(crystal ? { name: 'gem.ring', params: { pitch: this.key } } : { name: 'ore.chime', params: { pitch: this.key * semis(e.kind === 'rich' ? 7 : 0) } });
+        break;
+      }
+      case 'skin:strike': {
+        const e = p as IdleEvents['skin:strike'];
+        out.push({ name: e.broke ? 'break.stone' : 'tap.stone', params: {} });
+        break;
+      }
+      case 'skin:pocket':
+        out.push({ name: 'ore.chime', params: { pitch: this.key * semis(12) } });
+        break;
+      case 'secret:found':
+        out.push({ name: 'boom', params: { intensity: 0.35 } });
+        out.push({ name: 'chest.creak', params: {} });
+        break;
+      case 'rock:tunk':
+        out.push({ name: 'rock.tunk', params: {} });
+        break;
+      case 'lantern:raise':
+        out.push({ name: 'lantern.lift', params: {} });
+        break;
+      case 'focus:open':
+        out.push({ name: 'focus.lift', params: {} });
+        break;
+      case 'relic:grade': {
+        const e = p as IdleEvents['relic:grade'];
+        out.push({ name: e.grade === 'perfect' || e.grade === 'pristine' ? 'relic.bell' : 'relic.tick', params: { pitch: this.key } });
+        break;
+      }
+      case 'ride:start': {
+        const e = p as IdleEvents['ride:start'];
+        out.push({ name: e.kind === 'cart' ? 'ride.cart' : 'ride.ladder', params: {} });
+        break;
+      }
+      case 'ride:glint':
+        out.push({ name: 'ore.chime', params: { pitch: this.key * semis(5) } });
+        break;
+      case 'seal:weak': {
+        const e = p as IdleEvents['seal:weak'];
+        if (e.lit) out.push({ name: 'ore.chime', params: { pitch: this.key * semis(12) } });
+        break;
+      }
       default:
         break;
     }
@@ -173,7 +251,11 @@ export const CEREMONY_TIMED: ReadonlyArray<keyof IdleEvents> = ['biome:reveal', 
 export const AUDIBLE_EVENTS: ReadonlyArray<keyof IdleEvents> = [
   'tap:hit', 'cell:break', 'row:clear', 'row:crumble', 'buy:done', 'buy:fail', 'crew:star', 'crew:crown',
   'combo:tier', 'combo:lost', 'chest:exposed', 'seal:start', 'seal:hit',
-  'moth:catch', 'skill:dynamite', 'offline:collect',
+  'skill:dynamite', 'offline:collect',
+  // The node crawl (hybrid SPEC §9.2).
+  'drift:slice', 'node:breach', 'node:firstLight', 'lamp:relight', 'chamber:charted', 'tappable:hit', 'chamber:harvest',
+  'skin:strike', 'skin:pocket', 'secret:found', 'rock:tunk', 'lantern:raise', 'focus:open', 'relic:grade', 'ride:start',
+  'ride:glint', 'seal:weak',
   'surge:start', 'surge:end', 'skill:earthquake', 'skill:cataclysm', 'event:start', 'record:new', 'seal:fail', 'facet:offer',
   // Silent here (their ceremonies time the sound), listened to for the music duck.
   ...CEREMONY_TIMED,

@@ -44,7 +44,8 @@ export function featCounter(s: IdleState, f: FeatFamily): number {
     case 'biomes': return m.biomesSeen.length;
     case 'offlineHours': return m.stats.offlineHours;
     case 'events': return m.stats.events;
-    case 'creatures': return m.stats.creatures;
+    case 'lamps': return m.nodeStats.lamps;
+    case 'charted': return m.charted.length;
     case 'swift': return m.swift600;
     case 'contracts': return m.stats.contracts;
   }
@@ -105,8 +106,8 @@ function tickSecrets(s: IdleState, bus?: IdleBus): void {
   const check = (id: SecretId, ok: boolean) => {
     if (ok && !m.secrets.includes(id)) grantSecret(s, id, bus);
   };
-  check('lamplighter', m.stats.chests >= 1);
-  check('mothFriend', (m.caught.swarmAll ?? 0) >= 1);
+  check('firstChest', m.stats.chests >= 1);
+  check('firstLight', m.nodeStats.breaches >= 100);
   check('echoOfHalden', m.lore.filter((x) => /:note\d$/.test(x)).length >= 42);
   check('theAnswer', m.sealsOpened.includes(14));
   check('bareHands', s.run.dmax >= 240 && s.run.lines.every((l) => l <= 0));

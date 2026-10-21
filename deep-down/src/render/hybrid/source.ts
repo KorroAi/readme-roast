@@ -2,6 +2,9 @@
 // the model (A: IdleState, nodeView, chart) and the world layout (B: placeNode) to this one interface, as IdleGame
 // adapted IdleState to DescentSource before. Field names follow BUILD §2's NodePlacement so B's objects pass through.
 
+import type { CampPlacement, NodePlacement } from '../../world/hybrid/placement';
+import type { VoxelWorld } from '../../world/VoxelWorld';
+import type { IrradianceSource } from '../light/rig';
 import type { PromiseClass, TappableKind, Vec3 } from './types';
 
 /** A world point as either an object or a tuple (B's layout may use either). */
@@ -101,7 +104,7 @@ export interface DepthSource {
   /** The model clock (s): crew rigs strike on its 0.9 s bar. */
   time(): number;
   /** The player's node, its phase and stand. */
-  node(): { index: number; phase: 'drift' | 'chamber' | 'ride'; stand: number };
+  node(): { index: number; phase: 'drift' | 'chamber' | 'explore' | 'ride' | 'seal' | 'camp'; stand: number };
   /** The drift being dug (the player's, or the crew's when it is the same one). */
   face(): FaceView | null;
   /** The chamber of node i, placed and filled (null when not generated or out of range). */
@@ -120,4 +123,24 @@ export interface DepthSource {
   fortune(): number;
   /** Dynamite on the rack: null when not unlocked; 0..1 cooldown (1 = ready). */
   dynamite(): number | null;
+  /**
+   * The Ride phase (W1-LEAD §3): the pass-by targets along the run (A's model: ore glints and crystal knots), each
+   * with its world position and remaining fraction (0 = mined). Optional: absent or empty outside a ride.
+   */
+  glints?(): ReadonlyArray<{ id: string; kind: 'ore' | 'crystal'; pos: Vec3Like; left: number }>;
+  /** The Ride phase: true while the player rides a mine cart (its front rim is drawn in the viewmodel pass). */
+  inCart?(): boolean;
+  /** The Seal phase: the mechanism's HP left 0..1 and whether its weak point is lit (null outside a seal). */
+  seal?(): { left: number; weakLit: boolean } | null;
+  /**
+   * 1B's placed node (W1-LEAD §3, §5): the drift's face frame and slices, the chamber's sockets, dressing, lights,
+   * shafts and exits. DepthScene draws the dressing in the bevel language and the sockets as tappables. Pass B's
+   * objects through unchanged (null when the node is not generated).
+   */
+  placement?(node: number): NodePlacement | null;
+  /** 1B's surface camp (the Camp phase). */
+  camp?(): CampPlacement | null;
+  /** The streamed voxel world (1B's VoxelRing) and its LightField as the irradiance volume. DepthScene meshes the
+   *  world's dirty chunks every frame; edits go through the world (B), never through the scene. */
+  world?(): { voxels: VoxelWorld; irradiance?: IrradianceSource | null } | null;
 }

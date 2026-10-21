@@ -1,10 +1,20 @@
-// Every touch → one action (SPEC §2.3–§2.4). Pure: the frame snapshot carries the screen rects of what is on screen and
-// the camera ray (`pick`), and `resolve` walks the hit-test order:
+// Every touch → one action (SPEC §2.3–§2.4, W1-LEAD §3). Pure: the frame snapshot carries the screen rects of what is on
+// screen and the camera ray (`pick`), and `resolve` walks the hit-test order:
 //   1 HUD plates · 2 an open focus pop · 3 event objects [W2] · 4 the lantern (deliberate gesture) [W2] · 5 the rack ·
 //   6 navigation targets · 7 focus-type tappables · 8 the camera ray · 9 the fat finger · 10 Lantern Raise.
-// Every touch ends in one of: strike, relight, focus, navigation, skill, pulse, tunk, raise (L2: there is no "nothing").
+// Every acting touch ends in one of: strike, relight, focus, navigation, skill, pulse, tunk, raise, and in Explore also
+// walk and look (L2: there is no "nothing").
+//
+// Which gestures act depends on the phase (W1-LEAD §3):
+// - Dig (the drift face) and the Seal: the press acts in the same frame (L1); a hold streams strikes; no drag-look.
+// - Explore (a chamber you walk through) and the Camp: a TAP is a release within 300 ms and 12 px; a drag (> 12 px)
+//   looks and never acts; a still hold (≥ 250 ms, ≤ 12 px) repeat-strikes a strike tappable under it, or sweeps the
+//   ones in reach. A tappable within 3.5 m acts at once; farther, you walk to it and it acts on arrival. A tap on a
+//   floor, ledge or stair walks there; far rock or the dark that is not walkable raises the lantern.
+// - Ride (the cart run): a press on a passing glint mines it; a press on a side ledge's brake mark brakes; elsewhere
+//   the lantern rises toward the point (never nothing). The ride is skipped from its HUD plate.
 // Target sizes: hit areas are padded to ≥ 88 × 88 px; a fat finger never opens a chest or moves you (U-NC2) and in a
-// chamber resolves only when exactly one candidate lies within 48 px (U-NC3).
+// chamber resolves only when exactly one candidate in reach lies within 48 px (U-NC3).
 
 import type { V3 } from './ropeRide';
 
@@ -16,8 +26,11 @@ export interface Rect {
   h: number;
 }
 
-/** The input kinds TapSurface queues: a press, a hold-stream hit, a release (with how long it was down), a key. */
-export type TouchKind = 'tap' | 'hold' | 'up' | 'key';
+/**
+ * The input kinds TapSurface queues: a press (pointerdown), a tap (a quick release: < 300 ms down, < 12 px travel), a
+ * hold-stream hit, a release (with how long it was down), a drag step (finger travel past 12 px), a key.
+ */
+export type TouchKind = 'press' | 'tap' | 'hold' | 'up' | 'drag' | 'key';
 
 export interface TouchIn {
   x: number;
@@ -29,33 +42,48 @@ export interface TouchIn {
   id: number;
   /** For 'up': ms the pointer was down; for 'hold': ms since it went down. */
   heldMs?: number;
-  /** Where the pointer went down (holds and releases). */
+  /** Where the pointer went down (holds, taps and releases). */
   downX?: number;
   downY?: number;
+  /** For 'drag': the finger's travel since the last drag step (CSS px). */
+  dx?: number;
+  dy?: number;
 }
 
-/** What the camera ray found under a point (DepthScene.pick, mapped by the shell). */
+/**
+ * What the camera ray found under a point (DepthScene.pick, mapped by the shell). `dist` is metres from the eye; the
+ * strike reach (3.5 m) is applied here, so a far tappable in Explore is walked to rather than struck.
+ */
 export type RayHit =
   /** A face block: the model column (snake map) and the slice (0 = the front). */
-  | { kind: 'face'; col: number; slice: number; point: V3 }
-  /** A strike-type tappable in reach (vein, gem cluster, geode shell, stash brick). */
-  | { kind: 'tappable'; id: string; point: V3 }
-  /** A cold Halden lamp in reach. A lit one answers as deep rock. */
-  | { kind: 'lamp'; id: string; point: V3 }
-  /** A wall-skin cell in reach. */
-  | { kind: 'skin'; id: string; point: V3 }
+  | { kind: 'face'; col: number; slice: number; point: V3; dist?: number }
+  /** A strike-type tappable (vein, gem cluster, geode shell, stash brick, a passing glint on a ride). */
+  | { kind: 'tappable'; id: string; point: V3; dist?: number }
+  /** A cold Halden lamp. A lit one answers as deep rock. */
+  | { kind: 'lamp'; id: string; point: V3; dist?: number }
+  /** A wall-skin cell. */
+  | { kind: 'skin'; id: string; point: V3; dist?: number }
+  /** Explore: a walkable floor, ledge or stair under the ray (the point is the floor destination, feet level). */
+  | { kind: 'walk'; point: V3; dist?: number }
   /** Rock in reach that is not skin (or skin already broken): the tunk. */
-  | { kind: 'deep'; point: V3 }
+  | { kind: 'deep'; point: V3; dist?: number }
   /** Nothing in reach: far rock, the dark, open air (the point is where the ray lands or 12 m out). */
-  | { kind: 'far'; point: V3 };
+  | { kind: 'far'; point: V3; dist?: number };
 
-export type NavKind = 'exit' | 'ring' | 'arrow';
+/** Navigation marks: exits and their plates, survey rings, chalk arrows, a ride's brake ledge, the camp's stations. */
+export type NavKind = 'exit' | 'ring' | 'arrow' | 'ledge' | 'station';
 export type FocusKind = 'chest' | 'relic' | 'note' | 'keystone' | 'depot' | 'mural' | 'royal';
 export type StrikeKind = 'vein' | 'gem' | 'geode' | 'stash' | 'skin' | 'lamp';
 
+/**
+ * The phases a touch is resolved in (W1-LEAD §3): Dig is 'drift'; 'explore' is a chamber walked freely; 'ride' the
+ * on-rails Way Down; 'seal' the mechanism fight; 'camp' the surface; 'reveal' a biome's Threshold reveal.
+ */
+export type TouchPhase = 'drift' | 'explore' | 'ride' | 'seal' | 'camp' | 'reveal';
+
 /** The screen at the moment of a touch. Rects are hit areas (already padded to ≥ 88 px where §2.3 says so). */
 export interface NodeFrame {
-  phase: 'drift' | 'chamber' | 'ride' | 'seal' | 'reveal';
+  phase: TouchPhase;
   /** HUD plates (the DOM eats these touches; listed so the order is complete and testable). */
   plates: readonly Rect[];
   /** A camera move or ceremony longer than 1 s is running: any tap skips it and is consumed. */
@@ -70,12 +98,13 @@ export interface NodeFrame {
   rack: ReadonlyArray<{ id: string; rect: Rect; ready: boolean }>;
   /** When the current strike stream (a hold or a tap burst) started outside the rack (ms; −∞ when none). */
   strikeStreamAt: number;
-  /** Navigation targets: exits and their plates, survey rings, chalk arrows (hit rects ≥ 88 px). */
-  nav: ReadonlyArray<{ id: string; kind: NavKind; rect: Rect }>;
-  /** Focus-type tappables in view (padded hit rects). */
-  focusables: ReadonlyArray<{ id: string; kind: FocusKind; rect: Rect }>;
-  /** Strike-type tappables and cold lamps in reach (padded hit rects, for the fat finger and the sweep). */
-  strikeables: ReadonlyArray<{ id: string; kind: StrikeKind; rect: Rect }>;
+  /** Navigation targets: exits and their plates, survey rings, chalk arrows (hit rects ≥ 88 px). `dist` m from the eye;
+   *  `at` the world point to walk to when it is beyond reach (Explore). */
+  nav: ReadonlyArray<{ id: string; kind: NavKind; rect: Rect; dist?: number; at?: V3 }>;
+  /** Focus-type tappables in view (padded hit rects), with their distance and world point (Explore walks to far ones). */
+  focusables: ReadonlyArray<{ id: string; kind: FocusKind; rect: Rect; dist?: number; at?: V3 }>;
+  /** Strike-type tappables and cold lamps IN REACH (padded hit rects, for the fat finger and the sweep). */
+  strikeables: ReadonlyArray<{ id: string; kind: StrikeKind; rect: Rect; dist?: number; at?: V3 }>;
   /** Live face blocks (drift): the model column, the slice, the screen rect. */
   face: ReadonlyArray<{ col: number; slice: number; rect: Rect }>;
   /** The face's weakest live block in the front slice (the hold's fallback); −1 when none. */
@@ -88,8 +117,8 @@ export interface NodeFrame {
   pick(x: number, y: number): RayHit;
 }
 
-/** The eight verbs (U-NC1) plus 'hud' (a plate: the DOM's, never the world's). */
-export type Verb = 'strike' | 'relight' | 'focus' | 'navigation' | 'skill' | 'pulse' | 'tunk' | 'raise' | 'hud';
+/** The eight verbs (U-NC1), Explore's walk and look, plus 'hud' (a plate: the DOM's, never the world's). */
+export type Verb = 'strike' | 'relight' | 'focus' | 'navigation' | 'skill' | 'pulse' | 'tunk' | 'raise' | 'walk' | 'look' | 'hud';
 
 export type StrikeTarget = { kind: 'face'; col: number; slice: number } | { kind: 'tappable'; id: string } | { kind: 'skin'; id: string };
 
@@ -102,6 +131,13 @@ export type NodeTouch =
   | { verb: 'pulse' }
   | { verb: 'tunk'; point: V3 | null; hint: string }
   | { verb: 'raise'; point: V3 }
+  /**
+   * Explore: walk to a floor point (`via: 'floor'`), or walk toward an object beyond reach and then do `then` on arrival
+   * (`via: 'approach'`; the walk stops 0.9 m short of `to`), or walk to the objective's target (`via: 'goal'`).
+   */
+  | { verb: 'walk'; to: V3; via: 'floor' | 'approach' | 'goal'; then?: NodeTouch }
+  /** Explore: drag-look by this much finger travel (CSS px). Never acts. */
+  | { verb: 'look'; dx: number; dy: number }
   | { verb: 'hud'; index: number };
 
 /** §2.3's numbers. */
@@ -114,7 +150,22 @@ export const HIT = {
   rackQuietMs: 150,
   /** A drifting hold re-aims past this (px). */
   reaimPx: 24,
+  /** Explore: a tap is a release within this long (ms) and this far (px); farther is a drag. */
+  tapMs: 300,
+  tapSlopPx: 12,
+  /** Strike reach and focus reach (m): within these a tappable acts at once; beyond, Explore walks to it first. */
+  reachStrike: 3.5,
+  reachFocus: 4.5,
 } as const;
+
+/** Whether a gesture kind acts in a phase (the others continue a gesture already answered: resolve returns null). */
+export function actsIn(phase: TouchPhase, kind: TouchKind): boolean {
+  if (kind === 'key' || kind === 'hold') return true;
+  if (kind === 'up') return false;
+  if (phase === 'explore' || phase === 'camp') return kind === 'tap' || kind === 'drag' || kind === 'press';
+  // Dig, seal, ride, reveal: the press acts (L1); a quick release or a drag adds nothing.
+  return kind === 'press';
+}
 
 export function inRect(x: number, y: number, r: Rect): boolean {
   return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
@@ -156,28 +207,39 @@ function strikeOf(kind: StrikeKind, id: string, via: 'ray' | 'fat' | 'sweep', po
 }
 
 /**
- * Resolve one touch (a press 'tap', a hold-stream hit 'hold', a release 'up', a key). Never returns "nothing": a press
- * always yields one of the eight verbs (or 'hud' on a plate). A release outside an open focus pop and a hold with
- * nothing to strike are 'tunk' (a response, never a miss).
+ * Resolve one touch. An acting touch (see `actsIn`) never resolves to "nothing": it yields one of the verbs (or 'hud' on
+ * a plate). A gesture continuation the phase does not answer (a quick release in a drift, where the press already
+ * struck; a press in Explore, which waits for its release; a release outside an open focus pop) returns null. A hold
+ * with nothing to strike is a 'tunk' (a response, never a miss).
  */
-export function resolve(touch: TouchIn, f: NodeFrame): NodeTouch {
+export function resolve(touch: TouchIn, f: NodeFrame): NodeTouch | null {
   const { x, y } = touch;
-  // 1. HUD plates.
-  for (let i = 0; i < f.plates.length; i++) if (inRect(x, y, f.plates[i])) return { verb: 'hud', index: i };
-  // A release only matters to an open focus pop (the relic ring's hold-and-release).
-  if (touch.kind === 'up') {
+  const k = touch.kind;
+  // Drags look (Explore and the camp only) and never act; elsewhere they continue the press.
+  if (k === 'drag') return f.phase === 'explore' || f.phase === 'camp' ? { verb: 'look', dx: touch.dx ?? 0, dy: touch.dy ?? 0 } : null;
+  // 1. HUD plates (where the gesture went down: a drag that ends on a plate is still the world's).
+  const px = k === 'tap' ? touch.downX ?? x : x;
+  const py = k === 'tap' ? touch.downY ?? y : y;
+  if (k !== 'up' && k !== 'hold') for (let i = 0; i < f.plates.length; i++) if (inRect(px, py, f.plates[i])) return { verb: 'hud', index: i };
+  // A release only matters to an open focus pop (the relic ring's hold-and-release); elsewhere it ends a gesture the
+  // press, the tap or the hold already answered.
+  if (k === 'up') {
     if (f.focus && inRect(touch.downX ?? x, touch.downY ?? y, f.focus.rect)) return { verb: 'focus', id: f.focus.id, input: 'release' };
-    return { verb: 'tunk', point: null, hint: '' };
+    return null;
   }
-  // Any press during a long move or ceremony skips it (and is consumed).
-  if (touch.kind === 'tap' && f.skippable) return { verb: 'navigation', nav: 'skip', id: '' };
+  const walking = f.phase === 'explore' || f.phase === 'camp';
+  // Any press during a long move, ride or ceremony skips it (and is consumed): in every phase, on the press.
+  if (k === 'press' && f.skippable && f.phase !== 'ride') return { verb: 'navigation', nav: 'skip', id: '' };
+  if (!actsIn(f.phase, k)) return null;
+  // In Explore the press only skips; the tap (its release) acts.
+  if (walking && k === 'press') return null;
   // 2. An open focus pop: the object, or outside (close).
   if (f.focus) {
-    if (inRect(x, y, f.focus.rect)) return { verb: 'focus', id: f.focus.id, input: touch.kind === 'hold' ? 'hold' : 'tap' };
-    if (touch.kind === 'hold') return { verb: 'focus', id: f.focus.id, input: 'hold' };
+    if (inRect(x, y, f.focus.rect)) return { verb: 'focus', id: f.focus.id, input: k === 'hold' ? 'hold' : 'tap' };
+    if (k === 'hold') return { verb: 'focus', id: f.focus.id, input: 'hold' };
     return { verb: 'focus', id: f.focus.id, input: 'close' };
   }
-  if (touch.kind === 'hold') return resolveHold(touch, f);
+  if (k === 'hold') return resolveHold(touch, f);
   // 3. Event objects [W2].
   for (const e of f.events) if (inRect(x, y, e.rect)) return { verb: 'strike', target: { kind: 'tappable', id: e.id }, via: 'direct' };
   // 4. The lantern, only under the deliberate-gesture rule (§2.4); otherwise the touch passes to the world.
@@ -187,10 +249,20 @@ export function resolve(touch: TouchIn, f: NodeFrame): NodeTouch {
   if (f.phase === 'drift' && touch.t - f.strikeStreamAt >= HIT.rackQuietMs) {
     for (const r of f.rack) if (inRect(x, y, r.rect)) return { verb: 'skill', id: r.id };
   }
-  // 6. Navigation targets: direct hit only.
-  for (const n of f.nav) if (inRect(x, y, n.rect)) return { verb: 'navigation', nav: n.kind, id: n.id };
-  // 7. Focus-type tappables: direct hit on the padded area.
-  for (const o of f.focusables) if (inRect(x, y, o.rect)) return { verb: 'focus', id: o.id, input: 'open' };
+  // 6. Navigation targets: direct hit only. In Explore a far exit is walked to and taken on arrival.
+  for (const n of f.nav) {
+    if (!inRect(x, y, n.rect)) continue;
+    const nav: NodeTouch = { verb: 'navigation', nav: n.kind, id: n.id };
+    if (walking && n.at && (n.dist ?? 0) > HIT.reachStrike) return { verb: 'walk', to: n.at, via: 'approach', then: nav };
+    return nav;
+  }
+  // 7. Focus-type tappables: direct hit on the padded area. In Explore a far one is walked to, then opened.
+  for (const o of f.focusables) {
+    if (!inRect(x, y, o.rect)) continue;
+    const open: NodeTouch = { verb: 'focus', id: o.id, input: 'open' };
+    if (walking && o.at && (o.dist ?? 0) > HIT.reachFocus) return { verb: 'walk', to: o.at, via: 'approach', then: open };
+    return open;
+  }
   // 8. The camera ray.
   const hit = f.pick(x, y);
   if (f.phase === 'drift' || f.phase === 'seal') {
@@ -202,14 +274,26 @@ export function resolve(touch: TouchIn, f: NodeFrame): NodeTouch {
     if (hit.kind === 'deep') return { verb: 'tunk', point: hit.point, hint: f.hint };
     return { verb: 'raise', point: hit.point };
   }
+  if (f.phase === 'ride') {
+    if (hit.kind === 'tappable' && (hit.dist ?? 0) <= HIT.reachStrike) return { verb: 'strike', target: { kind: 'tappable', id: hit.id }, via: 'ray', point: hit.point };
+    const fat = fatChamber(x, y, f.strikeables);
+    if (fat) return strikeOf(fat.kind, fat.id, 'fat');
+    return { verb: 'raise', point: hit.point };
+  }
   if (hit.kind === 'face') return { verb: 'strike', target: { kind: 'face', col: hit.col, slice: hit.slice }, via: 'ray', point: hit.point };
-  if (hit.kind === 'tappable') return { verb: 'strike', target: { kind: 'tappable', id: hit.id }, via: 'ray', point: hit.point };
-  if (hit.kind === 'lamp') return { verb: 'relight', lampId: hit.id, via: 'ray' };
-  if (hit.kind === 'skin') return { verb: 'strike', target: { kind: 'skin', id: hit.id }, via: 'ray', point: hit.point };
-  // 9. The fat finger in a chamber: exactly one strike-type tappable or cold lamp within 48 px.
+  const near = (hit.dist ?? 0) <= HIT.reachStrike;
+  if (hit.kind === 'tappable' || hit.kind === 'lamp' || hit.kind === 'skin') {
+    const act: NodeTouch = hit.kind === 'lamp' ? { verb: 'relight', lampId: hit.id, via: 'ray' } : { verb: 'strike', target: hit.kind === 'skin' ? { kind: 'skin', id: hit.id } : { kind: 'tappable', id: hit.id }, via: 'ray', point: hit.point };
+    if (near || !walking) return act;
+    // Explore: a far tappable is walked to, then struck (skin is only struck in reach: far skin is just rock to walk to).
+    if (hit.kind !== 'skin') return { verb: 'walk', to: hit.point, via: 'approach', then: act };
+  }
+  // 9. The fat finger: exactly one strike-type tappable or cold lamp in reach within 48 px.
   const fat = fatChamber(x, y, f.strikeables);
   if (fat) return strikeOf(fat.kind, fat.id, 'fat');
-  if (hit.kind === 'deep') return { verb: 'tunk', point: hit.point, hint: f.hint };
+  // Explore: a floor, a ledge or a stair (or the foot of a wall) walks there.
+  if (walking && hit.kind === 'walk') return { verb: 'walk', to: hit.point, via: 'floor' };
+  if (hit.kind === 'deep' && near) return { verb: 'tunk', point: hit.point, hint: f.hint };
   // 10. Lantern Raise.
   return { verb: 'raise', point: hit.point };
 }
@@ -219,6 +303,7 @@ export function fatChamber(x: number, y: number, list: NodeFrame['strikeables'])
   let found: { id: string; kind: StrikeKind } | null = null;
   for (const s of list) {
     if (s.kind === 'skin') continue;
+    if (s.dist !== undefined && s.dist > HIT.reachStrike) continue;
     if (rectDistance(x, y, s.rect) <= HIT.fatChamberPx) {
       if (found) return null;
       found = { id: s.id, kind: s.kind };
@@ -228,9 +313,10 @@ export function fatChamber(x: number, y: number, list: NodeFrame['strikeables'])
 }
 
 /**
- * A hold-stream hit (§2.2). In a drift: the block under the thumb (a hole shows the block behind it: boring in), else
- * the weakest live block of the front slice, else the nearest. In a chamber: the sweep, the remaining strike-type
- * tappables nearest the screen centre first; with none left, a tunk that hints the exit.
+ * A hold-stream hit (§2.2, W1-LEAD §3). In a drift or a seal: the block under the thumb (a hole shows the block behind
+ * it: boring in), else the weakest live block of the front slice, else the nearest. In Explore, the camp and a ride:
+ * on a strike tappable in reach, repeat-strike it; elsewhere sweep the remaining strike-type tappables in reach,
+ * nearest the screen centre first; with none left, a tunk that hints the exit.
  */
 function resolveHold(touch: TouchIn, f: NodeFrame): NodeTouch {
   const { x, y } = touch;
@@ -248,9 +334,10 @@ function resolveHold(touch: TouchIn, f: NodeFrame): NodeTouch {
   for (const n of f.nav) if (inRect(sx, sy, n.rect)) return { verb: 'tunk', point: null, hint: '' };
   for (const o of f.focusables) if (inRect(sx, sy, o.rect)) return { verb: 'tunk', point: null, hint: '' };
   const hit = f.pick(x, y);
-  if (hit.kind === 'tappable') return { verb: 'strike', target: { kind: 'tappable', id: hit.id }, via: 'hold', point: hit.point };
-  if (hit.kind === 'skin') return { verb: 'strike', target: { kind: 'skin', id: hit.id }, via: 'hold', point: hit.point };
-  if (hit.kind === 'lamp') return { verb: 'relight', lampId: hit.id, via: 'sweep' };
+  const near = (hit.dist ?? 0) <= HIT.reachStrike;
+  if (near && hit.kind === 'tappable') return { verb: 'strike', target: { kind: 'tappable', id: hit.id }, via: 'hold', point: hit.point };
+  if (near && hit.kind === 'skin') return { verb: 'strike', target: { kind: 'skin', id: hit.id }, via: 'hold', point: hit.point };
+  if (near && hit.kind === 'lamp') return { verb: 'relight', lampId: hit.id, via: 'sweep' };
   // The sweep: nearest the screen centre first (the frame's centre is the strikeables' bounding middle).
   let best: NodeFrame['strikeables'][number] | null = null;
   let bd = Infinity;
@@ -258,6 +345,7 @@ function resolveHold(touch: TouchIn, f: NodeFrame): NodeTouch {
   const cy = f.centre.y;
   for (const s of f.strikeables) {
     if (s.kind === 'skin') continue;
+    if (s.dist !== undefined && s.dist > HIT.reachStrike) continue;
     const d = centreDist(cx, cy, s.rect);
     if (d < bd) {
       bd = d;

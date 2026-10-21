@@ -31,7 +31,7 @@ export function counter(s: IdleState, tpl: ContractTpl): number {
     case 'levels': return st.levels;
     case 'skills': return st.skills;
     case 'seal': return st.seals + st.gates;
-    case 'creature': return st.creatures;
+    case 'lamps': return s.meta.nodeStats.lamps;
     case 'find': return st.finds;
     case 'gold': return s.run.goldEarned.log10();
     case 'perfect': return st.perfects;
@@ -167,7 +167,7 @@ export function used(s: IdleState, mechanic: string): void {
 
 /** Update progress, complete and replace (called 4 times a second). */
 export function tickContracts(s: IdleState, bus?: IdleBus): void {
-  // The Board opens with its tab (after the first Warden, CRITIQUE SHOULD 9): no contract runs before.
+  // The Board opens with its tab (after the second seal, CRITIQUE SHOULD 9): no contract runs before.
   if (!s.meta.revealed.includes('boardTab')) return;
   if (s.meta.contracts.length < slots(s) || s.meta.contracts.some((c) => !c)) fillBoard(s, bus);
   const board = s.meta.contracts;

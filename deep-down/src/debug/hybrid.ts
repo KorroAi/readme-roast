@@ -30,14 +30,20 @@ export interface HybridTappable {
   hit: HybridRect;
   /** The amber rim is on it (the suggestion). */
   rimmed: boolean;
+  /** Metres from the eye; strike types act within 3.5 m, focus types within 4.5 m (farther: walk there first). */
+  dist: number;
+  /** Remaining fraction (strike types) or 1 / 0 (focus types unresolved / resolved; lamps unlit / lit). */
+  left: number;
 }
 
 /** A navigation target on screen. */
 export interface HybridNav {
   id: string;
-  kind: 'exit' | 'ring' | 'arrow';
+  kind: 'exit' | 'ring' | 'arrow' | 'ledge' | 'station';
   rect: HybridRect;
   hit: HybridRect;
+  /** Metres from the eye (Explore walks to far ones). */
+  dist: number;
 }
 
 export interface HybridCameraView {
@@ -105,7 +111,7 @@ export interface HybridHudView {
 }
 
 export interface HybridNodeView {
-  /** The player's node index, phase and stand. */
+  /** The player's node index, phase ('drift' | 'explore' | 'ride' | 'seal' | 'camp' | 'reveal') and stand. */
   node: number;
   phase: string;
   stand: number;
@@ -127,6 +133,47 @@ export interface HybridNodeView {
   depth: number;
 }
 
+/** Explore (W1-LEAD §3): the walk, the look and the destination ring. */
+export interface HybridExploreView {
+  /** The player walks and looks freely now (a chamber after first light, the camp). */
+  on: boolean;
+  walking: boolean;
+  /** 'walk' | 'ride' | '' . */
+  kind: string;
+  /** The eye now. */
+  pos: { x: number; y: number; z: number; yaw: number; pitch: number };
+  /** Where the running walk ends (eye point), or null. */
+  end: { x: number; y: number; z: number } | null;
+  /** The last tapped destination (feet point) and when the amber ring was shown (performance.now() ms). */
+  marker: { x: number; y: number; z: number; at: number } | null;
+  /** Walks started, arrived, and actions done on arrival (walk-then-act). */
+  walks: number;
+  arrivals: number;
+  actsOnArrival: number;
+  /** Drag-look steps applied. */
+  looks: number;
+}
+
+/** A screen point the e2e can tap to walk: a visible walkable floor cell and its feet point. */
+export interface HybridFloorPoint {
+  x: number;
+  y: number;
+  /** The feet point it walks to, and its distance from the eye (m). */
+  at: { x: number; y: number; z: number };
+  dist: number;
+}
+
+/** The Ride phase: the run's progress and the glints passing by. */
+export interface HybridRideView {
+  on: boolean;
+  /** 'cart' | 'ladder' | 'stair' | 'chute' | 'rope' | ''. */
+  kind: string;
+  progress: number;
+  glints: Array<{ id: string; rect: HybridRect; hit: HybridRect; left: number; dist: number }>;
+  /** The Skip plate's rect while the ride is skippable (null otherwise). */
+  skip: HybridRect | null;
+}
+
 export interface HybridDebug {
   /** True once the first frame of the scene drew. */
   ready: boolean;
@@ -139,6 +186,12 @@ export interface HybridDebug {
   faceCells(): HybridFaceCell[];
   tappables(): HybridTappable[];
   nav(): HybridNav[];
+  /** Explore: the walk and the look. */
+  explore(): HybridExploreView;
+  /** Explore: up to `n` screen points over visible walkable floor between `minM` and `maxM` metres away. */
+  floorPoints(n?: number, minM?: number, maxM?: number): HybridFloorPoint[];
+  /** The Ride phase. */
+  ride(): HybridRideView;
   camera(withLog?: boolean): HybridCameraView;
   /** Clear the camera log (then `camera(true)` returns only what follows). */
   clearCameraLog(): void;

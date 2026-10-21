@@ -19,7 +19,7 @@ import {
 } from '../config/events';
 import { XP } from '../config/rank';
 import { openChest } from './chests';
-import { catchCreature, currentPage, pageIncomplete, readNote, rollFind } from './codex';
+import { currentPage, pageIncomplete, readNote, rollFind } from './codex';
 import { facetStats } from './facets';
 import { addXp, creditGems, creditSeconds } from './gain';
 import { hasPerk, invalidateMults } from './mult';
@@ -125,14 +125,14 @@ export function holdDirector(s: IdleState, seconds: number): void {
   s.director.holdUntil = Math.max(s.director.holdUntil, s.time + seconds);
 }
 
-/** The welcome back (SPEC §4.4): within 5 s of the feast closing, a Supply Rope (or a Lucky Moth before 180 m). */
+/** The welcome back (SPEC §4.4): within 5 s of the feast closing, a Supply Rope (or a Drifting Ember before 180 m). */
 export function welcomeBack(s: IdleState): void {
   const d = s.director;
   if (s.run.dmax >= EVENTS.supplyRope.unlock && !s.event) {
     d.next = 'supplyRope';
     d.announced = true;
     d.wait = Math.min(d.wait, 3);
-  } else s.nextMothAt = Math.min(s.nextMothAt, s.playTime + 3);
+  } else s.nextEmberAt = Math.min(s.nextEmberAt, s.playTime + 3);
 }
 
 /** A new tappable or find entered the view (B calls this when it shows one): the find guarantee's clock resets. */
@@ -256,19 +256,26 @@ export function startEvent(s: IdleState, type: EventType, bus?: IdleBus): Active
       }
       break;
     }
-    case 'mothSwarm': {
+    case 'seedFall': {
+      // Seed pods drift down slowly through the lantern pool, swaying (inanimate: no flight, no path across the frame).
       const n = intBetween(s, def.targets[0], def.targets[1]);
       for (let i = 0; i < n; i++) {
-        const a = t0 + (i / n) * (def.life - 1.6);
-        const ltr = rand(s) < 0.5;
-        const y0 = between(s, -2.2, 2.5);
-        target('moth', a, a + between(s, def.onScreen[0], def.onScreen[1]), path(ltr ? -0.8 : 6.8, y0, 3, y0 + between(s, -1.8, 1.8), ltr ? 6.8 : -0.8, between(s, -2.2, 2.5)));
+        const a = t0 + (i / n) * (def.life - 2.2);
+        const x = between(s, 0.4, 5.6);
+        target('seed', a, a + between(s, def.onScreen[0], def.onScreen[1]), path(x, -2.5, x + between(s, -0.8, 0.8), -1.2, x + between(s, -0.4, 0.4), 0.2));
       }
       break;
     }
-    case 'treasureMole': {
+    case 'rattlingBricks': {
+      // Bricks of a Halden stash loosen one by one in the wall (they stay put; each takes one tap).
+      const n = intBetween(s, def.targets[0], def.targets[1]);
       const left = rand(s) < 0.5;
-      target('mole', t0, t0 + def.life, path(left ? -0.6 : 6.6, 1.2, 3, 2.2, left ? 6.6 : -0.6, 1.6), intBetween(s, def.taps[0], def.taps[1]));
+      for (let i = 0; i < n; i++) {
+        const a = t0 + i * 0.7;
+        const x = left ? 0.2 + i * 0.35 : 5.8 - i * 0.35;
+        const y = between(s, -1.2, 0.6);
+        target('brick', a, a + between(s, def.onScreen[0], def.onScreen[1]), path(x, y, x, y, x, y));
+      }
       break;
     }
     case 'caveIn': {
@@ -283,9 +290,10 @@ export function startEvent(s: IdleState, type: EventType, bus?: IdleBus): Active
     case 'supplyRope':
       target('crate', t0, t0 + def.life, path(3, -2.5, 3, -2, 3, -1.4));
       break;
-    case 'mimic': {
-      const x0 = between(s, 0.5, 2);
-      target('mimic', t0, t0 + def.life, path(x0, -0.4, 3.5, -2, x0 + 4, -0.4), def.taps[0]);
+    case 'wedgedChest': {
+      // A chest caught in a slowly closing crack (the crack is the target; it does not move).
+      const x0 = between(s, 1.5, 4.5);
+      target('crack', t0, t0 + def.life, path(x0, -0.4, x0, -0.4, x0, -0.4), def.taps[0]);
       break;
     }
     case 'treasureMap': {
@@ -447,7 +455,7 @@ export function eventTap(s: IdleState, id: string, bus?: IdleBus): boolean {
   return false;
 }
 
-/** A Catch target was taken: its reward now (each crystal, moth, boulder), the crate opens its Pick. */
+/** A Catch target was taken: its reward now (each crystal, seed pod, boulder), the crate opens its Pick. */
 function onCaught(s: IdleState, ev: ActiveEvent, id: string, bus?: IdleBus): void {
   ev.caught++;
   s.meta.caught.targets = (s.meta.caught.targets ?? 0) + 1;
@@ -456,7 +464,7 @@ function onCaught(s: IdleState, ev: ActiveEvent, id: string, bus?: IdleBus): voi
   const tg = (ev.widget as CatchWidget).targets.find((x) => x.id === id);
   const col = Math.round(tg?.path.x1 ?? 3);
   if (def.perTarget > 0) {
-    const g = creditSeconds(s, def.perTarget * creatureX(s, ev.type), 'event', bus, col, s.run.depth);
+    const g = creditSeconds(s, def.perTarget, 'event', bus, col, s.run.depth);
     ev.goldLog10 = addL(ev.goldLog10, g.log10());
   }
   if (ev.type === 'glimmerfall' && ev.caught % GLIMMER.gemEvery === 0) {
@@ -470,10 +478,6 @@ function onCaught(s: IdleState, ev: ActiveEvent, id: string, bus?: IdleBus): voi
     ev.widget = openPick(s, `event:${ev.id}`, 30, cards, bus);
   }
   bus?.emit('entity:done', { id, kind: tg?.kind ?? '', reward: '' });
-}
-
-function creatureX(s: IdleState, type: string): number {
-  return type === 'mothSwarm' && hasPerk(s, 'kindred') ? 2 : 1;
 }
 
 /** Pick a Supply Rope card (the UI's Pick widget). */
@@ -508,15 +512,13 @@ export function endEvent(s: IdleState, result: 'done' | 'partial' | 'missed', bu
     ev.goldLog10 = addL(ev.goldLog10, g.log10());
   };
   switch (ev.type) {
-    case 'mothSwarm':
+    case 'seedFall':
       if (ev.caught > 0 && ev.caught === ev.of) {
-        pay(EVENTS.mothSwarm.perTarget * ev.of * 2 * creatureX(s, ev.type)); // all = ×3
-        catchCreature(s, BIOMES[page].creatures[0], bus);
-        extras.push(`creature:${BIOMES[page].creatures[0]}`);
-        s.meta.caught.swarmAll = (s.meta.caught.swarmAll ?? 0) + 1;
+        pay(EVENTS.seedFall.perTarget * ev.of * 2); // all = ×3
+        s.meta.caught.seedsAll = (s.meta.caught.seedsAll ?? 0) + 1;
       }
       break;
-    case 'treasureMole':
+    case 'rattlingBricks':
       if (ev.caught > 0) openChest(s, `event:${ev.id}`, 1, 'event', bus);
       break;
     case 'caveIn':
@@ -525,7 +527,7 @@ export function endEvent(s: IdleState, result: 'done' | 'partial' | 'missed', bu
         ev.gems++;
       }
       break;
-    case 'mimic':
+    case 'wedgedChest':
       if (ev.caught > 0) openChest(s, `event:${ev.id}`, 2, 'event', bus);
       else {
         const cid = `chest:${s.nextId++}`;

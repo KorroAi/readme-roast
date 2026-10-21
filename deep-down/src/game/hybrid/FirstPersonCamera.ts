@@ -35,9 +35,15 @@ export interface CameraPose {
   hfov: number;
 }
 
-/** The five shots (U-CAM2). The cross-fade is a phase any shot may use, not a sixth shot. */
-export const SHOT_KINDS = ['drift', 'breakthrough', 'stand', 'wayDown', 'reveal'] as const;
+/**
+ * The shots (U-CAM2). SPEC §3.3's five authored shots, plus the three W1-LEAD §3 phases that hand the view to the
+ * player: Explore (tap-to-walk and drag-look in a chamber), Ride (the cart run and other on-rails Way Downs) and Camp
+ * (the surface at dusk). The cross-fade is a phase any shot may use, not a shot of its own.
+ */
+export const SHOT_KINDS = ['drift', 'breakthrough', 'stand', 'wayDown', 'reveal', 'explore', 'ride', 'camp'] as const;
 export type ShotKind = (typeof SHOT_KINDS)[number];
+/** The authored shots of SPEC §3.3 (the five whose moves `checkMove` validates phase by phase). */
+export const AUTHORED_SHOTS: readonly ShotKind[] = ['drift', 'breakthrough', 'stand', 'wayDown', 'reveal'];
 
 /** Every authored move, by name (the camera log and the tests read these). */
 export type MoveName =
@@ -52,7 +58,11 @@ export type MoveName =
   | 'reveal'
   | 'revealLower'
   | 'crossFade'
-  | 'place';
+  | 'place'
+  /** Explore: a walk along a planned path (W1-LEAD §3). */
+  | 'walk'
+  /** The Ride phase: the cart run, a rope or a stair ridden on rails. */
+  | 'ride';
 
 export type MotionLevel = 'full' | 'reduced' | 'off';
 /** The creep variants (SPEC §3.6): A the step (default), B the track. C (the fade) is what reduced motion uses. */
@@ -92,9 +102,11 @@ export interface CameraSample {
   hfov: number;
   shot: ShotKind;
   move: MoveName | '';
-  phase: Phase['k'] | 'creep' | '';
+  phase: Phase['k'] | 'creep' | 'walk' | 'ride' | 'look' | '';
   /** The cross-fade's dip, 0..1. */
   fade: number;
+  /** Explore: a drag moved the view this frame (the player's own look is exempt from the turn cap). */
+  drag?: boolean;
 }
 
 // ------------------------------------------------------------------------------------------------------------------
@@ -129,6 +141,53 @@ export const CREEP_A = { wait: 0.15, ramp: 0.2, vmax: 2.5 } as const;
  * is 2.8–3.2 m (not the SPEC's 3.4: at 3.4 m a block is 87 px at 360 px, under the 92 px rest floor of C7).
  */
 export const CREEP_B = { vmax: 1.2, omega: 7, near: 2.8, far: 3.2 } as const;
+
+/**
+ * Explore and Ride (W1-LEAD §3): walking follows the motion law at ≤ 2.5 m/s with eased starts and stops; the camera
+ * turns toward the walk direction at ≤ 90°/s, blended with the player's look (a drag during a walk wins); drag-look has
+ * free yaw, pitch within ±55°, a light damping that settles in ≤ 120 ms, and never any roll; no bob; steps up to 0.5 m
+ * are climbed smoothly; ladders and ropes are path links ridden on rails; a walk that ends in an action stops 0.9 m short.
+ */
+export const EXPLORE = {
+  /** Cruise speed (m/s) and the eased start and stop (s from rest to cruise). */
+  walkSpeed: 2.3,
+  rampS: 0.3,
+  /** Vertical speed on ladders and ropes (m/s, ≤ the law's 2.0). */
+  climbSpeed: 1.4,
+  /** The auto-turn toward the walk direction (°/s) and how far ahead on the path it looks (m). */
+  turnDeg: 90,
+  lookAheadM: 0.8,
+  /** After a drag, the auto-turn yields to the player's look for this long (s). */
+  dragYieldS: 1.5,
+  /** Drag-look sensitivity (° per CSS px) and the pitch limit (°). */
+  degPerPx: 0.22,
+  pitchLimitDeg: 55,
+  /** The look's damping time constant (s): 1 − e^(−0.12/0.028) ≈ 98.6 % settled at 120 ms. */
+  lookTau: 0.028,
+  /** A walk that ends in an action stops this far (m, horizontal) short of the target. */
+  stopShortM: 0.9,
+  /** On arrival the view turns to face the target (°/s, ≤ the law). */
+  faceTurnDeg: 90,
+  /** The walking pitch the view eases toward when the player has not looked up or down on their own (°). */
+  walkPitchDeg: -6,
+  walkPitchRateDeg: 30,
+  /** The cart run's cruise (m/s). */
+  rideSpeed: 2.5,
+} as const;
+
+/** What a walk or a ride is for, and what it calls on arrival. */
+export interface WalkOpts {
+  /** Turn to face this world point on arrival (an action's target). */
+  face?: V3;
+  /** 'walk' (Explore, the player may look around) or 'ride' (on rails, the view follows the track). */
+  kind?: 'walk' | 'ride';
+  /** Cruise speed override (m/s, capped by the law). */
+  speed?: number;
+  /** Called once when the walk ends (true) or is replaced or stopped (false). */
+  done?: (arrived: boolean) => void;
+  /** The shot to report while it runs (default 'explore', or 'ride'). */
+  shot?: ShotKind;
+}
 
 const TAU = Math.PI * 2;
 /** Shortest signed difference b − a of two angles (radians). */
@@ -425,8 +484,24 @@ export class FirstPersonCamera {
   private readonly samples: CameraSample[] = [];
   private head = 0;
   private readonly tmp: V3 = { x: 0, y: 0, z: 0 };
+  private readonly tmp2: V3 = { x: 0, y: 0, z: 0 };
   /** Moves started, by name (tests and the debug surface). */
   readonly started: MoveName[] = [];
+  // Explore: the walk (or ride) along a path, and the look the pose follows.
+  private exploreOn = false;
+  private walkP: Path | null = null;
+  private walkCaps: number[] = [];
+  private walkS = 0;
+  private walkV = 0;
+  private walkOpts: WalkOpts = {};
+  private walkSpeed: number = EXPLORE.walkSpeed;
+  private faceAt: V3 | null = null;
+  private lookYaw = 0;
+  private lookPitch = PITCH.drift * DEG;
+  private lastDragClock = -1e9;
+  private dragThisFrame = false;
+  /** The player pitched the view by hand since the last walk began (the walk then leaves the pitch alone). */
+  private pitchOwned = false;
 
   /** The pose now (a live object: copy what you keep). */
   pose(): CameraPose {
@@ -437,9 +512,40 @@ export class FirstPersonCamera {
     return this.shotNow;
   }
 
-  /** A move or the creep is moving the camera. */
+  /** A move, the creep, a walk, a ride or the look's settle is moving the camera. */
   get moving(): boolean {
-    return this.move !== null || !this.resting;
+    return this.move !== null || !this.resting || this.walkP !== null || this.faceAt !== null || (this.exploreOn && this.lookUnsettled());
+  }
+
+  /** Explore is on: the player walks by tap and looks by drag (W1-LEAD §3). */
+  get exploring(): boolean {
+    return this.exploreOn;
+  }
+
+  /** A walk or a ride is running. */
+  get walking(): boolean {
+    return this.walkP !== null;
+  }
+
+  /** The running walk's kind ('' when none). */
+  get walkKind(): 'walk' | 'ride' | '' {
+    return this.walkP ? this.walkOpts.kind ?? 'walk' : '';
+  }
+
+  /** Where the running walk ends (eye point), or null. */
+  walkEnd(): V3 | null {
+    const p = this.walkP;
+    return p ? { ...p.pts[p.pts.length - 1] } : null;
+  }
+
+  /** The running walk's progress 0..1 (1 when none). */
+  get walkProgress(): number {
+    return this.walkP && this.walkP.length > 0 ? Math.min(1, this.walkS / this.walkP.length) : 1;
+  }
+
+  /** The walking speed now (m/s). */
+  get speed(): number {
+    return this.walkP ? this.walkV : 0;
   }
 
   /** The running move's name ('' when none). */
@@ -457,8 +563,9 @@ export class FirstPersonCamera {
     return this.fadeNow;
   }
 
-  /** Whether a tap now would skip the running move (> 1 s long, not already skipping). */
+  /** Whether a tap now would skip the running move (> 1 s long, not already skipping), or the running ride. */
   get skippable(): boolean {
+    if (!this.move && this.walkP && this.walkOpts.kind === 'ride') return this.walkP.length - this.walkS > 1.5;
     return !!this.move && this.moveDur > LAW.skippableOver && this.moveName !== 'crossFade' && this.moveT < this.moveDur - LAW.skipFade;
   }
 
@@ -475,8 +582,242 @@ export class FirstPersonCamera {
     this.fadeNow = 0;
     this.v = 0;
     this.resting = true;
+    this.cancelWalk();
+    this.faceAt = null;
     if (this.rail) this.syncRail();
+    this.lookYaw = this.cur.yaw;
+    this.lookPitch = this.cur.pitch;
     this.sample('', '');
+  }
+
+  // ----------------------------------------------------------------------------------------------------------------
+  // Explore (W1-LEAD §3): tap-to-walk and drag-look
+
+  /** Hand the view to the player (a chamber after its first light, the camp). Leaves any drift rail. */
+  enterExplore(shot: ShotKind = 'explore'): void {
+    this.exploreOn = true;
+    this.clearRail();
+    this.lookYaw = this.cur.yaw;
+    this.lookPitch = clampPitch(this.cur.pitch);
+    this.pitchOwned = false;
+    if (!this.move) this.shotNow = shot;
+  }
+
+  /** Take the view back (a Way Down, a ride, the seal). A running walk stops where it is. */
+  exitExplore(): void {
+    this.exploreOn = false;
+    this.cancelWalk();
+    this.faceAt = null;
+  }
+
+  /**
+   * Drag-look: `dx`, `dy` CSS px of finger travel this frame. Yaw is free, pitch stays within ±55°, never any roll.
+   * Dragging right looks right, dragging up looks up. A drag during a walk wins over the walk's auto-turn.
+   */
+  look(dx: number, dy: number): void {
+    if (!this.exploreOn || this.move) return;
+    if (this.walkP && this.walkOpts.kind === 'ride') return;
+    const k = EXPLORE.degPerPx * DEG;
+    this.lookYaw -= dx * k;
+    this.lookPitch = clampPitch(this.lookPitch - dy * k);
+    this.lastDragClock = this.clock;
+    this.dragThisFrame = true;
+    if (Math.abs(dy) > 0.5) this.pitchOwned = true;
+    // A drag cancels the arrival's face turn: the player looks where they want.
+    this.faceAt = null;
+  }
+
+  /** Turn to face a world point at ≤ 90°/s (an action in reach, the objective's target). */
+  faceTo(p: V3): void {
+    if (!this.exploreOn) return;
+    this.faceAt = { ...p };
+  }
+
+  /**
+   * Walk (or ride) along `points` (eye positions, world m) from where the camera is. The speed eases in and out over
+   * 0.3 s, never above 2.5 m/s (vertical ≤ 2.0, ladders 1.4); the view turns toward the walk direction at ≤ 90°/s
+   * unless the player dragged in the last 1.5 s. A new walk replaces the running one and keeps its speed.
+   */
+  walk(points: readonly V3[], opts: WalkOpts = {}): void {
+    const prevDone = this.walkP ? this.walkOpts.done : undefined;
+    const keepV = this.walkP ? this.walkV : 0;
+    this.walkP = null;
+    prevDone?.(false);
+    if (this.move) this.finishCallback();
+    this.move = null;
+    this.moveName = '';
+    const pts: V3[] = [{ x: this.cur.x, y: this.cur.y, z: this.cur.z }];
+    for (const p of points) {
+      const l = pts[pts.length - 1];
+      if (Math.hypot(p.x - l.x, p.y - l.y, p.z - l.z) > 1e-4) pts.push({ x: p.x, y: p.y, z: p.z });
+    }
+    this.walkOpts = opts;
+    this.faceAt = null;
+    if (opts.kind !== 'ride') this.pitchOwned = false;
+    const path = makePath(pts);
+    if (path.length < 0.02) {
+      if (opts.face) this.faceAt = { ...opts.face };
+      opts.done?.(true);
+      return;
+    }
+    const kind = opts.kind ?? 'walk';
+    if (this.motion !== 'full') {
+      // Reduced motion (§3.2 rule 6): a walk or a ride is one 0.25 s cross-fade to where it ends (a comfort teleport).
+      const e = path.pts[path.pts.length - 1];
+      const to = clonePose(this.cur);
+      to.x = e.x;
+      to.y = e.y;
+      to.z = e.z;
+      if (opts.face) {
+        const dx = opts.face.x - e.x;
+        const dz = opts.face.z - e.z;
+        if (Math.hypot(dx, dz) > 0.05) to.yaw = yawOf(dx, dz);
+        to.pitch = clampPitch(Math.atan2(opts.face.y - e.y, Math.max(0.05, Math.hypot(dx, dz))));
+      } else if (kind === 'ride') {
+        const b = path.pts[path.pts.length - 2];
+        if (Math.hypot(e.x - b.x, e.z - b.z) > 0.05) to.yaw = yawOf(e.x - b.x, e.z - b.z);
+      }
+      const shot = opts.shot ?? (kind === 'ride' ? 'ride' : 'explore');
+      this.started.push(kind);
+      this.play({ shot, name: 'crossFade', phases: [{ k: 'cut', to, dur: LAW.reducedFade }] }, () => {
+        if (this.exploreOn) this.shotNow = 'explore';
+        opts.done?.(true);
+      });
+      return;
+    }
+    this.walkSpeed = Math.min(LAW.maxSpeed * 0.999, opts.speed ?? (kind === 'ride' ? EXPLORE.rideSpeed * 0.999 : EXPLORE.walkSpeed));
+    this.walkCaps = [];
+    for (let k = 1; k < path.pts.length; k++) {
+      const a = path.pts[k - 1];
+      const b = path.pts[k];
+      const d = path.cum[k] - path.cum[k - 1];
+      const sin = d > 1e-9 ? Math.abs(b.y - a.y) / d : 0;
+      const vert = sin > 0.6 ? EXPLORE.climbSpeed : LAW.maxVertical * 0.98;
+      this.walkCaps.push(Math.min(this.walkSpeed, sin > 1e-6 ? vert / sin : Infinity));
+    }
+    this.walkP = path;
+    this.walkS = 0;
+    this.walkV = Math.min(keepV, this.walkCaps[0] ?? keepV);
+    this.started.push(kind);
+    if (this.started.length > 256) this.started.shift();
+    this.shotNow = opts.shot ?? (kind === 'ride' ? 'ride' : 'explore');
+    this.clearRail();
+  }
+
+  /** Stop the running walk with an eased stop (the remaining braking distance), never a jolt. */
+  stopWalk(): void {
+    const p = this.walkP;
+    if (!p) return;
+    const a = this.walkSpeed / EXPLORE.rampS;
+    const brake = (this.walkV * this.walkV) / (2 * a);
+    const end = Math.min(p.length, this.walkS + brake);
+    const pts: V3[] = [];
+    const n = Math.max(2, Math.ceil((end - this.walkS) / 0.25) + 1);
+    for (let i = 0; i < n; i++) pts.push(pathPoint(p, this.walkS + ((end - this.walkS) * i) / (n - 1)));
+    const done = this.walkOpts.done;
+    this.walkOpts = { ...this.walkOpts, face: undefined, done: undefined };
+    done?.(false);
+    const v = this.walkV;
+    const opts = this.walkOpts;
+    this.walkP = null;
+    this.walk(pts.slice(1), opts);
+    this.walkV = Math.min(v, this.walkSpeed);
+  }
+
+  private cancelWalk(): void {
+    if (!this.walkP) return;
+    const done = this.walkOpts.done;
+    this.walkP = null;
+    this.walkV = 0;
+    this.walkOpts = {};
+    done?.(false);
+  }
+
+  private lookUnsettled(): boolean {
+    return Math.abs(angleDelta(this.cur.yaw, this.lookYaw)) > 1e-4 || Math.abs(this.cur.pitch - this.lookPitch) > 1e-4;
+  }
+
+  private stepWalk(dt: number): void {
+    const p = this.walkP!;
+    const kind = this.walkOpts.kind ?? 'walk';
+    const vmax = this.walkSpeed;
+    const a = vmax / EXPLORE.rampS;
+    const n = Math.max(1, Math.ceil(dt / (1 / 240)));
+    const h = dt / n;
+    let arrived = false;
+    for (let i = 0; i < n; i++) {
+      // The speed allowed here: the cruise, each segment's cap ahead within braking distance, and the stop at the end.
+      let seg = 1;
+      while (seg < p.pts.length - 1 && p.cum[seg] <= this.walkS) seg++;
+      let allow = Math.min(vmax, this.walkCaps[seg - 1] ?? vmax, Math.sqrt(Math.max(0, 2 * a * (p.length - this.walkS))));
+      for (let k = seg; k < this.walkCaps.length; k++) {
+        const dist = p.cum[k] - this.walkS;
+        if (dist > (vmax * vmax) / (2 * a) + 0.05) break;
+        allow = Math.min(allow, Math.sqrt(this.walkCaps[k] * this.walkCaps[k] + 2 * a * Math.max(0, dist)));
+      }
+      if (this.walkV < allow) this.walkV = Math.min(allow, this.walkV + a * h);
+      else this.walkV = Math.max(allow, this.walkV - a * h);
+      // A segment's own cap is hard (a ladder entered from a standstill mid-walk).
+      this.walkV = Math.min(this.walkV, this.walkCaps[seg - 1] ?? vmax);
+      // Never stall short of the end: creep the last centimetres at the ramp's floor speed.
+      const v = Math.max(this.walkV, p.length - this.walkS < 0.05 ? a * h : 0);
+      this.walkS = Math.min(p.length, this.walkS + v * h);
+      if (p.length - this.walkS < 1e-4) {
+        this.walkS = p.length;
+        arrived = true;
+        break;
+      }
+    }
+    pathPoint(p, this.walkS, this.tmp);
+    this.cur.x = this.tmp.x;
+    this.cur.y = this.tmp.y;
+    this.cur.z = this.tmp.z;
+    // The auto-turn toward the walk direction (≤ 90°/s), unless the player looked around in the last 1.5 s.
+    const yielded = kind === 'walk' && this.clock - this.lastDragClock < EXPLORE.dragYieldS;
+    if (!yielded) {
+      pathPoint(p, Math.min(p.length, this.walkS + EXPLORE.lookAheadM), this.tmp2);
+      const hx = this.tmp2.x - this.tmp.x;
+      const hz = this.tmp2.z - this.tmp.z;
+      if (Math.hypot(hx, hz) > 0.08) this.lookYaw = turnToward(this.lookYaw, yawOf(hx, hz), EXPLORE.turnDeg * DEG, dt);
+      if (kind === 'ride') {
+        const hy = this.tmp2.y - this.tmp.y;
+        const slope = Math.atan2(hy, Math.max(1e-6, Math.hypot(hx, hz)));
+        this.lookPitch = turnToward(this.lookPitch, clampPitch(slope * 0.5 + EXPLORE.walkPitchDeg * DEG), EXPLORE.walkPitchRateDeg * DEG, dt);
+      }
+    }
+    if (kind === 'walk' && !this.pitchOwned) this.lookPitch = turnToward(this.lookPitch, EXPLORE.walkPitchDeg * DEG, EXPLORE.walkPitchRateDeg * DEG, dt);
+    if (arrived) {
+      const done = this.walkOpts.done;
+      const face = this.walkOpts.face;
+      this.walkP = null;
+      this.walkV = 0;
+      this.walkOpts = {};
+      if (face) this.faceAt = { ...face };
+      if (this.exploreOn) this.shotNow = 'explore';
+      done?.(true);
+    }
+  }
+
+  /** The look: the arrival's face turn, then the pose follows the look target with a ≤ 120 ms settle. */
+  private stepLook(dt: number): void {
+    if (this.faceAt) {
+      const f = this.faceAt;
+      const dx = f.x - this.cur.x;
+      const dy = f.y - this.cur.y;
+      const dz = f.z - this.cur.z;
+      const hd = Math.hypot(dx, dz);
+      const wantYaw = hd > 0.05 ? yawOf(dx, dz) : this.lookYaw;
+      const wantPitch = clampPitch(Math.atan2(dy, Math.max(0.05, hd)));
+      const r = EXPLORE.faceTurnDeg * DEG;
+      this.lookYaw = turnToward(this.lookYaw, wantYaw, r, dt);
+      this.lookPitch = turnToward(this.lookPitch, wantPitch, r, dt);
+      if (Math.abs(angleDelta(this.lookYaw, wantYaw)) < 0.3 * DEG && Math.abs(this.lookPitch - wantPitch) < 0.3 * DEG) this.faceAt = null;
+    }
+    const k = 1 - Math.exp(-dt / EXPLORE.lookTau);
+    const dyaw = angleDelta(this.cur.yaw, this.lookYaw);
+    const dp = this.lookPitch - this.cur.pitch;
+    this.cur.yaw = Math.abs(dyaw) < 1e-5 ? this.lookYaw : this.cur.yaw + dyaw * k;
+    this.cur.pitch = Math.abs(dp) < 1e-5 ? this.lookPitch : this.cur.pitch + dp * k;
   }
 
   /**
@@ -485,6 +826,8 @@ export class FirstPersonCamera {
    */
   play(m: Move, done?: () => void): void {
     const mv = this.motion === 'full' ? m : reducedMove(m, this.cur);
+    this.cancelWalk();
+    this.faceAt = null;
     this.finishCallback();
     this.move = mv;
     this.moveName = mv.name;
@@ -502,8 +845,23 @@ export class FirstPersonCamera {
     if (mv.phases.length === 0) this.endMove();
   }
 
-  /** Skip the running move to its end with a 0.15 s cross-fade (§3.2 rule 5). @returns false when nothing to skip. */
+  /** Skip the running move (or ride) to its end with a 0.15 s cross-fade (§3.2 rule 5). @returns false when nothing to skip. */
   skip(): boolean {
+    if (!this.move && this.walkP && this.walkOpts.kind === 'ride') {
+      const p = this.walkP;
+      const end = clonePose(this.cur);
+      const e = p.pts[p.pts.length - 1];
+      end.x = e.x;
+      end.y = e.y;
+      end.z = e.z;
+      const done = this.walkOpts.done;
+      const shot = this.shotNow;
+      this.walkP = null;
+      this.walkV = 0;
+      this.walkOpts = {};
+      this.play({ shot, name: 'crossFade', phases: [{ k: 'cut', to: end, dur: LAW.skipFade }] }, () => done?.(true));
+      return true;
+    }
     if (!this.skippable || !this.move) return false;
     const rest: Move = { ...this.move, phases: this.move.phases.slice(this.phaseIdx) };
     const end = moveEnd(rest, this.cur);
@@ -576,8 +934,18 @@ export class FirstPersonCamera {
     const d = Math.max(0, Math.min(0.25, dt));
     this.clock += d;
     if (this.move) this.stepMove(d);
+    else if (this.walkP) this.stepWalk(d);
     else if (this.rail && !this.resting) this.stepCreep(d);
-    this.sample(this.move ? this.moveName : this.resting ? '' : 'creep', this.move ? this.move.phases[this.phaseIdx]?.k ?? '' : this.resting ? '' : 'creep');
+    if (!this.move && (this.exploreOn || this.walkP)) this.stepLook(d);
+    else if (this.move) {
+      this.lookYaw = this.cur.yaw;
+      this.lookPitch = this.cur.pitch;
+    }
+    const wk = this.walkKind;
+    const move: MoveName | '' = this.move ? this.moveName : wk ? wk : this.resting ? '' : 'creep';
+    const phase: CameraSample['phase'] = this.move ? this.move.phases[this.phaseIdx]?.k ?? '' : wk ? wk : !this.resting ? 'creep' : this.exploreOn && (this.dragThisFrame || this.faceAt || this.lookUnsettled()) ? 'look' : '';
+    this.sample(move, phase);
+    this.dragThisFrame = false;
   }
 
   /** The camera log, oldest first (≤ 2,048 frames). */
@@ -775,7 +1143,9 @@ export class FirstPersonCamera {
 
   private sample(move: MoveName | '', phase: CameraSample['phase']): void {
     const c = this.cur;
-    const e: CameraSample = { t: this.clock, x: c.x, y: c.y, z: c.z, yaw: c.yaw, pitch: c.pitch, roll: 0, hfov: c.hfov, shot: this.shotNow, move, phase, fade: this.fadeNow };
+    // A drag, or the settle that follows it, is the player's own look: exempt from the turn cap (U-CAM3 explore).
+    const drag = this.dragThisFrame || (this.clock - this.lastDragClock < 0.2 && !this.walkP);
+    const e: CameraSample = { t: this.clock, x: c.x, y: c.y, z: c.z, yaw: c.yaw, pitch: c.pitch, roll: 0, hfov: c.hfov, shot: this.shotNow, move, phase, fade: this.fadeNow, drag };
     if (this.samples.length < LOG_SIZE) this.samples.push(e);
     else {
       this.samples[this.head] = e;
@@ -787,4 +1157,66 @@ export class FirstPersonCamera {
 function norm(v: V3): V3 {
   const l = Math.hypot(v.x, v.y, v.z) || 1;
   return { x: v.x / l, y: v.y / l, z: v.z / l };
+}
+
+/** Clamp a pitch (radians) to Explore's ±55°. */
+export function clampPitch(p: number): number {
+  const lim = EXPLORE.pitchLimitDeg * DEG;
+  return p > lim ? lim : p < -lim ? -lim : p;
+}
+
+/**
+ * Turn angle `a` toward `b` (radians) at ≤ `rate` rad/s with an ease-out near the target (proportional, 6/s), so the
+ * turn starts at once and settles without overshoot.
+ */
+export function turnToward(a: number, b: number, rate: number, dt: number): number {
+  const d = angleDelta(a, b);
+  const step = Math.min(Math.abs(d), rate * dt, Math.abs(d) * Math.min(1, 6 * dt) + 1e-4);
+  return a + Math.sign(d) * Math.min(Math.abs(d), step);
+}
+
+/** What `checkLog` found in a camera log (U-CAM3 for Explore and Ride, and the e2e camera checks). */
+export interface LogReport {
+  ok: boolean;
+  issues: string[];
+  peakSpeed: number;
+  peakVertical: number;
+  /** The fastest turn not driven by a drag (°/s). */
+  peakAutoTurnDeg: number;
+  peakRoll: number;
+}
+
+/**
+ * Check a sampled camera log against the motion law: speed ≤ 2.5 m/s, vertical ≤ 2.0 m/s, FOV 52°, roll 0, and every
+ * turn the player did not drag ≤ 90°/s. Cuts (the cross-fade's jump) are exempt. Frames closer than 4 ms are merged.
+ */
+export function checkLog(log: readonly CameraSample[]): LogReport {
+  const issues: string[] = [];
+  let peakSpeed = 0;
+  let peakVertical = 0;
+  let peakTurn = 0;
+  let peakRoll = 0;
+  for (let i = 1; i < log.length; i++) {
+    const a = log[i - 1];
+    const b = log[i];
+    peakRoll = Math.max(peakRoll, Math.abs(b.roll));
+    if (b.hfov !== HFOV_DEG) issues.push(`fov ${b.hfov} at ${b.t.toFixed(3)}`);
+    const dt = b.t - a.t;
+    if (!(dt > 0.004)) continue;
+    if (b.phase === 'cut' || a.phase === 'cut' || b.fade > 0 || a.fade > 0) continue;
+    const v = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z) / dt;
+    const vz = Math.abs(b.y - a.y) / dt;
+    peakSpeed = Math.max(peakSpeed, v);
+    peakVertical = Math.max(peakVertical, vz);
+    if (!b.drag && !a.drag) {
+      const w = Math.max(Math.abs(angleDelta(a.yaw, b.yaw)), Math.abs(b.pitch - a.pitch)) / DEG / dt;
+      peakTurn = Math.max(peakTurn, w);
+    }
+  }
+  // One frame of discretisation slack on the caps.
+  if (peakSpeed > LAW.maxSpeed * 1.02) issues.push(`speed ${peakSpeed.toFixed(2)} m/s`);
+  if (peakVertical > LAW.maxVertical * 1.02) issues.push(`vertical ${peakVertical.toFixed(2)} m/s`);
+  if (peakTurn > LAW.maxTurnDeg * 1.05) issues.push(`turn ${peakTurn.toFixed(1)}°/s`);
+  if (peakRoll > 0) issues.push(`roll ${peakRoll}`);
+  return { ok: issues.length === 0, issues, peakSpeed, peakVertical, peakAutoTurnDeg: peakTurn, peakRoll };
 }

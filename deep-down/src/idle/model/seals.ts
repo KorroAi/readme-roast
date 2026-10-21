@@ -1,10 +1,10 @@
-// Seals and Wardens (SPEC §7.1): the first time ever at a biome boundary, the floor is a carved slab held by its
-// Warden for a 30 s fight. Seal HP = 20 s × (crew DPS + 4 × tap damage without crit) measured on arrival, × 0.5 for
-// the tutorial's Halden Hatch. Taps and the crew both apply (the crew only while the player is hitting: a seal never
+// Seals (hybrid SPEC §5.5): the first time ever at a biome boundary, the way down is a mechanism (the Halden Hatch, the
+// Root Knot, a prism lock…) for a 30 s fight; seals are machines and locks, never beings. Seal HP = 20 s × (crew DPS + 4 × tap damage without crit) measured on arrival, × 0.5 for
+// the Halden Hatch. Taps and the crew both apply (the crew only while the player is hitting: a seal never
 // breaks in front of an idle player, L10); skills and the Surge count. The weak point lights every 5 s for 1 s: a tap
 // on it (`weak:<sealId>:<i>`) hits ×5. At 25 % HP the Strike finisher appears (perfect = a ×10 hit). A fail keeps
 // 50 % of the damage dealt and waits for a tap (nothing is lost, L11). Offline the crew stops here.
-// Win: the Warden's relic (a Find), a Crystal-floor chest, 5 gems, +150 XP, the seal card (Lore) and, from the second
+// Win: the seal's relic (a Find), a Crystal-floor chest, 5 gems, +150 XP, the seal card (Lore) and, from the second
 // seal of a run, a facet hand. Charted gates (seals opened in an earlier run) break like hard rows: shaft.ts calls
 // `chartedGate` when the floor crosses one.
 
@@ -36,7 +36,7 @@ export const SEAL = {
   kept: 0.5,
   /** The tutorial's Halden Hatch (biome 1's seal) at half HP. */
   hatchFactor: 0.5,
-  /** The weak point: ×5 while lit; it lights every 5 s for 1 s; the Warden has three. */
+  /** The weak point: ×5 while lit; it lights every 5 s for 1 s; a mechanism has three (padlock, knots, facets…). */
   weakX: 5,
   weakEvery: 5,
   weakFor: 1,
@@ -56,9 +56,9 @@ export const SEAL = {
   chestFloor: 2,
 } as const;
 
-/** The Warden holding the seal at the start of biome k (the Warden of the biome above). */
-export function wardenOf(biome: number): string {
-  return biomeDef(Math.max(0, biome - 1)).warden;
+/** The mechanism sealing the start of biome k (the seal at the exit of the biome above; i18n `idle.seal.<id>`). */
+export function mechOf(biome: number): string {
+  return biomeDef(Math.max(0, biome - 1)).seal;
 }
 
 /** The seal id of the seal opening biome k (the weak point entity ids use it): the biome index. */
@@ -101,10 +101,10 @@ export function arriveAtSeal(s: IdleState, bus?: IdleBus): void {
   const hp = Big.fromLog10(sealHpLog10(s, biome));
   s.seal = {
     biome, depth: floor.depth, hp, left: 1, endsAt: s.time + SEAL.time, time: SEAL.time, phase: 'fight', started: s.time,
-    warden: wardenOf(biome), weakNext: s.time + SEAL.weakEvery, weakUntil: 0, weakIndex: 0, finisher: '', fails: 0,
+    mech: mechOf(biome), warden: mechOf(biome), weakNext: s.time + SEAL.weakEvery, weakUntil: 0, weakIndex: 0, finisher: '', fails: 0, // `warden` the purge shim
   };
   const estimate = sealEstimate(s);
-  bus?.emit('seal:start', { biome, depth: floor.depth, hp: hp.clone(), time: SEAL.time, warden: s.seal.warden, estimate });
+  bus?.emit('seal:start', { biome, depth: floor.depth, hp: hp.clone(), time: SEAL.time, mech: s.seal.mech, estimate });
   sealHint(s, estimate, bus);
   sealFirstTime(s, bus);
 }
@@ -160,7 +160,7 @@ export function hitSeal(s: IdleState, dmgLog10: number, crew: boolean, bus?: Idl
     st.weakNext = s.time + SEAL.weakEvery;
     st.weakUntil = 0;
     st.finisher = '';
-    bus?.emit('seal:start', { biome: st.biome, depth: st.depth, hp: st.hp.clone(), time: SEAL.time, warden: st.warden, estimate: sealEstimate(s), retry: st.fails > 0 });
+    bus?.emit('seal:start', { biome: st.biome, depth: st.depth, hp: st.hp.clone(), time: SEAL.time, mech: st.mech, estimate: sealEstimate(s), retry: st.fails > 0 });
     sealFirstTime(s, bus);
   }
   const d = dmgLog10 + (weak ? L10(SEAL.weakX) : 0);
@@ -212,10 +212,12 @@ function breakSeal(s: IdleState, bus?: IdleBus): void {
     w.done = true;
     w.result = 'skipped';
   }
-  // Rewards: gems, the Warden's relic, the seal card, a Crystal chest, XP, a facet hand from the second seal.
+  // Rewards: gems, the seal's relic, the seal card, a Crystal chest, XP, a facet hand from the second seal.
   creditGems(s, SEAL.gems, 'seal', bus, -1, st.depth);
   const page = Math.max(0, Math.min(AUTHORED_BIOMES - 1, st.biome - 1));
-  const relic = awardFind(s, `find:${page}:4`, bus);
+  // The seal's relic is the page's second relic slot (i 5: the Hatch Key, the Root Crown, the Prism Lens…); slot 4 is the
+  // relic found in the biome's Reliquary niches and Lintel chests.
+  const relic = awardFind(s, `find:${page}:5`, bus);
   addLore(s, `lore:${page}:seal`, bus);
   addXp(s, XP.firstSeal);
   const floor = s.shaft.rows[0];
@@ -223,7 +225,7 @@ function breakSeal(s: IdleState, bus?: IdleBus): void {
   for (let c = 0; c < COLS; c++) floor.left[c] = 0;
   s.seal = null;
   const hand = s.run.sealsBroken >= 2;
-  bus?.emit('seal:break', { biome: st.biome, depth: st.depth, time, gems: SEAL.gems, relic: relic ? `find:${page}:4` : '', xp: XP.firstSeal, hand });
+  bus?.emit('seal:break', { biome: st.biome, depth: st.depth, time, gems: SEAL.gems, relic: relic ? `find:${page}:5` : '', xp: XP.firstSeal, hand });
   openChest(s, `seal:${st.biome}`, SEAL.chestFloor, 'seal', bus);
   if (hand) queueHand(s, bus);
   s.director.holdUntil = Math.max(s.director.holdUntil, s.time + 5);
@@ -251,11 +253,12 @@ export function chartedGate(s: IdleState, biome: number, bus?: IdleBus): void {
 export function tickSeal(s: IdleState, bus?: IdleBus): void {
   const st = s.seal;
   if (!st) {
-    if (s.shaft.rows[0].kinds[0] === CELL.SEAL) arriveAtSeal(s, bus);
+    // The node layer: the fight starts only when the player took the Seal hall's exit (the seal phase).
+    if (s.shaft.rows[0].kinds[0] === CELL.SEAL && (!s.node.on || s.node.phase === 'seal')) arriveAtSeal(s, bus);
     return;
   }
   if (st.phase !== 'fight') return;
-  // The weak point: every 5 s for 1 s, cycling the Warden's three points.
+  // The weak point: every 5 s for 1 s, cycling the mechanism's three points.
   if (st.weakUntil > 0 && s.time >= st.weakUntil) {
     st.weakUntil = 0;
     bus?.emit('seal:weak', { biome: st.biome, lit: false, id: `weak:${sealId(st.biome)}:${st.weakIndex}`, point: st.weakIndex, until: s.time });
@@ -292,7 +295,9 @@ export function sealTimeLeft(s: IdleState): number {
 /** What the SealHud shows. */
 export interface SealView {
   biome: number;
-  warden: string;
+  /** The mechanism id (i18n `idle.seal.<id>`). */
+  mech: string;
+  warden: string; // = mech, read by the pre-switch HUD until the purge switch deletes it
   left: number;
   timeLeft: number;
   phase: 'fight' | 'held';
@@ -310,7 +315,8 @@ export function sealView(s: IdleState): SealView | null {
   const st = s.seal;
   if (!st) return null;
   return {
-    biome: st.biome, warden: st.warden, left: st.left, timeLeft: sealTimeLeft(s), phase: st.phase, weak: weakId(s),
+    warden: st.mech, // the purge shim (pre-switch HUD)
+    biome: st.biome, mech: st.mech, left: st.left, timeLeft: sealTimeLeft(s), phase: st.phase, weak: weakId(s),
     weakIn: st.weakUntil > 0 ? 0 : Math.max(0, st.weakNext - s.time), finisher: st.finisher, estimate: sealEstimate(s), fails: st.fails,
   };
 }

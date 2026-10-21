@@ -119,7 +119,7 @@ export function rekindle(s: IdleState, bus?: IdleBus): Big {
   s.hand = null;
   s.overrides = [];
   s.hits = {};
-  s.moth = null;
+  s.ember = null;
   const keep = s.director;
   s.director = { ...newDirector(), history: keep.history, since: keep.since, dealt: keep.dealt };
   s.tap.combo = 0;

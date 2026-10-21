@@ -1,11 +1,10 @@
 import { B, EMITTER, SLOT, biomeBlock } from '../../config/blocks';
-import { BIOMES } from '../../idle/config/biomes';
 import type { PropKind, PropTap } from '../../render/props/types';
 
 /**
  * What each biome is built from (SPEC §6.5, §6.6): block ids per role (64 + 8 b + slot, painted by 2D's section
  * look), its key-colour emitter (the glow below the seal above it, alcove and cavern lights), the dressing of its
- * alcoves and caverns (medium props, the small scatter, the hero), its tappables, its creatures (biomes.ts), its
+ * alcoves and caverns (medium props, the small scatter, the hero), its tappables, its
  * liquid and its ambient particles. All 14 authored biomes; Echo strata use their base biome's kit (W3 adds the
  * mutator kits).
  */
@@ -39,11 +38,9 @@ export interface BiomeKit {
   /** Ambient particles in its caverns and their colour. */
   mote: 'dust' | 'spore' | 'ember' | 'bubble' | 'snow' | 'glint' | 'thread';
   moteColor: number;
-  /** The three creatures (biomes.ts ids). */
-  creatures: readonly string[];
 }
 
-type KitSpec = Omit<BiomeKit, 'hostA' | 'hostB' | 'soft' | 'hard' | 'ore' | 'rich' | 'gem' | 'special' | 'creatures'>;
+type KitSpec = Omit<BiomeKit, 'hostA' | 'hostB' | 'soft' | 'hard' | 'ore' | 'rich' | 'gem' | 'special'>;
 
 const kit = (b: number, k: KitSpec): BiomeKit => ({
   hostA: biomeBlock(b, SLOT.HOST_A),
@@ -54,7 +51,6 @@ const kit = (b: number, k: KitSpec): BiomeKit => ({
   rich: biomeBlock(b, SLOT.RICH),
   gem: biomeBlock(b, SLOT.GEM),
   special: biomeBlock(b, SLOT.SPECIAL),
-  creatures: BIOMES[b].creatures,
   ...k,
 });
 

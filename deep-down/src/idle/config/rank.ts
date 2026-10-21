@@ -17,7 +17,6 @@ export const XP = {
   feat: 30,
   event: 15,
   contract: 40,
-  creature: 15,
   find: 25,
 } as const;
 

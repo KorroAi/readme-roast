@@ -205,3 +205,81 @@ export class FineScaleController {
     return 0;
   }
 }
+
+/**
+ * The feature ladder (W1-LEAD §4.10; owner 1E): inside a preset, once the fine controller has the scene scale at its
+ * floor, step down the lighting features (light/presets.ts LADDER: fewer volumetric steps, 8 PCF taps, a slower shadow
+ * cadence, no GTAO, no volumetrics, no shadows) *before* frames drop: the mean interval of a 1 s window above 17.8 ms
+ * (about one missed vsync in fifteen) twice in a row steps down; below 14.5 ms held for 8 s steps back up. One change
+ * per 3 s at most. Pure and allocation-free while sampling. A pinned step (?ladder=, captures) never moves.
+ */
+export const LADDER_GOV = {
+  windowMs: 1000,
+  downAboveMs: 17.8,
+  downWindows: 2,
+  upBelowMs: 14.5,
+  upHoldMs: 8000,
+  minGapMs: 3000,
+  maxGapMs: 250,
+  maxStep: 6,
+} as const;
+
+export class FeatureLadder {
+  /** The current ladder step (0 = the preset as designed). */
+  step = 0;
+  private pinned = false;
+  private sum = 0;
+  private n = 0;
+  private elapsed = 0;
+  private slowWindows = 0;
+  private goodMs = 0;
+  private lastChangeAt = -Infinity;
+  /** The last window's mean interval (diagnostics, tests). */
+  lastMeanMs = 0;
+
+  /** Pin a step (captures, ?ladder=N): the governor stops moving it. */
+  pin(step: number): void {
+    this.step = Math.max(0, Math.min(LADDER_GOV.maxStep, Math.floor(step)));
+    this.pinned = true;
+  }
+
+  unpin(): void {
+    this.pinned = false;
+  }
+
+  /** A preset change: start from the top of the ladder again (unless pinned). */
+  reset(): void {
+    if (!this.pinned) this.step = 0;
+    this.sum = this.n = this.elapsed = this.slowWindows = this.goodMs = 0;
+  }
+
+  /** One frame interval; `atFloor` = the scene scale is already at its minimum. Returns the step change (−1, 0, +1). */
+  sample(intervalMs: number, nowMs: number, atFloor: boolean): number {
+    if (this.pinned || !(intervalMs > 0) || intervalMs > LADDER_GOV.maxGapMs) return 0;
+    this.sum += intervalMs;
+    this.n++;
+    this.elapsed += intervalMs;
+    if (this.elapsed < LADDER_GOV.windowMs) return 0;
+    const mean = this.sum / this.n;
+    const windowMs = this.elapsed;
+    this.lastMeanMs = mean;
+    this.sum = this.n = this.elapsed = 0;
+    this.slowWindows = mean > LADDER_GOV.downAboveMs ? this.slowWindows + 1 : 0;
+    this.goodMs = mean < LADDER_GOV.upBelowMs ? this.goodMs + windowMs : 0;
+    if (nowMs - this.lastChangeAt < LADDER_GOV.minGapMs) return 0;
+    if (atFloor && this.slowWindows >= LADDER_GOV.downWindows && this.step < LADDER_GOV.maxStep) {
+      this.step++;
+      this.slowWindows = 0;
+      this.goodMs = 0;
+      this.lastChangeAt = nowMs;
+      return 1;
+    }
+    if (this.goodMs >= LADDER_GOV.upHoldMs && this.step > 0) {
+      this.step--;
+      this.goodMs = 0;
+      this.lastChangeAt = nowMs;
+      return -1;
+    }
+    return 0;
+  }
+}

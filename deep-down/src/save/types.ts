@@ -129,7 +129,7 @@ export interface SaveV3 {
     timeCrystals: number;
     boostLeft: number;
     finds: Record<string, number>;
-    bestiary: Record<string, number>;
+    bestiary: Record<string, number>; // a v3 field the purge drops in the v4 migration
     lore: string[];
     biomeSeals: number[];
     feats: Record<string, number>;
@@ -183,5 +183,158 @@ export interface SaveV3 {
   tap: { combo: number; rng: number };
 }
 
+/** A chamber of this run as saved (hybrid SPEC §10: harvested, skin, lamps-lit bits and feature state). */
+export interface ChamberSave {
+  node: number;
+  by: '' | 'player' | 'crew';
+  lit: boolean;
+  /** Strike tappables struck: socket id → remaining fraction. */
+  left: Record<string, number>;
+  /** Focus objects resolved (opened, read, graded, racked). */
+  resolved: string[];
+  lamps: string[];
+  /** Wall-skin cells struck: id → remaining fraction. */
+  skin: Record<string, number>;
+  secrets: string[];
+  glints: string[];
+}
+
+/**
+ * Save v4 (hybrid SPEC §10): the node crawl replaces the cutaway's floor model; the purge dropped the old fields. The world is a
+ * pure function of the seeds (no voxel deltas). Bitsets are run-length encoded: [start, length, start, length, …].
+ */
+export interface SaveV4 {
+  version: 4;
+  savedAt: number;
+  monotonicMs: number;
+  playTime: number;
+  /** The lifetime world seed (the chart's topology; also `meta.lifeSeed`). */
+  seed: number;
+  runIndex: number;
+  run: {
+    /** The player's node, phase, stand and walking pose (null = the stand's pose). */
+    node: number;
+    phase: 'camp' | 'dig' | 'explore' | 'ride' | 'seal';
+    resume: 'camp' | 'dig' | 'explore' | 'ride' | 'seal';
+    stand: number;
+    pose: null | { x: number; y: number; z: number; yaw: number; pitch: number };
+    /** The crew's dig front (the model's depth) and its live rows (kinds and remaining fractions, as v3). */
+    digDepth: number;
+    rows: RowSave[];
+    /** The chambers of this run that are open (the player's and the dark ones ahead). */
+    chambers: ChamberSave[];
+    /** The Works: leftover HP and gold behind the player, and the haul not yet delivered. */
+    works: { hp: BigJSON; gold: BigJSON; pending: BigJSON };
+    /** Relics skipped to the Chest Rack (Find ids; chests are `rack`). */
+    rackRelics: string[];
+    gold: BigJSON;
+    goldEarned: BigJSON;
+    pick: number;
+    ups: Record<string, number>;
+    lines: number[];
+    gear: string[];
+    skills: Record<string, { lvl: number; cd: number; active: number; charges: number }>;
+    facets: string[];
+    pendingHands: number;
+    freeReroll: boolean;
+    surge: number;
+    runTime: number;
+    dmaxRun: number;
+    rack: number[];
+    ghost: number[];
+    chests: Array<{ id: string; col: number; depth: number; floor: number }>;
+    seal: null | { biome: number; left: number; hp: BigJSON };
+    plantedBonus: number;
+    /** The Ember Frenzy's seconds left (the Drifting Ember, W2). */
+    frenzyLeft: number;
+    cataclysmLeft: number;
+    boosts: Record<string, { left: number; mult: number }>;
+    used: string[];
+    lanterns: number[];
+    sealsBroken: number;
+    splits: Record<string, number>;
+    par: number[];
+    ghostPassed: number;
+    counters: { taps: number; cells: number; rows: number; chests: number; stars: number };
+  };
+  meta: {
+    /** The lifetime world seed (= `seed`). */
+    lifeSeed: number;
+    /** Lifetime node bits, run-length encoded: first light ever done, every lamp relit once. */
+    seen: number[];
+    charted: number[];
+    relicGrades: Record<string, number>;
+    /** The v3 → v4 notice: 0 none, 1 waiting, 2 shown. */
+    rechartNotice: number;
+    nodeStats: { lamps: number; secrets: number; breaches: number; charted: number; glints: number; skins: number };
+    /** Lessons learnt (the sequencer never repeats one) and the spacing clock (play s of the last new mechanic). */
+    lessons: string[];
+    lastMechanicAt: number;
+    /** Digits of lifetime gold (the camp's stages; derived, kept for readers without the model). */
+    fortune: number;
+    embers: BigJSON;
+    embersMax: BigJSON;
+    threads: BigJSON;
+    loom: Record<string, number>;
+    sigils: Record<string, number>;
+    record: number;
+    cycleRecord: number;
+    sealsOpened: number[];
+    biomesSeen: number[];
+    gems: number;
+    timeCrystals: number;
+    boostLeft: number;
+    finds: Record<string, number>;
+    lore: string[];
+    biomeSeals: number[];
+    feats: Record<string, number>;
+    secrets: string[];
+    marks: number;
+    rank: { r: number; xp: number };
+    records: {
+      deepest: number;
+      splits: Record<string, number>;
+      marks500: Record<string, number>;
+      bestHit: BigJSON;
+      bestCombo: number;
+      bestTapCells: number;
+      bestChest: number;
+      bestOffline: BigJSON;
+      bestEmbers: BigJSON;
+    };
+    planted: Array<{ depth: number; n: number }>;
+    contracts: Array<{ tpl: string; target: number; progress: number; base: number; arg: string; grand: boolean }>;
+    contractCount: number;
+    daily: { lastDay: number; calendarDay: number; claimedToday: boolean };
+    pity: { crystal: number; reliquary: number; lintel: number };
+    tutorial: { step: number; done: boolean; breaks: number };
+    path: { step: number };
+    hints: Record<string, number>;
+    firstTime: string[];
+    revealed: string[];
+    cosmetics: { owned: string[]; equipped: Record<string, string> };
+    stats: Record<string, number>;
+    lifetime: { gold: BigJSON; embersEver: BigJSON };
+    toolForm: number;
+    markMax: number;
+    blueprints: number;
+    bestTier: number;
+    bestLines: number;
+    swift600: number;
+    caught: Record<string, number>;
+    lastUsed: Record<string, number>;
+    dailyReady: boolean;
+    rerolls: number;
+  };
+  director: { wait: number; history: string[]; since: Record<string, number>; dealt: number; codexQuiet: number };
+  overrides: Array<{ depth: number; col: number; kind: number; floor: number }>;
+  offline: null | {
+    seconds: number; away: number; capped: boolean; fromDepth: number; toDepth: number;
+    goldRows: BigJSON; goldGallery: BigJSON; chests: number; chestsGold: number; sealBiome: number; biomeCrossed: number;
+    chambers: number; glimpses: number[]; darkNode: number; leashStop: boolean;
+  };
+  tap: { combo: number; rng: number };
+}
+
 /** What the save system stores: the current format. */
-export type SaveData = SaveV3;
+export type SaveData = SaveV4;

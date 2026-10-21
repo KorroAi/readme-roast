@@ -1,5 +1,5 @@
 // The score's rhythm layers (SPEC §10.10): a drum kit that enters at combo ≥ 25, during a Surge, events and the
-// Plunge, and a boss pulse under a Warden fight. Hits are scheduled ahead on the audio clock at the biome's tempo
+// Plunge, and a boss pulse under a seal fight. Hits are scheduled ahead on the audio clock at the biome's tempo
 // (sample-accurate, like the melody), and each layer's level crossfades over 4 s, so nothing ever cuts in or out.
 // Pure apart from the `hit` callback (it plays a recipe at a time): unit-testable with a fake clock.
 

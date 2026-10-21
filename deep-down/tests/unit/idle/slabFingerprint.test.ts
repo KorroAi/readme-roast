@@ -1,27 +1,20 @@
+// Determinism of the hybrid's slabs (W3 of the old descent, kept for the new world): two generations of the same
+// slab are byte-identical, and the slab worker's build equals the main thread's.
 import { describe, expect, it } from 'vitest';
-import { generateSlab } from '../../../src/world/descent/slab';
-import { fingerprintSlab } from '../../../src/world/descent/fingerprint';
+import { fingerprintBytes } from '../../../src/world/hybrid/fingerprint';
+import { generateSlab } from '../../../src/world/hybrid/slab';
+import { buildSlab } from '../../../src/world/hybrid/slabWorker';
+import { clearLayoutCache } from '../../../src/world/hybrid/layout';
+import { CONTEXT_ROWS } from '../../../src/world/hybrid/slabLight';
+import { RING_SX, RING_SZ } from '../../../src/world/hybrid/grid';
 
-/** Fixed shaft kinds (independent of the model's row table, which its owner tunes): rock with an ore every
- *  5th cell and a chest in the centre every 25 rows. */
-function fixedKinds(k: number): Uint8Array {
-  const out = new Uint8Array(16 * 7);
-  for (let r = 0; r < 16; r++) for (let c = 0; c < 7; c++) out[r * 7 + c] = (k * 16 + r) % 25 === 24 && c === 3 ? 7 : (r * 7 + c) % 5 === 0 ? 2 : 1;
-  return out;
-}
-
-/**
- * The slab generator's output is pinned (replaces genVersion.test.ts): a change to what a run's world looks
- * like must be deliberate. When the generator changes on purpose, update the pins below in the same change.
- * The shaft kinds are fixed here; the pins still depend on the biome ladder and the model's breakthrough rows
- * (src/idle/config/biomes.ts, src/idle/model/shaft.ts), which the slab generator reads.
- */
-// W2 (2B): biome kits 4-13, Vistas, Reveal Halls across slabs, geodes, the fill pass, the cut-face seams, the
-// tappable nooks, the moving guarantee and bowl floors found across slab boundaries.
-const PINS: Record<number, number> = { 0: 3980826955, 1: 2796892291, 2: 438186702, 5: 1030667012, 9: 573281185, 15: 1037960096, 25: 3635469325 };
-
-describe('slab fingerprint', () => {
-  it('matches the pinned slabs of run seed 7', () => {
-    for (const [k, pin] of Object.entries(PINS)) expect(fingerprintSlab(generateSlab({ runSeed: 7, k: Number(k), kinds: fixedKinds(Number(k)) })), `slab ${k}`).toBe(pin);
+describe('hybrid slab fingerprints', () => {
+  it('are stable across caches and between the worker path and a direct generation', () => {
+    const a = [0, 1, 2].map((k) => fingerprintBytes(generateSlab({ lifeSeed: 777, runSeed: 3, k, dugTo: 0 }).blocks));
+    clearLayoutCache();
+    const b = [0, 1, 2].map((k) => fingerprintBytes(generateSlab({ lifeSeed: 777, runSeed: 3, k, dugTo: 0 }).blocks));
+    expect(b).toEqual(a);
+    const w = buildSlab({ id: 1, lifeSeed: 777, runSeed: 3, k: 1, dugTo: 0, opened: [], context: new Uint8Array(RING_SX * CONTEXT_ROWS * RING_SZ) });
+    expect(fingerprintBytes(w.blocks)).toBe(a[1]);
   });
 });

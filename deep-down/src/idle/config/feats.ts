@@ -1,4 +1,4 @@
-// Feats (SPEC §7.6): 20 families with tiers I–X, then endless (each threshold ×3, or ×10 for counting families).
+// Feats (hybrid SPEC §5.8): 21 families with tiers I–X, then endless (each threshold ×3, or ×10 for counting families).
 // Every tier: +1 Mark (+1 % damage and gold), 5 × min(tier, 10) gems and 30 XP. Tier V: a cosmetic. Tier X: the
 // family's permanent perk. 12 secret Feats ("???" with a one-line hint): 5 Marks and 25 gems each.
 // i18n: `idle.feat.<id>` (name), `idle.feat.<id>.desc` (counter line), `idle.feat.<id>.perk`; secrets
@@ -6,7 +6,7 @@
 
 export type FeatCounter =
   | 'deepest' | 'cells' | 'crits' | 'bestCombo' | 'levels' | 'stars' | 'runTier' | 'runLines' | 'chests' | 'chestRarity'
-  | 'runGold' | 'rekindles' | 'embersEver' | 'codex' | 'biomes' | 'offlineHours' | 'events' | 'creatures' | 'swift'
+  | 'runGold' | 'rekindles' | 'embersEver' | 'codex' | 'biomes' | 'offlineHours' | 'events' | 'lamps' | 'charted' | 'swift'
   | 'contracts';
 
 export interface FeatFamily {
@@ -41,7 +41,10 @@ export const FEATS: readonly FeatFamily[] = [
   { id: 'wayfinder', counter: 'biomes', tiers: [2, 4, 6, 8, 10, 12, 14, 15, 17, 19], next: 'plus2', perk: 'revealChest' },
   { id: 'overseer', counter: 'offlineHours', tiers: [1, 8, 24, 72, 168, 336, 720, 1500, 3000, 6000], next: 'x3', perk: 'offline25' },
   { id: 'wonderstruck', counter: 'events', tiers: [5, 25, 75, 200, 500, 1e3, 2e3, 4e3, 7e3, 1e4], next: 'x3', perk: 'events25' },
-  { id: 'kindred', counter: 'creatures', tiers: [1, 10, 50, 150, 400, 1e3, 2.5e3, 5e3, 1e4, 2.5e4], next: 'x10', perk: 'creature2' },
+  // Lamplighter (lamps relit; tier X: lamps within 6 m relight themselves) and Cartographer (chambers charted; tier X: forks
+  // offer 3 roads) are the node crawl's own families (hybrid SPEC §5.8).
+  { id: 'lamplighter', counter: 'lamps', tiers: [5, 25, 100, 300, 1e3, 3e3, 1e4, 3e4, 1e5, 3e5], next: 'x10', perk: 'lampsNear' },
+  { id: 'cartographer', counter: 'charted', tiers: [3, 15, 50, 150, 400, 1e3, 2.5e3, 5e3, 1e4, 2.5e4], next: 'x10', perk: 'forks3' },
   { id: 'swift', counter: 'swift', tiers: [1200, 720, 480, 300, 180, 120, 90, 60, 45, 30], next: 'half', perk: 'headStart5b' },
   { id: 'contractor', counter: 'contracts', tiers: [3, 15, 50, 150, 400, 1e3, 2.5e3, 5e3, 1e4, 2.5e4], next: 'x10', perk: 'slot4' },
 ];
@@ -72,10 +75,14 @@ export function featCosmetic(familyIndex: number): string {
   return `${kinds[familyIndex % 4]}.feat${familyIndex}`;
 }
 
-/** Secret Feats (SPEC §7.6). */
+/**
+ * Secret Feats (hybrid SPEC §5.8): the kept ones, plus Through the Dark (find a vault [W2]), First Light (break 100
+ * breaches yourself), Full Sweep (harvest a whole chamber, skin included, 10 times) and Every Flame (relight every lamp of
+ * one biome in one run). 'firstChest' is the old first-chest secret (renamed: Lamplighter is a family now).
+ */
 export const SECRETS = [
-  'lamplighter', 'overkill', 'cleanSweep', 'patience', 'nightOwl', 'bareHands', 'handsFree', 'fullSet', 'mothFriend',
-  'cataclysm', 'echoOfHalden', 'theAnswer',
+  'firstChest', 'overkill', 'cleanSweep', 'patience', 'nightOwl', 'bareHands', 'handsFree', 'fullSet', 'throughTheDark',
+  'cataclysm', 'echoOfHalden', 'theAnswer', 'firstLight', 'fullSweep', 'everyFlame',
 ] as const;
 export type SecretId = (typeof SECRETS)[number];
 export const SECRET_REWARD = { marks: 5, gems: 25 } as const;

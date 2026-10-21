@@ -167,7 +167,7 @@ const EVENTS: Array<[keyof IdleEvents, unknown]> = [
   ['chest:open', { id: 'chest:1', floor: 'wood', tier: 'crystal', steps: 2, gold: G(500), gems: 2, source: 'tap' }],
   ['seal:start', { biome: 0, depth: 120, hp: G(4000), time: 30 }], ['seal:hit', { biome: 0, left: 0.4, dmg: G(80), weak: false }],
   ['seal:break', { biome: 0, depth: 120, time: 18 }], ['biome:reveal', { biome: 1 }],
-  ['moth:catch', { id: 'moth:1', outcome: 'gold', gold: G(700), gems: 0 }], ['skill:dynamite', { from: 120, rows: 6, gold: G(1000) }],
+  ['skill:dynamite', { from: 120, rows: 6, gold: G(1000) }],
   ['offline:collect', { gold: G(9000), chests: 1 }],
 ];
 

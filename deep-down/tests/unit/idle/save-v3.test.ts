@@ -23,12 +23,12 @@ function randomState(seed: number) {
   s.run.ups = { lucky: Math.floor(rnd() * 25) };
   for (const row of s.shaft.rows) for (let c = 0; c < 7; c++) if (row.left[c] > 0 && rnd() < 0.3) row.left[c] = rnd();
   s.meta.gems = Math.floor(rnd() * 5000);
-  s.meta.firstTime = ['moth', 'beat:star', 'gear:1'];
+  s.meta.firstTime = ['ember', 'beat:star', 'gear:1'];
   s.meta.hints = { H1: 2 };
   s.meta.lifetime.gold = Big.fromLog10(rnd() * 200);
   s.run.rack = Array.from({ length: Math.floor(rnd() * 10) }, () => 0);
   s.tap.surge = Math.floor(rnd() * 240);
-  s.meta.tutorial = { step: Math.floor(rnd() * 12), done: rnd() < 0.5 };
+  s.meta.tutorial = { step: Math.floor(rnd() * 12), done: rnd() < 0.5, lessons: rnd() < 0.5 ? ['glints', 'lamps'] : [] };
   // W2: facets, boosts, the run's counters and splits, the par, contracts, the Codex, Feats, rank, the Director.
   s.run.facets = rnd() < 0.5 ? ['hotEdge@1', 'whistle@0', 'payday@2'] : [];
   s.run.hands = Math.floor(rnd() * 3);
@@ -40,7 +40,6 @@ function randomState(seed: number) {
   s.run.taps = Math.floor(rnd() * 1e5);
   s.meta.contracts = [{ tpl: 'cells', target: 400, progress: 12, base: 900, arg: '', grand: false }, { tpl: 'gold', target: 41.5, progress: 39, base: 37, arg: 'log10', grand: true }];
   s.meta.finds = { 'find:0:0': 3, 'find:4:5': 1 };
-  s.meta.bestiary = { glowMoth: 12 };
   s.meta.lore = ['lore:1:note0'];
   s.meta.feats = { delver: 4, breaker: 2 };
   s.meta.secrets = ['lamplighter'];
@@ -48,7 +47,7 @@ function randomState(seed: number) {
   s.meta.rank = { r: 1 + Math.floor(rnd() * 120), xp: Math.floor(rnd() * 500) };
   s.meta.planted = [{ depth: 640, n: 1 }, { depth: 905, n: 2 }];
   s.meta.swift600 = rnd() < 0.5 ? Infinity : 900;
-  s.meta.caught = { targets: 33, mothSwarm: 2 };
+  s.meta.caught = { targets: 33, seedFall: 2 };
   s.meta.rerolls = 2;
   s.director.history = ['goldenVein', 'caveIn'];
   s.director.since = { goldenVein: 1, caveIn: 0 };
@@ -118,7 +117,7 @@ describe('save v3 (SPEC §12.3, S1, S2)', () => {
     expect(s2.meta.stats.cells).toBeGreaterThan(s.meta.stats.cells);
   });
 
-  it('S2: a v2 save is ignored with one notice, settings kept, and overwritten by the first v3 saves', () => {
+  it('S2: a v2 save is ignored with one notice, settings kept, and overwritten by the first v4 saves', () => {
     const store = new MemoryStore();
     const v2 = JSON.stringify({ version: 2, savedAt: 5, worldSeed: 1, player: { x: 0, y: 0, z: 0 }, backpack: [] });
     store.setItem(SAVE_KEYS.slotA, JSON.stringify({ checksum: checksum(v2), json: v2 }));
@@ -132,7 +131,7 @@ describe('save v3 (SPEC §12.3, S1, S2)', () => {
     expect(saves.loadSettings().sfxVolume).toBe(0.2);
     saves.save(stateToSave(createIdle(1, 100)));
     saves.save(stateToSave(createIdle(1, 200)));
-    for (const k of [SAVE_KEYS.slotA, SAVE_KEYS.slotB]) expect(JSON.parse(JSON.parse(store.getItem(k)!).json).version).toBe(3);
+    for (const k of [SAVE_KEYS.slotA, SAVE_KEYS.slotB]) expect(JSON.parse(JSON.parse(store.getItem(k)!).json).version).toBe(4);
   });
 
   it('a seal fight saved mid-way resumes held, with its damage kept (nothing lost)', () => {

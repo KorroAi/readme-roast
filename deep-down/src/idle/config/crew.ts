@@ -49,25 +49,37 @@ export const CROWN_EVERY = 50;
 
 const IDS = [
   'shovelHand', 'pickCrew', 'mineCart', 'steamDrill', 'blastTeam', 'tunnelBorer', 'crystalResonator', 'magmaLance',
-  'fossilGolem', 'rimeAuger', 'loomWeaver', 'gravityWell', 'starForge', 'voidMaw', 'gateEngine',
+  'boneRam', 'rimeAuger', 'loomWeaver', 'gravityWell', 'starForge', 'voidEngine', 'gateEngine',
 ];
 
+/**
+ * The shared crew bar (hybrid SPEC §5.3; BUILD §3.1 MUST 5): every visible rig strikes on the same 0.9 s beat, so the
+ * crew reads as ONE ambient group. Periods are whole multiples of the bar and every impact sits at CREW_BEAT + k × bar
+ * after the loop's start (which is itself on the bar, `ensureCrewClock`). The damage per impact is the line's DPS ×
+ * period / impacts (stepCrew), so the DPS of every line is unchanged by the quantisation (asserted in nodes.test).
+ */
+export const CREW_BAR = 0.9;
+/** Where in the bar the impacts land (s after the bar starts). */
+export const CREW_BEAT = 0.52;
+
+const beat = (k: number) => CREW_BEAT + k * CREW_BAR;
+
 const RIGS: readonly CrewRig[] = [
-  { period: 0.9, impacts: [0.52], area: 'cell' },
-  { period: 1.2, impacts: [0.35, 0.95], area: 'cell' },
-  { period: 2.4, impacts: [1.9], area: 'column' },
-  { period: 1.6, impacts: [0.6, 1.0, 1.4], area: 'column' },
-  { period: 6, impacts: [4.6], area: 'blast3' },
-  { period: 2, impacts: [0.5, 1.0, 1.5, 2.0 - 1e-3], area: 'row' },
-  { period: 3, impacts: [1.2, 2.4], area: 'row' },
-  { period: 2.5, impacts: [1.0], area: 'beam' },
-  { period: 3.2, impacts: [2.1], area: 'row' },
-  { period: 2.2, impacts: [0.8, 1.6], area: 'column' },
-  { period: 2.8, impacts: [0.7, 1.4, 2.1], area: 'beam' },
-  { period: 4, impacts: [3.0], area: 'row' },
-  { period: 3.6, impacts: [1.8, 3.4], area: 'beam' },
-  { period: 4.4, impacts: [2.6], area: 'row' },
-  { period: 5, impacts: [1.2, 2.5, 3.8], area: 'row' },
+  { period: 0.9, impacts: [beat(0)], area: 'cell' }, // Shovel Hand: every beat
+  { period: 1.8, impacts: [beat(0), beat(1)], area: 'cell' }, // Pick Crew: two miners alternating
+  { period: 2.7, impacts: [beat(1)], area: 'column' }, // Mine Cart
+  { period: 1.8, impacts: [beat(0), beat(1)], area: 'column' }, // Steam Drill
+  { period: 6.3, impacts: [beat(4)], area: 'blast3' }, // Blast Team
+  { period: 1.8, impacts: [beat(0), beat(1)], area: 'row' }, // Tunnel Borer
+  { period: 2.7, impacts: [beat(0), beat(1)], area: 'row' }, // Crystal Resonator
+  { period: 2.7, impacts: [beat(1)], area: 'beam' }, // Magma Lance
+  { period: 3.6, impacts: [beat(2)], area: 'row' }, // Bone Ram
+  { period: 1.8, impacts: [beat(0), beat(1)], area: 'column' }, // Rime Auger
+  { period: 2.7, impacts: [beat(0), beat(1), beat(2)], area: 'beam' }, // Loom Weaver
+  { period: 3.6, impacts: [beat(3)], area: 'row' }, // Gravity Well
+  { period: 3.6, impacts: [beat(1), beat(3)], area: 'beam' }, // Star Forge
+  { period: 4.5, impacts: [beat(2)], area: 'row' }, // Void Engine
+  { period: 5.4, impacts: [beat(0), beat(2), beat(4)], area: 'row' }, // Gate Engine
 ];
 
 /** Authored line count. */

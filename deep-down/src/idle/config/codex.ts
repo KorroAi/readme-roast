@@ -1,12 +1,11 @@
-// The Codex (SPEC §7.5): per biome 6 Finds (2 minerals, 2 fossils, 2 relics), 3 creatures (the Bestiary) and 5 Lore
-// (3 Halden notes, 1 mural, 1 seal card) = 14 entries; 14 biomes × 14 = 196. A complete page grants a Biome Seal
-// (+10 % gold and +10 % power). Every 10 entries a Codex chest (Crystal floor). Finds: +3 % to one stat of their biome,
-// +1 % per duplicate level (no cap). Bestiary: catch tiers 1 / 10 / 100 / 1,000 / …, each +2 % gold per species.
-// Entry ids: Finds `find:<biome>:<i>` (i 0..5: mineral, mineral, fossil, fossil, relic, relic); creatures
-// `creature:<creatureId>` (ids from config/biomes.ts); lore `lore:<biome>:<note0|note1|note2|mural|seal>`.
-// Names: i18n `idle.find.<biome>.<i>` and `idle.codexHint.<source>` (B's idleWorld owns the creature names).
+// The Codex of objects (hybrid SPEC §5.7): per biome 6 Finds (2 minerals, 2 fossils, 2 relics), 3 legendary Lamps [W2]
+// and 5 Lore (3 Halden notes, 1 mural, 1 seal card). A complete page grants a Biome Seal (+10 % gold and +10 % power).
+// Every 10 entries a Codex chest (Crystal floor). Finds: +3 % to one stat of their biome, +1 % per duplicate level (no
+// cap). Entry ids: Finds `find:<biome>:<i>` (i 0..5: mineral, mineral, fossil, fossil, relic, relic); lore
+// `lore:<biome>:<note0|note1|note2|mural|seal>`; Lamps `lamp:<biome>:<i>` [W2]. Names: i18n `idle.find.<biome>.<i>` and
+// `idle.codexHint.<source>`.
 
-import { AUTHORED_BIOMES, BIOMES } from './biomes';
+import { AUTHORED_BIOMES } from './biomes';
 
 export type FindSource = 'rare' | 'fossil' | 'relic';
 export type FindStat = 'crew' | 'taps' | 'gold' | 'crit' | 'offline' | 'chests';
@@ -40,12 +39,9 @@ export const FINDS: readonly FindDef[] = (() => {
 export const CODEX = {
   findBase: 0.03,
   findPerLevel: 0.01,
-  bestiaryPerTier: 0.02,
   biomeSealGold: 0.1,
   biomeSealPower: 0.1,
   chestEvery: 10,
-  /** Taps a creature takes to be caught. */
-  creatureTaps: 3,
   /** A Crystal chest's Find roll is a new entry 60 % of the time (when one is left). */
   chestNew: 0.6,
 } as const;
@@ -53,25 +49,19 @@ export const CODEX = {
 /** Lore entry ids of a biome page. */
 export const LORE_IDS = ['note0', 'note1', 'note2', 'mural', 'seal'] as const;
 
-/** Every Codex entry id of biome b's page (14). */
+/**
+ * Every Codex entry id of biome b's page: the 6 Finds and the 5 Lore entries (the 3 legendary Lamps join in W2, making
+ * the SPEC's 14).
+ */
 export function pageEntries(b: number): string[] {
   const out: string[] = [];
   for (let i = 0; i < 6; i++) out.push(`find:${b}:${i}`);
-  for (const c of BIOMES[b].creatures) out.push(`creature:${c}`);
   for (const l of LORE_IDS) out.push(`lore:${b}:${l}`);
   return out;
 }
 
-/** The biome of a creature id (−1 unknown). */
-export function creatureBiome(id: string): number {
-  for (let b = 0; b < AUTHORED_BIOMES; b++) if (BIOMES[b].creatures.includes(id)) return b;
-  return -1;
-}
-
-/** Catch tier of a count (1, 10, 100, … → 1, 2, 3, …). */
-export function bestiaryTier(count: number): number {
-  return count <= 0 ? 0 : 1 + Math.floor(Math.log10(count) + 1e-9);
-}
+/** Entries per page in this build. */
+export const PAGE_SIZE = 11;
 
 export function findDef(id: string): FindDef | undefined {
   const m = /^find:(\d+):(\d)$/.exec(id);

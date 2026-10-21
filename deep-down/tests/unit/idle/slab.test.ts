@@ -1,131 +1,50 @@
+// The hybrid's slabs (BUILD §3.2 MUST 4): pure functions of the seeds and the dig front, stamping every node that
+// reaches into their band, in budget in Node (SPEC §11: ≤ 25 ms per 1 m slab then, here a 16 m slab of 0.5 m voxels).
 import { describe, expect, it } from 'vitest';
-import { B, BIOME_BLOCKS, EMIT_B, EMIT_G, EMIT_R, VALUE_CLASS } from '../../../src/config/blocks';
-import { inBigRoom } from '../../../src/world/descent/caverns';
-import { CELL } from '../../../src/idle/model/state';
-import { baseBiome, biomeAt } from '../../../src/idle/config/biomes';
-import { kitOf } from '../../../src/world/descent/biomeKits';
-import { CELL_Z0, CELL_Z1, CUT, EMITTER_BUDGET, SHAFT_X0, cellVoxels, generateSlab, shaftAllowed } from '../../../src/world/descent/slab';
-import { RING_SX, RING_SZ, SLAB_ROWS } from '../../../src/world/descent/RingWorld';
-import { fingerprintSlab } from '../../../src/world/descent/fingerprint';
-import { kindsFor } from './ringFixture';
+import { B } from '../../../src/config/blocks';
+import { generateSlab, SLAB_VOXELS } from '../../../src/world/hybrid/slab';
+import { slabLight, CONTEXT_ROWS } from '../../../src/world/hybrid/slabLight';
+import { nodesInBand } from '../../../src/world/hybrid/layout';
+import { RING_SX, RING_SZ } from '../../../src/world/hybrid/grid';
 
-const at = (blocks: Uint8Array, x: number, r: number, z: number) => blocks[x + RING_SX * (r + SLAB_ROWS * z)];
-
-describe('slab generation (SPEC §6.4)', () => {
-  it('W3: a slab is a pure function of (runSeed, index)', () => {
-    for (const k of [0, 1, 2, 3, 7, 15, 24]) {
-      const a = generateSlab({ runSeed: 7, k, kinds: kindsFor(7, k) });
-      const b = generateSlab({ runSeed: 7, k, kinds: kindsFor(7, k) });
-      expect(fingerprintSlab(a), `slab ${k}`).toBe(fingerprintSlab(b));
+describe('hybrid slabs', () => {
+  it('stamp the nodes of their band: slab 0 holds the camp, the first drift and the Root Cellar', () => {
+    const s = generateSlab({ lifeSeed: 12345, runSeed: 7, k: 0, dugTo: 0 });
+    expect(s.blocks.length).toBe(SLAB_VOXELS);
+    expect(s.nodes).toContain(0);
+    expect(s.nodes).toEqual(nodesInBand(12345, -16, 0, 7));
+    let air = 0;
+    let plug = 0;
+    for (const id of s.blocks) {
+      if (id === B.AIR) air++;
+      if (id === B.FACE_PLUG) plug++;
     }
-    // Another run has other veins and caverns.
-    expect(fingerprintSlab(generateSlab({ runSeed: 8, k: 5, kinds: kindsFor(8, 5) }))).not.toBe(fingerprintSlab(generateSlab({ runSeed: 7, k: 5, kinds: kindsFor(7, 5) })));
+    expect(air).toBeGreaterThan(10000);
+    expect(plug).toBeGreaterThan(0);
   });
 
-  it('W5: the shaft footprint holds exactly the model cells, over 2,000 slabs (0-32,000 m)', () => {
-    let bad = 0;
-    let checked = 0;
-    const t0 = performance.now();
-    for (let k = 0; k < 2000; k++) {
-      const seed = 11 + (k % 5);
-      const kinds = kindsFor(seed, k);
-      const s = generateSlab({ runSeed: seed, k, kinds });
-      for (let r = 0; r < SLAB_ROWS; r++) {
-        const kit = kitOf(baseBiome(biomeAt(k * SLAB_ROWS + r)));
-        for (let c = 0; c < 7; c++)
-          for (let z = CELL_Z0; z <= CELL_Z1; z++) {
-            checked++;
-            const id = at(s.blocks, SHAFT_X0 + c, r, z);
-            if (!shaftAllowed(id, kinds[r * 7 + c], kit)) bad++;
-          }
-      }
-    }
-    expect(checked).toBe(2000 * SLAB_ROWS * 7 * 3);
-    expect(bad).toBe(0);
-    // Timing is reported, not asserted (a loaded machine proves nothing): about 25-55 ms a slab in Node here.
-    console.log(`slab generation: ${((performance.now() - t0) / 2000).toFixed(1)} ms a slab`);
-  }, 300_000);
-
-  it('keeps the apron (z >= 60) air and draws the gate rows in carved stone', () => {
-    const s = generateSlab({ runSeed: 7, k: 2, kinds: kindsFor(7, 2) });
-    for (let z = CUT; z < RING_SZ; z++) for (let r = 0; r < SLAB_ROWS; r++) for (let x = 0; x < RING_SX; x++) expect(at(s.blocks, x, r, z)).toBe(B.AIR);
-    // Row 40 (slab 2, r 8) is Glowroot's gate row; its frame columns beside the shaft are gate stone.
-    expect(at(s.blocks, SHAFT_X0 - 1, 8, CUT - 1)).toBe(B.GATE_STONE);
+  it('a slab below the surface is mostly rock with its caverns carved, and no cut plane', () => {
+    const s = generateSlab({ lifeSeed: 12345, runSeed: 7, k: 2, dugTo: 0 });
+    let air = 0;
+    for (const id of s.blocks) if (id === B.AIR) air++;
+    expect(air / s.blocks.length).toBeGreaterThan(0.02);
+    expect(air / s.blocks.length).toBeLessThan(0.6);
   });
 
-  it('authors the tutorial rows: copper at row 3, the chest at 6, the gem at 9, the open crossing at 24-27', () => {
-    const s0 = generateSlab({ runSeed: 7, k: 0, kinds: kindsFor(7, 0) });
-    const kit0 = kitOf(0);
-    expect(cellVoxels(s0, 3, 2)[0]).toBe(kit0.ore);
-    expect(cellVoxels(s0, 3, 5)[0]).toBe(kit0.ore);
-    expect(cellVoxels(s0, 6, 3)[0]).toBe(B.CHEST_SHELL);
-    expect(cellVoxels(s0, 9, 4)[0]).toBe(kit0.gem);
-    expect(cellVoxels(s0, 0, 0)[0]).toBe(B.TOPSOIL);
-    // The fossil slab beside the shaft at row 14 is a tappable prop.
-    expect(s0.props.some((p) => p.tap === 'fossil' && p.y === -15)).toBe(true);
-    const s1 = generateSlab({ runSeed: 7, k: 1, kinds: kindsFor(7, 1) });
-    for (let row = 24; row <= 27; row++) for (let c = 0; c < 7; c++) expect(cellVoxels(s1, row - 16, c).every((v) => v === B.AIR), `row ${row}`).toBe(true);
-    // Three crystal clusters stand in the crossing's grotto, the cavern opens the cut beside the shaft.
-    expect(s1.props.filter((p) => p.tap === 'crystal').length).toBe(3);
-    expect(at(s1.blocks, SHAFT_X0 - 3, 26 - 16, CUT - 1)).toBe(B.AIR);
-    // The creature alcove at row 30 (lit).
-    expect(s1.caverns.some((c) => c.id === 't30')).toBe(true);
+  it('opens the rows already dug (the dig front) and the openings of this run', () => {
+    const closed = generateSlab({ lifeSeed: 12345, runSeed: 7, k: 0, dugTo: 0 });
+    const open = generateSlab({ lifeSeed: 12345, runSeed: 7, k: 0, dugTo: 5 });
+    const count = (b: Uint8Array) => b.reduce((n, id) => n + (id === B.FACE_PLUG ? 1 : 0), 0);
+    expect(count(open.blocks)).toBeLessThan(count(closed.blocks));
   });
 
-  it('places alcoves every 6-8 m (lit, 2-4 props) and pockets that cut the section', () => {
-    const tops: number[] = [];
-    let pockets = 0;
-    let props = 0;
-    for (let k = 3; k < 23; k++) {
-      const s = generateSlab({ runSeed: 21, k, kinds: kindsFor(21, k) });
-      for (const c of s.caverns) {
-        if (c.kind === 'alcove' && c.top >= k * 16 && c.top < k * 16 + 16) tops.push(c.top);
-        if (c.kind === 'pocket' && c.top >= k * 16 && c.top < k * 16 + 16) pockets++;
-      }
-      props += s.props.length;
-    }
-    tops.sort((a, b) => a - b);
-    // Alcoves skip the seal frames, the Reveal Halls and the Vistas (the big rooms are themselves the view there).
-    for (let i = 1; i < tops.length; i++) {
-      let room = false;
-      for (let d = tops[i - 1] + 1; d < tops[i]; d++) if (inBigRoom(d, d)) room = true;
-      if (!room && !(tops[i - 1] < 240 && tops[i] > 236)) expect(tops[i] - tops[i - 1], `alcoves at ${tops[i - 1]} and ${tops[i]}`).toBeLessThanOrEqual(14);
-    }
-    expect(tops.length).toBeGreaterThanOrEqual(Math.floor((320 * 0.55) / 8));
-    // Pockets keep out of the big rooms too: count the rows that are not in one.
-    let open = 0;
-    for (let d = 48; d < 368; d++) if (!inBigRoom(d, d)) open++;
-    expect(pockets).toBeGreaterThanOrEqual(Math.floor(open / 14) - 2);
-    expect(props).toBeGreaterThan(100);
-  });
-
-  it('W6: keeps each slab inside its biome light budget', () => {
-    for (let k = 0; k < 25; k++) {
-      const s = generateSlab({ runSeed: 3, k, kinds: kindsFor(3, k) });
-      const b = baseBiome(biomeAt(k * 16 + 8));
-      const [lo, hi] = EMITTER_BUDGET[b];
-      // Lamps owned by props count on top of the budget (they are the warm human light).
-      let n = 0;
-      // The shaft's own cells (rich ore and gems glow) are the model's, not the budget's.
-      for (let i = 0; i < s.blocks.length; i++) {
-        const id = s.blocks[i];
-        const x = i % RING_SX;
-        const z = Math.floor(i / (RING_SX * SLAB_ROWS));
-        if (x >= SHAFT_X0 && x < SHAFT_X0 + 7 && z >= CELL_Z0) continue;
-        // Glowing valuables (ore and gem) glint for themselves: they are not the light budget's fixtures.
-        if (id !== B.LIGHT_LAMP && (VALUE_CLASS[id] ?? 0) < 2 && (EMIT_R[id] | EMIT_G[id] | EMIT_B[id])) n++;
-      }
-      expect(n, `slab ${k} (biome ${b})`).toBeGreaterThanOrEqual(lo);
-      expect(n, `slab ${k} (biome ${b})`).toBeLessThanOrEqual(hi + 2);
-      expect(s.emitters).toBe(n);
-    }
-  });
-
-  it('uses only the biome block ids of the rows it holds (ragged boundaries blend neighbours)', () => {
-    const s = generateSlab({ runSeed: 5, k: 7, kinds: kindsFor(5, 7) }); // 112-127 m: Glowroot into the Crystal Grotto
-    const biomes = new Set<number>();
-    for (const id of s.blocks) if (id >= 64 && id < 64 + 8 * BIOME_BLOCKS) biomes.add((id - 64) >> 3);
-    expect([...biomes].sort()).toEqual([1, 2]);
-    expect(CELL.ROCK).toBe(1);
+  it('light for a slab is computed off the main thread with its context rows', () => {
+    const s = generateSlab({ lifeSeed: 12345, runSeed: 7, k: 1, dugTo: 0 });
+    const ctx = new Uint8Array(RING_SX * CONTEXT_ROWS * RING_SZ).fill(B.BEDROCK);
+    const l = slabLight(s.blocks, ctx);
+    expect(l.slab.length).toBe(SLAB_VOXELS * 4);
+    let lit = 0;
+    for (let i = 0; i < l.slab.length; i += 4) if (l.slab[i] | l.slab[i + 1] | l.slab[i + 2]) lit++;
+    expect(lit).toBeGreaterThan(100);
   });
 });

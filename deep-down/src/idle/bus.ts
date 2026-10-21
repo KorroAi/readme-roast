@@ -15,8 +15,9 @@ export type HitSource = 'tap' | 'hold' | 'swipe' | 'key' | 'crew' | 'splash' | '
 
 /** Where gold or gems came from (the ledger's token origin and the stats). */
 export type GainSource =
-  | 'cell' | 'crumble' | 'chest' | 'moth' | 'event' | 'offline' | 'gallery' | 'dynamite' | 'creature'
-  | 'contract' | 'feat' | 'rank' | 'mark' | 'record' | 'seal' | 'path' | 'daily' | 'codex' | 'tappable' | 'debug';
+  | 'cell' | 'crumble' | 'chest' | 'ember' | 'event' | 'offline' | 'gallery' | 'dynamite'
+  | 'contract' | 'feat' | 'rank' | 'mark' | 'record' | 'seal' | 'path' | 'daily' | 'codex' | 'tappable' | 'debug'
+  | 'skin' | 'pocket' | 'ride' | 'works' | 'secret' | 'relic';
 
 /** Chest tiers, low to high (SPEC §5.8). */
 export type ChestTier = 'wood' | 'copper' | 'crystal' | 'reliquary' | 'lintel';
@@ -160,17 +161,17 @@ export interface IdleEvents {
   /** The Chest Rack changed (offline, analytic rows). */
   'chest:rack': { count: number };
 
-  // ----- seals and Wardens (SPEC §7.1; the Halden Hatch in W1) ---------------------------------------
+  // ----- seals (hybrid SPEC §5.5; the Halden Hatch in W1) -------------------------------------------
   /**
-   * A never-opened seal is the floor now: the fight starts (timer `time` s, HP as Big). `warden` is the Warden's id
-   * (i18n `idle.warden.<id>`); `estimate` the seconds an active player needs at the current rates (H5's colour).
+   * The player took a Seal hall's exit: the fight starts (timer `time` s, HP as Big). `mech` is the mechanism's id
+   * (i18n `idle.seal.<id>`); `estimate` the seconds an active player needs at the current rates (H5's colour).
    * Emitted again when a held seal is restarted by a tap.
    */
-  'seal:start': { biome: number; depth: number; hp: Big; time: number; warden?: string; estimate?: number; retry?: boolean };
+  'seal:start': { biome: number; depth: number; hp: Big; time: number; mech?: string; estimate?: number; retry?: boolean };
   /** A hit on the seal (fraction left). `weak` when it struck the lit weak point (×5); `finisher` for the Strike finisher. */
   'seal:hit': { biome: number; left: number; dmg: Big; weak: boolean; finisher?: boolean };
   /**
-   * The seal broke (first time ever for this biome). Its rewards are already credited: `gems`, the Warden's relic Find
+   * The seal broke (first time ever for this biome). Its rewards are already credited: `gems`, the seal's relic Find
    * (`relic`, '' when the page already has it: it levels instead), a Crystal-floor chest (opened: see chest:open with
    * source 'seal'), `xp`, and `hand` true when a facet hand was queued (from the second seal of a run).
    */
@@ -184,18 +185,18 @@ export interface IdleEvents {
    */
   'gate:break': { biome: number; depth: number; split: number; best?: number; par?: number; green?: boolean };
   /**
-   * The Warden's weak point lit (`lit` true) or went dark. `id` is the tappable `weak:<sealId>:<i>` (sealId = the biome
-   * the seal opens, i = 0..2: which of the Warden's three points), `until` the model time it goes dark.
+   * The mechanism's weak point lit (`lit` true) or went dark. `id` is the tappable `weak:<sealId>:<i>` (sealId = the biome
+   * the seal opens, i = 0..2: which of its three points), `until` the model time it goes dark.
    */
   'seal:weak': { biome: number; lit: boolean; id?: string; point?: number; until?: number };
   /** The Strike finisher appeared at 25 % HP (`widget` the widget id: tap it to stop the needle; perfect = a ×10 hit). */
   'seal:finisher': { biome: number; widget: string };
 
-  // ----- events and widgets (SPEC §7.2–§7.3; W2 except the Lucky Moth) -------------------------------
-  /** The Lucky Moth appeared (entity id `moth:<n>`), crossing for `life` s. */
-  'moth:spawn': { id: string; life: number; scripted: boolean };
-  'moth:catch': { id: string; outcome: 'gold' | 'frenzy' | 'gems' | 'refresh'; gold: Big; gems: number };
-  'moth:gone': { id: string };
+  // ----- events and widgets (SPEC §5.6; W2) ----------------------------------------------------------
+  /** The Drifting Ember appeared (entity id `ember:<n>`; dormant in W1), drifting for `life` s. */
+  'ember:spawn': { id: string; life: number };
+  'ember:catch': { id: string; outcome: 'gold' | 'frenzy' | 'gems' | 'refresh'; gold: Big; gems: number };
+  'ember:gone': { id: string };
   /** The next event shows on the Depth Ruler `inSeconds` ahead (SPEC §7.2 "Announced"). `id` the event to come. */
   'event:announce': { id: string; type: string; inSeconds: number };
   /**
@@ -272,8 +273,8 @@ export interface IdleEvents {
   /** XP was earned (throttled: at most every 0.25 s, summed). */
   'xp:gain': { amount: number; xp: number; need: number };
   /** A Codex entry was found for the first time (`biome` its page, `level` 1). */
-  'codex:new': { id: string; section: 'find' | 'bestiary' | 'lore'; biome?: number };
-  /** A duplicate Find levelled it up (+1 %), or a Bestiary tier was reached. */
+  'codex:new': { id: string; section: 'find' | 'lamp' | 'lore'; biome?: number };
+  /** A duplicate Find levelled it up (+1 %). */
   'codex:level': { id: string; level: number };
   /** A biome page is complete: its Biome Seal (+10 % gold and power) is stamped. */
   'codex:page': { biome: number };
@@ -322,7 +323,77 @@ export interface IdleEvents {
   'boost:end': { id: string };
   /** A Time Crystal was spent: an hour of crew output now. */
   'warp': { seconds: number; gold: Big };
+
+  // ----- the node crawl (hybrid SPEC §12.3 item 1; W1-LEAD §3 phases dig, explore, ride, seal, camp) ------------------
+  // `node` is the node index (src/idle/model/chart.ts nodeAt). Ids of chamber things are B's socket ids; skin ids are
+  // whatever the scene's pick gave (one per wall-skin cell); ride glints are `ride:<node>:<j>`.
+  /** The player's phase changed (camp → dig → explore → ride → dig …; explore → seal → explore after the reveal). */
+  'phase:change': { from: NodePhaseName; to: NodePhaseName; node: number };
+  /**
+   * The player arrived at a node: at its drift face (`phase` 'dig'), or at the mouth of its chamber the crew already
+   * opened (`phase` 'explore', `dark` true: the next tap glides in and first light is yours). `dug` rows of this drift
+   * the crew already cleared (the catch-up track).
+   */
+  'node:arrive': { node: number; phase: NodePhaseName; biome: number; depth: number; dark: boolean; dug: number };
+  /** A breach broke: chamber `node` is open. `by` the player (first light follows at once) or the crew (left dark). */
+  'node:breach': { node: number; by: 'player' | 'crew'; promise: string; depth: number };
+  /** First light of chamber `node` this run (always the player's, L10). `first`: never seen in any run (lifetime). */
+  'node:firstLight': { node: number; first: boolean; biome: number };
+  /** The player left chamber `node`: leftovers joined the Works (`works` their gold), `racked` items went to the rack. */
+  'node:leave': { node: number; works: Big; racked: number };
+  /** A strike-type chamber tappable took a hit and did not break (`left` remaining fraction, `stage` 0–3 the crack). */
+  'tappable:hit': { node: number; id: string; kind: string; left: number; stage: number; dmg: Big; crit: boolean };
+  /** A strike-type chamber tappable broke and paid (`by` the player, or 'crew' never: crews mine leftovers as Works). */
+  'chamber:harvest': { node: number; id: string; kind: string; gold: Big; gems: number; crit: boolean };
+  /** A wall-skin cell was struck (`broke` when it broke and paid `gold`). */
+  'skin:strike': { node: number; id: string; broke: boolean; left: number; gold: Big };
+  /** A broken skin cell hid a pocket (12 %): a nugget (gold), a gem, or a Halden scrap (a Find roll). */
+  'skin:pocket': { node: number; id: string; kind: 'nugget' | 'gem' | 'scrap'; gold: Big; gems: number; find: string };
+  /** A secret broke open (a cracked wall, a hollow floor, a loose brick): `cache` the focus id of what it revealed. */
+  'secret:found': { node: number; id: string; cache: string; reveals: string };
+  /** A cold Halden lamp was relit (`lit` of `of` cold lamps now burning in this chamber). */
+  'lamp:relight': { node: number; id: string; lit: number; of: number };
+  /** Every lamp of chamber `node` is lit: charted (lifetime). `first` the first time ever (+1 gem, +20 XP). */
+  'chamber:charted': { node: number; first: boolean; gems: number };
+  /** The player reached a stand (an arrival pose or an objective auto-walk target). */
+  'stand:move': { node: number; stand: number };
+  /** The focus pop opened on a focus-type object (`kind` chest, relic, note, mural, geode, cache…). */
+  'focus:open': { node: number; id: string; kind: string };
+  /** The focus pop closed (`resolved` when its object was opened, read or graded; else it waits in the chamber). */
+  'focus:close': { node: number; id: string; resolved: boolean };
+  /** The relic ring (or a geode's ring) graded a release: `grade` worn … perfect, `u` the fraction of the close. */
+  'relic:grade': { node: number; id: string; relic: string; grade: string; u: number; gems: number; better: boolean };
+  /** A Halden note was read in the focus pop (the lore entry is in the Codex). */
+  'note:read': { node: number; id: string; lore: string };
+  /** The Way Down began from chamber `node` to `to` (`kind` its shape; `targets` the pass-by glint ids). */
+  'ride:start': { node: number; to: number; kind: string; targets: string[]; seconds: number };
+  /** A pass-by glint was mined during the ride. */
+  'ride:glint': { node: number; id: string; kind: string; gold: Big; gems: number };
+  /** The ride ended at node `to` (`skipped` when a tap skipped it). */
+  'ride:end': { node: number; to: number; skipped: boolean };
+  /** A slice of the player's drift fell (`slice` index of the slice now in front, of `K`). */
+  'drift:slice': { node: number; slice: number; K: number; depth: number };
+  /** The face moved back by `slices` (the camera creeps forward that far). */
+  'drift:creep': { node: number; slices: number };
+  /** Lantern Raise toward a far point (x, y, z world metres; the camera does not move). */
+  'lantern:raise': { node: number; x: number; y: number; z: number };
+  /** A strike on deep rock in reach: the tunk (`hint` the tappable to rim for 0.6 s, '' none). */
+  'rock:tunk': { node: number; hint: string };
+  /** The crew reached the leash: it digs no further and its strikes become Works haul. */
+  'leash:full': { open: number; L: number; depth: number };
+  /** A cart delivery of the Works haul (every ≈ 6 s; `cart` false before Mine Carts: it joins the rate silently). */
+  'works:haul': { gold: Big; cart: boolean; fromLeftovers: boolean };
+  /** The exit of a Seal hall was tapped but this seal is closed in this build (the Root Knot: "Opens in the next build"). */
+  'seal:closed': { biome: number; node: number };
+  /** The camp phase began (the menu at dusk) or the player went down the adit. */
+  'camp:enter': { node: number };
+  'camp:descend': { node: number };
+  /** An item went to the Chest Rack (a skipped chest or relic): `kind` and the rack's count. */
+  'rack:add': { kind: 'chest' | 'relic'; id: string; count: number };
 }
+
+/** The player's phases (W1-LEAD §3). Declared here so the bus has no import cycle with model/nodes.ts. */
+export type NodePhaseName = 'camp' | 'dig' | 'explore' | 'ride' | 'seal';
 
 export type IdleBus = EventBus<IdleEvents>;
 

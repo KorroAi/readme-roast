@@ -17,6 +17,7 @@ import { flagSecret } from './feats';
 import { returnHints } from './hints';
 import { holdSealOnReturn } from './seals';
 import { CELL, COLS, type IdleState, type OfflineResult } from './state';
+import { crewStopDepth, haulGoldLog10, onFrontMoved, returnToFront } from './nodes';
 
 const L10 = Math.log10;
 
@@ -29,18 +30,19 @@ export const RACK_CHEST_S = 30;
 
 /** Efficiency of the crew while away. */
 export function offlineEfficiency(s: IdleState): number {
-  const e = s.meta.embersMax.toNumber();
+  // Thresholds in log10 with a hair of slack: a Big holds 1e5 as 10^5, which reads back as 99999.99999… .
+  const e = s.meta.embersMax.log10() + 1e-9;
   const nightShift = s.meta.loom.nightShift ?? 0;
-  let eff = e >= 1e5 ? 1 : e >= 250 ? 0.75 : 0.5;
+  let eff = e >= 5 ? 1 : e >= L10(250) ? 0.75 : 0.5;
   eff = Math.min(1, eff + 0.1 * nightShift + mults(s).offline);
   return eff;
 }
 
 /** The offline cap (s). */
 export function offlineCap(s: IdleState): number {
-  const e = s.meta.embersMax.toNumber();
+  const e = s.meta.embersMax.log10() + 1e-9;
   const nightShift = s.meta.loom.nightShift ?? 0;
-  const h = e >= 250 ? 12 : e >= 25 ? 6 : 3;
+  const h = e >= L10(250) ? 12 : e >= L10(25) ? 6 : 3;
   return Math.min(24, h + 2 * nightShift) * 3600;
 }
 
@@ -87,25 +89,31 @@ export function computeOffline(
   const res: OfflineResult = {
     seconds, away: opts.away ?? seconds, capped: opts.capped ?? false, fromDepth: from, toDepth: from,
     goldRows: Big.zero(), goldGallery: Big.zero(), gold: Big.zero(), chests: 0, chestsGold: 0, sealBiome: -1, biomeCrossed: -1, collected: false,
+    chambers: 0, glimpses: [], darkNode: -1, leashStop: false,
   };
   if (seconds <= 0 || dps === -Infinity) return res;
   const work = dps + L10(eff) + L10(seconds);
   // Start from the floor row's progress.
   const p0 = floorProgress(s);
   const w0 = p0 > 0 ? addLog(work, rowCostLog10(from) + L10(p0)) : work;
-  const stop = opts.throughSeals ? Infinity : s.shaft.rows[0].kinds[0] === CELL.SEAL ? from : nextSealDepth(s, from);
+  const sealStop = opts.throughSeals ? Infinity : s.shaft.rows[0].kinds[0] === CELL.SEAL ? from : nextSealDepth(s, from);
+  // The node layer's leash (SPEC §5.3): the crew stops one slice short of the (L+1)-th unseen chamber ahead.
+  const leash = opts.throughSeals ? Infinity : crewStopDepth(s);
+  const stop = Math.min(sealStop, leash);
+  res.leashStop = leash < sealStop;
   const walk = rowsForWork(from, w0, stop);
   const to = from + walk.rows;
   res.toDepth = to;
   // Gold for the rows dug (HP / κ × gold per HP; the floor's own dug part was already paid).
   const dug = rowsForWorkGold(walk.used, p0 > 0 ? rowCostLog10(from) + L10(p0) : -Infinity);
   res.goldRows = Big.fromLog10(dug);
-  // Stopped at a never-opened seal: the rest of the time pays gallery gold at the stop depth.
+  // Stopped at a never-opened seal or the leash: the rest of the time pays gallery gold (the Works haul: the leftover
+  // chamber value first, then the face's average gold per damage).
   if (Number.isFinite(stop) && to >= stop) {
-    res.sealBiome = biomeAt(stop);
+    if (!res.leashStop) res.sealBiome = biomeAt(stop);
     const usedW = walk.used;
     const restL = subLogSafe(w0, usedW);
-    if (restL > -Infinity) res.goldGallery = Big.fromLog10(restL + L10(goldPerHp() / KAPPA));
+    if (restL > -Infinity) res.goldGallery = Big.fromLog10(s.node.on ? haulGoldLog10(s, restL, !!opts.apply) : restL + L10(goldPerHp() / KAPPA));
   }
   // Chests passed (centre-column chest cells every 25 rows).
   const chestRows = Math.max(0, Math.floor((to - CHEST_EVERY) / CHEST_EVERY) - Math.floor((from - CHEST_EVERY) / CHEST_EVERY));
@@ -142,10 +150,19 @@ function subLogSafe(a: number, b: number): number {
 function applyOffline(s: IdleState, r: OfflineResult, frac: number): void {
   const to = r.toDepth;
   if (to !== s.run.depth) {
+    const from = s.run.depth;
     resetWindow(s, to);
     if (to > s.run.dmax) s.run.dmax = to;
     if (to > s.meta.record) s.meta.record = to;
     for (let k = biomeAt(r.fromDepth) + 1; k <= biomeAt(to); k++) if (!s.meta.biomesSeen.includes(k)) s.meta.biomesSeen.push(k);
+    // The node layer: the chambers the crew broke into wait dark; the player arrives at the first dark mouth.
+    if (s.node.on) {
+      onFrontMoved(s, from, to, 'analytic');
+      const opened = returnToFront(s, from);
+      r.chambers = opened.length;
+      r.glimpses = opened.slice(0, 3);
+      r.darkNode = opened.length > 0 && s.node.phase === 'explore' && !s.node.chambers[s.node.node]?.lit ? s.node.node : -1;
+    }
   }
   const floor = s.shaft.rows[0];
   if (frac > 0 && floor.kinds[0] !== CELL.SEAL) {

@@ -73,6 +73,22 @@ export const B = {
   BOULDER: 47,
   /** The surface row's turf and loam. */
   TOPSOIL: 48,
+  // The first-person hybrid (W1, src/world/hybrid): 49..55.
+  /** A drift's face plug (the K slices not dug yet): solid for light, picking and walking, never meshed (the
+   *  FaceRenderer draws the face blocks). A slice's plug voxels turn to AIR when the slice falls. */
+  FACE_PLUG: 49,
+  /** A secret's cracked wall, hollow floor or loose brick (W1-LEAD §3): solid, visible, breaks open on strikes. */
+  CRACK: 50,
+  /** The Halden Hatch's planks in the Lift Bottom's floor (the seal): solid, never meshed (SealRenderer draws it). */
+  HATCH: 51,
+  /** Dusk sky light falling down a sky shaft (invisible, non-solid emitter, cool blue: SPEC §8.4 #9fc3e6). */
+  LIGHT_SKY: 52,
+  /** The light that leaks through a breach or a seal's seams in the promise colour (invisible, non-solid). */
+  LIGHT_LEAK_GREEN: 53,
+  /** Halden masonry (dressed stone in courses, the bevel language of built things). */
+  MASONRY: 54,
+  /** Timber decking and stair treads (walkable timber). */
+  DECK: 55,
 } as const;
 
 /** Biome block slots (SPEC §6.4): id = 64 + 8 b + slot for b = 0..13. */
@@ -195,6 +211,14 @@ def({ id: B.GEODE, name: 'block.geode', solid: true, visible: true, sound: 'crys
 def({ id: B.GOLDEN, name: 'block.golden', solid: true, visible: true, sound: 'metal', tiles: same(TILE.copperOre), emission: [0.42, 0.3, 0.08], glow: 1, debris: [0xffd86a, 0xe0a83a, 0xfff2b0] });
 def({ id: B.BOULDER, name: 'block.boulder', solid: true, visible: true, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x3b4250, 0x252a33] });
 def({ id: B.TOPSOIL, name: 'block.topsoil', solid: true, visible: true, sound: 'soil', tiles: same(TILE.soil), debris: [0x5c4839, 0x4a3a2e, 0x6a7a4a] });
+// ---- The first-person hybrid (W1) ---------------------------------------------------------------------------------
+def({ id: B.FACE_PLUG, name: 'block.facePlug', solid: true, visible: false, sound: 'stone', tiles: same(TILE.slate), debris: [0x4a4b4d, 0x37383b] });
+def({ id: B.CRACK, name: 'block.crack', solid: true, visible: true, sound: 'stone', tiles: same(TILE.crumblingBrick), debris: [0x5d6068, 0x43464d, 0x2d3036] });
+def({ id: B.HATCH, name: 'block.hatch', solid: true, visible: false, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28, 0x8a8f99] });
+def({ id: B.LIGHT_SKY, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.36, 0.5, 0.66] });
+def({ id: B.LIGHT_LEAK_GREEN, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.22, 0.62, 0.36] });
+def({ id: B.MASONRY, name: 'block.masonry', solid: true, visible: true, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x6a6f7a, 0x535a6a, 0x434957] });
+def({ id: B.DECK, name: 'block.deck', solid: true, visible: true, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
 
 /** Debris and emission of each biome slot (looks: render/materials BIOME_SURFACES). Biomes 4..13 reuse the
  *  W1 kits until their painters land (W2). */

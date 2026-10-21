@@ -71,10 +71,9 @@ export function embed(ctx: Ctx, x: number, row: number, z: number, id: number): 
 }
 
 export interface DressOptions {
-  /** Medium props (before the floor-area rule), tappables, creatures, a flock (a flyer swarm). */
+  /** Medium props (before the floor-area rule), tappables. */
   medium?: number;
   tappables?: number;
-  creatures?: number;
   /** A liquid on the floor (if the kit has one). */
   liquid?: boolean;
   /** Emitters in the walls in the key colour. */
@@ -88,9 +87,9 @@ export interface DressOptions {
 /**
  * Dress a carved cavern (its floor row is `cav.bottom + 1`): the floor is scanned for standing room, medium props
  * follow the floor-area rule, the small scatter covers the floor on a jittered 2.6 m grid (empty floor ≤ 35 %),
- * then tappables, creatures, lights, an ambient emitter, a liquid and veins on its walls.
+ * then tappables, lights, an ambient emitter, a liquid and veins on its walls.
  */
-export function dressCavern(ctx: Ctx, cav: CavernSpec, kit: BiomeKit, biome: number, seed: number, o: DressOptions = {}): void {
+export function dressCavern(ctx: Ctx, cav: CavernSpec, kit: BiomeKit, _biome: number, seed: number, o: DressOptions = {}): void {
   const { d0, out } = ctx;
   // Floor cells: per (x, z) column, the lowest air voxel of the cavern with solid ground under it (a rounded cavern's
   // floor is a bowl: it is not all on its bottom row). Below this slab, the row under the cavern counts as solid
@@ -144,13 +143,6 @@ export function dressCavern(ctx: Ctx, cav: CavernSpec, kit: BiomeKit, biome: num
     const c = pool[Math.floor(h01(i, 21, 7, seed) * pool.length)];
     const [kind, tap, n] = i === 0 && h01(9, 9, 9, seed) < 0.25 ? (['chest', 'cache', 1] as const) : kit.tappable;
     addProp(ctx, kind, c[0] + 0.5, c[2], c[1] + 0.5, { tap, taps: n, scale: kind === 'crystalCluster' ? 1.1 + 0.4 * h01(i, 22, 7, seed) : 1 });
-  }
-  // Creatures: walkers on the floor, flyers and floaters above it.
-  const nc = o.creatures ?? 0;
-  for (let i = 0; i < nc && placeable.length; i++) {
-    const c = pickCell(i, 31)!;
-    const kind = kit.creatures[Math.floor(h01(i, 32, 7, seed) * kit.creatures.length)];
-    out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + out.creatures.length}`, kind, biome, x: c[0] + 0.5, y: -c[2], z: c[1] + 0.5, range: Math.min(3, Math.max(0.6, (cav.x1 - cav.x0) / 4)) });
   }
   // Lights: lamps if people worked here, emitters in the key colour in the walls (rule 3).
   for (let i = 0; i < (o.lamps ?? 0) && placeable.length; i++) {
@@ -261,7 +253,7 @@ export function vistasNear(a: number, b: number): Array<{ biome: number; top: nu
 /**
  * The Vista (SPEC §6.6/§6.7): a 26 m-tall room across the slab (x 10..53), open at the cut beside the shaft (the
  * dig continues down a pillar of cells through it) and open at the back onto 2D's backdrop layers (the ring reads
- * AIR behind z = 0 in its rows); 8-14 tappables, a Royal Chest, lamps, creatures, motes. The set piece stands in it
+ * AIR behind z = 0 in its rows); 8-14 tappables, a Royal Chest, lamps, motes. The set piece stands in it
  * (DescentScene places 2D's `buildSetPiece`).
  */
 export function carveVista(ctx: Ctx, v: { biome: number; top: number; bottom: number }, kit: BiomeKit, seed: number): void {
@@ -286,7 +278,7 @@ export function carveVista(ctx: Ctx, v: { biome: number; top: number; bottom: nu
   const cav: CavernSpec = { id: `v${v.biome}`, kind: 'vista', top: v.top, bottom: v.bottom, x0, x1, z0: 0, z1: CUT - 1 };
   out.caverns.push(cav);
   out.vistas.push({ id: `vista:${v.biome}`, biome: v.biome, top: v.top, bottom: v.bottom, x0, x1 });
-  dressCavern(ctx, cav, kit, v.biome, seed, { medium: 12, tappables: 10, creatures: 5, emitters: 4, lamps: 4, hero: true, liquid: true });
+  dressCavern(ctx, cav, kit, v.biome, seed, { medium: 12, tappables: 10, emitters: 4, lamps: 4, hero: true, liquid: true });
   ledges(ctx, cav, kit, 5, seed);
 }
 
@@ -425,9 +417,5 @@ export function sealNiche(ctx: Ctx, s: number, kitNext: BiomeKit, kitHere: Biome
   addProp(ctx, 'crystalCluster', left ? x1 - 0.1 : x0 + 0.6, bottom + 1, CUT - 1.6, { tap: 'gem', taps: 2, scale: 0.85 });
   addProp(ctx, pick(kitHere.small, 0.5), (x0 + x1 + 1) / 2, bottom + 1, CUT - 3.2);
   for (let d = top; d <= bottom; d++) if (embed(ctx, left ? x0 - 1 : x1 + 1, d, CUT - 2, kitNext.emitter)) break;
-  if (bottom >= d0 && bottom < d0 + SLAB_ROWS) {
-    const kind = kitHere.creatures[(s >> 2) % kitHere.creatures.length];
-    out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + out.creatures.length}`, kind, biome: kitBiome(top), x: (x0 + x1 + 1) / 2, y: -(bottom + 1), z: CUT - 2.8, range: 1 });
-  }
   finishCavern(ctx, cav, kitHere, s * 7);
 }

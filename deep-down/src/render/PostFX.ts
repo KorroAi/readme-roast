@@ -1,26 +1,33 @@
 import * as THREE from 'three';
 import { baseBiome, echoNumber } from '../idle/config/biomes';
 import { BIOME_LOOKS } from '../idle/config/biomeLooks';
-import { SCENE_ENCODE } from './lighting';
-import { lookShared } from './look';
+import { SCENE_ENCODE } from './light/uniforms';
+import { COMPOSITE_FRAG, LIGHT_PASS_COST, LightPasses } from './light/passes';
+import { DARK_LIFT, LIGHT_UNIFORMS } from './light/uniforms';
+import type { LightRig } from './light/rig';
+import { AGX_GLSL, TONE_LOOK } from './light/tonemap';
 import { LUT_SIZE, buildLut, type GradeLook } from './post/lut';
 
 /**
- * The HD post chain (SPEC §11.3, CRITIQUE B12, B13, B15, B16; owner 2D). Two resolutions:
+ * The filmic pipeline (W1-LEAD §4.8; owner 1E). Two resolutions:
  *
- *   scene     the world renders into a HalfFloat target at a dynamic fraction `s` of the native resolution,
- *             through a sub-viewport of a target allocated at the preset's top scale (a scale step never
- *             reallocates), optionally with 4x MSAA (High)
- *   bloom     bright pass + 4-5 level dual-filter bloom, every tap clamped to the live rect
- *   resolve   at scene resolution: exposure, flash, the hue-preserving tone map, then the LUT pair of the two
- *             biomes nearest the camera (32^3, sRGB-encoded domain: lut.ts holds the W1 grade + each look),
- *             written sRGB-encoded with its luma in alpha
+ *   scene     the world renders into a HalfFloat target (colour + a depth texture) at a dynamic fraction `s` of the
+ *             native resolution, through a sub-viewport of a target allocated at the preset's top scale (a scale
+ *             step never reallocates), optionally with 4x MSAA (High). Lit materials write the indirect share in alpha
+ *   light     half resolution (light/passes.ts): linear depth, GTAO + its 4x4 blur, the volumetric march with
+ *             temporal accumulation
+ *   composite at scene resolution: GTAO on the indirect share, then the volumetric fog (c · T + in-scatter) into the
+ *             lit target; then the overlay pass (the viewmodel) draws into it with its own depth
+ *   bloom     bright pass (threshold ≥ 1) + 4-5 level dual-filter bloom (strength ≤ 0.25), clamped to the live rect
+ *   resolve   exposure, flash, AgX, then the LUT pair of the two biomes nearest the camera (32^3, sRGB-encoded
+ *             domain: lut.ts holds the W1 grade + each look), written sRGB-encoded with its luma in alpha
  *   fxaa      FXAA 3.11 (quality 12) at scene resolution, before the upsample (Balanced; High has MSAA)
- *   final     at native resolution into the canvas: the screen shock, a 5-tap Catmull-Rom upsample, CAS
- *             (only while s < 1), the portrait vignette, dim, the octagon iris with its brass rim, dither
+ *   final     at native resolution into the canvas: a 5-tap Catmull-Rom upsample, CAS (only while s < 1), the
+ *             vignette (≤ 0.15), dim, dither
  *
- * Every program is compiled at construction; options switch passes and uniforms, never defines (P3 across
- * presets). The 8-bit fallback (no float targets) keeps its ENCODED define: a device constant.
+ * Banned and absent: chromatic aberration, lens flare, grain, motion blur, iris, shock rings, screen-space rays,
+ * bloom pulses. Every program is compiled at construction; options switch passes and uniforms, never defines (P3
+ * across presets). The 8-bit fallback (no float targets) keeps its ENCODED define and runs no light passes.
  */
 
 const fullscreenVert = /* glsl */ `
@@ -131,9 +138,12 @@ uniform float uBloomStrength;
 uniform float uExposure;
 uniform float uFlash;
 uniform vec3 uFlashColor;
+uniform vec4 uTone;      // x 0 = AgX, 1 = the hue-preserving ACES fit; y look power, z look saturation
+uniform vec3 uLift;      // the hued dark floor (linear, added before the tone map): darks never below 0.04 display
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
+${AGX_GLSL}
 
 // Filmic curve (ACES fit): a real toe (slope ~0.25 near black, no lift), so shadows are deep and the lit
 // mids carry the contrast; white is reached around x = 6.
@@ -161,7 +171,8 @@ void main() {
   hdr += texture(tBloom, min(vUv * uBloomScale, uBloomMax)).rgb * uBloomStrength;
   hdr *= uExposure;
   hdr += uFlashColor * uFlash;
-  vec3 c = clamp(toSrgb(tonemap(hdr)), 0.0, 1.0);
+  hdr += uLift;
+  vec3 c = uTone.x < 0.5 ? agxDisplay(hdr, uTone.yz) : clamp(toSrgb(tonemap(hdr)), 0.0, 1.0);
   // The grade: the LUT pair in the sRGB-encoded domain (texel centres at (i + 0.5) / 32).
   vec3 lc = c * ${(LUT_SIZE - 1) / LUT_SIZE} + ${0.5 / LUT_SIZE};
   vec3 g = mix(texture(tLutA, lc).rgb, texture(tLutB, lc).rgb, uLutMix);
@@ -298,11 +309,7 @@ uniform vec2 uSrcLive;
 uniform float uCas;
 uniform float uVignette;
 uniform float uDim;
-uniform float uIris;
-uniform vec2 uIrisC;
 uniform float uAspect;
-uniform float uShock;
-uniform vec2 uShockC;
 uniform float uTime;
 uniform vec2 uRes;
 in vec2 vUv;
@@ -319,14 +326,6 @@ float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 void main() {
   vec2 uv = vUv;
-  // Screen shock: one ring of refraction expanding from its centre (screen heights), fading as it grows.
-  if (uShock > 0.001 && uShock < 0.999) {
-    vec2 d = (uv - uShockC) * vec2(uAspect, 1.0);
-    float len = length(d);
-    float r = uShock * 0.9;
-    float ring = exp(-pow((len - r) / 0.04, 2.0));
-    uv -= (d / max(len, 1e-4)) / vec2(uAspect, 1.0) * ring * 0.016 * (1.0 - uShock);
-  }
   // 5-tap Catmull-Rom upsample from the scene-resolution image (post/composite.ts mirrors the weights).
   vec2 pos = uv * uSrcLive;
   vec2 tc = floor(pos - 0.5) + 0.5;
@@ -346,9 +345,8 @@ void main() {
   vec3 ea = tap(vec2(tc3.x, tc12.y));
   vec3 n = tap(vec2(tc12.x, tc3.y));
   vec3 c = (s * a + we * b + mid * cc + ea * d + n * e) / (a + b + cc + d + e);
-  // Contrast-adaptive sharpening (the cross form of AMD CAS), only while the scene is below native. Its cross is
-  // the Catmull-Rom's own four outer taps, one source texel out on each side: CAS of the source as it is
-  // upsampled (AMD's upscaling mode), with no fetch of its own (CRITIQUE B16: the composite fits 1.9 ms).
+  // Contrast-adaptive sharpening (the cross form of AMD CAS), only while the scene is below native, from the
+  // Catmull-Rom's own outer taps (no fetch of its own).
   if (uCas > 0.001) {
     float lc = luma(c), ln = luma(n), ls = luma(s), le = luma(ea), lw = luma(we);
     float mn = min(lc, min(min(ln, ls), min(le, lw)));
@@ -358,63 +356,46 @@ void main() {
     c = (c + (n + s + ea + we) * wgt) / (1.0 + 4.0 * wgt);
   }
   c = max(c, vec3(0.0));
-  // Portrait vignette: top 0.30, bottom 0.25, sides 0.10 (at 0.25), so the dig band stays the brightest.
-  float top = smoothstep(0.62, 1.0, vUv.y) * 0.3;
-  float bottom = smoothstep(0.38, 0.0, vUv.y) * 0.25;
-  float sides = smoothstep(0.32, 0.5, abs(vUv.x - 0.5)) * 0.1;
-  c *= 1.0 - min(1.0, (top + bottom + sides) * (uVignette / 0.25));
+  // The vignette (≤ 0.15): radial in the portrait frame, a little heavier at the crown so the eye falls to the
+  // lit middle. The HUD bands sit on it anyway.
+  vec2 q = (vUv - vec2(0.5, 0.47)) * vec2(uAspect, 1.0);
+  float r = length(q * vec2(1.35, 1.0));
+  float vig = smoothstep(0.28, 0.78, r) + 0.35 * smoothstep(0.7, 1.0, vUv.y);
+  c *= 1.0 - min(uVignette, 0.15) * clamp(vig, 0.0, 1.0);
   c *= 1.0 - uDim;
-  // The octagon iris with a 1 px brass rim (Rekindle).
-  if (uIris < 1.499) {
-    vec2 q = abs((vUv - uIrisC) * vec2(uAspect, 1.0));
-    float od = max(max(q.x, q.y), (q.x + q.y) * 0.70710678);
-    float px = 1.0 / uRes.y;
-    float inside = smoothstep(uIris + px, uIris - px, od);
-    float rim = 1.0 - smoothstep(0.0, 1.5 * px, abs(od - uIris));
-    c = c * inside + vec3(0.886, 0.714, 0.451) * rim * step(0.001, uIris);
-  }
-  // Dither last, to hide banding in the dark fog gradients.
-  c += (ign(gl_FragCoord.xy + fract(uTime) * 61.0) - 0.5) / 255.0;
+  // Triangular dither (±1 LSB), static in time (stillness), against banding in the dark fog gradients.
+  float t = ign(gl_FragCoord.xy) + ign(gl_FragCoord.xy + vec2(17.3, 41.9)) - 1.0;
+  c += t / 255.0;
   fragColor = vec4(c, 1.0);
 }
 `;
 
 /**
- * The post parameters other modules drive (W2 seam 2). Ceremonies (C) own the transient ones and restore
- * them; the biome look (DescentScene) writes threshold, bloomStrength and zoneExposure every frame, so a
- * ceremony that wants more glow uses `bloomPulse`, never `bloomStrength`.
+ * The post parameters other modules drive. DepthScene (1C) writes the look's threshold, bloomStrength, zoneExposure and
+ * the grade pair every frame (or once per look change); ceremonies own the transient flash and dim and restore them.
  */
 export interface PostParams {
-  /** Bloom strength of the current look (DescentScene sets it from the biome every frame). */
+  /** Bloom strength of the current look (≤ 0.25, SPEC §8.3). */
   bloomStrength: number;
-  /** Bloom threshold, scene-linear luminance. */
+  /** Bloom threshold, scene-linear luminance (≥ 1.0). */
   threshold: number;
   /** The player's brightness x the base exposure (Renderer.setBrightness). */
   exposure: number;
-  /** The biome look's exposure (DescentScene). */
+  /** The biome look's exposure (1.0 ± 0.15). */
   zoneExposure: number;
-  /** Portrait vignette strength (top 0.30, bottom 0.25, sides 0.10 at 0.25). */
+  /** Vignette strength (clamped to 0.15). */
   vignette: number;
-  /** A full-screen flash 0..1 added in HDR before the tone map (L12: the caller keeps ≤ 2 a second, never red). */
+  /** A full-screen lift 0..1 added in HDR before the tone map: the seal opening's one 0.12 lift ≤ 150 ms only. */
   flash: number;
   flashColor: THREE.Color;
-  /** Dim 0..1: darkens the whole frame toward black (0 = none, 1 = black), for title cards and modal moments. */
+  /** Dim 0..1: darkens the whole frame (a sheet 30 %, the focus pop 30 %). */
   dim: number;
-  /**
-   * Iris radius 0..1.5 in screen heights from `irisCenter` (UV, y up; 0.5, 0.5 = the centre): outside the
-   * octagon the frame is black, with a 1 px brass rim on its edge. 1.5 (the default) is fully open. Set the
-   * centre with `irisCenter.set(u, v)` (an [u, v] array is accepted too).
-   */
-  iris: number;
-  irisCenter: THREE.Vector2;
-  /**
-   * Screen shock 0..1: one expanding ring of refraction centred on `shockCenter` (UV, y up). The caller
-   * animates it from 0 (born) to 1 (gone): the ring's radius grows with it and its strength fades. 0 = none.
-   */
-  shock: number;
-  shockCenter: THREE.Vector2;
-  /** Extra bloom 0..1 on top of the look's (Surge, crits, ceremonies): up to +0.6 strength and a lower threshold. */
-  bloomPulse: number;
+  /** The grade: the LUT pair of the two nearest biomes (indices) and their blend 0..1. */
+  gradeA: number;
+  gradeB: number;
+  gradeMix: number;
+  /** Tone map: 0 = AgX (the default), 1 = the old hue-preserving ACES fit (A/B captures only). */
+  tonemap: number;
 }
 
 export interface PostFXOptions {
@@ -428,6 +409,24 @@ export interface PostFXOptions {
   forceLdr?: boolean;
 }
 
+/** What the lighting composite does this frame (from the rig's features; Battery: none). */
+export interface LightPassOptions {
+  ao: boolean;
+  vol: boolean;
+  volSteps: number;
+  volShadow: boolean;
+  /** Fraction of the scene resolution of the half-res passes (0.5). */
+  scale: number;
+  /** Debug view: 0 none, 1 AO only, 2 fog in-scatter only. */
+  debug: number;
+}
+
+/** A pass drawn after the lighting composite with its own camera (the viewmodel), depth cleared first. */
+export interface OverlayPass {
+  scene: THREE.Scene;
+  camera: THREE.Camera;
+}
+
 /** One pass of the frame for the cost model (tools/perf.mjs). */
 export interface PassInfo {
   name: string;
@@ -438,17 +437,20 @@ export interface PassInfo {
   alu: number;
 }
 
-/** Per-pixel costs of each post pass (fetches, ALU), from the shaders above. */
+/** Per-pixel costs of each post pass (fetches, ALU), from the shaders above and light/passes.ts. */
 export const PASS_COST: Record<string, { fetches: number; alu: number }> = {
   bright: { fetches: 4, alu: 30 },
   down: { fetches: 5, alu: 12 },
   up: { fetches: 9, alu: 18 },
-  resolve: { fetches: 4, alu: 70 },
+  // AgX: two 3x3 matrices, a log2 and a degree-6 polynomial per channel, the look (its output is display-encoded:
+  // no sRGB pow); then the LUT pair.
+  resolve: { fetches: 4, alu: 84 },
   // FXAA: most pixels leave after the 5-tap range test; the edge walk (up to 12 more) is the minority.
   fxaa: { fetches: 6, alu: 30 },
-  final: { fetches: 5, alu: 60 },
+  final: { fetches: 5, alu: 50 },
   // CAS reuses the Catmull-Rom's outer taps: no fetch of its own.
   cas: { fetches: 0, alu: 28 },
+  ...LIGHT_PASS_COST,
 };
 
 const black1 = (() => {
@@ -467,6 +469,8 @@ export function gradeOf(k: number): GradeLook {
 export class PostFX {
   private readonly renderer: THREE.WebGLRenderer;
   private sceneRT: THREE.WebGLRenderTarget;
+  /** The lit target: the composite (AO, fog) of the world, then the overlay; bloom and the resolve read it. */
+  private litRT: THREE.WebGLRenderTarget;
   private gradeRT: THREE.WebGLRenderTarget;
   private fxaaRT: THREE.WebGLRenderTarget;
   private bloomRTs: THREE.WebGLRenderTarget[] = [];
@@ -480,6 +484,11 @@ export class PostFX {
   private readonly resolve: THREE.ShaderMaterial;
   private readonly fxaa: THREE.ShaderMaterial;
   private readonly final: THREE.ShaderMaterial;
+  private readonly composite: THREE.ShaderMaterial;
+  /** The half-resolution lighting passes (GTAO, volumetrics). */
+  readonly light: LightPasses;
+  /** What the lighting composite does (the Renderer sets it from the rig's features each frame). */
+  lightOptions: LightPassOptions = { ao: false, vol: false, volSteps: 12, volShadow: false, scale: 0.5, debug: 0 };
   /** Native (canvas) size in device px. */
   private nativeW = 1;
   private nativeH = 1;
@@ -493,6 +502,8 @@ export class PostFX {
   private options: PostFXOptions;
   private readonly luts = new Map<number, THREE.Data3DTexture>();
   private readonly lutOrder: number[] = [];
+  private lastLightPasses = { ao: false, vol: false, composite: false, volSteps: 0 };
+  private readonly sceneUv = { scale: new THREE.Vector2(1, 1), max: new THREE.Vector2(1, 1), texel: new THREE.Vector2(1, 1) };
   /**
    * HDR targets need EXT_color_buffer_(half_)float to be renderable. A WebGL2 device without it would
    * otherwise get an incomplete framebuffer (a black screen): fall back to 8-bit targets.
@@ -500,20 +511,21 @@ export class PostFX {
   readonly hdr: boolean;
   private readonly colorType: THREE.TextureDataType;
   readonly params: PostParams = {
-    bloomStrength: 0.4,
+    bloomStrength: 0.2,
     threshold: 1.2,
     exposure: 1.0,
     zoneExposure: 1,
-    vignette: 0.25,
+    vignette: 0.14,
     flash: 0,
     flashColor: new THREE.Color(1, 1, 1),
     dim: 0,
-    iris: 1.5,
-    irisCenter: new THREE.Vector2(0.5, 0.5),
-    shock: 0,
-    shockCenter: new THREE.Vector2(0.5, 0.5),
-    bloomPulse: 0,
+    gradeA: 0,
+    gradeB: 0,
+    gradeMix: 0,
+    tonemap: 0,
   };
+  /** The tone map's look (power, saturation): restrained, SPEC §8.3. */
+  readonly toneLook = new THREE.Vector2(TONE_LOOK[0], TONE_LOOK[1]);
   /** CAS strength while the scene is below native (SPEC §11.3: 0.2). */
   casStrength = 0.2;
 
@@ -524,8 +536,10 @@ export class PostFX {
     this.renderer = renderer;
     this.options = { ...options };
     this.sceneRT = this.makeSceneRT(1, 1);
+    this.litRT = this.makeLitRT(1, 1);
     this.gradeRT = this.makeLdrRT(1, 1);
     this.fxaaRT = this.makeLdrRT(1, 1);
+    this.light = new LightPasses();
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
     const mk = (frag: string, uniforms: Record<string, THREE.IUniform>, defines: Record<string, string> = {}) =>
@@ -550,10 +564,12 @@ export class PostFX {
         uMax: v2(),
         uBloomScale: v2(),
         uBloomMax: v2(),
-        uBloomStrength: { value: 0.5 },
+        uBloomStrength: { value: 0.2 },
         uExposure: { value: 1 },
         uFlash: { value: 0 },
         uFlashColor: { value: new THREE.Color() },
+        uTone: { value: new THREE.Vector4(0, TONE_LOOK[0], TONE_LOOK[1], 0) },
+        uLift: { value: new THREE.Vector3() },
       },
       enc,
     );
@@ -563,15 +579,24 @@ export class PostFX {
       uSrcSize: v2(),
       uSrcLive: v2(),
       uCas: { value: 0 },
-      uVignette: { value: 0.25 },
+      uVignette: { value: 0.14 },
       uDim: { value: 0 },
-      uIris: { value: 1.5 },
-      uIrisC: { value: new THREE.Vector2(0.5, 0.5) },
       uAspect: { value: 0.46 },
-      uShock: { value: 0 },
-      uShockC: { value: new THREE.Vector2(0.5, 0.5) },
       uTime: { value: 0 },
       uRes: v2(),
+    });
+    this.composite = mk(COMPOSITE_FRAG, {
+      tScene: { value: null },
+      tDepth: { value: null },
+      tAo: { value: black1 },
+      tVol: { value: black1 },
+      tDepthH: { value: black1 },
+      uScale: v2(),
+      uMax: v2(),
+      uHalfLive: v2(),
+      uHalfAlloc: v2(),
+      uNearFar: v2(),
+      uOn: { value: new THREE.Vector4(0, 0, 0.85, 0) },
     });
     this.quad = new THREE.Mesh(geo, this.final);
     this.quad.frustumCulled = false;
@@ -581,7 +606,7 @@ export class PostFX {
 
   /** Compile every post program now (P3: nothing compiles after load, whatever the preset). */
   compileAll(): void {
-    for (const m of [this.bright, this.down, this.up, this.resolve, this.fxaa, this.final]) {
+    for (const m of [this.bright, this.down, this.up, this.resolve, this.fxaa, this.final, this.composite, ...this.light.materials()]) {
       this.quad.material = m;
       this.renderer.compile(this.quadScene, this.quadCam);
     }
@@ -590,13 +615,33 @@ export class PostFX {
 
   private makeSceneRT(w: number, h: number): THREE.WebGLRenderTarget {
     const samples = this.options?.msaa ?? 0;
-    return new THREE.WebGLRenderTarget(w, h, {
+    const rt = new THREE.WebGLRenderTarget(w, h, {
       type: this.colorType,
       format: THREE.RGBAFormat,
       depthBuffer: true,
       samples,
-      // No pass reads depth after the scene: don't resolve the multisampled depth every frame.
-      resolveDepthBuffer: samples === 0,
+      // The lighting passes read the depth: resolve it (MSAA) into the depth texture.
+      resolveDepthBuffer: true,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter,
+    });
+    if (this.hdr) {
+      const dt = new THREE.DepthTexture(w, h);
+      dt.type = THREE.UnsignedIntType;
+      dt.minFilter = dt.magFilter = THREE.NearestFilter;
+      rt.depthTexture = dt;
+    }
+    return rt;
+  }
+
+  /** Never multisampled: the composite needs no MSAA, and the overlay's edges get FXAA (memory: one more HDR target). */
+  private makeLitRT(w: number, h: number): THREE.WebGLRenderTarget {
+    return new THREE.WebGLRenderTarget(w, h, {
+      type: this.colorType,
+      format: THREE.RGBAFormat,
+      depthBuffer: true,
+      samples: 0,
+      resolveDepthBuffer: false,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter,
     });
@@ -612,9 +657,11 @@ export class PostFX {
     this.options = { ...options };
     if (msaaChanged) {
       this.sceneRT.dispose();
+      this.sceneRT.depthTexture?.dispose();
       this.sceneRT = this.makeSceneRT(this.allocW, this.allocH);
     }
     if (bloomChanged) this.allocate();
+    this.light.resetHistory();
   }
 
   /**
@@ -642,6 +689,7 @@ export class PostFX {
       bh = Math.max(1, Math.floor(bh / 2));
       this.bloomLive.push([Math.min(bw, this.bloomRTs[i].width), Math.min(bh, this.bloomRTs[i].height)]);
     }
+    this.light.setLive(this.liveW, this.liveH, this.lightOptions.scale);
   }
 
   get sceneScale(): number {
@@ -657,8 +705,10 @@ export class PostFX {
     this.allocW = Math.max(1, Math.ceil(this.nativeW * this.maxScale));
     this.allocH = Math.max(1, Math.ceil(this.nativeH * this.maxScale));
     this.sceneRT.setSize(this.allocW, this.allocH);
+    this.litRT.setSize(this.allocW, this.allocH);
     this.gradeRT.setSize(this.allocW, this.allocH);
     this.fxaaRT.setSize(this.allocW, this.allocH);
+    this.light.setSize(this.allocW, this.allocH, this.lightOptions.scale);
     for (const rt of this.bloomRTs) rt.dispose();
     for (const rt of this.scratch) rt?.dispose();
     this.scratch = [];
@@ -719,23 +769,62 @@ export class PostFX {
     max.set((lw - 0.5) / aw, (lh - 0.5) / ah);
   }
 
-  render(scene: THREE.Scene, camera: THREE.Camera, time: number): void {
+  /**
+   * One frame: the world into the scene target, the lighting passes and composite (when the rig asks for them), the
+   * overlay (the viewmodel, its own camera, depth cleared), then bloom, the resolve, FXAA and the final composite.
+   */
+  render(scene: THREE.Scene, camera: THREE.Camera, time: number, overlay?: OverlayPass | null, rig?: LightRig | null): void {
     const r = this.renderer;
     const p = this.params;
+    const lo = this.lightOptions;
+    const persp = (camera as THREE.PerspectiveCamera).isPerspectiveCamera ? (camera as THREE.PerspectiveCamera) : null;
+    const lightOn = this.hdr && !!persp && !!this.sceneRT.depthTexture && (lo.ao || lo.vol);
     this.sceneRT.viewport.set(0, 0, this.liveW, this.liveH);
     r.setRenderTarget(this.sceneRT);
     r.clear(true, true, false);
     r.render(scene, camera);
-    const pulse = Math.max(0, Math.min(1, p.bloomPulse || 0));
+    let src = this.sceneRT;
+    if (lightOn && persp) {
+      PostFX.fit(this.sceneUv.scale, this.sceneUv.max, this.liveW, this.liveH, this.allocW, this.allocH);
+      this.sceneUv.texel.set(1 / this.allocW, 1 / this.allocH);
+      this.light.run(
+        (m, t, w, h) => this.pass(m, t, w, h),
+        this.sceneRT.depthTexture!,
+        persp,
+        this.sceneUv,
+        { ao: lo.ao, vol: lo.vol, steps: lo.volSteps, volShadow: lo.volShadow, anisotropy: rig?.fog.anisotropy ?? 0.35, scatter: rig?.fog.scatter ?? 1 },
+      );
+      const cu = this.composite.uniforms;
+      cu.tScene.value = this.sceneRT.texture;
+      cu.tDepth.value = this.sceneRT.depthTexture;
+      cu.tAo.value = lo.ao ? this.light.aoBlurRT.texture : black1;
+      cu.tVol.value = lo.vol ? this.light.volResult : black1;
+      cu.tDepthH.value = this.light.depthRT.texture;
+      cu.uScale.value.copy(this.sceneUv.scale);
+      cu.uMax.value.copy(this.sceneUv.max);
+      cu.uHalfLive.value.set(this.light.liveW, this.light.liveH);
+      cu.uHalfAlloc.value.set(this.light.allocW, this.light.allocH);
+      cu.uNearFar.value.set(persp.near, persp.far);
+      cu.uOn.value.set(lo.ao ? 1 : 0, lo.vol ? 1 : 0, this.light.ao.strength, lo.debug);
+      this.pass(this.composite, this.litRT, this.liveW, this.liveH);
+      src = this.litRT;
+    } else this.light.resetHistory();
+    this.lastLightPasses = { ao: lightOn && lo.ao, vol: lightOn && lo.vol, composite: lightOn, volSteps: lo.volSteps };
+    if (overlay) {
+      src.viewport.set(0, 0, this.liveW, this.liveH);
+      r.setRenderTarget(src);
+      r.clear(false, true, false);
+      r.render(overlay.scene, overlay.camera);
+    }
     const ru = this.resolve.uniforms;
     if (this.options.bloom && this.bloomRTs.length) {
       const rts = this.bloomRTs;
       const L = this.bloomLive;
       const b = this.bright.uniforms;
-      b.tInput.value = this.sceneRT.texture;
+      b.tInput.value = src.texture;
       b.uTexel.value.set(1 / this.allocW, 1 / this.allocH);
       PostFX.fit(b.uScale.value, b.uMax.value, this.liveW, this.liveH, this.allocW, this.allocH);
-      b.uThreshold.value = p.threshold * (1 - 0.3 * pulse);
+      b.uThreshold.value = Math.max(1, p.threshold);
       this.pass(this.bright, rts[0], L[0][0], L[0][1]);
       const d = this.down.uniforms;
       for (let i = 1; i < rts.length; i++) {
@@ -752,66 +841,76 @@ export class PostFX {
         PostFX.fit(u.uScale.value, u.uMax.value, L[i][0], L[i][1], rts[i].width, rts[i].height);
         PostFX.fit(u.uBaseScale.value, u.uBaseMax.value, L[i - 1][0], L[i - 1][1], rts[i - 1].width, rts[i - 1].height);
         // Ping-pong is avoided by accumulating into the larger level's scratch twin, then swapping.
-        const s = this.scratchFor(i - 1);
-        this.pass(this.up, s, L[i - 1][0], L[i - 1][1]);
+        const sc = this.scratchFor(i - 1);
+        this.pass(this.up, sc, L[i - 1][0], L[i - 1][1]);
         this.swapScratch(i - 1);
       }
       ru.tBloom.value = this.bloomRTs[0].texture;
       PostFX.fit(ru.uBloomScale.value, ru.uBloomMax.value, L[0][0], L[0][1], this.bloomRTs[0].width, this.bloomRTs[0].height);
-      ru.uBloomStrength.value = p.bloomStrength + 0.6 * pulse;
+      ru.uBloomStrength.value = Math.min(0.25, Math.max(0, p.bloomStrength));
     } else {
       ru.tBloom.value = black1;
       ru.uBloomScale.value.set(1, 1);
       ru.uBloomMax.value.set(1, 1);
       ru.uBloomStrength.value = 0;
     }
-    // The grade pair from the look (BiomeLook writes the two biomes and the blend).
-    const g = lookShared().uLookGrade.value;
-    ru.tLutA.value = this.lutFor(g.x);
-    ru.tLutB.value = this.lutFor(g.y);
-    ru.uLutMix.value = g.z;
-    ru.tScene.value = this.sceneRT.texture;
+    // The grade pair (DepthScene writes the two biomes and the blend).
+    ru.tLutA.value = this.lutFor(Math.max(0, Math.floor(p.gradeA)));
+    ru.tLutB.value = this.lutFor(Math.max(0, Math.floor(p.gradeB)));
+    ru.uLutMix.value = Math.max(0, Math.min(1, p.gradeMix));
+    ru.tScene.value = src.texture;
     PostFX.fit(ru.uScale.value, ru.uMax.value, this.liveW, this.liveH, this.allocW, this.allocH);
     ru.uExposure.value = p.exposure * p.zoneExposure;
-    ru.uFlash.value = p.flash;
+    ru.uFlash.value = Math.max(0, Math.min(0.12, p.flash));
     ru.uFlashColor.value.copy(p.flashColor);
+    ru.uTone.value.set(p.tonemap, this.toneLook.x, this.toneLook.y, 0);
+    // The dark floor takes the hue of the space's haze at a fixed luminance (W1-LEAD §4.3: darks stay hued, ≥ 0.04).
+    const fog = LIGHT_UNIFORMS.uL_FogColor.value;
+    const fl = 0.2126 * fog.r + 0.7152 * fog.g + 0.0722 * fog.b;
+    const k = fl > 1e-6 ? DARK_LIFT / fl : 0;
+    ru.uLift.value.set(fog.r * k, fog.g * k, fog.b * k).multiplyScalar(this.hdr ? 1 : 0);
     this.pass(this.resolve, this.gradeRT, this.liveW, this.liveH);
-    let src = this.gradeRT;
+    let out = this.gradeRT;
     if (this.options.fxaa) {
       const f = this.fxaa.uniforms;
       f.tInput.value = this.gradeRT.texture;
       f.uRcp.value.set(1 / this.allocW, 1 / this.allocH);
       PostFX.fit(f.uScale.value, f.uMax.value, this.liveW, this.liveH, this.allocW, this.allocH);
       this.pass(this.fxaa, this.fxaaRT, this.liveW, this.liveH);
-      src = this.fxaaRT;
+      out = this.fxaaRT;
     }
     const fu = this.final.uniforms;
-    fu.tSrc.value = src.texture;
+    fu.tSrc.value = out.texture;
     fu.uSrcSize.value.set(this.allocW, this.allocH);
     fu.uSrcLive.value.set(this.liveW, this.liveH);
     fu.uCas.value = this.scale < 0.99 ? this.casStrength : 0;
-    fu.uVignette.value = p.vignette;
+    fu.uVignette.value = Math.min(0.15, Math.max(0, p.vignette));
     fu.uDim.value = Math.max(0, Math.min(1, p.dim || 0));
-    fu.uIris.value = Math.max(0, Math.min(1.5, p.iris ?? 1.5));
-    PostFX.vec2From(p.irisCenter, fu.uIrisC.value);
     fu.uAspect.value = this.nativeW / this.nativeH;
-    fu.uShock.value = Math.max(0, Math.min(1, p.shock || 0));
-    PostFX.vec2From(p.shockCenter, fu.uShockC.value);
     fu.uTime.value = time;
     fu.uRes.value.set(this.nativeW, this.nativeH);
     this.pass(this.final, null);
-  }
-
-  /** Accept a Vector2 or an [u, v] array for a centre (callers set either). */
-  private static vec2From(v: unknown, out: THREE.Vector2): void {
-    if (v instanceof THREE.Vector2) out.copy(v);
-    else if (Array.isArray(v) && v.length >= 2) out.set(Number(v[0]) || 0.5, Number(v[1]) || 0.5);
   }
 
   /** The passes of the current configuration with their pixel counts (the cost model, tools/perf.mjs). */
   passes(): PassInfo[] {
     const out: PassInfo[] = [];
     const add = (name: string, px: number, cost = PASS_COST[name]) => out.push({ name, px, fetches: cost.fetches, alu: cost.alu });
+    const lp = this.lastLightPasses;
+    if (lp.composite) {
+      const hpx = this.light.liveW * this.light.liveH;
+      add('lightDepth', hpx);
+      if (lp.ao) {
+        add('gtao', hpx);
+        add('aoBlur', hpx);
+      }
+      if (lp.vol) {
+        const st = PASS_COST.volStep;
+        const vb = PASS_COST.volBase;
+        add('vol', hpx, { fetches: vb.fetches + st.fetches * lp.volSteps, alu: vb.alu + st.alu * lp.volSteps });
+      }
+      add('composite', this.liveW * this.liveH);
+    }
     if (this.options.bloom && this.bloomLive.length) {
       add('bright', this.bloomLive[0][0] * this.bloomLive[0][1]);
       for (let i = 1; i < this.bloomLive.length; i++) add('down', this.bloomLive[i][0] * this.bloomLive[i][1]);
@@ -829,10 +928,14 @@ export class PostFX {
   memoryBytes(): number {
     const hdrB = this.hdr ? 8 : 4;
     const samples = Math.max(1, this.options.msaa || 0);
+    // The scene target (colour and depth, multisampled on High, plus its resolve), the lit target and the depth texture.
     let b = this.allocW * this.allocH * (hdrB * samples + 4 * samples) + (this.options.msaa ? this.allocW * this.allocH * hdrB : 0);
+    b += this.allocW * this.allocH * (hdrB + 4);
+    b += this.allocW * this.allocH * 4;
     b += this.allocW * this.allocH * 4 * 2;
     for (const rt of this.bloomRTs) b += rt.width * rt.height * hdrB * 2;
     b += this.luts.size * LUT_SIZE ** 3 * 4;
+    b += this.light.memoryBytes();
     // The canvas back buffer (double-buffered RGBA8 + depth).
     b += this.nativeW * this.nativeH * (4 * 2 + 4);
     return b;
@@ -860,17 +963,21 @@ export class PostFX {
   }
 
   dispose(): void {
+    this.sceneRT.depthTexture?.dispose();
     this.sceneRT.dispose();
+    this.litRT.dispose();
     this.gradeRT.dispose();
     this.fxaaRT.dispose();
     for (const rt of this.bloomRTs) rt.dispose();
     for (const rt of this.scratch) rt?.dispose();
     for (const t of this.luts.values()) t.dispose();
+    this.light.dispose();
     this.bright.dispose();
     this.down.dispose();
     this.up.dispose();
     this.resolve.dispose();
     this.fxaa.dispose();
     this.final.dispose();
+    this.composite.dispose();
   }
 }

@@ -6,7 +6,6 @@ import { baseBiome, biomeAt, biomeStart, nextBiomeStart } from '../../idle/confi
 import type { PropKind, PropSpec, PropTap } from '../../render/props/types';
 import { RING_SX, RING_SZ, SLAB_ROWS } from './RingWorld';
 import { kitOf, type BiomeKit } from './biomeKits';
-import { TUTORIAL_ROWS, tutorialFeatures } from './tutorialRows';
 import { breakthroughs } from '../../idle/model/shaft';
 import { carveGeodes, carveVista, dressCavern, finishCavern, inBigRoom, ledges, sealNiche, vistasNear } from './caverns';
 
@@ -54,17 +53,6 @@ export interface CavernSpec {
   round?: number;
 }
 
-/** A creature living in this slab (Creatures.ts draws it; id `creature:<kind>:<n>`). */
-export interface CreatureAnchor {
-  id: string;
-  kind: string;
-  biome: number;
-  x: number;
-  y: number;
-  z: number;
-  range: number;
-}
-
 /** An ambient particle emitter (fill rule 5: every cavern ≥ 50 m³ has one). */
 export interface MoteEmitter {
   x: number;
@@ -106,7 +94,6 @@ export interface SlabData {
   caverns: CavernSpec[];
   /** Emitter voxels in the slab (W6 light budget). */
   emitters: number;
-  creatures: CreatureAnchor[];
   motes: MoteEmitter[];
   liquids: LiquidSpot[];
   vistas: VistaSpot[];
@@ -168,7 +155,7 @@ export function cellBlock(kind: number, host: number, kit: BiomeKit): number {
 export function generateSlab(input: SlabInput): SlabData {
   const { runSeed, k } = input;
   const blocks = new Uint8Array(SLAB_VOXELS);
-  const out: SlabData = { k, blocks, props: [], caverns: [], emitters: 0, creatures: [], motes: [], liquids: [], vistas: [], openBack: new Uint8Array(SLAB_ROWS) };
+  const out: SlabData = { k, blocks, props: [], caverns: [], emitters: 0, motes: [], liquids: [], vistas: [], openBack: new Uint8Array(SLAB_ROWS) };
   if (k < 0) return out; // the sky
   noises(runSeed);
   const d0 = k * SLAB_ROWS;
@@ -234,7 +221,6 @@ export function generateSlab(input: SlabInput): SlabData {
   }
   // ---- pass 5: caverns and their contents -------------------------------------------------------
   const ctx: Ctx = { input, out, d0, kitAt: (d) => kitOf(baseBiome(biomeAt(d))), protect: new Set() };
-  if (d0 < TUTORIAL_ROWS) tutorialFeatures(ctx);
   for (const v of vistasNear(d0 - 2, d0 + SLAB_ROWS + 1)) carveVista(ctx, v, kitOf(v.biome), runSeed ^ (v.biome * 0x2f1));
   carveGrottos(ctx);
   carveAlcoves(ctx);
@@ -464,7 +450,6 @@ function carveAlcoves(ctx: Ctx): void {
   const n1 = Math.ceil((d0 + SLAB_ROWS + 2) / 7);
   for (let n = n0; n <= n1; n++) {
     const top = 6 + 7 * n + Math.floor(h01(n, 1, 0, seed) * 3) - 1;
-    if (top < TUTORIAL_ROWS && top !== 30) continue; // the tutorial authors its own (the creature alcove at 30)
     const h = 2 + Math.floor(h01(n, 2, 0, seed) * 3);
     const bottom = top + h - 1;
     if (bottom < d0 - 1 || top > d0 + SLAB_ROWS) continue;
@@ -492,11 +477,6 @@ function carveAlcoves(ctx: Ctx): void {
       if (i === 0) addProp(ctx, tk, px, floor, pz, { tap, taps, scale: tk === 'crystalCluster' ? 0.9 : 0.85 });
       else addProp(ctx, pickProp(kit, h01(n, 9, i, seed)), px, floor, pz);
     }
-    // A creature in half of them (SPEC §6.6 asks 30 %: the density target of 4 moving things wants more).
-    if (h01(n, 10, 0, seed) < 0.5 && bottom >= ctx.d0 && bottom < ctx.d0 + SLAB_ROWS) {
-      const kind = kit.creatures[Math.floor(h01(n, 11, 0, seed) * kit.creatures.length)];
-      ctx.out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + ctx.out.creatures.length}`, kind, biome: baseBiome(biomeAt(top)), x: (x0 + x1 + 1) / 2, y: -floor, z: z0 + 1 + depth / 2, range: Math.max(0.5, w / 2 - 1) });
-    }
     // Its light: the biome's glow in its back wall (any of its rows in this slab), and a lantern where people worked.
     const lx = Math.floor((x0 + x1) / 2);
     let lit = false;
@@ -516,7 +496,6 @@ function carvePockets(ctx: Ctx): void {
   const m1 = Math.ceil((d0 + SLAB_ROWS + 2) / 12);
   for (let m = m0; m <= m1; m++) {
     const top = 11 + 12 * m + Math.floor(h01(m, 1, 0, seed) * 5) - 2;
-    if (top < TUTORIAL_ROWS) continue;
     const h = 3 + Math.floor(h01(m, 2, 0, seed) * 3);
     const bottom = top + h - 1;
     if (bottom < d0 - 1 || top > d0 + SLAB_ROWS) continue;
@@ -542,10 +521,6 @@ function carvePockets(ctx: Ctx): void {
     else addProp(ctx, 'tablet', hx, floor, CUT - 1.3, { tap: 'fossil', taps: 5, rotY: left ? 0.4 : -0.4 });
     addProp(ctx, pickProp(kit, h01(m, 6, 0, seed)), (x0 + x1) / 2 + 0.5, floor, z0 + 1.2);
     for (let d = top; d <= bottom; d++) if (embedEmitter(ctx, left ? x0 - 1 : x1 + 1, d, CUT - 2, kit.emitter)) break;
-    if (h01(m, 12, 0, seed) < 0.3 && bottom >= ctx.d0 && bottom < ctx.d0 + SLAB_ROWS) {
-      const kind = kit.creatures[Math.floor(h01(m, 13, 0, seed) * kit.creatures.length)];
-      ctx.out.creatures.push({ id: `creature:${kind}:${ctx.input.k * 100 + ctx.out.creatures.length}`, kind, biome: baseBiome(biomeAt(top)), x: (x0 + x1 + 1) / 2, y: -floor, z: CUT - depth / 2, range: Math.max(0.4, w / 2 - 1) });
-    }
     finishCavern(ctx, ctx.out.caverns[ctx.out.caverns.length - 1], kit, seed ^ m);
   }
 }
@@ -566,7 +541,7 @@ function fillTapGaps(ctx: Ctx): void {
     const first = h01(b0, 1, 0, seed) < 0.5;
     let done = false;
     for (let f = Math.min(b1, d0 + SLAB_ROWS - 1); f >= Math.max(b0, d0 + 2) && !done; f--) {
-      if (f - 2 < TUTORIAL_ROWS) break;
+      if (f - 2 < 0) break;
       const s0 = biomeStart(biomeAt(f));
       if ((s0 > 0 && f - s0 <= 4) || nextBiomeStart(f) - f <= 8) continue;
       for (const left of first ? [true, false] : [false, true]) {
@@ -597,7 +572,7 @@ function fillTapGaps(ctx: Ctx): void {
 // ---- the moving guarantee (W1: ≥ 4 animated things a screen) ------------------------------------------------
 
 /**
- * Each half slab (8 rows) carries at least 2 moving things (creatures and ambient motes), so every 20 m window has
+ * Each half slab (8 rows) carries at least 2 moving things (ambient motes), so every 20 m window has
  * at least 4 of its own. A short half gets a mote volume in the cavern that overlaps it most (its rows inside the
  * half), else drifting dust in the shaft's own rows (lamp-lit motes over the dug cells).
  */
@@ -606,7 +581,7 @@ function fillMoving(ctx: Ctx): void {
   for (const h0 of [d0, d0 + 8]) {
     const h1 = h0 + 7;
     const inHalf = (y: number) => -y >= h0 && -y < h1 + 1;
-    let n = out.creatures.filter((c) => inHalf(c.y)).length + out.motes.filter((m) => inHalf(m.y)).length;
+    let n = out.motes.filter((m) => inHalf(m.y)).length;
     if (n >= 2) continue;
     const kit = ctx.kitAt(h0);
     const over = out.caverns
@@ -635,7 +610,6 @@ function fillMoving(ctx: Ctx): void {
 function carveGrottos(ctx: Ctx): void {
   const { d0, input } = ctx;
   for (const g of breakthroughs(input.runSeed, d0 - 14, d0 + SLAB_ROWS + 2)) {
-    if (g.top < TUTORIAL_ROWS) continue; // the tutorial's crossing is authored (tutorialRows)
     const seed = input.runSeed ^ (g.top * 2654435761);
     const w = 12 + Math.floor(h01(g.top, 1, 0, seed) * 9);
     const x0 = 31 - (w >> 1);
@@ -704,14 +678,13 @@ function chamber(ctx: Ctx, id: string, kind: CavernSpec['kind'], top: number, bo
       if (j < len - 1 || h01(i, 4, j, seed) < 0.5) set(ctx.out.blocks, x, r, z, kit.hostB);
     }
   }
-  // The fill (caverns.ts): medium props by floor area, the small scatter, tappables, creatures, lights, motes, a
+  // The fill (caverns.ts): medium props by floor area, the small scatter, tappables, lights, motes, a
   // liquid in 30 % of them, veins on the walls; the Reveal Hall gets three tappables and three lamps.
   const hall = kind === 'hall';
   const spec = ctx.out.caverns[ctx.out.caverns.length - 1];
   dressCavern(ctx, spec, kit, baseBiome(biomeAt(top)), seed, {
     medium: hall ? 10 : 5,
     tappables: hall ? 3 : 2 + Math.floor(h01(5, 6, 7, seed) * 2),
-    creatures: hall ? 3 : 1 + Math.floor(h01(5, 6, 8, seed) * 3),
     lamps: hall ? 3 : 1,
     emitters: hall ? 4 : 2,
     liquid: h01(5, 6, 9, seed) < 0.3,

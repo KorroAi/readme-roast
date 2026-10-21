@@ -5,9 +5,11 @@
 
 import { Big } from '../../core/big';
 import type { IdleBus } from '../bus';
-import { crewLine } from '../config/crew';
+import { CREW_BAR, crewLine } from '../config/crew';
+import { subLog } from '../config/curves';
+import { crewHaul, crewStopDepth, noteLeash } from './nodes';
 import { lineDpsLog10 } from './run';
-import { hitSeal } from './seals';
+import { hitSeal, SEAL } from './seals';
 import { applyHit, weakestCell } from './shaft';
 import { facetStats } from './facets';
 import { CELL, type IdleState } from './state';
@@ -44,9 +46,9 @@ export function impactsIn(s: IdleState, line: number, t0: number, t1: number): n
   return n;
 }
 
-/** Hire a line's loop origin (a fresh rig starts its loop when hired). */
+/** Hire a line's loop origin: on the shared 0.9 s bar, so every rig strikes on the same beat (one ambient group). */
 export function ensureCrewClock(s: IdleState, line: number): void {
-  while (s.crewT0.length <= line) s.crewT0.push(s.time);
+  while (s.crewT0.length <= line) s.crewT0.push(Math.floor(s.time / CREW_BAR + 1e-9) * CREW_BAR);
 }
 
 /**
@@ -67,13 +69,29 @@ export function stepCrew(s: IdleState, dt: number, bus?: IdleBus): number {
     strikes += n;
     const floor = s.shaft.rows[0];
     if (floor.kinds[0] === CELL.SEAL) {
-      hitSeal(s, dmg, true, bus);
+      // The crew helps only while the player fights (L10); otherwise its strike is Works haul (nothing is lost).
+      if (s.node.on && (s.node.phase !== 'seal' || s.time - s.hints.lastHitAt > SEAL.crewWindow)) {
+        crewHaul(s, dmg);
+        noteLeash(s, true, bus);
+      } else hitSeal(s, dmg, true, bus);
+      continue;
+    }
+    // The leash (SPEC §5.3): the crew stops one slice short of the first chamber it may not open; past it, haul.
+    const stop = crewStopDepth(s);
+    if (floor.depth >= stop) {
+      crewHaul(s, dmg);
+      noteLeash(s, true, bus);
       continue;
     }
     const c = weakestCell(s);
     if (c < 0) continue;
     const rows0 = s.run.rows;
-    const res = applyHit(s, c, floor.depth, dmg, { source: 'crew', crit: false, pierce: 1 }, bus);
+    const res = applyHit(s, c, floor.depth, dmg, { source: 'crew', crit: false, pierce: 1, stopAt: stop }, bus);
+    const over = subLog(dmg, res.absorbed);
+    if (s.node.on && over > -Infinity && over > dmg - 12) {
+      crewHaul(s, over);
+      noteLeash(s, true, bus);
+    } else if (s.node.on) noteLeash(s, false, bus);
     let cells = res.cells;
     // Crew 4: crew strikes hit 2 cells.
     const fs = facetStats(s);

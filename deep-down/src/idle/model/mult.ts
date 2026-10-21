@@ -1,9 +1,9 @@
-// The W2 side of the multiplier stack (SPEC §5.6): Finds, the Bestiary, Marks, Rank, Biome Seals, facets, boosts and
+// The W2 side of the multiplier stack (SPEC §5.6): Finds, Marks, Rank, Biome Seals, facets, boosts and
 // Feat perks, folded into a few logs the formulas in run.ts and shaft.ts read. Groups multiply; inside a group bonuses
 // add. Embers, planted lanterns and Lantern Oil stay in run.ts's mAllLog10. Cached per model instant (the formulas
 // call it hundreds of times a step); systems that change a bonus call `invalidateMults`.
 
-import { CODEX, bestiaryTier, findDef } from '../config/codex';
+import { CODEX, findDef } from '../config/codex';
 import { RANK_POWER } from '../config/rank';
 import { facetStats } from './facets';
 import type { IdleState } from './state';
@@ -80,22 +80,13 @@ function compute(s: IdleState): Mults {
     else if (d.stat === 'offline') fOff += b;
     else fChest += b;
   }
-  // The Bestiary: each catch tier +2 % gold, per species.
-  let best = 0;
-  for (const id in meta.bestiary) {
-    const n = meta.bestiary[id];
-    if (n > 0) {
-      entries++;
-      best += CODEX.bestiaryPerTier * bestiaryTier(n);
-    }
-  }
   entries += meta.lore.length;
   const seals = meta.biomeSeals.length;
   const marks = meta.marks;
   const rank = Math.max(1, meta.rank.r);
   let power = L10(1 + 0.01 * marks) + L10(1 + RANK_POWER * (rank - 1)) + L10(1 + CODEX.biomeSealPower * seals);
   if (hasPerk(s, 'collector')) power += L10(1 + 0.005 * entries);
-  let gold = L10(1 + fGold) + L10(1 + best) + L10(1 + 0.01 * marks) + L10(1 + CODEX.biomeSealGold * seals);
+  let gold = L10(1 + fGold) + L10(1 + 0.01 * marks) + L10(1 + CODEX.biomeSealGold * seals);
   if (hasPerk(s, 'demesure')) gold += L10(2);
   if (hasPerk(s, 'starwright')) gold += L10(1 + 0.01 * s.run.stars);
   let crew = L10(1 + fCrew);
@@ -131,7 +122,7 @@ function compute(s: IdleState): Mults {
   };
 }
 
-/** The product of the side multipliers (E25): Finds, Bestiary, Marks, Rank, Biome Seals and facets, on power × gold. */
+/** The product of the side multipliers (E25): Finds, Marks, Rank, Biome Seals and facets, on power × gold. */
 export function sideProduct(s: IdleState): number {
   const m = mults(s);
   return Math.pow(10, m.power + m.gold + Math.max(m.crew, m.pick));

@@ -37,7 +37,7 @@ export interface CameraPose {
    *  starts a new cross-fade: DepthScene keeps the last pose's frame and blends it out as `xfade` falls to 0. */
   xfade: number;
   /** The shot this pose belongs to (logs and tests only). */
-  shot?: 'drift' | 'breakthrough' | 'stand' | 'wayDown' | 'reveal' | 'crossfade' | 'camp';
+  shot?: 'drift' | 'breakthrough' | 'stand' | 'wayDown' | 'reveal' | 'crossfade' | 'camp' | 'explore' | 'ride' | 'seal';
 }
 
 /** A live face block on screen (C7, C8, E22): `col` is the model column (0..6, snake map of SPEC §3.5). */
@@ -68,13 +68,17 @@ export type TappableKind =
   | 'note' // focus type
   | 'mural' // focus type
   | 'keystone' // focus type [W2]
-  | 'depot'; // focus type [W2]
+  | 'depot' // focus type [W2]
+  // W1-LEAD §3 (Explore and Ride):
+  | 'secret' // strike type: a cracked wall, a hollow floor or a loose brick; breaking it reveals a cache
+  | 'cache' // focus type: the small chest or stash a secret reveals
+  | 'glint'; // strike type: a Ride pass-by ore glint or crystal knot (one tap mines one)
 
-export const STRIKE_KINDS: ReadonlySet<TappableKind> = new Set<TappableKind>(['vein', 'gem', 'geode', 'stash']);
-export const FOCUS_KINDS: ReadonlySet<TappableKind> = new Set<TappableKind>(['chest', 'relic', 'note', 'mural', 'keystone', 'depot']);
+export const STRIKE_KINDS: ReadonlySet<TappableKind> = new Set<TappableKind>(['vein', 'gem', 'geode', 'stash', 'secret', 'glint']);
+export const FOCUS_KINDS: ReadonlySet<TappableKind> = new Set<TappableKind>(['chest', 'relic', 'note', 'mural', 'keystone', 'depot', 'cache']);
 
 /** Navigation marks (SPEC §2.2): never fat-finger results, never chosen for a stray tap. */
-export type NavKind = 'exit' | 'ring' | 'arrow';
+export type NavKind = 'exit' | 'ring' | 'arrow' | 'station' | 'ledge';
 
 /**
  * Something tappable as it is on screen now (DepthScene.targets()): the drawn silhouette's bounding box, the padded
@@ -109,6 +113,12 @@ export type Pick =
   | { kind: 'skin'; id: string; cell: [number, number, number]; point: Vec3; dist: number }
   /** Rock within reach that is not skin: the dull tunk (two dark chips, a hint rim). */
   | { kind: 'deep'; point: Vec3; dist: number }
+  /**
+   * Explore (W1-LEAD §3): an up-facing surface (floor, ledge, stair tread, bridge deck) at any distance ≤ 40 m.
+   * `cell` is the world voxel of the air above it (where the eye would stand, minus 1.6 m); the shell asks 1B's
+   * `walkableAt`/`findPath` whether it is walkable, and treats it as `far` (Lantern Raise) when it is not.
+   */
+  | { kind: 'floor'; cell: [number, number, number]; point: Vec3; dist: number }
   /** Nothing in reach: Lantern Raise toward `point` (far rock, the dark, open air: a point 12 m out). */
   | { kind: 'far'; point: Vec3; dist: number };
 
@@ -121,6 +131,9 @@ export interface BlockBreak {
   crit?: boolean;
   crew?: boolean;
 }
+
+/** The phases DepthScene stages (W1-LEAD §3). 'chamber' and 'explore' are the same space (Explore). */
+export type ScenePhase = 'camp' | 'drift' | 'chamber' | 'explore' | 'ride' | 'seal' | 'reveal';
 
 /** Live counts of the FX budget (SPEC §8.7; D's FX director reads them and refuses cues over budget). */
 export interface FxStats {

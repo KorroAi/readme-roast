@@ -147,7 +147,6 @@ function copyMeta(src: IdleState, dst: IdleState): void {
   d.sealsOpened = [...m.sealsOpened];
   d.biomesSeen = [...m.biomesSeen];
   d.finds = { ...m.finds };
-  d.bestiary = { ...m.bestiary };
   d.lore = [...m.lore];
   d.biomeSeals = [...m.biomeSeals];
   d.feats = { ...m.feats };

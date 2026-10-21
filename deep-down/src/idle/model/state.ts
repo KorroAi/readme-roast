@@ -106,7 +106,7 @@ export interface RunState {
   ghost: number[];
   /** Run-scoped damage bonus from planted lanterns tapped (+2 % each, W2). */
   plantedBonus: number;
-  /** Lucky Moth frenzy ends (model s; 0 inactive). */
+  /** The Ember Frenzy ends (model s; 0 inactive). */
   frenzyEnd: number;
   /** Cataclysm (all four skills within 5 s): everything ×2 until (model s; 0 inactive). */
   cataclysmEnd: number;
@@ -168,6 +168,9 @@ export interface TapState {
   drum: number;
   /** The streak's peak combo (H8). */
   peak: number;
+  /** The hold stream (the tutorial's "Hold to keep digging"): model time the current hold began (−1 none), its last hit. */
+  holdSince: number;
+  holdLast: number;
 }
 
 // ----- seals (SPEC §7.1; W1: the Halden Hatch and first-time seals, minimal) --------------------------
@@ -184,8 +187,9 @@ export interface SealState {
   /** 'fight' while the timer runs; 'held' after a fail (tap to start again). */
   phase: 'fight' | 'held';
   started: number;
-  /** The Warden's id (i18n `idle.warden.<id>`). */
-  warden: string;
+  /** The mechanism's id (i18n `idle.seal.<id>`). */
+  mech: string;
+  warden: string; // = mech, read by the pre-switch shell until the purge switch deletes it
   /** The weak point: the next window starts at `weakNext`, it is lit until `weakUntil` (0 dark), point `weakIndex`. */
   weakNext: number;
   weakUntil: number;
@@ -201,7 +205,7 @@ export interface SealState {
 /** A target of a Catch, a Mash or an event (entity id `event:<eventId>:<n>`). */
 export interface EventTarget {
   id: string;
-  /** What B draws: 'moth', 'crystal', 'boulder', 'mole', 'crate', 'mimic', 'rune', 'bubble', 'star', 'root', 'gem', 'critter', 'pebble', 'meteor'… */
+  /** What the scene draws: 'crystal', 'seed', 'boulder', 'brick', 'crate', 'crack', 'rune', 'bubble', 'star', 'root', 'gem', 'pebble', 'meteor'… */
   kind: string;
   /** On screen from t0 to t1 (model s). */
   t0: number;
@@ -269,7 +273,7 @@ export interface ActiveEvent {
   ends: number;
   /** Its widget (null for passive events such as the Golden Vein). */
   widget: WidgetState | null;
-  /** Per-type counters (rows left of a Golden Vein, the crate's state, the mole's niche…). */
+  /** Per-type counters (rows left of a Golden Vein, the crate's state, the loose bricks…). */
   n: number;
   /** Targets taken, of all; gold credited (log10) and gems. */
   caught: number;
@@ -338,7 +342,6 @@ export interface MetaState {
   timeCrystals: number;
   boostEnd: number;
   finds: Record<string, number>;
-  bestiary: Record<string, number>;
   lore: string[];
   biomeSeals: number[];
   feats: Record<string, number>;
@@ -362,7 +365,7 @@ export interface MetaState {
   contractCount: number;
   daily: { lastDay: number; calendarDay: number; claimedToday: boolean };
   pity: { crystal: number; reliquary: number; lintel: number };
-  tutorial: { step: number; done: boolean };
+  tutorial: { step: number; done: boolean; lessons: string[] };
   path: { step: number };
   hints: Record<string, number>;
   /** First-time cards and one-time depth cards already shown. */
@@ -371,7 +374,7 @@ export interface MetaState {
   revealed: string[];
   cosmetics: { owned: string[]; equipped: Record<string, string> };
   stats: {
-    taps: number; cells: number; cellsNew: number; crits: number; chests: number; events: number; creatures: number;
+    taps: number; cells: number; cellsNew: number; crits: number; chests: number; events: number;
     purchases: number; stars: number; rekindles: number; weaves: number; offlineHours: number; levels: number;
     /** Ore and rich ore broken (below the record), skills used, seals broken (first time), charted gates, Finds found,
      * perfect Strikes, planted lanterns passed, contracts done, chests by tier (crystal+, reliquary+, lintel). */
@@ -390,7 +393,7 @@ export interface MetaState {
   bestLines: number;
   /** Fastest run time (s) to 600 m (Swift), Infinity when never. */
   swift600: number;
-  /** Lifetime events caught by type (Moth Friend, contracts). */
+  /** Lifetime events caught by type (secrets, contracts). */
   caught: Record<string, number>;
   /** Contract slot state: a template's base counter at creation, and a cooldown of guidance (the last-used mechanics). */
   lastUsed: Record<string, number>;
@@ -398,6 +401,17 @@ export interface MetaState {
   dailyReady: boolean;
   /** Stored free facet rerolls (Crystal chests, the calendar). */
   rerolls: number;
+  /** Lifetime node bits (hybrid SPEC §4.6): first light ever done ("seen") and every lamp relit once ("charted"). */
+  seen: number[];
+  charted: number[];
+  /** Best relic grade per Find id (0 worn … 4 perfect; SPEC §5.7). */
+  relicGrades: Record<string, number>;
+  /**
+   * The v3 → v4 migration notice (SPEC §10): 0 none, 1 waiting to show ("Your expedition was re-charted…"), 2 shown.
+   */
+  rechartNotice: number;
+  /** Node counters for the Feats and the Path: lamps relit, secrets found, breaches broken by the player, chambers charted. */
+  nodeStats: { lamps: number; secrets: number; breaches: number; charted: number; glints: number; skins: number };
 }
 
 // ----- guidance ---------------------------------------------------------------------------------------
@@ -441,6 +455,22 @@ export interface TutorialState {
   /** Counters the steps watch. */
   breaks: number;
   done: boolean;
+  /** The lesson sequencer (hybrid SPEC §6.4, L13): the lesson on screen ('' none) and when it began (model s). */
+  lesson: string;
+  lessonSince: number;
+  /** Play time (s) the last new mechanic was introduced (a step from 3 on, or a lesson): the spacing rule's clock. */
+  lastMechanicAt: number;
+  /** The face the hold step counts taps on: its node and the run's tap count when the player arrived at it. */
+  faceNode: number;
+  faceTaps0: number;
+  /** Play time the hire step ended (the hold step waits ≥ 40 s after it). */
+  hiredAt: number;
+  /**
+   * A deferrable step passed over while it waited for its moment (the Pick card when the breach comes before 30 gold):
+   * its index (−1 none), and the index to resume after it ran (−1 none).
+   */
+  deferred: number;
+  resumeIndex: number;
 }
 
 export interface HintState {
@@ -475,12 +505,95 @@ export interface OfflineResult {
   biomeCrossed: number;
   /** Credited yet (the feast's Collect). */
   collected: boolean;
+  /** The node crawl: chambers the crew opened while away, up to 3 of them for the return glimpses (oldest first), the
+   *  first dark chamber the player arrives at (−1: none, the player resumes where they were), and the leash stop. */
+  chambers: number;
+  glimpses: number[];
+  darkNode: number;
+  leashStop: boolean;
+}
+
+// ----- the node crawl (hybrid SPEC §4, §5.2–§5.3, §10; W1-LEAD §3) -------------------------------------------
+
+/** The player's phase (W1-LEAD §3): the camp at dusk, a drift face, a chamber to explore, a Way Down, a seal fight. */
+export type NodePhase = 'camp' | 'dig' | 'explore' | 'ride' | 'seal';
+
+/** One chamber's state this run (the player's chamber and the ones the crew opened ahead of it). */
+export interface ChamberRun {
+  node: number;
+  /** Who broke its breach ('' while closed). */
+  by: '' | 'player' | 'crew';
+  /** First light done this run (always by the player, L10). */
+  lit: boolean;
+  /** Strike-type tappables struck this run: id → remaining HP fraction (absent = untouched = 1). */
+  left: Record<string, number>;
+  /** Focus-type objects resolved this run (opened, read, graded, racked). */
+  resolved: string[];
+  /** Cold lamps relit this run. */
+  lamps: string[];
+  /** Wall-skin cells: id → remaining fraction (0 = broken). */
+  skin: Record<string, number>;
+  /** Secrets broken open this run (their revealed cache is the focus id `<secretId>:cache`). */
+  secrets: string[];
+  /** Ride glints mined on the Way Down out of this chamber. */
+  glints: string[];
+}
+
+/** The Way Down being ridden. */
+export interface RideRun {
+  from: number;
+  to: number;
+  kind: string;
+  /** Model time the ride began and its nominal length (s); `rideEnd` ends it (a 30 s guard ends a forgotten one). */
+  t0: number;
+  seconds: number;
+}
+
+/** The focus pop. `holdAt` the model time a relic ring's hold began (−1 none). */
+export interface FocusRun {
+  node: number;
+  id: string;
+  kind: string;
+  holdAt: number;
+}
+
+export interface NodeState {
+  /**
+   * The node layer is on (the hybrid game, the node bot, save v4). Off, the face is the model's base physics with no
+   * breach or leash stops: the closed-form sims and the shaft physics tests run it that way.
+   */
+  on: boolean;
+  phase: NodePhase;
+  /** The player's node (chart index). */
+  node: number;
+  /** The arrival stand or the last auto-walk target (0 = the arrival pose). */
+  stand: number;
+  /** The walking pose in a chamber (W1-LEAD §3 Explore), kept for the save; null = the stand's pose. */
+  pose: null | { x: number; y: number; z: number; yaw: number; pitch: number };
+  /** Chambers of this run that are open or being explored, by node. */
+  chambers: Record<number, ChamberRun>;
+  ride: RideRun | null;
+  focus: FocusRun | null;
+  /** The phase to resume after the camp (dig or explore). */
+  resume: NodePhase;
+  /** The Works (SPEC §5.3): leftover chamber value the crew mines first, as HP and gold; haul gold not yet delivered. */
+  worksHp: Big;
+  worksGold: Big;
+  haulPending: Big;
+  haulFromLeftovers: boolean;
+  nextHaul: number;
+  /** The leash was full at the last crew strike (for the `leash:full` edge). */
+  leashFull: boolean;
+  /** Relics skipped to the rack (Find ids). Chests use run.rack. */
+  rackRelics: string[];
 }
 
 // ----- the whole state ----------------------------------------------------------------------------
 
 export interface IdleState {
   v: 3;
+  /** The node crawl: the player's node, phase, chambers, the Works (hybrid). */
+  node: NodeState;
   /** The save seed and the run index: runSeed = hash(seed, runIndex). */
   seed: number;
   runIndex: number;
@@ -505,9 +618,9 @@ export interface IdleState {
   offline: OfflineResult | null;
   /** Chests popped out and waiting for a tap (entity ids). */
   chests: Array<{ id: string; col: number; depth: number; floor: number; at: number }>;
-  /** The Lucky Moth in flight (null when none) and its clock. */
-  moth: { id: string; born: number; life: number; scripted: boolean } | null;
-  nextMothAt: number;
+  /** The Drifting Ember in the air (null when none; dormant in W1) and its clock. */
+  ember: { id: string; born: number; life: number } | null;
+  nextEmberAt: number;
   /** Counter for entity ids. */
   nextId: number;
   /** Crew strike phase origin per line (model s) so rigs and damage agree. */
@@ -525,7 +638,7 @@ export interface IdleState {
   hand: FacetHand | null;
   /** Cells changed after generation (events, pity), applied whenever a row is filled. */
   overrides: CellOverride[];
-  /** Hits taken by multi-tap entities (creatures, fossils, the mole), by id. */
+  /** Hits taken by multi-tap entities (gem clusters, fossils, event targets), by id. */
   hits: Record<string, number>;
   /** XP earned since the last xp:gain event (throttle). */
   xpPending: number;
@@ -558,7 +671,6 @@ export function newMeta(): MetaState {
     timeCrystals: 0,
     boostEnd: 0,
     finds: {},
-    bestiary: {},
     lore: [],
     biomeSeals: [],
     feats: {},
@@ -581,14 +693,14 @@ export function newMeta(): MetaState {
     contractCount: 0,
     daily: { lastDay: 0, calendarDay: 0, claimedToday: false },
     pity: { crystal: 0, reliquary: 0, lintel: 0 },
-    tutorial: { step: 0, done: false },
+    tutorial: { step: 0, done: false, lessons: [] },
     path: { step: 1 },
     hints: {},
     firstTime: [],
     revealed: [],
     cosmetics: { owned: [], equipped: {} },
     stats: {
-      taps: 0, cells: 0, cellsNew: 0, crits: 0, chests: 0, events: 0, creatures: 0, purchases: 0, stars: 0,
+      taps: 0, cells: 0, cellsNew: 0, crits: 0, chests: 0, events: 0, purchases: 0, stars: 0,
       rekindles: 0, weaves: 0, offlineHours: 0, levels: 0, ores: 0, skills: 0, seals: 0, gates: 0, finds: 0, perfects: 0,
       passed: 0, contracts: 0, crystalPlus: 0, reliquaryPlus: 0, lintels: 0, reveals: 0,
     },
@@ -603,6 +715,33 @@ export function newMeta(): MetaState {
     lastUsed: {},
     dailyReady: false,
     rerolls: 0,
+    seen: [],
+    charted: [],
+    relicGrades: {},
+    rechartNotice: 0,
+    nodeStats: { lamps: 0, secrets: 0, breaches: 0, charted: 0, glints: 0, skins: 0 },
+  };
+}
+
+/** A fresh node layer (off until the hybrid game, the node bot or a v4 save turns it on). */
+export function newNodeState(on = false): NodeState {
+  return {
+    on,
+    phase: 'dig',
+    node: 0,
+    stand: 0,
+    pose: null,
+    chambers: {},
+    ride: null,
+    focus: null,
+    resume: 'dig',
+    worksHp: Big.zero(),
+    worksGold: Big.zero(),
+    haulPending: Big.zero(),
+    haulFromLeftovers: false,
+    nextHaul: 0,
+    leashFull: false,
+    rackRelics: [],
   };
 }
 

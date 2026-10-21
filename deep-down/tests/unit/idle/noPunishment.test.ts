@@ -51,7 +51,7 @@ describe('no store, no punishment (E16, L11)', () => {
     const gems0 = s.meta.gems;
     const levels0 = [s.run.pick, ...s.run.lines];
     play(s, 40, 0, bus); // the seal times out untouched
-    for (const type of ['glimmerfall', 'mothSwarm', 'caveIn', 'mimic', 'treasureMole', 'supplyRope', 'ancientEcho', 'signature']) {
+    for (const type of ['glimmerfall', 'seedFall', 'caveIn', 'wedgedChest', 'rattlingBricks', 'supplyRope', 'ancientEcho', 'signature']) {
       forceEvent(s, type, bus);
       play(s, 25, 0, bus, 3, 1 / 30); // every target ignored
     }

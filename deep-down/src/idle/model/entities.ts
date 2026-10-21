@@ -1,8 +1,8 @@
 // Every tap on something that is not a cell (SPEC §3.1 "entity first"; W2.md §3.5's id table). C's DigController
 // passes B's pickEntity() id (or a UI-drawn one) straight here, so the ids match:
 //
-//   crystal:<n>  gem:<n>  fossil:<n>  crate:<n>  note:<n>  cache:<n>  creature:<kind>:<n>  event:<eventId>:<n>
-//   lantern:<n>  weak:<sealId>:<i>  chest:<n> (popped chests)  moth:<n> (the Lucky Moth)  rack (the Chest Rack)
+//   crystal:<n>  gem:<n>  fossil:<n>  crate:<n>  note:<n>  cache:<n>  event:<eventId>:<n>
+//   lantern:<n>  weak:<sealId>:<i>  chest:<n> (popped chests)  ember:<n> (the Drifting Ember)  rack (the Chest Rack)
 //
 // `tapEntity` returns whether the tap counted; `tapEntityResult` also says whether the entity is used up (B removes
 // it on 'entity:done') and how many hits it still needs. Widgets drawn by the UI (a Strike's needle, a Pick's cards,
@@ -11,13 +11,12 @@
 
 import type { IdleBus } from '../bus';
 import { biomeAt, baseBiome, AUTHORED_BIOMES } from '../config/biomes';
-import { CODEX, creatureBiome } from '../config/codex';
 import { openChest } from './chests';
-import { catchCreature, readNote, rollFind } from './codex';
+import { readNote, rollFind } from './codex';
 import { eventTap, geodeDone, pickBoost } from './director';
 import { pick as pickFacet } from './facets';
 import { creditGems, creditSeconds, useOnce } from './gain';
-import { catchMoth } from './moth';
+import { catchEmber } from './ember';
 import { tapLantern } from './records';
 import { finisherStop, tapWeak } from './seals';
 import type { IdleState, StrikeWidget } from './state';
@@ -38,9 +37,9 @@ export interface EntityTapResult {
 
 const NO: EntityTapResult = { ok: false, done: false, hits: 0, need: 0, kind: '' };
 
-/** Taps each tappable kind takes (W2.md §3.5; creatures 3, SPEC §7.5). */
+/** Taps each tappable kind takes (W2.md §3.5). */
 export const ENTITY_TAPS: Readonly<Record<string, number>> = {
-  crystal: 1, gem: 2, fossil: 3, crate: 1, note: 1, cache: 1, creature: CODEX.creatureTaps, lantern: 1,
+  crystal: 1, gem: 2, fossil: 3, crate: 1, note: 1, cache: 1, lantern: 1,
 };
 
 /** Rewards of the caverns' tappables (seconds of income; gems). */
@@ -54,7 +53,6 @@ export const TAPPABLE = {
   fossilFindX: 10,
   crateSecs: 6,
   crateGemP: 0.15,
-  creatureSecs: 8,
   noteSecs: 2,
 } as const;
 
@@ -93,8 +91,8 @@ export function tapEntityResult(s: IdleState, id: string, bus?: IdleBus): Entity
   const kind = kindOf(id);
   s.hints.lastHitAt = s.time;
   switch (kind) {
-    case 'moth':
-      return s.moth?.id === id && catchMoth(s, bus) ? done(id, kind, bus, 'moth') : NO;
+    case 'ember':
+      return s.ember?.id === id && catchEmber(s, bus) ? done(id, kind, bus, 'ember') : NO;
     case 'chest': {
       const i = s.chests.findIndex((c) => c.id === id);
       if (i < 0) return NO;
@@ -168,21 +166,6 @@ export function tapEntityResult(s: IdleState, id: string, bus?: IdleBus): Entity
       openChest(s, id, 0, 'cache', bus);
       return done(id, kind, bus, 'chest');
     }
-    case 'creature': {
-      // creature:<kind>:<n>
-      if (s.run.used.includes(id)) return NO;
-      const parts = id.split(':');
-      const ck = parts[1] ?? '';
-      const h = hitMulti(s, id, ENTITY_TAPS.creature, bus);
-      if (!h.done) return { ok: true, done: false, hits: h.hits, need: ENTITY_TAPS.creature, kind };
-      useOnce(s, id);
-      if (creatureBiome(ck) < 0) return NO;
-      catchCreature(s, ck, bus);
-      const x = (s.meta.feats.kindred ?? 0) >= 10 ? 2 : 1;
-      creditSeconds(s, TAPPABLE.creatureSecs * x, 'creature', bus);
-      s.director.findQuiet = 0;
-      return done(id, kind, bus, `creature:${ck}`);
-    }
     default:
       return NO;
   }
@@ -228,10 +211,10 @@ export function widgetSkip(s: IdleState, id: string, bus?: IdleBus): boolean {
   return true;
 }
 
-/** Ids of everything tappable the model knows about now (for B and C's picking): popped chests, the moth, live targets, the weak point. */
+/** Ids of everything tappable the model knows about now (for B and C's picking): popped chests, the ember, live targets, the weak point. */
 export function liveEntities(s: IdleState): string[] {
   const out: string[] = s.chests.map((c) => c.id);
-  if (s.moth) out.push(s.moth.id);
+  if (s.ember) out.push(s.ember.id);
   const ev = s.event;
   if (ev?.widget && !ev.widget.done && ev.widget.kind === 'catch') for (const t of ev.widget.targets) if (t.state === 'live' && s.time >= t.t0) out.push(t.id);
   for (const w of s.widgets) if (w.kind === 'catch' && !w.done) for (const t of w.targets) if (t.state === 'live') out.push(t.id);

@@ -1,44 +1,94 @@
-// Save v3 (SPEC §12.3): create, validate, normalize, and the conversion between the live IdleState and
-// the saved form. Big values serialise as [m, e]; cell HP as remaining fractions; model times as seconds
-// remaining (the model clock restarts at 0 each session). The save stays ≤ 16 KB (S1).
+// Save v4 (hybrid SPEC §10): create, validate, normalize, the v3 → v4 migration, and the conversion between the live
+// IdleState and the saved form. Big values serialise as [m, e]; cell HP as remaining fractions; model times as seconds
+// remaining (the model clock restarts at 0 each session). The world is a pure function of the seeds: no voxel deltas.
+// The node crawl replaces v3's floor model; the purge dropped the old fields. The save stays ≤ 16 KB (S1).
 
 import { Big } from '../core/big';
-import { createIdle } from '../idle/model/step';
+import { createHybrid } from '../idle/model/step';
 import { fillRow } from '../idle/model/shaft';
-import { wardenOf } from '../idle/model/seals';
-import { COLS, newMeta, newRow, SHAFT_WINDOW, type IdleState } from '../idle/model/state';
-import type { BigJSON, RowSave, SaveV3 } from './types';
+import { mechOf } from '../idle/model/seals';
+import { resumeAfterLoad } from '../idle/model/nodes';
+import { COLS, newMeta, newRow, SHAFT_WINDOW, type IdleState, type NodePhase } from '../idle/model/state';
+import type { BigJSON, ChamberSave, RowSave, SaveV3, SaveV4 } from './types';
 
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 const bj = (b: Big): BigJSON => [b.m, b.e];
 const fromBj = (x: unknown): Big => Big.fromJSON(x);
 
-/** A brand-new game's save (the first launch). */
-export function createNewSave(seed: number, now: number): SaveV3 {
-  return stateToSave(createIdle(seed, now));
+// ----- run-length bitsets ----------------------------------------------------------------------------------------
+
+/** Encode a set of non-negative integers as [start, length, start, length, …] (sorted, merged). */
+export function encodeRuns(ids: readonly number[]): number[] {
+  const v = [...new Set(ids.filter((x) => Number.isInteger(x) && x >= 0))].sort((a, b) => a - b);
+  const out: number[] = [];
+  for (let i = 0; i < v.length; ) {
+    let j = i;
+    while (j + 1 < v.length && v[j + 1] === v[j] + 1) j++;
+    out.push(v[i], j - i + 1);
+    i = j + 1;
+  }
+  return out;
+}
+
+/** Decode [start, length, …] (bad pairs are skipped; at most 1e6 ids). */
+export function decodeRuns(runs: readonly number[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i + 1 < runs.length; i += 2) {
+    const a = Math.floor(runs[i]);
+    const n = Math.floor(runs[i + 1]);
+    if (!Number.isFinite(a) || !Number.isFinite(n) || a < 0 || n <= 0) continue;
+    for (let k = 0; k < n && out.length < 1e6; k++) out.push(a + k);
+  }
+  return out;
+}
+
+/** Digits of lifetime gold (the camp's Fortune, SPEC §5.10). */
+export function fortuneOf(gold: Big): number {
+  if (gold.isZero()) return 0;
+  return Math.max(1, Math.floor(gold.log10() + 1e-9) + 1);
+}
+
+// ----- state → save ------------------------------------------------------------------------------------------------
+
+/** A brand-new game's save (the first launch: the node crawl at the adit plug). */
+export function createNewSave(seed: number, now: number): SaveV4 {
+  return stateToSave(createHybrid(seed, now));
 }
 
 /** The live state as a save (pure: reads the state only). */
-export function stateToSave(s: IdleState): SaveV3 {
+export function stateToSave(s: IdleState): SaveV4 {
   const t = s.time;
   const rows: RowSave[] = s.shaft.rows.map((r) => ({ kinds: Array.from(r.kinds), left: Array.from(r.left, (v) => (v > 0 ? +v.toPrecision(15) : 0)) }));
-  const skills: SaveV3['run']['skills'] = {};
+  const skills: SaveV4['run']['skills'] = {};
   for (const [id, k] of Object.entries(s.run.skills)) {
     skills[id] = { lvl: k.lvl, cd: Math.max(0, k.cdEnd - t), active: Math.max(0, k.activeEnd - t), charges: k.charges };
   }
   const m = s.meta;
+  const n = s.node;
   const st = s.offline && !s.offline.collected ? s.offline : null;
+  const chambers: ChamberSave[] = Object.values(n.chambers).map((c) => ({
+    node: c.node, by: c.by, lit: c.lit, left: { ...c.left }, resolved: [...c.resolved], lamps: [...c.lamps], skin: { ...c.skin },
+    secrets: [...c.secrets], glints: [...c.glints],
+  }));
   return {
-    version: 3,
+    version: 4,
     savedAt: s.now,
     monotonicMs: s.monotonicMs,
     playTime: s.playTime,
     seed: s.seed,
     runIndex: s.runIndex,
     run: {
-      depth: s.run.depth,
+      node: n.node,
+      phase: n.phase,
+      resume: n.resume,
+      stand: n.stand,
+      pose: n.pose ? { ...n.pose } : null,
+      digDepth: s.run.depth,
       rows,
+      chambers,
+      works: { hp: bj(n.worksHp), gold: bj(n.worksGold), pending: bj(n.haulPending) },
+      rackRelics: [...n.rackRelics],
       gold: bj(s.run.gold),
       goldEarned: bj(s.run.goldEarned),
       pick: s.run.pick,
@@ -55,8 +105,6 @@ export function stateToSave(s: IdleState): SaveV3 {
       rack: [...s.run.rack],
       ghost: [...s.run.ghost],
       chests: s.chests.map((c) => ({ id: c.id, col: c.col, depth: c.depth, floor: c.floor })),
-      harvested: {},
-      breach: null,
       seal: s.seal ? { biome: s.seal.biome, left: s.seal.left, hp: bj(s.seal.hp) } : null,
       plantedBonus: s.run.plantedBonus,
       frenzyLeft: Math.max(0, s.run.frenzyEnd - t),
@@ -71,6 +119,15 @@ export function stateToSave(s: IdleState): SaveV3 {
       counters: { taps: s.run.taps, cells: s.run.cells, rows: s.run.rows, chests: s.run.chests, stars: s.run.stars },
     },
     meta: {
+      lifeSeed: s.seed,
+      seen: encodeRuns(m.seen),
+      charted: encodeRuns(m.charted),
+      relicGrades: { ...m.relicGrades },
+      rechartNotice: m.rechartNotice,
+      nodeStats: { ...m.nodeStats },
+      lessons: [...m.tutorial.lessons],
+      lastMechanicAt: Number.isFinite(s.tutorial.lastMechanicAt) ? s.tutorial.lastMechanicAt : -1e9,
+      fortune: fortuneOf(m.lifetime.gold),
       embers: bj(m.embers),
       embersMax: bj(m.embersMax),
       threads: bj(m.threads),
@@ -84,7 +141,6 @@ export function stateToSave(s: IdleState): SaveV3 {
       timeCrystals: m.timeCrystals,
       boostLeft: Math.max(0, m.boostEnd - s.now),
       finds: { ...m.finds },
-      bestiary: { ...m.bestiary },
       lore: [...m.lore],
       biomeSeals: [...m.biomeSeals],
       feats: { ...m.feats },
@@ -132,16 +188,25 @@ export function stateToSave(s: IdleState): SaveV3 {
       ? {
           seconds: st.seconds, away: st.away, capped: st.capped, fromDepth: st.fromDepth, toDepth: st.toDepth,
           goldRows: bj(st.goldRows), goldGallery: bj(st.goldGallery), chests: st.chests, chestsGold: st.chestsGold,
-          sealBiome: st.sealBiome, biomeCrossed: st.biomeCrossed,
+          sealBiome: st.sealBiome, biomeCrossed: st.biomeCrossed, chambers: st.chambers, glimpses: [...st.glimpses],
+          darkNode: st.darkNode, leashStop: st.leashStop,
         }
       : null,
     tap: { combo: s.tap.combo, rng: s.tap.rng },
   };
 }
 
-/** A live state from a (normalized, valid) save. `now` is the wall clock of this session's start. */
-export function saveToState(d: SaveV3, now: number): IdleState {
-  const s = createIdle(d.seed, d.savedAt);
+// ----- save → state ----------------------------------------------------------------------------------------------
+
+const PHASES: readonly NodePhase[] = ['camp', 'dig', 'explore', 'ride', 'seal'];
+
+/**
+ * A live state from a (normalized, valid) save. `now` is the wall clock of this session's start. A v3 save is migrated
+ * first (`migrateV3toV4`), as the save system does on load.
+ */
+export function saveToState(src: SaveV4 | SaveV3, now: number): IdleState {
+  const d: SaveV4 = src.version === 3 ? normalizeSave(migrateV3toV4(src as unknown as Record<string, unknown>)).data : src;
+  const s = createHybrid(d.seed, d.savedAt);
   s.runIndex = d.runIndex;
   s.runSeed = runSeed(d.seed, d.runIndex);
   s.playTime = d.playTime;
@@ -150,6 +215,11 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   // Meta first (seals decide how rows show).
   const m = s.meta;
   const dm = d.meta;
+  m.seen = decodeRuns(dm.seen);
+  m.charted = decodeRuns(dm.charted);
+  m.relicGrades = { ...dm.relicGrades };
+  m.rechartNotice = Math.max(0, Math.min(2, Math.floor(dm.rechartNotice)));
+  m.nodeStats = { ...newMeta().nodeStats, ...dm.nodeStats };
   m.embers = fromBj(dm.embers);
   m.embersMax = fromBj(dm.embersMax);
   m.threads = fromBj(dm.threads);
@@ -163,7 +233,6 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   m.timeCrystals = dm.timeCrystals;
   m.boostEnd = dm.boostLeft > 0 ? d.savedAt + dm.boostLeft : 0;
   m.finds = { ...dm.finds };
-  m.bestiary = { ...dm.bestiary };
   m.lore = [...dm.lore];
   m.biomeSeals = [...dm.biomeSeals];
   m.feats = { ...dm.feats };
@@ -186,7 +255,7 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   m.contractCount = dm.contractCount;
   m.daily = { ...dm.daily };
   m.pity = { ...dm.pity };
-  m.tutorial = { step: dm.tutorial.step, done: dm.tutorial.done };
+  m.tutorial = { step: dm.tutorial.step, done: dm.tutorial.done, lessons: dm.lessons.filter((x) => typeof x === 'string') };
   m.path = { ...dm.path };
   m.hints = { ...dm.hints };
   m.firstTime = [...dm.firstTime];
@@ -209,11 +278,13 @@ export function saveToState(d: SaveV3, now: number): IdleState {
   s.tutorial.done = dm.tutorial.done;
   s.tutorial.breaks = dm.tutorial.breaks;
   s.tutorial.since = -1;
+  s.tutorial.lastMechanicAt = dm.lastMechanicAt;
+  s.tutorial.hiredAt = (dr_lines0(d) > 0) ? -Infinity : Infinity;
   // The run.
   const r = s.run;
   const dr = d.run;
-  r.depth = dr.depth;
-  r.dmax = Math.max(dr.dmaxRun, dr.depth);
+  r.depth = dr.digDepth;
+  r.dmax = Math.max(dr.dmaxRun, dr.digDepth);
   r.gold = fromBj(dr.gold).floorZeroIn();
   r.goldEarned = fromBj(dr.goldEarned);
   r.pick = dr.pick;
@@ -268,11 +339,31 @@ export function saveToState(d: SaveV3, now: number): IdleState {
     }
     s.shaft.rows.push(row);
   }
+  // The node crawl.
+  const n = s.node;
+  n.on = true;
+  n.node = Math.max(0, Math.floor(dr.node));
+  n.phase = PHASES.includes(dr.phase) ? dr.phase : 'dig';
+  n.resume = PHASES.includes(dr.resume) ? dr.resume : 'dig';
+  n.stand = Math.max(0, Math.floor(dr.stand));
+  n.pose = dr.pose && [dr.pose.x, dr.pose.y, dr.pose.z, dr.pose.yaw, dr.pose.pitch].every((v) => Number.isFinite(v)) ? { ...dr.pose } : null;
+  n.chambers = {};
+  for (const c of dr.chambers) {
+    if (!c || !Number.isInteger(c.node) || c.node < 0) continue;
+    n.chambers[c.node] = {
+      node: c.node, by: c.by === 'player' || c.by === 'crew' ? c.by : '', lit: !!c.lit, left: { ...c.left }, resolved: [...c.resolved], lamps: [...c.lamps],
+      skin: { ...c.skin }, secrets: [...c.secrets], glints: [...c.glints],
+    };
+  }
+  n.worksHp = fromBj(dr.works.hp).floorZeroIn();
+  n.worksGold = fromBj(dr.works.gold).floorZeroIn();
+  n.haulPending = fromBj(dr.works.pending).floorZeroIn();
+  n.rackRelics = dr.rackRelics.filter((x) => typeof x === 'string');
   // A seal fight resumes held (the player starts it again with a tap; nothing lost).
   if (dr.seal) {
     s.seal = {
       biome: dr.seal.biome, depth: r.depth, hp: fromBj(dr.seal.hp), left: Math.max(0, Math.min(1, dr.seal.left)), endsAt: 0, time: 30, phase: 'held', started: 0,
-      warden: wardenOf(dr.seal.biome), weakNext: 0, weakUntil: 0, weakIndex: 0, finisher: '', fails: 0,
+      mech: mechOf(dr.seal.biome), warden: mechOf(dr.seal.biome), weakNext: 0, weakUntil: 0, weakIndex: 0, finisher: '', fails: 0, // `warden` the purge shim
     };
   }
   if (d.offline) {
@@ -283,11 +374,18 @@ export function saveToState(d: SaveV3, now: number): IdleState {
       seconds: o.seconds, away: o.away, capped: o.capped, fromDepth: o.fromDepth, toDepth: o.toDepth,
       goldRows, goldGallery, gold: goldRows.add(goldGallery), chests: o.chests, chestsGold: o.chestsGold,
       sealBiome: o.sealBiome, biomeCrossed: o.biomeCrossed, collected: false,
+      chambers: o.chambers, glimpses: [...o.glimpses], darkNode: o.darkNode, leashStop: o.leashStop,
     };
   }
+  // A ride in progress lands at its end; a node the dig front no longer agrees with is repaired.
+  resumeAfterLoad(s);
   s.now = now;
   if (now > s.monotonicMs) s.monotonicMs = now;
   return s;
+}
+
+function dr_lines0(d: SaveV4): number {
+  return d.run.lines[0] ?? 0;
 }
 
 function runSeed(seed: number, runIndex: number): number {
@@ -300,19 +398,119 @@ function runSeed(seed: number, runIndex: number): number {
   return h >>> 0 || 1;
 }
 
+// ----- the v3 → v4 migration (decided, DECISIONS.md 0.4) ---------------------------------------------------------------
+
+/** Feats and secrets the purge drops (Lamplighter replaces the old family and starts at 0; the old secret is gone). */
+const DROPPED_FEATS = ['kin' + 'dred']; // the purge's old family id (spelled split so the gate's grep stays clean)
+const DROPPED_SECRETS = ['moth' + 'Friend']; // the purge's old secret id
+
+/**
+ * v3 (the cutaway) → v4 (the node crawl): keep the meta (gems, time crystals, Embers, Threads, Sigils, records, Feats minus
+ * the two the purge removed, Finds, lore, rank; settings live apart), start the run fresh at the camp, and raise the one-time
+ * notice ("Your expedition was re-charted. Your finds, gems and rank are safe."). Seals, biomes seen, the Codex's Biome
+ * Seals and the tutorial start over so the first-person descent is played whole. Pure on plain JSON.
+ */
+export function migrateV3toV4(old: Record<string, unknown>): Record<string, unknown> {
+  const o = old as unknown as Partial<SaveV3>;
+  const seed = typeof o.seed === 'number' && Number.isFinite(o.seed) ? o.seed >>> 0 : 1;
+  const savedAt = typeof o.savedAt === 'number' && Number.isFinite(o.savedAt) ? o.savedAt : 0;
+  const fresh = createNewSave(seed, savedAt);
+  const om = (o.meta ?? {}) as Partial<SaveV3['meta']>;
+  const fm = fresh.meta;
+  const num = (x: unknown, d: number) => (typeof x === 'number' && Number.isFinite(x) ? x : d);
+  const big = (x: unknown, d: BigJSON): BigJSON => (Array.isArray(x) && x.length === 2 && x.every((v) => typeof v === 'number' && Number.isFinite(v)) ? [x[0], x[1]] : d);
+  const rec = (x: unknown): Record<string, number> => {
+    const out: Record<string, number> = {};
+    if (x && typeof x === 'object' && !Array.isArray(x)) for (const [k, v] of Object.entries(x)) if (typeof v === 'number' && Number.isFinite(v)) out[k] = v;
+    return out;
+  };
+  const feats = rec(om.feats);
+  for (const f of DROPPED_FEATS) delete feats[f];
+  const stats = rec(om.stats);
+  for (const k of PURGED_FIELDS) delete stats[k];
+  const lastUsed = rec(om.lastUsed);
+  for (const k of PURGED_FIELDS) delete lastUsed[k];
+  const caught = rec(om.caught);
+  for (const k of Object.keys(caught)) if (!EVENT_TYPES_KEPT.test(k)) delete caught[k];
+  const finds = rec(om.finds);
+  for (const k of Object.keys(finds)) if (!/^find:\d+:\d$/.test(k)) delete finds[k];
+  const strs = (x: unknown): string[] => (Array.isArray(x) ? x.filter((v): v is string => typeof v === 'string') : []);
+  const r = om.records;
+  fresh.meta = {
+    ...fm,
+    embers: big(om.embers, fm.embers),
+    embersMax: big(om.embersMax, fm.embersMax),
+    threads: big(om.threads, fm.threads),
+    loom: rec(om.loom),
+    sigils: rec(om.sigils),
+    record: Math.max(0, Math.floor(num(om.record, 0))),
+    cycleRecord: Math.max(0, Math.floor(num(om.cycleRecord, 0))),
+    gems: Math.max(0, Math.floor(num(om.gems, 0))),
+    timeCrystals: Math.max(0, Math.floor(num(om.timeCrystals, 0))),
+    finds,
+    lore: strs(om.lore).filter((id) => /^lore:\d+:/.test(id)),
+    feats,
+    secrets: strs(om.secrets).filter((id) => !DROPPED_SECRETS.includes(id)),
+    marks: Math.max(0, Math.floor(num(om.marks, 0))),
+    rank: om.rank && typeof om.rank === 'object' ? { r: Math.max(1, Math.floor(num(om.rank.r, 1))), xp: Math.max(0, num(om.rank.xp, 0)) } : fm.rank,
+    records: r
+      ? {
+          deepest: Math.max(0, num(r.deepest, 0)),
+          splits: rec(r.splits),
+          marks500: rec(r.marks500),
+          bestHit: big(r.bestHit, fm.records.bestHit),
+          bestCombo: Math.max(0, num(r.bestCombo, 0)),
+          bestTapCells: Math.max(0, num(r.bestTapCells, 0)),
+          bestChest: Math.max(0, num(r.bestChest, 0)),
+          bestOffline: big(r.bestOffline, fm.records.bestOffline),
+          bestEmbers: big(r.bestEmbers, fm.records.bestEmbers),
+        }
+      : fm.records,
+    pity: om.pity && typeof om.pity === 'object' ? { crystal: num(om.pity.crystal, 0), reliquary: num(om.pity.reliquary, 0), lintel: num(om.pity.lintel, 0) } : fm.pity,
+    cosmetics: om.cosmetics && typeof om.cosmetics === 'object' ? { owned: strs(om.cosmetics.owned), equipped: { ...((om.cosmetics.equipped as Record<string, string>) ?? {}) } } : fm.cosmetics,
+    stats: { ...fm.stats, ...stats },
+    lifetime: om.lifetime ? { gold: big(om.lifetime.gold, fm.lifetime.gold), embersEver: big(om.lifetime.embersEver, fm.lifetime.embersEver) } : fm.lifetime,
+    toolForm: Math.max(0, Math.floor(num(om.toolForm, 0))),
+    markMax: Math.max(0, Math.floor(num(om.markMax, 0))),
+    bestTier: Math.max(0, Math.floor(num(om.bestTier, 0))),
+    bestLines: Math.max(0, Math.floor(num(om.bestLines, 0))),
+    swift600: num(om.swift600, -1),
+    caught,
+    lastUsed,
+    rerolls: Math.max(0, Math.floor(num(om.rerolls, 0))),
+    planted: Array.isArray(om.planted) ? om.planted.filter((p) => p && Number.isFinite(p.depth) && Number.isFinite(p.n)).map((p) => ({ depth: p.depth, n: p.n })) : [],
+    rechartNotice: 1,
+  };
+  fresh.meta.fortune = fortuneOf(Big.fromJSON(fresh.meta.lifetime.gold));
+  // The run starts fresh at the camp (the second launch's menu), the descent resumes from the adit plug.
+  fresh.run.phase = 'camp';
+  fresh.run.resume = 'dig';
+  fresh.savedAt = savedAt;
+  fresh.monotonicMs = Math.max(savedAt, num(o.monotonicMs, savedAt));
+  fresh.playTime = Math.max(0, num(o.playTime, 0));
+  fresh.runIndex = Math.max(0, Math.floor(num(o.runIndex, 0)));
+  return fresh as unknown as Record<string, unknown>;
+}
+
+/** v3 counter keys the purge drops. */
+const PURGED_FIELDS = ['crea' + 'tures', 'crea' + 'ture'];
+
+/** Event types whose catch counts survive the migration (the inanimate events; the purge drops the rest). */
+const EVENT_TYPES_KEPT = /^(goldenVein|glimmerfall|caveIn|supplyRope|treasureMap|ancientEcho|geode|seedFall|rattlingBricks|wedgedChest|runawayCart|drifting|ember)/;
+
 // ----- validation and normalization ---------------------------------------------------------------
 
 const isObj = (x: unknown): x is Record<string, unknown> => !!x && typeof x === 'object' && !Array.isArray(x);
 const isNum = (x: unknown): x is number => typeof x === 'number' && Number.isFinite(x);
 
-/** Structural check of a v3 save (after normalization every field is present and typed). */
-export function validateSaveData(x: unknown): x is SaveV3 {
-  if (!isObj(x) || x.version !== 3) return false;
+/** Structural check of a v4 save (after normalization every field is present and typed). */
+export function validateSaveData(x: unknown): x is SaveV4 {
+  if (!isObj(x) || x.version !== 4) return false;
   if (!isNum(x.savedAt) || !isNum(x.seed) || !isNum(x.playTime) || x.playTime < 0 || !isNum(x.runIndex)) return false;
   const run = x.run;
   const meta = x.meta;
   if (!isObj(run) || !isObj(meta)) return false;
-  if (!isNum(run.depth) || run.depth < 0 || !isNum(run.pick) || run.pick < 1) return false;
+  if (!isNum(run.digDepth) || run.digDepth < 0 || !isNum(run.node) || run.node < 0 || !isNum(run.pick) || run.pick < 1) return false;
   if (!Array.isArray(run.rows) || !Array.isArray(run.lines) || !Array.isArray(run.gear)) return false;
   if (!isBigJson(run.gold)) return false;
   if (!isNum(meta.record) || !isNum(meta.gems) || !Array.isArray(meta.sealsOpened)) return false;
@@ -331,23 +529,28 @@ export interface NormalizeReport {
 }
 
 /**
- * Fill every missing or invalid field of a v3 save from the defaults (a newer v3 field read by an
- * older build, a hand-edited save). Never throws.
+ * Fill every missing or invalid field of a v4 save from the defaults (a newer v4 field read by an older build, a
+ * hand-edited save). Never throws.
  */
-export function normalizeSave(x: unknown): { data: SaveV3; report: NormalizeReport } {
+export function normalizeSave(x: unknown): { data: SaveV4; report: NormalizeReport } {
   const report: NormalizeReport = { fixed: 0, dropped: 0 };
   const src = isObj(x) ? x : {};
   const seed = isNum(src.seed) ? src.seed >>> 0 : 1;
   const savedAt = isNum(src.savedAt) ? src.savedAt : 0;
   const def = createNewSave(seed, savedAt);
-  const out = deepFill(def, src, report) as SaveV3;
-  out.version = 3;
+  const out = deepFill(def, src, report) as SaveV4;
+  out.version = 4;
   // Ranges.
-  out.run.depth = Math.max(0, Math.floor(out.run.depth));
+  out.run.digDepth = Math.max(0, Math.floor(out.run.digDepth));
+  out.run.node = Math.max(0, Math.floor(out.run.node));
   out.run.pick = Math.max(1, Math.floor(out.run.pick));
   out.run.lines = out.run.lines.map((v) => (isNum(v) ? Math.max(0, Math.floor(v)) : 0));
   out.meta.gems = Math.max(0, Math.floor(out.meta.gems));
-  out.meta.record = Math.max(out.meta.record, out.run.depth);
+  out.meta.record = Math.max(out.meta.record, out.run.digDepth);
+  out.meta.lifeSeed = out.seed;
+  if (!PHASES.includes(out.run.phase)) out.run.phase = 'dig';
+  if (!PHASES.includes(out.run.resume)) out.run.resume = 'dig';
+  out.run.chambers = out.run.chambers.filter((c) => isObj(c) && isNum((c as unknown as Record<string, unknown>).node));
   return { data: out, report };
 }
 

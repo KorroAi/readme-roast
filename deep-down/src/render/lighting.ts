@@ -24,7 +24,8 @@ import { hexToLinear } from '../core/math';
  * sqrt(x / (1 + x)) so values above 1 (crystals, flames) survive the 8-bit clamp and the darks
  * get far finer steps than linear 8-bit. The post chain decodes it.
  */
-export const SCENE_ENCODE: THREE.IUniform<number> = { value: 0 };
+export { SCENE_ENCODE } from './light/uniforms';
+import { SCENE_ENCODE } from './light/uniforms';
 
 /**
  * Transient impact lights (CRITIQUE B14; owner 2D): up to 4 point lights with no visibility term, one shared

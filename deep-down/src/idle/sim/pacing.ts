@@ -3,7 +3,7 @@
 // depth row by row with the real row content (shaft.rowKinds: kinds, open rows, gate rows), a row costing
 // κ × its cells' HP and paying its cells' gold. Active steps of 0.5 s; offline steps use the closed form.
 // It adds, each at its expected rate: first-time seals (20 s of active time, a Crystal chest), chest cells
-// (30 s of income), the Lucky Moth (first at 100 s, then every 150 s, 40 s of income).
+// (30 s of income), the Drifting Ember (first at 100 s, then every 150 s, 40 s of income; the W2 event in this old sim).
 
 import { Big } from '../../core/big';
 import { biomeAt, biomeStart } from '../config/biomes';
@@ -13,7 +13,7 @@ import { CRIT, holdRateOf } from '../config/upgrades';
 import { pathStep, tickGoals } from '../model/goals';
 
 /** Path steps the pacing sim cannot progress (their systems are not played here). */
-const SIM_SKIPS: ReadonlySet<string> = new Set(['contract', 'facet', 'catch', 'rank', 'finds', 'crystalChest', 'creature', 'page', 'rekindle', 'planted', 'crown']);
+const SIM_SKIPS: ReadonlySet<string> = new Set(['contract', 'facet', 'ember', 'rank', 'finds', 'crystalChest', 'page', 'rekindle', 'planted', 'crown', 'breakThrough', 'lamps', 'chart', 'relic', 'secret']);
 import { activeDpsLog10, crewDpsLog10, critChance, edgeOf, goldPerDmgLog10, refreshRates, tapBaseLog10 } from '../model/run';
 import { isOpenRow, rowKinds } from '../model/shaft';
 import { CELL, COLS, type IdleState } from '../model/state';
@@ -34,9 +34,9 @@ export interface PacingOpts {
   sealSecs: number;
   sealChestSecs: number;
   chestSecs: number;
-  mothFirst: number;
-  mothEvery: number;
-  mothSecs: number;
+  emberFirst: number;
+  emberEvery: number;
+  emberSecs: number;
   /** Hire the first Shovel Hand as soon as affordable after this time (the tutorial orders it). */
   shovelAt: number;
   /** A human waits this long before each purchase. */
@@ -59,9 +59,9 @@ export const PACING_DEFAULT: PacingOpts = {
   sealSecs: 20,
   sealChestSecs: 90,
   chestSecs: 30,
-  mothFirst: 100,
-  mothEvery: 150,
-  mothSecs: 40,
+  emberFirst: 100,
+  emberEvery: 150,
+  emberSecs: 40,
   shovelAt: 8,
   humanDelay: 2,
   bot: BOT_DEFAULT,
@@ -75,7 +75,7 @@ export interface PacingResult {
   reach: Record<number, number>;
   firstBuy: number;
   firstCrew: number;
-  /** Longest gap between rewards (purchase, chest, biome, moth) in the first 30 min (s). */
+  /** Longest gap between rewards (purchase, chest, biome, ember) in the first 30 min (s). */
   maxGap: number;
   /** Taps per cell p10 / p50 / p90 over 20 s – 45 min. */
   tpc: [number, number, number];
@@ -140,7 +140,7 @@ export function simFirstRun(partial: Partial<PacingOpts> = {}): PacingResult {
   const snapshots: PacingResult['snapshots'] = [];
   const snapAt = [10, 30, 60, 120, 180, 300, 600, 900, 1200, 1800, 2400, 3600, 5400, 7200];
   let snapI = 0;
-  let mothT = o.mothFirst;
+  let emberT = o.emberFirst;
   let sealBlock = 0;
   let humanWait = 0;
   let purchases = 0;
@@ -214,12 +214,12 @@ export function simFirstRun(partial: Partial<PacingOpts> = {}): PacingResult {
         rem = 0;
       }
     }
-    // The Lucky Moth.
-    mothT -= step;
-    if (mothT <= 0) {
-      mothT = o.mothEvery;
+    // The Drifting Ember.
+    emberT -= step;
+    if (emberT <= 0) {
+      emberT = o.emberEvery;
       const inc = activeDpsLog10(s, taps, crewDpsLog10(s), s.run.pick, s.run.ups.lucky ?? 0, o.capTaps) + goldPerDmgLog10();
-      s.run.gold.addIn(Big.fromLog10(inc + L10(o.mothSecs)));
+      s.run.gold.addIn(Big.fromLog10(inc + L10(o.emberSecs)));
       rewards.push(t);
     }
     // Buying.
@@ -282,7 +282,7 @@ export function simFirstRun(partial: Partial<PacingOpts> = {}): PacingResult {
       s.meta.stats.chests = Math.floor(s.run.dmax / 25) + (s.run.dmax > 6 ? 1 : 0);
       if (s.run.dmax >= 30 && !s.meta.firstTime.includes('used:dynamite')) s.meta.firstTime.push('used:dynamite');
       if (s.meta.sealsOpened.includes(1) && t > (sealOneAt ??= t) + 40 && !s.meta.firstTime.includes('used:surge')) s.meta.firstTime.push('used:surge');
-      if (t >= o.mothFirst && !s.meta.firstTime.includes('moth:caught')) s.meta.firstTime.push('moth:caught');
+      if (t >= o.emberFirst && !s.meta.firstTime.includes('ember:caught')) s.meta.firstTime.push('ember:caught');
       // Path steps of systems this sim does not play (W2: rank, Finds, events, facets…) count as done when reached.
       for (let p = pathStep(s); p && SIM_SKIPS.has(p.kind); p = pathStep(s)) s.meta.path.step = p.n + 1;
       refreshRates(s, taps);

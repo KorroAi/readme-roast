@@ -1,207 +1,198 @@
+// U-IN1 (SPEC §2.6, §13.1) on the first-person TapSurface (src/ui/hybrid/TapSurface.ts): raw points, no columns; the
+// 8 counted hits per second across pointers; the hold stream 3/s → 5/s (Steady Hand) → 8/s in a Surge after 250 ms
+// within 12 px; and Explore's gestures (W1-LEAD §3): a tap is a release < 300 ms and < 12 px, a drag (> 12 px) looks
+// and is never a tap or a hold.
 import { describe, expect, it } from 'vitest';
-import { SHAFT_COLUMNS, TAP_CAP_PER_S, TapCap, columnAt, holdRate, inReach, inRegion, swipeColumn, targetColumn } from '../../../src/ui/idle/TapSurface';
-import { Rng } from '../../../src/core/rng';
+import { HOLD_DELAY_MS, HOLD_SLOP_PX, TAP_CAP_PER_S, TAP_MAX_MS, TapCap, TapSurface, holdRate, inRegion, type TouchEvent2 } from '../../../src/ui/hybrid/TapSurface';
 
-// The shaft at 390 px: 7 × 44 px centred (41 px margins).
-const S = { left: 41, right: 349 };
+type Handler = (e: unknown) => void;
 
-describe('column mapping (F3)', () => {
-  it('maps 20 random points per column to that column, at three widths', () => {
-    const rng = new Rng(7);
-    for (const width of [360, 390, 412]) {
-      const left = (width - 308) / 2;
-      const s = { left, right: left + 308 };
-      for (let c = 0; c < SHAFT_COLUMNS; c++) {
-        for (let i = 0; i < 20; i++) {
-          const x = left + c * 44 + 0.01 + rng.next() * 43.98;
-          expect(columnAt(x, s)).toBe(c);
-        }
+/** A stand-in for the canvas: records listeners, dispatches pointer events. */
+function fakeEl() {
+  const handlers: Record<string, Handler[]> = {};
+  const el = {
+    addEventListener: (type: string, fn: Handler) => (handlers[type] ??= []).push(fn),
+    removeEventListener: (type: string, fn: Handler) => {
+      handlers[type] = (handlers[type] ?? []).filter((f) => f !== fn);
+    },
+    setPointerCapture: () => {},
+  };
+  const fire = (type: string, x: number, y: number, id = 1, timeStamp?: number) =>
+    (handlers[type] ?? []).forEach((f) => f({ clientX: x, clientY: y, pointerId: id, pointerType: 'touch', button: 0, cancelable: true, preventDefault() {}, timeStamp }));
+  return { el: el as unknown as HTMLElement, fire };
+}
+
+function rig() {
+  let now = 1000;
+  const { el, fire } = fakeEl();
+  const ts = new TapSurface(el, { region: () => ({ top: 100, bottom: 700, left: 0, right: 390 }), now: () => now });
+  const out: TouchEvent2[] = [];
+  const drain = () => ts.drain((e) => out.push({ ...e }));
+  return {
+    ts,
+    out,
+    fire,
+    drain,
+    at: (t: number) => (now = t),
+    get now() {
+      return now;
+    },
+    /** Advance `ms` in 16 ms frames, updating at `rate` and draining. */
+    frames(ms: number, rate = 3) {
+      const end = now + ms;
+      while (now < end) {
+        now = Math.min(end, now + 16);
+        ts.update(now, rate);
+        drain();
       }
-    }
-  });
+    },
+  };
+}
 
-  it('maps the wall margins to columns 0 and 6', () => {
-    expect(columnAt(0, S)).toBe(0);
-    expect(columnAt(40.9, S)).toBe(0);
-    expect(columnAt(349, S)).toBe(6);
-    expect(columnAt(389, S)).toBe(6);
+describe('U-IN1: the cap', () => {
+  it('admits 8 counted hits in any 1 s window across every pointer', () => {
+    const cap = new TapCap();
+    let counted = 0;
+    for (let t = 0; t < 1000; t += 20) if (cap.admit(t)) counted++;
+    expect(counted).toBe(TAP_CAP_PER_S);
+    // Over 10 s of 50 taps/s: 8 per second.
+    const cap2 = new TapCap();
+    let n = 0;
+    for (let t = 0; t < 10_000; t += 20) if (cap2.admit(t)) n++;
+    expect(n).toBeGreaterThanOrEqual(79);
+    expect(n).toBeLessThanOrEqual(81);
   });
-
-  it('ignores vertical position by construction (x only)', () => {
-    expect(columnAt(41 + 44 * 3 + 20, S)).toBe(3);
-  });
-});
-
-describe('swipe hysteresis', () => {
-  it('leaves a column only 0.6 of a column past its edge', () => {
-    // Column 3 spans 173..217; the switch happens past 217 + 26.4.
-    expect(swipeColumn(230, 3, S)).toBe(3);
-    expect(swipeColumn(244, 3, S)).toBe(4);
-    expect(swipeColumn(150, 3, S)).toBe(3);
-    expect(swipeColumn(146, 3, S)).toBe(2);
-    expect(swipeColumn(340, 3, S)).toBe(6);
-  });
-});
-
-describe('the target rule', () => {
-  it('hits the tapped column when its top cell is within 2 rows of the floor', () => {
-    expect(targetColumn(2, [0, 0, 0, 0, 0, 0, 0])).toBe(2);
-    expect(targetColumn(2, [0, 0, 2, 0, 0, 0, 0])).toBe(2);
-  });
-
-  it('goes to the nearest column that is, left first on a tie', () => {
-    expect(targetColumn(3, [0, 9, 9, 9, 9, 0, 0])).toBe(5);
-    expect(targetColumn(3, [0, 0, 9, 9, 9, 0, 0])).toBe(1);
-    expect(targetColumn(3, [9, 9, 0, 9, 0, 9, 9])).toBe(2);
-    expect(targetColumn(0, [Infinity, Infinity, Infinity, Infinity, Infinity, Infinity, 1])).toBe(6);
-  });
-
-  it('returns −1 when no column has a cell in reach', () => {
-    expect(targetColumn(3, [9, 9, 9, 9, 9, 9, 9])).toBe(-1);
-    expect(targetColumn(3, [-1, -1, -1, -1, -1, -1, -1])).toBe(-1);
-  });
-});
-
-describe('regions and reach', () => {
-  it('accepts the world region only', () => {
-    const r = { top: 173, bottom: 610, left: 0, right: 390 };
-    expect(inRegion(100, 172, r)).toBe(false);
-    expect(inRegion(100, 173, r)).toBe(true);
-    expect(inRegion(100, 609, r)).toBe(true);
-    expect(inRegion(100, 610, r)).toBe(false);
-  });
-
-  it('limits entity reach to 4 m above and below the floor (CRITIQUE MUST 8)', () => {
-    expect(inReach(400 - 176, 400)).toBe(true);
-    expect(inReach(400 - 177, 400)).toBe(false);
-    expect(inReach(400 + 176, 400)).toBe(true);
-    expect(inReach(400 + 177, 400)).toBe(false);
-  });
-});
-
-describe('the hold stream rate (CRITIQUE MUST 1)', () => {
-  it('is 3/s base, at most 5/s with Steady Hand, 8/s in a Surge', () => {
+  it('the hold rate: 3/s, +1/3 per Steady Hand to 5/s, 8/s in a Surge', () => {
     expect(holdRate(0, false)).toBe(3);
     expect(holdRate(3, false)).toBe(4);
     expect(holdRate(6, false)).toBe(5);
-    expect(holdRate(60, false)).toBe(5);
+    expect(holdRate(30, false)).toBe(5);
     expect(holdRate(0, true)).toBe(8);
   });
 });
 
-describe('the global tap cap', () => {
-  it('counts at most 8 hits in any 1 s window', () => {
-    const cap = new TapCap();
-    let counted = 0;
-    // 20 taps/s for 3 s.
-    for (let i = 0; i < 60; i++) if (cap.admit(i * 50)) counted++;
-    expect(counted).toBeLessThanOrEqual(3 * TAP_CAP_PER_S);
-    expect(counted).toBeGreaterThanOrEqual(3 * TAP_CAP_PER_S - 1);
+describe('U-IN1: presses, taps, holds, drags', () => {
+  it('a press is queued at pointerdown, the same frame (L1); outside the region nothing', () => {
+    const r = rig();
+    r.fire('pointerdown', 200, 400);
+    expect(r.ts.pending).toBe(1);
+    r.drain();
+    expect(r.out[0].kind).toBe('press');
+    r.fire('pointerdown', 200, 40, 2);
+    expect(r.ts.pending).toBe(0);
+    expect(inRegion(200, 40, { top: 100, bottom: 700, left: 0, right: 390 })).toBe(false);
   });
-
-  it('never caps rhythmic tapping at 5/s or a 7-column swipe started fresh', () => {
-    const cap = new TapCap();
-    for (let i = 0; i < 50; i++) expect(cap.admit(i * 200)).toBe(true);
-    const fresh = new TapCap();
-    for (let i = 0; i < 7; i++) expect(fresh.admit(10_000 + i * 70)).toBe(true);
+  it('a quick release within 12 px is a tap; a slow one is not', () => {
+    const r = rig();
+    r.fire('pointerdown', 200, 400);
+    r.frames(100);
+    r.fire('pointermove', 205, 404);
+    r.fire('pointerup', 205, 404);
+    r.drain();
+    expect(r.out.map((e) => e.kind)).toEqual(['press', 'up', 'tap']);
+    expect(r.out[2].x).toBe(200);
+    r.out.length = 0;
+    r.fire('pointerdown', 200, 400, 3);
+    r.at(r.now + TAP_MAX_MS + 10);
+    r.fire('pointerup', 200, 400, 3);
+    r.drain();
+    expect(r.out.some((e) => e.kind === 'tap')).toBe(false);
   });
-
-  it('three fingers plus a hold cannot beat the cap', () => {
-    const cap = new TapCap();
-    const rng = new Rng(3);
-    const times: number[] = [];
-    for (let f = 0; f < 3; f++) for (let i = 0; i < 40; i++) times.push(i * 100 + rng.next() * 30);
-    for (let i = 0; i < 40; i++) times.push(i * 125); // the hold stream at 8/s
-    times.sort((a, b) => a - b);
-    let counted = 0;
-    for (const t of times) if (cap.admit(t)) counted++;
-    expect(counted).toBeLessThanOrEqual(Math.ceil(4) * TAP_CAP_PER_S + TAP_CAP_PER_S);
-    expect(cap.recent(4000)).toBeLessThanOrEqual(TAP_CAP_PER_S);
+  it('the hold stream starts after 250 ms still and runs at the rate; its release (after 300 ms) is no tap', () => {
+    const r = rig();
+    r.fire('pointerdown', 200, 400);
+    r.frames(HOLD_DELAY_MS - 20);
+    expect(r.out.filter((e) => e.kind === 'hold').length).toBe(0);
+    r.frames(2000 + 20, 3);
+    const holds = r.out.filter((e) => e.kind === 'hold');
+    expect(holds.length).toBeGreaterThanOrEqual(5);
+    expect(holds.length).toBeLessThanOrEqual(7);
+    r.fire('pointerup', 200, 400);
+    r.drain();
+    expect(r.out.some((e) => e.kind === 'tap')).toBe(false);
   });
-});
-
-import { keyAction } from '../../../src/input/DesktopInput';
-
-describe('desktop keys (SPEC §3.1)', () => {
-  it('maps 1–7 to the columns, Space to the last column, B to BEST and Esc to Back; repeats never tap', () => {
-    for (let n = 1; n <= 7; n++) expect(keyAction(`Digit${n}`, false)).toEqual({ kind: 'tap', col: n - 1 });
-    expect(keyAction('Numpad4', false)).toEqual({ kind: 'tap', col: 3 });
-    expect(keyAction('Digit8', false)).toBeNull();
-    expect(keyAction('Digit0', false)).toBeNull();
-    expect(keyAction('Space', false)).toEqual({ kind: 'again' });
-    expect(keyAction('KeyB', false)).toEqual({ kind: 'best' });
-    expect(keyAction('Escape', false)).toEqual({ kind: 'back' });
-    for (const code of ['Digit3', 'Space', 'KeyB', 'Escape']) expect(keyAction(code, true), code).toBeNull();
-    expect(keyAction('KeyW', false)).toBeNull();
-  });
-});
-
-import { TapSurface } from '../../../src/ui/idle/TapSurface';
-
-describe('TapSurface hold stream (SPEC §3.1, CRITIQUE MUST 1)', () => {
-  /** A fake canvas: records listeners so the test can fire pointer events. */
-  function surface() {
-    const listeners = new Map<string, (e: unknown) => void>();
-    const el = { addEventListener: (t: string, fn: (e: unknown) => void) => listeners.set(t, fn), removeEventListener: () => undefined, setPointerCapture: () => undefined };
-    let clock = 0;
-    const ts = new TapSurface(el as unknown as HTMLElement, {
-      region: () => ({ top: 0, bottom: 800, left: 0, right: 390 }),
-      strips: () => ({ left: 41, right: 349, floorY: 400 }),
-      now: () => clock,
-    });
-    const fire = (type: string, x = 195, id = 1) => listeners.get(type)?.({ pointerId: id, clientX: x, clientY: 420, pointerType: 'touch', button: 0, cancelable: false, preventDefault: () => undefined });
-    const kinds = () => {
-      const out: string[] = [];
-      ts.drain((t) => out.push(t.kind));
-      return out;
-    };
-    return { ts, fire, kinds, at: (t: number) => (clock = t) };
-  }
-
-  it('a held finger streams at the hold rate after 250 ms (one frame later than the delay)', () => {
-    const { ts, fire, kinds, at } = surface();
-    at(0);
-    fire('pointerdown');
-    expect(kinds()).toEqual(['tap']);
-    let holds = 0;
-    for (let t = 16; t <= 2000; t += 16) {
-      at(t);
-      ts.update(t, 3);
-      holds += kinds().filter((k) => k === 'hold').length;
+  it('the hold rate follows Steady Hand and the Surge', () => {
+    for (const [rate, lo, hi] of [[5, 9, 11], [8, 15, 17]] as const) {
+      const r = rig();
+      r.fire('pointerdown', 200, 400);
+      r.frames(HOLD_DELAY_MS + 2000, rate);
+      const n = r.out.filter((e) => e.kind === 'hold').length;
+      expect(n).toBeGreaterThanOrEqual(lo);
+      expect(n).toBeLessThanOrEqual(hi);
     }
-    // 3/s from 250 ms to 2 s: 1 + floor(1750 / 333) = 6.
-    expect(holds).toBeGreaterThanOrEqual(5);
-    expect(holds).toBeLessThanOrEqual(6);
   });
-
-  it('a quick tap whose pointerup waited behind one long frame is not read as a hold', () => {
-    const { ts, fire, kinds, at } = surface();
-    at(0);
-    fire('pointerdown');
-    kinds();
-    // One 700 ms frame runs before the queued pointerup is handled.
-    at(700);
-    ts.update(700, 3);
-    expect(kinds()).toEqual([]);
-    fire('pointerup');
-    at(716);
-    ts.update(716, 3);
-    expect(kinds()).toEqual([]);
+  it('a finger that travels > 12 px before 250 ms drags: drag steps, no hold, no tap', () => {
+    const r = rig();
+    r.fire('pointerdown', 200, 400);
+    r.frames(30);
+    r.fire('pointermove', 200 + HOLD_SLOP_PX + 1, 400);
+    r.frames(16);
+    r.fire('pointermove', 260, 380);
+    r.frames(600);
+    r.fire('pointerup', 270, 380);
+    r.drain();
+    const kinds = r.out.map((e) => e.kind);
+    expect(kinds).not.toContain('hold');
+    expect(kinds).not.toContain('tap');
+    const drags = r.out.filter((e) => e.kind === 'drag');
+    expect(drags.length).toBeGreaterThanOrEqual(2);
+    const dx = drags.reduce((a, e) => a + e.dx, 0);
+    const dy = drags.reduce((a, e) => a + e.dy, 0);
+    // The travel after the slop crossing (213 → 270, 400 → 380).
+    expect(dx).toBe(270 - 213);
+    expect(dy).toBe(-20);
   });
-
-  it('one stream for every finger together (three held fingers still give 3/s)', () => {
-    const { ts, fire, kinds, at } = surface();
-    at(0);
-    fire('pointerdown', 100, 1);
-    fire('pointerdown', 195, 2);
-    fire('pointerdown', 300, 3);
-    kinds();
-    let holds = 0;
-    for (let t = 16; t <= 1300; t += 16) {
-      at(t);
-      ts.update(t, 3);
-      holds += kinds().filter((k) => k === 'hold').length;
+  it('one hold stream for every held finger together (the most recent still one leads)', () => {
+    const r = rig();
+    r.fire('pointerdown', 100, 400, 1);
+    r.fire('pointerdown', 300, 400, 2);
+    r.frames(HOLD_DELAY_MS + 1000, 3);
+    const holds = r.out.filter((e) => e.kind === 'hold');
+    expect(holds.length).toBeLessThanOrEqual(4);
+    expect(holds.every((e) => e.id === 2)).toBe(true);
+  });
+  it('a press delivered late by a long frame (its timestamp 900 ms old) waits the hold delay from its arrival: its release is a tap, no hold', () => {
+    const r = rig();
+    r.at(5000);
+    // The finger went down at 4100 and up at 4160; the page sees the down at 5000 and the up one long frame later.
+    r.fire('pointerdown', 200, 400, 1, 4100);
+    r.ts.update(5000, 3);
+    r.drain();
+    r.at(5200);
+    r.ts.update(5200, 3);
+    r.drain();
+    r.fire('pointerup', 200, 400, 1, 4160);
+    r.drain();
+    const kinds = r.out.map((e) => e.kind);
+    expect(kinds).not.toContain('hold');
+    expect(kinds).toEqual(['press', 'up', 'tap']);
+    expect(r.out[2].heldMs).toBe(60);
+  });
+  it('long frames that deliver a moving finger one event per frame: a drag (by the finger\'s clock), never a hold', () => {
+    const r = rig();
+    r.at(16_000);
+    r.fire('pointerdown', 260, 450, 1, 15_100);
+    // Frames 800 ms apart; each brings one move 12 px further (the finger made them 30 ms apart).
+    for (let i = 1; i <= 10; i++) {
+      r.at(16_000 + i * 800);
+      r.fire('pointermove', 260 - 12 * i, 450, 1, 15_100 + 30 * i);
+      r.ts.update(r.now, 3);
+      r.drain();
+      r.at(r.now + 400);
+      r.ts.update(r.now, 3);
+      r.drain();
     }
-    expect(holds).toBeLessThanOrEqual(4);
+    r.fire('pointerup', 140, 450, 1, 15_420);
+    r.drain();
+    const kinds = r.out.map((e) => e.kind);
+    expect(kinds).not.toContain('hold');
+    expect(kinds).not.toContain('tap');
+    expect(r.out.filter((e) => e.kind === 'drag').reduce((a, e) => a + e.dx, 0)).toBeLessThan(-90);
+  });
+  it('the ring never allocates: 32 slots, the overflow counted', () => {
+    const r = rig();
+    for (let i = 0; i < 40; i++) r.ts.push('press', 10, 200, 9, i);
+    expect(r.ts.pending).toBe(32);
+    expect(r.ts.dropped).toBe(8);
   });
 });

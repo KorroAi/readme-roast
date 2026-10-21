@@ -1,9 +1,9 @@
 import { SAVE } from '../config/balance';
-import { normalizeSave, validateSaveData } from './saveData';
+import { migrateV3toV4, normalizeSave, validateSaveData } from './saveData';
 import { sanitizeSettings } from './settings';
 import type { SaveData, Settings } from './types';
 
-export { createNewSave, normalizeSave, saveToState, stateToSave, validateSaveData } from './saveData';
+export { createNewSave, decodeRuns, encodeRuns, migrateV3toV4, normalizeSave, saveToState, stateToSave, validateSaveData } from './saveData';
 
 /**
  * Versioned two-slot persistence.
@@ -120,11 +120,13 @@ export type Migration = (old: Record<string, unknown>) => Record<string, unknown
 
 /**
  * Save format history. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
- * - v3 (the vertical descent): no migration. Saves of versions 1 and 2 belong to the old
- *   cave game, a different game: they are reported as `legacy`, not loaded, and the two-slot rotation
- *   overwrites them with the first v3 saves (SPEC §12.3).
+ * - v3 (the cutaway descent) → v4 (the first-person node crawl, hybrid SPEC §10): the meta is kept (gems, time
+ *   crystals, Embers, Threads, Sigils, records, Feats minus the two the purge removed, Finds, lore, rank), the run starts
+ *   fresh at the camp, and a one-time notice is raised (`meta.rechartNotice` = 1).
+ * - Saves of versions 1 and 2 belong to the old cave game, a different game: they are reported as `legacy`, not loaded,
+ *   and the two-slot rotation overwrites them with the first saves of this build.
  */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = {};
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 3: migrateV3toV4 };
 
 /** Versions before this are the old game (legacy: never loaded). */
 export const FIRST_LOADABLE_VERSION = 3;

@@ -15,7 +15,7 @@ export interface AudioWorldState {
   music?: { mode: string; root: string; bpm: number };
   /** 0..1: the drum layer's target (combo ≥ 25, a Surge, an event, the Plunge). */
   drums?: number;
-  /** 0..1: the boss layer's target (a Warden fight). */
+  /** 0..1: the boss layer's target (a seal fight). */
   boss?: number;
   /** A tap in the last 5 s: the pluck melody plays (SPEC §10.10). */
   plucks?: boolean;

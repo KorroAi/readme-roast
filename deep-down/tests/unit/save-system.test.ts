@@ -3,6 +3,7 @@ import { SAVE } from '../../src/config/balance';
 import {
   LocalStorageStore,
   MemoryStore,
+  MIGRATIONS,
   SAVE_KEYS,
   SaveSystem,
   StoreError,
@@ -206,7 +207,7 @@ describe('SaveSystem', () => {
     const saves = new SaveSystem(store);
     saves.save(sample(1000));
     const bad = sample(2000);
-    bad.run.depth = Number.NaN;
+    bad.run.digDepth = Number.NaN;
     expect(saves.save(bad)).toEqual({ ok: false, error: 'invalid' });
     expect(saves.save({ ...sample(3000), version: SAVE.version + 1 } as unknown as SaveData)).toEqual({ ok: false, error: 'invalid' });
     expect(store.getItem(SAVE_KEYS.slotB)).toBeNull();
@@ -288,7 +289,7 @@ describe('SaveSystem', () => {
       });
     }
 
-    it('the notice is pending once, and the first v3 saves overwrite both legacy slots (S2)', () => {
+    it('the notice is pending once, and the first v4 saves overwrite both legacy slots (S2)', () => {
       const store = new MemoryStore();
       store.setItem(SAVE_KEYS.slotA, envelopeOf(legacy(2, 500)));
       store.setItem(SAVE_KEYS.slotB, envelopeOf(legacy(1, 400)));
@@ -303,13 +304,13 @@ describe('SaveSystem', () => {
       expect('invertY' in saves.loadSettings()).toBe(false);
       expect(saves.save(sample(1000)).ok).toBe(true);
       expect(saves.save(sample(2000)).ok).toBe(true);
-      for (const key of [SAVE_KEYS.slotA, SAVE_KEYS.slotB]) expect(JSON.parse(JSON.parse(store.getItem(key)!).json).version).toBe(3);
+      for (const key of [SAVE_KEYS.slotA, SAVE_KEYS.slotB]) expect(JSON.parse(JSON.parse(store.getItem(key)!).json).version).toBe(4);
       const res = new SaveSystem(store).load();
       expect(res).toMatchObject({ recovered: false, data: { savedAt: 2000 } });
       expect(res.legacy).toBeUndefined();
     });
 
-    it('a legacy slot beside a v3 slot: the v3 save loads (no recovery flag)', () => {
+    it('a legacy slot beside a v4 slot: the v4 save loads (no recovery flag)', () => {
       const store = new MemoryStore();
       new SaveSystem(store).save(sample(1000)); // a
       store.setItem(SAVE_KEYS.slotB, envelopeOf(legacy(2, 3000)));
@@ -329,11 +330,12 @@ describe('SaveSystem', () => {
       expect(new SaveSystem(store).load()).toMatchObject({ recovered: true, data: { savedAt: 1000 } });
     });
 
-    it('the current version is 3 and loads with the default (empty) migration table', () => {
-      expect(SAVE.version).toBe(3);
+    it('the current version is 4 (the node crawl), and a v3 save migrates through MIGRATIONS[3]', () => {
+      expect(SAVE.version).toBe(4);
+      expect(typeof MIGRATIONS[3]).toBe('function');
       const store = new MemoryStore();
       new SaveSystem(store).save(sample(1));
-      expect(new SaveSystem(store).load().data?.version).toBe(3);
+      expect(new SaveSystem(store).load().data?.version).toBe(4);
     });
   });
 });
@@ -413,8 +415,8 @@ describe('validateSaveData / createNewSave', () => {
   it('a new save is a fresh game at the surface and is valid', () => {
     const d = createNewSave(123, 77);
     expect(validateSaveData(d)).toBe(true);
-    expect(d).toMatchObject({ version: 3, savedAt: 77, seed: 123, playTime: 0, runIndex: 0 });
-    expect(d.run).toMatchObject({ depth: 0, pick: 1, lines: [], gear: [], gold: [0, 0] });
+    expect(d).toMatchObject({ version: 4, savedAt: 77, seed: 123, playTime: 0, runIndex: 0 });
+    expect(d.run).toMatchObject({ digDepth: 0, node: 0, phase: 'dig', pick: 1, lines: [], gear: [], gold: [0, 0] });
     expect(d.run.rows.length).toBeGreaterThanOrEqual(4);
     expect(d.run.rows[0].kinds).toHaveLength(7);
     expect(d.meta).toMatchObject({ gems: 0, record: 0, sealsOpened: [], tutorial: { step: 0, done: false } });
@@ -425,8 +427,8 @@ describe('validateSaveData / createNewSave', () => {
     ['fractional version', (d) => ((d as { version: number }).version = 3.5)],
     ['missing run', (d) => delete (d as Partial<SaveData>).run],
     ['missing meta', (d) => delete (d as Partial<SaveData>).meta],
-    ['NaN depth', (d) => (d.run.depth = Number.NaN)],
-    ['negative depth', (d) => (d.run.depth = -3)],
+    ['NaN depth', (d) => (d.run.digDepth = Number.NaN)],
+    ['negative depth', (d) => (d.run.digDepth = -3)],
     ['pick 0', (d) => (d.run.pick = 0)],
     ['gold not a pair', (d) => ((d.run as unknown as Record<string, unknown>).gold = 12)],
     ['lines not an array', (d) => ((d.run as unknown as Record<string, unknown>).lines = { 0: 1 })],

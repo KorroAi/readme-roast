@@ -169,7 +169,7 @@ function playWidgets(s: IdleState, bus: IdleBus, out: ModelTap[], facets = true)
     if (x.kind === 'strike' && Math.abs(strikePos(x as StrikeWidget, s.time) - (x as StrikeWidget).zone) < 0.06) widgetTap(s, x.id, 0, bus);
     if (x.kind === 'catch') for (const tg of x.targets) if (tg.state === 'live') out.push({ col: -1, kind: 'tap', entity: tg.id });
   }
-  if (s.moth && s.time - s.moth.born > 0.6) out.push({ col: -1, kind: 'tap', entity: s.moth.id });
+  if (s.ember && s.time - s.ember.born > 0.6) out.push({ col: -1, kind: 'tap', entity: s.ember.id });
   if (s.chests.length) out.push({ col: -1, kind: 'tap', entity: s.chests[0].id });
   if (s.hand && facets) pick(s, highlighted(s), bus);
 }

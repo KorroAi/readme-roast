@@ -7,6 +7,7 @@ import { rowsCostLog10 } from '../config/curves';
 import { CATACLYSM, dynamiteRows, earthquakeSeconds, skillDef, SKILLS } from '../config/skills';
 import { activeDpsLog10, crewDpsLog10 } from './run';
 import { analyticRows, settleFloor } from './shaft';
+import { playerStopDepth } from './nodes';
 import { flagSecret } from './feats';
 import { CELL, type IdleState } from './state';
 
@@ -67,7 +68,10 @@ function dynamite(s: IdleState, level: number, bus?: IdleBus): void {
   const rows = dynamiteRows(level);
   const from = s.run.depth;
   if (s.shaft.rows[0].kinds[0] === CELL.SEAL) return;
-  const work = rowsCostLog10(from, from + rows) + 1e-9;
+  // Never past the breach of the player's drift (the node layer: the chamber behind it is not rock).
+  const to = Math.min(from + rows, playerStopDepth(s));
+  if (to <= from) return;
+  const work = rowsCostLog10(from, to) + 1e-9;
   const before = s.run.gold.clone();
   analyticRows(s, work, bus, 'skill');
   settleFloor(s, bus, 'skill');

@@ -4,7 +4,7 @@
 // is replaced at once; a reroll costs 2 gems. i18n `idle.contract.<tpl>` with {n} (and {ore}/{biome} where used).
 
 export type ContractTpl =
-  | 'cells' | 'ores' | 'depth' | 'catch' | 'chests' | 'crits' | 'combo' | 'levels' | 'skills' | 'seal' | 'creature'
+  | 'cells' | 'ores' | 'depth' | 'catch' | 'chests' | 'crits' | 'combo' | 'levels' | 'skills' | 'seal' | 'lamps'
   | 'find' | 'gold' | 'perfect' | 'planted';
 
 export interface ContractDef {
@@ -15,7 +15,7 @@ export interface ContractDef {
   unlock: number;
   /** Rounding of the target (to a nice number). */
   round: number;
-  /** Fixed targets for things that cannot be rated (a seal, a creature): the target is this, ETA from the cadence. */
+  /** Fixed targets for things that cannot be rated (a seal, lamps): the target is this, ETA from the cadence. */
   fixed?: number;
 }
 
@@ -30,7 +30,7 @@ export const CONTRACTS: readonly ContractDef[] = [
   { tpl: 'levels', mechanic: 'buy', unlock: 0, round: 5 },
   { tpl: 'skills', mechanic: 'skill', unlock: 30, round: 1 },
   { tpl: 'seal', mechanic: 'seal', unlock: 40, round: 1, fixed: 1 },
-  { tpl: 'creature', mechanic: 'creature', unlock: 40, round: 1, fixed: 1 },
+  { tpl: 'lamps', mechanic: 'lamp', unlock: 0, round: 1, fixed: 3 },
   { tpl: 'find', mechanic: 'find', unlock: 120, round: 1, fixed: 1 },
   { tpl: 'gold', mechanic: 'gold', unlock: 0, round: 1 },
   { tpl: 'perfect', mechanic: 'strike', unlock: 120, round: 1, fixed: 1 },

@@ -41,7 +41,7 @@ describe('WebView 88 compatibility (U5)', () => {
   const all = files(ROOT);
   it('scans the UI, game, audio and render code', () => {
     expect(all.some((f) => f.endsWith('ui.css'))).toBe(true);
-    expect(all.some((f) => f.endsWith('idle.css'))).toBe(true);
+    expect(all.some((f) => f.endsWith('hybrid.css'))).toBe(true);
     expect(all.length).toBeGreaterThan(100);
   });
 

@@ -1,5 +1,5 @@
 // One fixed step of the whole model (SPEC §12.2 step 2): taps → resolveTap, crew strikes, crumbles,
-// the seal, skills, the Surge, the Lucky Moth, unlocks, the tutorial, goals and hints. The game calls
+// the seal, skills, the Surge, the Drifting Ember, unlocks, the tutorial, goals and hints. The game calls
 // `stepIdle` at 60 Hz (≤ 4 steps a frame); the sim and the tests call it with any dt (≤ 0.5 s keeps the
 // impact frames exact; larger jumps go through `advanceIdle`, the closed form).
 
@@ -12,7 +12,7 @@ import { SKILLS } from '../config/skills';
 import { ensureCrewClock, stepCrew } from './crew';
 import { tickGoals, initGoals } from './goals';
 import { tickHints } from './hints';
-import { tickMoth } from './moth';
+import { tickEmber } from './ember';
 import { tapEntity } from './entities';
 import { newDirector, tickDirector } from './director';
 import { tickContracts } from './contracts';
@@ -28,11 +28,13 @@ import { comboCap, refreshRates } from './run';
 import { tickSeal } from './seals';
 import { resetWindow, tickCrumbles, weakestCell } from './shaft';
 import { tickSkills } from './skills';
-import { type IdleState, newMeta, runSeedOf } from './state';
+import { type IdleState, newMeta, newNodeState, runSeedOf } from './state';
+import { applyNodeAction, enableNodes, tickNodes, type NodeAction } from './nodes';
 import { resolveTap, tickCombo, tickSurge, type ModelTap } from './tap';
 import { initTutorial, tickTutorial } from './tutorial';
 
 export type { ModelTap } from './tap';
+export type { NodeAction } from './nodes';
 
 /** The model's fixed step (s). */
 export const STEP_DT = 1 / 60;
@@ -41,6 +43,7 @@ export const STEP_DT = 1 / 60;
 export function createIdle(seed: number, now: number): IdleState {
   const s: IdleState = {
     v: 3,
+    node: newNodeState(false),
     seed: seed >>> 0,
     runIndex: 0,
     runSeed: runSeedOf(seed >>> 0, 0),
@@ -51,15 +54,15 @@ export function createIdle(seed: number, now: number): IdleState {
     run: newRun(),
     meta: newMeta(),
     shaft: { rows: [] },
-    tap: { combo: 0, lastHit: -Infinity, decayAt: 0, tierShown: 0, surge: 0, surgeEnd: 0, surgeArmedAt: 0, rng: ((seed >>> 0) ^ 0xa5a5a5a5) >>> 0 || 1, hitsThisSecond: 0, secondStart: 0, drum: 0, peak: 0 },
+    tap: { combo: 0, lastHit: -Infinity, decayAt: 0, tierShown: 0, surge: 0, surgeEnd: 0, surgeArmedAt: 0, rng: ((seed >>> 0) ^ 0xa5a5a5a5) >>> 0 || 1, hitsThisSecond: 0, secondStart: 0, drum: 0, peak: 0, holdSince: -1, holdLast: -1 },
     seal: null,
     goals: initGoals(),
     tutorial: initTutorial(),
     hints: { lastShown: -Infinity, lastHitAt: 0, bestReadySince: -1, bestReadyId: '' },
     offline: null,
     chests: [],
-    moth: null,
-    nextMothAt: Infinity,
+    ember: null,
+    nextEmberAt: Infinity,
     nextId: 1,
     crewT0: [],
     crewPending: [],
@@ -77,6 +80,16 @@ export function createIdle(seed: number, now: number): IdleState {
   };
   resetWindow(s, 0);
   refreshRates(s, 0);
+  return s;
+}
+
+/**
+ * A brand-new game of the first-person hybrid: the node layer on, the player at the adit plug (node 0) in the dig phase
+ * (SPEC §7: the first launch goes straight to the plug face at the camp at dusk).
+ */
+export function createHybrid(seed: number, now: number): IdleState {
+  const s = createIdle(seed, now);
+  enableNodes(s);
   return s;
 }
 
@@ -117,17 +130,42 @@ export function newRun(): IdleState['run'] {
 }
 
 /**
- * One fixed step: `dt` seconds (1/60 in the game), the counted taps of this step, events on `bus`.
- * `nowMs` (epoch) advances the wall clock for daily items and the save (defaults to + dt).
+ * One fixed step: `dt` seconds (1/60 in the game), the counted taps of this step, the node actions of this step (BUILD §2:
+ * every touch resolves to one `NodeAction`), events on `bus`. `nowMs` (epoch) advances the wall clock for daily items and
+ * the save (defaults to + dt). The older form without `actions` (`stepIdle(s, dt, taps, bus, nowMs)`) still works.
  */
-export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bus?: IdleBus, nowMs?: number): void {
+export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], actions: readonly NodeAction[], bus?: IdleBus, nowMs?: number): void;
+export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bus?: IdleBus, nowMs?: number): void;
+export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], a?: readonly NodeAction[] | IdleBus, b?: IdleBus | number, c?: number): void {
+  let actions: readonly NodeAction[] = NO_ACTIONS;
+  let bus: IdleBus | undefined;
+  let nowMs: number | undefined;
+  if (Array.isArray(a)) {
+    actions = a;
+    bus = b as IdleBus | undefined;
+    nowMs = c;
+  } else {
+    bus = a as IdleBus | undefined;
+    nowMs = b as number | undefined;
+  }
+  stepModel(s, dt, taps, actions, bus, nowMs);
+}
+
+const NO_ACTIONS: readonly NodeAction[] = [];
+
+function stepModel(s: IdleState, dt: number, taps: readonly ModelTap[], actions: readonly NodeAction[], bus: IdleBus | undefined, nowMs: number | undefined): void {
   s.time += dt;
   s.playTime += dt;
   s.run.runTime += dt;
   const wall = nowMs ?? s.now + dt * 1000;
   s.now = wall;
   if (wall > s.monotonicMs) s.monotonicMs = wall;
-  // 1. Taps, in order.
+  // 1. Node actions (every touch of the hybrid), then the counted taps, in order.
+  let counted = 0;
+  for (const act of actions) {
+    applyNodeAction(s, act, bus);
+    if (act.type === 'strike') counted++;
+  }
   for (const tp of taps) {
     if (tp.entity) {
       tapEntity(s, tp.entity, bus);
@@ -136,10 +174,9 @@ export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bu
     resolveTap(s, tp.col, tp.kind, bus);
   }
   // A running estimate of the tap rate (exponential, τ 3 s) for rates and ETAs.
-  let counted = 0;
   for (const tp of taps) if (!tp.entity) counted++;
   const est = s.rates.tapsPerSec + (counted / Math.max(dt, 1e-6) - s.rates.tapsPerSec) * Math.min(1, dt / 3);
-  // 2. The crew, the crumble, the seal, skills, the combo, the Surge, the moth, the Director, boosts.
+  // 2. The crew, the crumble, the seal, skills, the combo, the Surge, the ember, the Director, boosts.
   stepCrew(s, dt, bus);
   tickCrumbles(s, bus);
   tickSeal(s, bus);
@@ -147,9 +184,10 @@ export function stepIdle(s: IdleState, dt: number, taps: readonly ModelTap[], bu
   tickCombo(s, bus);
   tickSurge(s, bus);
   tickDrum(s, dt, bus);
-  tickMoth(s, dt, bus);
+  tickEmber(s, dt, bus);
   tickDirector(s, dt, bus);
   tickBoosts(s, bus);
+  tickNodes(s, bus);
   // 3. Unlocks from depth.
   unlocks(s, bus);
   // 4. Rates (every step is cheap enough: a few logs), guidance.
@@ -247,6 +285,8 @@ export function startRun(s: IdleState): void {
   s.hand = null;
   s.overrides = [];
   s.hits = {};
+  const on = s.node.on;
+  s.node = newNodeState(on);
   invalidateMults(s);
   resetWindow(s, 0);
 }

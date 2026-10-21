@@ -1,13 +1,13 @@
-import { IdleGame } from './game/IdleGame';
+import { HybridGame } from './game/hybrid/HybridGame';
 import { Renderer } from './render/Renderer';
 import { GOVERNOR, QualityGovernor, initialQuality } from './render/QualityGovernor';
 import { LocalStorageStore, SAVE_KEYS, SaveSystem } from './save/SaveSystem';
 import { t } from './i18n';
 import { BUILD, VERSION, VERSION_CODE } from './version';
 
-// Entry point and the release shell around the idle game (src/game/IdleGame.ts): the crash panel, the Android bridge
-// (Back, lifecycle), the context-loss notice and the automatic quality governor. Everything
-// here talks to the game through its public API only.
+// Entry point and the release shell around the first-person game (src/game/hybrid/HybridGame.ts): the crash panel, the
+// Android bridge (Back, lifecycle), the context-loss notice and the automatic quality governor. Everything here talks to
+// the game through its public API only.
 
 /** What the Android shell (android/.../MainActivity.java) injects as window.DeepDownAndroid. */
 interface AndroidBridge {
@@ -23,7 +23,7 @@ type ReleaseWindow = Window & {
 };
 const win = window as ReleaseWindow;
 
-let game: IdleGame | null = null;
+let game: HybridGame | null = null;
 let booted = false;
 
 // ---------------------------------------------------------------------------------------
@@ -89,7 +89,7 @@ const panel = (() => {
       return details();
     },
     /** The GPU's name for the report (UNMASKED_RENDERER where the browser exposes it). */
-    readRenderer(g: IdleGame): void {
+    readRenderer(g: HybridGame): void {
       try {
         const gl = g.renderer.gl.getContext();
         const ext = gl.getExtension('WEBGL_debug_renderer_info');
@@ -198,11 +198,11 @@ window.addEventListener('unhandledrejection', (e) => {
 
 win.deepDownBack = () => !panel.visible;
 
-/** Back belongs to the page everywhere except the main menu root (and the crash panel). */
+/** Back belongs to the page everywhere except the camp at dusk with nothing open (the menu root) and the crash panel. */
 function backHandled(): boolean {
   if (panel.visible) return false;
   if (!game || !booted) return true;
-  return !(game.mode === 'menu' && game.screen === 'menu');
+  return game.screen !== 'menu';
 }
 
 {
@@ -244,7 +244,7 @@ win.deepDownLifecycle = (phase) => {
 // restores it on its own; meanwhile the game pauses behind a notice, and after 10 s without the
 // context back the crash panel takes over.
 
-function watchContext(g: IdleGame): void {
+function watchContext(g: HybridGame): void {
   const canvas = g.renderer.gl.domElement;
   let notice: HTMLElement | null = null;
   let timer = 0;
@@ -343,7 +343,7 @@ function firstLaunch(): AutoQState {
   return state;
 }
 
-function startGovernor(g: IdleGame, state: AutoQState): QualityGovernor {
+function startGovernor(g: HybridGame, state: AutoQState): QualityGovernor {
   const store = new LocalStorageStore();
   const gov = new QualityGovernor(state.auto);
   let expected = { quality: g.settings.quality, renderScale: g.settings.renderScale };
@@ -391,11 +391,11 @@ async function boot(): Promise<void> {
   const autoq = prepareAutoQuality();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ui = document.getElementById('ui') as HTMLElement;
-  game = new IdleGame(canvas, ui);
+  game = new HybridGame(canvas, ui);
   await game.boot();
   const g = game;
   booted = true;
-  // The boot mark (index.html) gives way to the first frame of the shaft.
+  // The boot mark (index.html) gives way to the first frame of the descent.
   const mark = document.getElementById('dd-boot');
   if (mark) {
     mark.style.transition = 'opacity 240ms ease';
@@ -411,7 +411,7 @@ async function boot(): Promise<void> {
   });
   watchContext(g);
   const gov = autoq ? startGovernor(g, autoq) : null;
-  // Test and support surface for the release shell (the game's own is window.__DD__.idle).
+  // Test and support surface for the release shell (the game's own is window.__DD__.hybrid).
   win.__DD_RELEASE__ = {
     version: { version: VERSION, build: BUILD, versionCode: VERSION_CODE },
     crashPanel: () => panel.visible,

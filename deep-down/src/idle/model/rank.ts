@@ -1,5 +1,5 @@
 // Rank (SPEC §7.7; never resets): XP from everything (cells below the record, ores, chests, purchases, ★, pick tiers,
-// biomes, gates, seals, Feats, events, contracts, creatures, Finds). need(r) = 120 · r^0.78. Rewards: +0.5 % to all per
+// biomes, gates, seals, Feats, events, contracts, Finds, lamps, charts). need(r) = 120 · r^0.78. Rewards: +0.5 % to all per
 // rank (mult.ts), 2–10 gems, a Copper-floor chest every 5 ranks, a cosmetic every 10 and a Might title every 25.
 
 import type { IdleBus } from '../bus';

@@ -24,6 +24,7 @@ import { mults } from './mult';
 import { collectPassed } from './records';
 import { currentPage, rollFind } from './codex';
 import { chartedGate } from './seals';
+import { onFrontMoved, stopDepthFor } from './nodes';
 
 const L10 = Math.log10;
 
@@ -262,10 +263,11 @@ function living(row: RowState): number {
  * 2 rows below the floor, else the nearest column's. Returns [col, depth] or null (never: the floor row
  * always has a solid cell while it is the floor).
  */
-export function targetCell(s: IdleState, col: number, maxBelow = 2): { col: number; depth: number } | null {
+export function targetCell(s: IdleState, col: number, maxBelow = 2, stopAt = Infinity): { col: number; depth: number } | null {
   const top = (c: number): number => {
     for (let i = 0; i <= maxBelow && i < s.shaft.rows.length; i++) {
       const r = s.shaft.rows[i];
+      if (r.depth >= stopAt) break;
       if (r.left[c] > 0 && !(r.crumbleMask & (1 << c))) return r.depth;
     }
     return -1;
@@ -315,6 +317,12 @@ export interface HitOpts {
   rowLimit?: number;
   /** Gold multiplier (log10) on cells this hit breaks (Gold Rush…). */
   goldLog10?: number;
+  /**
+   * Rows at or past this depth are never touched (the node layer: the breach of the player's drift + 1 for the
+   * player, the leash or an unopened seal for the crew). Defaults to `stopDepthFor(s, source)`; the overflow is
+   * returned unabsorbed (`HitResult.absorbed`).
+   */
+  stopAt?: number;
 }
 
 /** The outcome of one hit (for tap:hit and the tests). */
@@ -353,8 +361,10 @@ export function applyHit(s: IdleState, col: number, depth: number, dmgLog10: num
   r.left = first ? first.left[col] : 0;
   let left = dmgLog10;
   if (left === -Infinity) return r;
+  const stopAt = o.stopAt ?? stopDepthFor(s, o.source);
+  if (depth >= stopAt) return r;
   // 1. The target, then down the column.
-  const maxDepth = s.run.depth + 8;
+  const maxDepth = Math.min(s.run.depth + 8, stopAt - 1);
   let d = depth;
   let chain = 0;
   let firstDone = false;
@@ -381,8 +391,9 @@ export function applyHit(s: IdleState, col: number, depth: number, dmgLog10: num
     settleFloor(s, bus, o.source);
     const floor = s.shaft.rows[0];
     if (floor.kinds[0] === CELL.SEAL) break;
+    if (floor.depth >= stopAt) break;
     if (rows >= rowLimit && left >= rowCostLog10(floor.depth) + L10(2)) {
-      left = analyticRows(s, left, bus, o.source);
+      left = analyticRows(s, left, bus, o.source, stopAt);
       break;
     }
     const c = nearestLiving(floor, col);
@@ -474,7 +485,7 @@ function breakCell(s: IdleState, row: RowState, c: number, kind: CellKind, sourc
   }
 }
 
-/** log10 of the run's gold multipliers (Gold Rush while active; Finds, the Bestiary, Marks, Biome Seals, facets). */
+/** log10 of the run's gold multipliers (Gold Rush while active; Finds, Marks, Biome Seals, facets). */
 export function goldMultLog10(s: IdleState): number {
   let l = mults(s).gold;
   const gr = s.run.skills.goldRush;
@@ -576,6 +587,7 @@ export function settleFloor(s: IdleState, bus: IdleBus | undefined, source: HitS
     if (open >= 3) bus?.emit('cavern:breakthrough', { from, to: s.run.depth, fall: open });
     bus?.emit('row:clear', { depth: s.run.depth, rows: dropped, source });
     onDepth(s, from, bus);
+    onFrontMoved(s, from, s.run.depth, source, bus);
   }
   return dropped;
 }
@@ -645,10 +657,11 @@ export function onDepth(s: IdleState, from: number, bus?: IdleBus): void {
  * Pays HP dug × gold per damage, racks chest cells passed (10 max, the rest to gold; CRITIQUE MUST 5).
  * Returns the work left over (−Infinity when it was all used).
  */
-export function analyticRows(s: IdleState, work: number, bus: IdleBus | undefined, source: HitSource): number {
+export function analyticRows(s: IdleState, work: number, bus: IdleBus | undefined, source: HitSource, stopAt = stopDepthFor(s, source)): number {
   const from = s.run.depth;
   // Finish the floor row first (its living cells), cell by cell is not needed: account it as a row.
-  const stop = nextSealDepth(s, from);
+  const stop = Math.min(nextSealDepth(s, from), stopAt);
+  if (stop <= from) return work;
   const res = rowsForWork(from, work, stop);
   if (res.rows <= 0 && res.frac <= 0) return work;
   const to = from + res.rows;
@@ -681,7 +694,9 @@ export function analyticRows(s: IdleState, work: number, bus: IdleBus | undefine
   bus?.emit('row:clear', { depth: to, rows: res.rows, source });
   if (to > s.run.dmax) s.run.dmax = to;
   onDepth(s, from, bus);
-  return -Infinity;
+  onFrontMoved(s, from, to, source, bus);
+  // Past the stop the work is left over (the leash's haul, the player's overkill past the breach).
+  return Number.isFinite(stop) && to >= stop ? subLog(work, res.used) : -Infinity;
 }
 
 /** log10 of the floor row's remaining HP (for the crew's weakest-first and the ETA). */

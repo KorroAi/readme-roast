@@ -21,6 +21,26 @@ for (let v = 0; v < 256; v++) {
   DECAY_EDGE[v] = Math.max(0, Math.floor(v * Math.pow(LIGHT.falloffPerStep, Math.SQRT2)) - LIGHT.tailCut);
 }
 
+/** Decay tables for a voxel step of `stepMetres` (multiplicative falloff, a small constant tail cut). */
+export function decayTables(stepMetres = 1): { face: Uint8Array; edge: Uint8Array; reach: number } {
+  if (stepMetres === 1) return { face: DECAY_FACE, edge: DECAY_EDGE, reach: LIGHT_REACH };
+  const face = new Uint8Array(256);
+  const edge = new Uint8Array(256);
+  const k = Math.pow(LIGHT.falloffPerStep, stepMetres);
+  const cut = Math.max(1, Math.round(LIGHT.tailCut * stepMetres));
+  for (let v = 0; v < 256; v++) {
+    face[v] = Math.max(0, Math.floor(v * k) - cut);
+    edge[v] = Math.max(0, Math.floor(v * Math.pow(k, Math.SQRT2)) - cut);
+  }
+  let v: number = LIGHT.maxLevel;
+  let steps = 0;
+  while (v > 0) {
+    v = face[v];
+    steps++;
+  }
+  return { face, edge, reach: steps + 1 };
+}
+
 /** Farthest a full-intensity emitter can reach, in steps; local updates must cover it. */
 export const LIGHT_REACH = (() => {
   let v: number = LIGHT.maxLevel;
@@ -43,6 +63,11 @@ const EDGE_DIRS: ReadonlyArray<readonly [number, number, number]> = [
 ];
 
 export interface LightOptions {
+  /**
+   * Metres per voxel step (default 1). The hybrid's 0.5 m grid passes 0.5: the decay per step becomes
+   * falloffPerStep^0.5 and the tail cut is spread over two steps, so light keeps the same reach in metres.
+   */
+  stepMetres?: number;
   /**
    * The y axis is a ring (RingWorld): y neighbours wrap from the last storage row to the first. A dead
    * (bedrock) slab in the ring is the barrier between the window's bottom and its top.
@@ -93,9 +118,18 @@ export class LightField {
   private lz1 = 0;
 
   /** @param data optional precomputed light buffer to adopt (e.g. from the loading worker). */
+  /** Per-step decay tables and the reach in steps (LightOptions.stepMetres). */
+  readonly decayFace: Uint8Array;
+  readonly decayEdge: Uint8Array;
+  readonly reach: number;
+
   constructor(world: VoxelWorld, data?: Uint8Array, options: LightOptions = {}) {
     this.world = world;
     this.wrapY = !!options.wrapY;
+    const t = decayTables(options.stepMetres ?? 1);
+    this.decayFace = t.face;
+    this.decayEdge = t.edge;
+    this.reach = t.reach;
     if (data && data.length !== world.sx * world.sy * world.sz * 4) throw new Error('light buffer size mismatch');
     this.data = data ?? new Uint8Array(world.sx * world.sy * world.sz * 4);
     this.changedRows = new Uint8Array(world.sy);
@@ -228,8 +262,8 @@ export class LightField {
       this.data[i * 4 + 3] = 0;
       // Adding an occluder can darken anything its shadow reaches: rebuild locally (rare).
       this.recomputeBox({
-        x0: x - LIGHT_REACH, y0: y - LIGHT_REACH, z0: z - LIGHT_REACH,
-        x1: x + LIGHT_REACH, y1: y + LIGHT_REACH, z1: z + LIGHT_REACH,
+        x0: x - this.reach, y0: y - this.reach, z0: z - this.reach,
+        x1: x + this.reach, y1: y + this.reach, z1: z + this.reach,
       });
       return this.changed;
     }
@@ -331,13 +365,13 @@ export class LightField {
           if (k < 6) {
             n = this.fn[k];
             if (n < 0) continue;
-            decayed = DECAY_FACE[lvl];
+            decayed = this.decayFace[lvl];
           } else {
             const e = k - 6;
             n = this.edgeN(e, cx, cy, cz);
             if (n < 0) continue;
             if (SOLID[blocks[this.fn[this.edgeFa[e]]]] && SOLID[blocks[this.fn[this.edgeFb[e]]]]) continue;
-            decayed = DECAY_EDGE[lvl];
+            decayed = this.decayEdge[lvl];
           }
           const v = d[n * 4 + c];
           if (v === 0) continue;
@@ -565,17 +599,17 @@ export class LightField {
     for (let k = 0; k < 6; k++) {
       const n = this.fn[k];
       if (n < 0) continue;
-      r = Math.max(r, DECAY_FACE[d[n * 4]]);
-      g = Math.max(g, DECAY_FACE[d[n * 4 + 1]]);
-      bl = Math.max(bl, DECAY_FACE[d[n * 4 + 2]]);
+      r = Math.max(r, this.decayFace[d[n * 4]]);
+      g = Math.max(g, this.decayFace[d[n * 4 + 1]]);
+      bl = Math.max(bl, this.decayFace[d[n * 4 + 2]]);
     }
     for (let e = 0; e < 12; e++) {
       const n = this.edgeN(e, x, y, z);
       if (n < 0) continue;
       if (SOLID[blocks[this.fn[this.edgeFa[e]]]] && SOLID[blocks[this.fn[this.edgeFb[e]]]]) continue;
-      r = Math.max(r, DECAY_EDGE[d[n * 4]]);
-      g = Math.max(g, DECAY_EDGE[d[n * 4 + 1]]);
-      bl = Math.max(bl, DECAY_EDGE[d[n * 4 + 2]]);
+      r = Math.max(r, this.decayEdge[d[n * 4]]);
+      g = Math.max(g, this.decayEdge[d[n * 4 + 1]]);
+      bl = Math.max(bl, this.decayEdge[d[n * 4 + 2]]);
     }
     d[i * 4] = r;
     d[i * 4 + 1] = g;
@@ -608,7 +642,7 @@ export class LightField {
       const r = d[i * 4];
       const g = d[i * 4 + 1];
       const b = d[i * 4 + 2];
-      if (DECAY_FACE[r] === 0 && DECAY_FACE[g] === 0 && DECAY_FACE[b] === 0) continue;
+      if (this.decayFace[r] === 0 && this.decayFace[g] === 0 && this.decayFace[b] === 0) continue;
       const z = (i / sxy) | 0;
       const rem = i - z * sxy;
       const y = (rem / sx) | 0;
@@ -622,7 +656,7 @@ export class LightField {
         if (k < 6) {
           n = interior ? i + faceOff[k] : fn[k];
           if (n < 0) continue;
-          table = DECAY_FACE;
+          table = this.decayFace;
         } else {
           const e = k - 6;
           let a: number;
@@ -638,7 +672,7 @@ export class LightField {
             n = a + (bb - i);
           }
           if (SOLID[blocks[a]] && SOLID[blocks[bb]]) continue;
-          table = DECAY_EDGE;
+          table = this.decayEdge;
         }
         if (SOLID[blocks[n]]) continue;
         const dir = k < 6 ? FACE_DIRS[k] : EDGE_DIRS[k - 6];

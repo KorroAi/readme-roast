@@ -1,12 +1,17 @@
-// Haptics (SPEC §10.11): short vibrations for the moments a thumb should feel. navigator.vibrate exists on Android
+// Haptics (hybrid SPEC §9.3): short vibrations for the moments a thumb should feel. navigator.vibrate exists on Android
 // browsers and the WebView shell (iOS has none, so it is simply absent). A limiter keeps the phone from turning
 // into a buzzer: ≤ 20 calls a second, ≤ 40 % duty over any 1 s, a minimum gap per pattern, and a priority
 // order (a biome reveal beats a tap). JuiceDirector calls `play(kind)`; the gate is the setting, a touch as the
 // last input, the page visible and play mode.
 
 export const HAPTIC_PATTERNS = {
-  tap: [10],
+  // The first-person table (hybrid SPEC §9.3): strike 8–10 ms; block break 15–20 ms; breakthrough 35 ms; Dynamite
+  // 60 ms; seal weak hit 25 ms; seal split two pulses (40 + 60 ms); chest tier step 10 ms each.
+  tap: [9],
   break: [18],
+  breakthrough: [35],
+  chest: [10],
+  buy: [8],
   ore: [22],
   crit: [14],
   row: [16],
@@ -19,10 +24,10 @@ export const HAPTIC_PATTERNS = {
   chestStep: [12],
   chestOpen: [16],
   chestBig: [40, 30, 60],
-  seal: [40, 60, 40, 60, 120],
+  seal: [40, 60, 60],
   biome: [50, 40, 80],
   surge: [20, 30, 20, 30, 40],
-  dynamite: [30, 20, 40],
+  dynamite: [60],
   combo: [12],
   plungeLand: [30, 30, 60],
   rekindle: [60, 40, 120],
@@ -34,8 +39,7 @@ export const HAPTIC_PATTERNS = {
   feat: [12, 40, 18],
   gate: [20, 40, 30],
   event: [12, 40, 12],
-  creature: [16],
-  sealHit: [8],
+  sealHit: [25],
   weak: [14, 20, 14],
   strike: [22],
   perfect: [30, 30, 50],
@@ -48,13 +52,14 @@ export const HAPTIC_PATTERNS = {
 export type HapticKind = keyof typeof HAPTIC_PATTERNS;
 
 /** Minimum gap between two plays of one pattern (ms). */
-const MIN_GAP: Partial<Record<HapticKind, number>> = { tap: 60, break: 70, ore: 90, crit: 120, row: 150, gem: 200, purchase: 80, star: 200, ready: 400, ui: 60, no: 120, sealHit: 70, catch: 80, creature: 120 };
+const MIN_GAP: Partial<Record<HapticKind, number>> = { tap: 60, break: 70, ore: 90, crit: 120, row: 150, gem: 200, purchase: 80, buy: 80, chest: 200, breakthrough: 400, star: 200, ready: 400, ui: 60, no: 120, sealHit: 70, catch: 80 };
 
 /** Priority (higher wins a contested window): biome > seal > chest > crit > row > break > tap. */
 const PRIORITY: Record<HapticKind, number> = {
   biome: 9, rekindle: 9, seal: 8, plungeLand: 7, chestBig: 7, chestOpen: 6, chestStep: 6, pickTier: 7, crown: 6, star: 5, surge: 5, dynamite: 5, feast: 5,
   crit: 4, gem: 4, ore: 3, row: 3, combo: 3, break: 2, purchase: 2, ready: 1, no: 1, ui: 1, tap: 0,
-  rank: 5, feat: 5, gate: 6, event: 5, creature: 3, sealHit: 2, weak: 6, strike: 5, perfect: 7, facet: 2, skill: 5, cataclysm: 8, catch: 4,
+  breakthrough: 6, chest: 6, buy: 2,
+  rank: 5, feat: 5, gate: 6, event: 5, sealHit: 2, weak: 6, strike: 5, perfect: 7, facet: 2, skill: 5, cataclysm: 8, catch: 4,
 };
 
 export type HapticStrength = 'off' | 'light' | 'normal' | 'strong';

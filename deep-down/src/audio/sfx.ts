@@ -461,12 +461,6 @@ export const SFX = {
     [587.33, 739.99, 880, 1108.73, 1318.51, 1760].forEach((f, i) => pluck(v, t + 0.2 + i * 0.12, f, 0.15, 1.4));
   }, 1),
 
-  /** The Lucky Moth caught: a bell. */
-  moth: def('sfx', 0.8, 0.6, 4, 2.0, (v) => {
-    ring(v, v.t, 1318.51, CRYSTAL, 1);
-    [1, 1.25, 1.5, 2].forEach((k, i) => blip(v, v.t + 0.04 + i * 0.05, 880 * k, 0.12, 0.4));
-  }, 0.3),
-
   // ----- Wave 2 (SPEC §10.10) ------------------------------------------------------------------------------
 
   /** A chest roll-up step: a major third higher per step (p.pitch), a bright tick and a shimmer. */
@@ -479,7 +473,7 @@ export const SFX = {
     burst(v, t, 'white', 'highpass', 7000, 0.7, 0.06, 0.18);
   }, 0.08),
 
-  /** A target caught (moths, crystals, boulders): a short bright pluck that climbs per catch (p.pitch). */
+  /** A target caught (crystals, glints, boulders): a short bright pluck that climbs per catch (p.pitch). */
   catch: def('sfx', 0.65, 0.4, 3, 0.7, (v, p) => {
     const f = 1046.5 * (p.pitch ?? 1);
     pluck(v, v.t, f, 0.14, 0.5);
@@ -559,7 +553,7 @@ export const SFX = {
   }, 0.5),
 
   // ----- The score's rhythm layers (SPEC §10.10): drums at combo ≥ 25, in a Surge, events and the Plunge; the boss pulse
-  // under a Warden fight. Scheduled ahead on the music bus by src/audio/drums.ts; p.gain is the layer's level.
+  // under a seal fight. Scheduled ahead on the music bus by src/audio/drums.ts; p.gain is the layer's level.
   'drum.kick': def('music', 0.9, 0.15, 1, 0.5, (v) => thump(v, v.t, 120, 42, 0.9, 0.28), 0),
   'drum.snare': def('music', 0.55, 0.3, 1, 0.4, (v) => {
     burst(v, v.t, 'white', 'bandpass', 2200, 0.9, 0.5, 0.14);
@@ -611,6 +605,87 @@ export const SFX = {
     v.osc('sine', 2093, t, t + 0.06).connect(v.perc(t, 0.001, 0.08, 0.035)).connect(v.out);
     v.osc('sine', 3136, t + 0.03, t + 0.08).connect(v.perc(t + 0.03, 0.001, 0.035, 0.03)).connect(v.out);
   }, 1),
+
+
+  // ----- the first person (hybrid SPEC §9.2) ----------------------------------------------------------------------
+  /** A Halden lamp relit: a soft whoomp and a brief flame hiss. */
+  'lamp.whoomp': def('sfx', 0.75, 0.35, 3, 1.0, (v) => {
+    const t = v.t;
+    const lp = v.filter('lowpass', 420, 0.7);
+    v.noise('brown', t, t + 0.5).connect(lp).connect(v.swell(t, 0.05, 0.55, 0.08, 0.3)).connect(v.out);
+    thump(v, t + 0.03, 95, 52, 0.35, 0.22);
+    burst(v, t + 0.08, 'white', 'highpass', 4200, 0.6, 0.08, 0.45, 0.06);
+  }, 0.12),
+  /** First light: a soft rising chord in the biome's key (p.pitch), under 1.2 s, never louder than a strike. */
+  'light.chord': def('sfx', 0.55, 0.6, 3, 1.8, (v, p) => {
+    const t = v.t;
+    const f = 293.66 * (p.pitch ?? 1);
+    for (const [k, dt, a] of [[1, 0, 0.12], [1.25, 0.12, 0.1], [1.5, 0.24, 0.1], [2, 0.38, 0.08]] as const) pluck(v, t + dt, f * k, a, 1.2);
+    const pad = v.osc('triangle', f / 2, t, t + 1.4);
+    pad.connect(v.swell(t, 0.25, 0.05, 0.3, 0.8)).connect(v.out);
+  }, 0.8),
+  /** The breakthrough: an air rush and a soft whump as the wall falls inward. */
+  'breach.rush': def('sfx', 0.85, 0.45, 4, 1.6, (v) => {
+    const t = v.t;
+    const f = burst(v, t, 'pink', 'bandpass', 2400, 0.8, 0.45, 0.9, 0.12);
+    f.frequency.setValueAtTime(2400, t);
+    f.frequency.exponentialRampToValueAtTime(380, t + 0.9);
+    thump(v, t + 0.05, 80, 38, 0.6, 0.35);
+    grains(v, t + 0.1, 0.6, 'lowpass', 900, 0.8, 0.3, 0.8);
+  }, 0.5),
+  /** A ladder or rope ride: two creaks of wood and rope. */
+  'ride.ladder': def('sfx', 0.6, 0.35, 2, 1.6, (v) => {
+    const t = v.t;
+    for (const at of [0, 0.55]) {
+      const o = v.osc('sawtooth', v.rand(180, 240), t + at, t + at + 0.28);
+      const bp = v.filter('bandpass', 900, 6);
+      o.frequency.setValueAtTime(v.rand(180, 240), t + at);
+      o.frequency.linearRampToValueAtTime(v.rand(150, 200), t + at + 0.25);
+      o.connect(bp).connect(v.swell(t + at, 0.03, 0.06, 0.08, 0.16)).connect(v.out);
+    }
+  }, 0.6),
+  /** The mine-cart run: iron wheels on rails, a low rolling rumble with rail-joint clicks. */
+  'ride.cart': def('sfx', 0.65, 0.3, 2, 3.2, (v) => {
+    const t = v.t;
+    const lp = v.filter('lowpass', 260, 0.8);
+    v.noise('brown', t, t + 3).connect(lp).connect(v.swell(t, 0.4, 0.45, 1.6, 1.0)).connect(v.out);
+    for (let k = 0; k < 6; k++) ring(v, t + 0.3 + k * 0.42, 620 * v.vary(0.05), TINK, 0.35);
+  }, 1.5),
+  /** The focus pop: a short lift whoosh. */
+  'focus.lift': def('sfx', 0.6, 0.2, 3, 0.5, (v) => {
+    const t = v.t;
+    const f = burst(v, t, 'white', 'bandpass', 900, 1.2, 0.18, 0.28, 0.08);
+    f.frequency.setValueAtTime(700, t);
+    f.frequency.exponentialRampToValueAtTime(2200, t + 0.26);
+  }, 0.2),
+  /** The relic ring: a tightening brass tick; the gold band a bell. */
+  'relic.tick': def('sfx', 0.55, 0.15, 3, 0.3, (v, p) => ring(v, v.t, 1400 * (p.pitch ?? 1), TINK, 0.6), 0.05),
+  'relic.bell': def('sfx', 0.75, 0.55, 4, 2.2, (v, p) => {
+    ring(v, v.t, 880 * (p.pitch ?? 1), METAL, 0.9);
+    ring(v, v.t + 0.01, 1760 * (p.pitch ?? 1), TINK, 0.5);
+  }, 0.3),
+  /** Lantern Raise: a soft cloth-and-metal lift. */
+  'lantern.lift': def('sfx', 0.45, 0.15, 2, 0.5, (v) => {
+    const t = v.t;
+    burst(v, t, 'pink', 'bandpass', 1600, 0.9, 0.08, 0.22, 0.05);
+    ring(v, t + 0.12, 2300 * v.vary(0.05), TINK, 0.25);
+  }, 0.25),
+  /** Deep rock in reach: a dull tunk (a response, never a miss). */
+  'rock.tunk': def('sfx', 0.6, 0.1, 2, 0.4, (v) => {
+    thump(v, v.t, 150, 70, 0.45, 0.12);
+    burst(v, v.t, 'brown', 'lowpass', 500, 0.7, 0.2, 0.08);
+  }, 0.06),
+  /** A chamber charted: a small brass chime. */
+  'chart.chime': def('sfx', 0.65, 0.5, 3, 1.6, (v, p) => {
+    const f = 1174.7 * (p.pitch ?? 1);
+    ring(v, v.t, f, TINK, 0.8);
+    ring(v, v.t + 0.14, f * 1.5, TINK, 0.7);
+  }, 0.5),
+  /** A footstep on stone while walking (very soft; Explore). */
+  step: def('sfx', 0.35, 0.2, 1, 0.25, (v) => {
+    burst(v, v.t, 'brown', 'lowpass', 700 * v.vary(0.1), 0.7, 0.12, 0.07);
+    grains(v, v.t + 0.01, 0.08, 'bandpass', 2400, 0.9, 0.04, 1.2);
+  }, 0.2),
 
   // A water drip: a tiny bubble whose pitch jumps upward, heard mostly through the reverb.
   'amb.drip': def('ambience', 0.6, 0.85, 0, 0.6, (v, p) => {

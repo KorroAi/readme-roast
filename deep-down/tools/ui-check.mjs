@@ -1,15 +1,16 @@
-// UI check of the idle HUD in real headless Chromium (SPEC §13.3 U1–U4, F10's steady frame), at the three phone
-// sizes. Two parts:
-//  1. The HUD sandbox (src/ui/dev/sandbox.html: the real HUD and the pure model over a painted backdrop, no WebGL):
-//     every preset (fresh, early, mid, the Dig and Crew sheets, the return feast, Large text, left-handed) is
-//     screenshotted and checked: touch targets ≥ 48 px (U1), text ≥ 12 px (U2), no overlap between the top bar,
-//     the goal bar, the skill row, the quick-buy row, the tabs and an open sheet, and no horizontal scroll (U3),
-//     every control but the top-bar plates, the goal bar and ≡ in the bottom 45 % (U4), and no DOM write in a
-//     steady frame / no element created while the crew digs (F10).
-//  2. The real game (index.html, WebGL): the floor line lies inside the world region with and without a sheet
-//     (U3), with the Dig sheet opened by a real tap.
+// UI check of the first-person HUD in real headless Chromium (SPEC §13.3 U1–U4, E21, F10's steady frame), at the
+// three phone sizes. Two parts:
+//  1. The HUD sandbox (src/ui/dev/sandbox.html: the real HUD over a painted backdrop, no WebGL): every preset (fresh,
+//     play, the ride's Skip, the focus panel, the return plate, the Dig / Crew / Settings sheets, Large text,
+//     left-handed, high contrast) is screenshotted and checked: touch targets ≥ 48 px (U1), text ≥ 12 px (U2), no
+//     overlap between row A (depth, gold, ≡), the objective line, the cards, the Skip plate, the note, the focus
+//     panel and an open sheet, and no horizontal scroll (U3), every control but row A and the objective line in the
+//     bottom 45 % (U4), the plates ≤ 17 % of the screen and ≤ 5 persistent numbers (E21), the HUD weight over a white
+//     world ≤ 35 %, and no DOM write in a steady frame (F10).
+//  2. The real game (index.html, WebGL): the plug face's blocks clear every plate (U3), and with the sheet opened by a
+//     real tap on ≡ the sheet clears row A and the objective line and blocks are still tappable above it.
 //
-// Usage: node tools/ui-check.mjs [--out artifacts/idle/ui] [--vp 360x740,390x844,412x915] [--no-shots] [--no-game]
+// Usage: node tools/ui-check.mjs [--out artifacts/hybrid/ui] [--vp 360x740,390x844,412x915] [--no-shots] [--no-game]
 // Exit code 1 when any check fails (each failure is printed).
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
@@ -89,7 +90,7 @@ function hudWeight(png) {
 }
 
 const args = process.argv.slice(2);
-const opt = { out: 'artifacts/idle/ui', vp: '360x740,390x844,412x915', shots: true, game: true };
+const opt = { out: 'artifacts/hybrid/ui', vp: '360x740,390x844,412x915', shots: true, game: true };
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a === '--no-shots') opt.shots = false;
@@ -102,8 +103,10 @@ const VIEWPORTS = opt.vp.split(',').map((s) => {
 });
 const MIN_TARGET = 48;
 const MIN_TEXT = 12;
-/** Presets: sandbox state, then actions (sheet:<id>, large, lefty). */
-const SCENES = ['fresh', 'early', 'mid', 'mid+sheet:dig', 'mid+sheet:crew', 'feast', 'mid+large', 'mid+lefty', 'mid+sheet:dig+large'];
+/** Presets: the sandbox state, then flags (large, lefty, contrast). */
+const SCENES = ['fresh', 'play', 'ride', 'focus', 'return', 'sheet-dig', 'sheet-crew', 'sheet-settings', 'play+large', 'play+lefty', 'play+contrast', 'sheet-dig+large'];
+const PLATE_MAX = 0.17;
+const NUMBERS_MAX = 5;
 
 mkdirSync(opt.out, { recursive: true });
 const server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
@@ -126,11 +129,10 @@ function measure({ minTarget, minText }) {
     if (r.bottom <= 0 || r.top >= innerHeight || r.right <= 0 || r.left >= innerWidth) return null;
     return r;
   };
-  const name = (el) => el.dataset.hud ?? el.dataset.tab ?? el.dataset.card ?? el.dataset.mode ?? el.dataset.skill ?? el.dataset.key ?? el.getAttribute('aria-label') ?? `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}`;
+  const name = (el) => el.dataset.hud ?? el.dataset.tab ?? el.dataset.row ?? el.getAttribute('aria-label') ?? `${el.tagName.toLowerCase()}.${[...el.classList].join('.')}`;
   const out = { small: [], tinyText: [], overlaps: [], thumb: [], hscroll: 0, controls: 0 };
-  const controls = [...document.querySelectorAll('#ui button, #ui [role="button"], #ui [data-tab], #ui .dd-card, #ui [data-mode], #ui [data-skill], #ui input, #ui select')];
+  const controls = [...document.querySelectorAll('#ui button, #ui [role="button"], #ui input, #ui select')];
   const seen = new Set();
-  const free = new Set(['gold', 'depth', 'gems', 'menu', 'goal']);
   for (const el of controls) {
     if (seen.has(el)) continue;
     seen.add(el);
@@ -138,12 +140,11 @@ function measure({ minTarget, minText }) {
     if (!r) continue;
     out.controls++;
     if (r.width < minTarget - 0.5 || r.height < minTarget - 0.5) out.small.push(`${name(el)} ${r.width.toFixed(0)}×${r.height.toFixed(0)}`);
-    // U4: in play, every control but the top-bar plates, the goal bar and ≡ sits in the bottom 45 %.
-    const inTop = el.closest('[data-hud="gold"], [data-hud="depth"], [data-hud="gems"], [data-hud="menu"], [data-hud="goal"]');
-    // A sheet's scrolled list is exempt: SPEC §9.4 puts the sheet's top edge at 42 %, and scrolling moves any row
-    // anywhere; the sheet's own fixed controls (the buy modes, close) are checked.
-    const inModal = el.closest('.dd-screen, .dd-feast, .dd-modal, .dd-firsttime, .dd-toast, .dd-sheet-scroll');
-    if (!inTop && !inModal && !free.has(el.dataset.hud ?? '') && r.top + r.height / 2 < innerHeight * 0.55) out.thumb.push(`${name(el)} at y ${(r.top + r.height / 2).toFixed(0)}`);
+    // U4: every control but row A and the objective line sits in the bottom 45 %. A sheet's rows and the return
+    // plate's Collect are exempt (the sheet scrolls any row anywhere; the return plate is a dialog over a still world).
+    const inTop = el.closest('[data-hud="gold"], [data-hud="depth"], [data-hud="menu"], [data-hud="goal"]');
+    const inModal = el.closest('.hy-sheet-body, [data-hud="return"], .dd-toast');
+    if (!inTop && !inModal && r.top + r.height / 2 < innerHeight * 0.55) out.thumb.push(`${name(el)} at y ${(r.top + r.height / 2).toFixed(0)}`);
   }
   // U2: every visible text ≥ 12 px.
   const walker = document.createTreeWalker(document.getElementById('ui'), NodeFilter.SHOW_TEXT);
@@ -156,12 +157,13 @@ function measure({ minTarget, minText }) {
   }
   // U3: the bands never overlap.
   const groups = {
-    top: ['[data-hud="gold"]', '[data-hud="depth"]', '[data-hud="gems"]', '[data-hud="menu"]'],
+    rowA: ['[data-hud="gold"]', '[data-hud="depth"]', '[data-hud="menu"]'],
     goal: ['[data-hud="goal"]'],
-    skills: ['[data-hud="skillrow"]'],
-    quick: ['.dd-quick .dd-card'],
-    tabs: ['.dd-tabs-bar'],
-    sheet: ['.dd-sheet'],
+    cards: ['[data-hud="card-pick"]', '[data-hud="card-best"]'],
+    skip: ['[data-hud="skip"]'],
+    note: ['[data-hud="note"]'],
+    focus: ['[data-hud="focus"]'],
+    sheet: ['[data-hud="sheet"]'],
   };
   const rects = {};
   for (const [g, sels] of Object.entries(groups)) {
@@ -213,103 +215,89 @@ try {
       const page = await context.newPage();
       page.on('pageerror', (e) => fail(where, `pageerror: ${e.message}`));
       page.on('console', (m) => m.type() === 'error' && fail(where, `console.error: ${m.text()}`));
-      const q = flags.filter((f) => !f.startsWith('sheet:')).map((f) => `&${f}=1`).join('');
+      const q = flags.map((f) => `&${f}=1`).join('');
       await page.goto(`${base}src/ui/dev/sandbox.html?state=${preset}${q}`);
       await page.waitForFunction(() => !!window.__SANDBOX__, null, { timeout: 60_000 });
-      await page.waitForTimeout(500);
-      for (const f of flags) {
-        if (!f.startsWith('sheet:')) continue;
-        const id = f.slice(6);
-        const r = await page.evaluate((k) => {
-          const el = document.querySelector(`[data-tab="${k}"]`);
-          const q = el?.getBoundingClientRect();
-          return q && q.width > 0 ? { x: q.left + q.width / 2, y: q.top + q.height / 2 } : null;
-        }, id);
-        if (!r) fail(where, `no ${id} tab to tap`);
-        else await page.touchscreen.tap(r.x, r.y);
-        await page.waitForTimeout(700);
-      }
-      // A steady frame first (fresh: nothing moves), then the measurements.
-      if (preset === 'fresh') {
-        // Past the reveal springs and the goal bar's first morph.
-        await page.waitForTimeout(1500);
+      // Past the plates' entrance and the first-time note's slide.
+      await page.waitForTimeout(preset === 'play' ? 3200 : 900);
+      // F10: a steady frame writes nothing to the DOM (the HUD diff-writes only changed text).
+      if (flags.length === 0 && (preset === 'fresh' || preset === 'play' || preset === 'sheet-dig')) {
         const c = await churn(page, 1500);
         checks++;
         if (c.writes) fail(where, `F10: ${c.writes} DOM writes in 1.5 s of steady frames (${c.what.join(', ')})`);
       }
-      if (preset === 'mid' && flags.length === 0) {
-        const c = await churn(page, 3000);
-        checks++;
-        if (c.created.length) fail(where, `F10: ${c.created.length} elements created while the crew digs: ${[...new Set(c.created)].slice(0, 5).join(', ')}`);
-      }
       const m = await page.evaluate(measure, { minTarget: MIN_TARGET, minText: MIN_TEXT });
-      checks += 5;
+      const e21 = await page.evaluate(() => ({ area: window.__SANDBOX__.plateArea(), numbers: window.__SANDBOX__.numbers().persistent.length }));
+      checks += 7;
       if (m.small.length) fail(where, `U1 targets under ${MIN_TARGET} px: ${m.small.join(', ')}`);
       if (m.tinyText.length) fail(where, `U2 text under ${MIN_TEXT} px: ${m.tinyText.slice(0, 8).join(', ')}`);
       if (m.overlaps.length) fail(where, `U3 overlap: ${m.overlaps.slice(0, 6).join('; ')}`);
       if (m.hscroll) fail(where, `U3 horizontal scroll ${m.hscroll} px`);
-      if (m.thumb.length && preset !== 'feast') fail(where, `U4 controls above the thumb zone: ${m.thumb.join(', ')}`);
+      if (m.thumb.length) fail(where, `U4 controls above the thumb zone: ${m.thumb.join(', ')}`);
+      if (e21.area > PLATE_MAX) fail(where, `E21 plates cover ${(e21.area * 100).toFixed(1)} % (max ${PLATE_MAX * 100} %)`);
+      if (e21.numbers > NUMBERS_MAX) fail(where, `E21 ${e21.numbers} persistent numbers (max ${NUMBERS_MAX})`);
       if (opt.shots) await page.screenshot({ path: `${opt.out}/${vp.name}-${scene.replace(/[:+]/g, '_')}.png` });
-      // HUD weight during play (no sheet, no feast): the same scene over a white world.
+      // HUD weight during play (no sheet, no dialog): the same scene over a white world.
       let weight = '';
-      if (preset !== 'feast' && !flags.some((f) => f.startsWith('sheet:'))) {
+      if (!preset.startsWith('sheet-') && preset !== 'return') {
         const white = await context.newPage();
         await white.goto(`${base}src/ui/dev/sandbox.html?state=${preset}${q}&white=1`);
         await white.waitForFunction(() => !!window.__SANDBOX__, null, { timeout: 60_000 });
-        await white.waitForTimeout(preset === 'fresh' ? 2000 : 900);
+        await white.waitForTimeout(preset === 'play' ? 3200 : 900);
         const w = hudWeight(await white.screenshot());
         checks++;
         weight = `, HUD weight ${(w * 100).toFixed(1)} %`;
         if (w > HUD_WEIGHT_MAX) fail(where, `HUD weight ${(w * 100).toFixed(1)} % of the screen at alpha ≥ 0.5 (max ${HUD_WEIGHT_MAX * 100} %)`);
         await white.close();
       }
-      console.log(`${where}: ${m.controls} controls, ${m.small.length + m.tinyText.length + m.overlaps.length + (m.hscroll ? 1 : 0) + (preset === 'feast' ? 0 : m.thumb.length)} issues${weight}`);
+      console.log(`${where}: ${m.controls} controls, ${m.small.length + m.tinyText.length + m.overlaps.length + (m.hscroll ? 1 : 0) + m.thumb.length} issues, plates ${(e21.area * 100).toFixed(1)} %, ${e21.numbers} numbers${weight}`);
       await context.close();
     }
   }
 
-  // ----- 2. The real game: the floor inside the world region, with and without a sheet ------------------------------
+  // ----- 2. The real game: the face clears the plates; the sheet clears row A and the goal ---------------------------
   if (opt.game) {
+    const overlap = (a, b) => Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x) > 1 && Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y) > 1;
     for (const vp of VIEWPORTS) {
       const where = `${vp.name} game`;
       const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1, hasTouch: true });
       const page = await context.newPage();
       page.on('pageerror', (e) => fail(where, `pageerror: ${e.message}`));
-      await page.goto(`${base}index.html`);
-      await page.waitForFunction(() => window.__DD__?.idle?.ready && window.__DD__.idle.mode() === 'playing', null, { timeout: 180_000, polling: 250 });
-      await page.evaluate(() => window.__DD__.idle.settings({ quality: 'battery', renderScale: 0.5 }));
-      const floor = () => page.evaluate(() => {
-        const c = window.__DD__.idle.columns();
-        const sheet = document.querySelector('.dd-sheet');
-        const st = sheet ? sheet.getBoundingClientRect().top : innerHeight;
-        return { floorY: c.floorY, top: c.region.top, bottom: c.region.bottom, sheetTop: window.__DD__.idle.hud().sheet ? st : null };
+      // SwiftShader: the Battery preset at half render scale keeps frames short (layout does not depend on it).
+      await page.addInitScript(() => {
+        if (!localStorage.getItem('deepdown.settings')) localStorage.setItem('deepdown.settings', JSON.stringify({ quality: 'battery', autoQuality: false }));
       });
-      const f0 = await floor();
+      await page.goto(`${base}index.html?rscale=0.5`);
+      await page.waitForFunction(() => window.__DD__?.hybrid?.ready && window.__DD__.hybrid.mode() === 'playing', null, { timeout: 180_000, polling: 250 });
+      await page.waitForFunction(() => window.__DD__.hybrid.faceCells().length > 0 && !window.__DD__.hybrid.camera().moving, null, { timeout: 120_000, polling: 250 });
+      const read = () => page.evaluate(() => ({ cells: window.__DD__.hybrid.faceCells(), hud: window.__DD__.hybrid.hud() }));
+      const r0 = await read();
+      const plates = Object.entries(r0.hud.rects).filter(([k, r]) => r.visible && ['depth', 'gold', 'menu', 'goal', 'card-pick', 'card-best'].includes(k));
+      const hits = [];
+      for (const c of r0.cells) for (const [k, r] of plates) if (overlap(c.rect, r)) hits.push(`col ${c.col} × ${k}`);
       checks++;
-      if (!(f0.floorY > f0.top && f0.floorY < f0.bottom)) fail(where, `U3 floor y ${f0.floorY.toFixed(0)} outside the region ${f0.top}–${f0.bottom}`);
-      // Reveal the Dig tab the way a player does: real taps on the floor (the Pick step arrives at 30 gold and brings
-      // the tab), then open the sheet with a real tap.
-      for (let i = 0; i < 120; i++) {
-        if (await page.evaluate(() => window.__DD__.idle.hud().rects['tab:dig']?.visible === true)) break;
-        const p = await page.evaluate(() => {
-          const c = window.__DD__.idle.columns();
-          const s = c.strips[2 + (Math.floor(Math.random() * 3))];
-          return { x: (s.left + s.right) / 2, y: c.floorY + 18 };
-        });
-        await page.touchscreen.tap(p.x, p.y);
-        await page.waitForTimeout(150);
-        if (i === 30) await page.evaluate(() => window.__DD__.idle.give({ gold: 40 }));
+      if (hits.length) fail(where, `U3 face blocks under plates: ${hits.slice(0, 6).join(', ')}`);
+      // Open the sheet with a real tap on ≡.
+      const menu = r0.hud.rects.menu;
+      const cdp = await context.newCDPSession(page);
+      const t = Date.now();
+      const pt = [{ x: menu.x + menu.w / 2, y: menu.y + menu.h / 2, id: 1, radiusX: 8, radiusY: 8, force: 1 }];
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt, timestamp: t / 1000 });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t + 60) / 1000 });
+      const opened = await page.waitForFunction(() => window.__DD__.hybrid.hud().sheet !== '', null, { timeout: 30_000, polling: 100 }).then(() => true, () => false);
+      await page.waitForTimeout(600);
+      const r1 = await read();
+      const sheet = r1.hud.rects.sheet;
+      checks += 2;
+      if (!opened || !sheet?.visible) fail(where, 'a real tap on ≡ did not open the sheet');
+      else {
+        const under = ['depth', 'gold', 'menu', 'goal'].filter((k) => r1.hud.rects[k]?.visible && overlap(r1.hud.rects[k], sheet));
+        if (under.length) fail(where, `U3 the sheet covers ${under.join(', ')}`);
+        const above = r1.cells.filter((c) => c.rect.y + c.rect.h / 2 < sheet.y).length;
+        if (!above) fail(where, 'U3 with the sheet open no face block is left to tap above it');
       }
-      await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:dig']?.visible, null, { timeout: 60_000, polling: 250 });
-      const tab = await page.evaluate(() => window.__DD__.idle.hud().rects['tab:dig']);
-      await page.touchscreen.tap(tab.x + tab.w / 2, tab.y + tab.h / 2);
-      await page.waitForFunction(() => window.__DD__.idle.hud().sheet === 'dig', null, { timeout: 30_000, polling: 100 });
-      await page.waitForTimeout(900);
-      const f1 = await floor();
-      checks++;
-      if (!(f1.floorY > f1.top && f1.sheetTop !== null && f1.floorY < f1.sheetTop)) fail(where, `U3 with the sheet open the floor y ${f1.floorY.toFixed(0)} is not between ${f1.top} and the sheet top ${f1.sheetTop}`);
       if (opt.shots) await page.screenshot({ path: `${opt.out}/${vp.name}-game-sheet.png` });
-      console.log(`${where}: floor ${f0.floorY.toFixed(0)} in ${f0.top}–${f0.bottom}; with the sheet ${f1.floorY.toFixed(0)} above ${f1.sheetTop?.toFixed(0)}`);
+      console.log(`${where}: ${r0.cells.length} blocks clear of ${plates.length} plates; sheet ${opened ? `top ${sheet?.y.toFixed(0)}` : 'not opened'}`);
       await context.close();
     }
   }

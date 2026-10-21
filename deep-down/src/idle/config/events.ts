@@ -5,7 +5,7 @@
 import type { WidgetKind } from '../bus';
 
 export type EventType =
-  | 'goldenVein' | 'glimmerfall' | 'mothSwarm' | 'treasureMole' | 'caveIn' | 'supplyRope' | 'mimic' | 'treasureMap'
+  | 'goldenVein' | 'glimmerfall' | 'seedFall' | 'rattlingBricks' | 'caveIn' | 'supplyRope' | 'wedgedChest' | 'treasureMap'
   | 'ancientEcho' | 'signature' | 'geode' | 'surface';
 
 export interface EventDef {
@@ -34,11 +34,15 @@ export interface EventDef {
 export const EVENTS: Readonly<Record<EventType, EventDef>> = {
   goldenVein: { id: 'goldenVein', unlock: 30, life: 60, warn: 0, widget: '', targets: [0, 0], taps: [0, 0], onScreen: [0, 0], kind: '', perTarget: 0, allBonus: 0, waits: true },
   glimmerfall: { id: 'glimmerfall', unlock: 40, life: 4, warn: 0, widget: 'catch', targets: [5, 9], taps: [1, 1], onScreen: [1.2, 2.0], kind: 'crystal', perTarget: 3, allBonus: 0, waits: false },
-  mothSwarm: { id: 'mothSwarm', unlock: 40, life: 8, warn: 0, widget: 'catch', targets: [6, 10], taps: [1, 1], onScreen: [1.4, 2.0], kind: 'moth', perTarget: 8, allBonus: 0, waits: false },
-  treasureMole: { id: 'treasureMole', unlock: 80, life: 5, warn: 0, widget: 'catch', targets: [1, 1], taps: [3, 5], onScreen: [5, 5], kind: 'mole', perTarget: 0, allBonus: 0, waits: false },
+  // Seed Fall (Glowroot's signature): glowroot seed pods drift down through the lantern pool; catch 6–10.
+  seedFall: { id: 'seedFall', unlock: 40, life: 8, warn: 0, widget: 'catch', targets: [6, 10], taps: [1, 1], onScreen: [1.6, 2.2], kind: 'seed', perTarget: 8, allBonus: 0, waits: false },
+  // Rattling Bricks: a Halden stash; bricks loosen one by one in the chamber wall; tap each (a Copper-floor chest).
+  rattlingBricks: { id: 'rattlingBricks', unlock: 80, life: 6, warn: 0, widget: 'catch', targets: [3, 5], taps: [1, 1], onScreen: [2.4, 3.0], kind: 'brick', perTarget: 0, allBonus: 0, waits: false },
   caveIn: { id: 'caveIn', unlock: 120, life: 6, warn: 1, widget: 'catch', targets: [3, 5], taps: [1, 3], onScreen: [1.6, 2.0], kind: 'boulder', perTarget: 10, allBonus: 0, waits: false },
   supplyRope: { id: 'supplyRope', unlock: 180, life: 20, warn: 0, widget: 'pick', targets: [1, 1], taps: [1, 1], onScreen: [20, 20], kind: 'crate', perTarget: 0, allBonus: 0, waits: true },
-  mimic: { id: 'mimic', unlock: 240, life: 6, warn: 0, widget: 'catch', targets: [1, 1], taps: [5, 5], onScreen: [6, 6], kind: 'mimic', perTarget: 0, allBonus: 0, waits: false },
+  // Wedged Chest: a chest caught in a slowly closing crack; 5 taps on the crack before it shuts (Crystal floor; if it shuts,
+  // a Wood chest drops out: nothing is lost).
+  wedgedChest: { id: 'wedgedChest', unlock: 160, life: 6, warn: 0, widget: 'catch', targets: [1, 1], taps: [5, 5], onScreen: [6, 6], kind: 'crack', perTarget: 0, allBonus: 0, waits: false },
   treasureMap: { id: 'treasureMap', unlock: 320, life: Infinity, warn: 0, widget: '', targets: [0, 0], taps: [0, 0], onScreen: [0, 0], kind: '', perTarget: 0, allBonus: 0, waits: true },
   ancientEcho: { id: 'ancientEcho', unlock: 400, life: 6, warn: 0, widget: 'sequence', targets: [3, 4], taps: [1, 1], onScreen: [6, 6], kind: 'rune', perTarget: 0, allBonus: 0, waits: false },
   signature: { id: 'signature', unlock: 0, life: 8, warn: 0, widget: 'mash', targets: [1, 1], taps: [1, 1], onScreen: [8, 8], kind: 'signature', perTarget: 0, allBonus: 60, waits: false },
@@ -46,18 +50,18 @@ export const EVENTS: Readonly<Record<EventType, EventDef>> = {
   surface: { id: 'surface', unlock: 0, life: 6, warn: 0, widget: '', targets: [1, 1], taps: [1, 1], onScreen: [6, 6], kind: 'gem', perTarget: 5, allBonus: 0, waits: false },
 };
 
-/** The types the Director deals from its deck (the Lucky Moth has its own clock; geodes come from rare cells). */
-export const DECK: readonly EventType[] = ['goldenVein', 'glimmerfall', 'mothSwarm', 'treasureMole', 'caveIn', 'supplyRope', 'mimic', 'treasureMap', 'ancientEcho', 'signature'];
+/** The types the Director deals from its deck (the Drifting Ember has its own clock; geodes come from rare cells). */
+export const DECK: readonly EventType[] = ['goldenVein', 'glimmerfall', 'seedFall', 'rattlingBricks', 'caveIn', 'supplyRope', 'wedgedChest', 'treasureMap', 'ancientEcho', 'signature'];
 
 /** Deck weights by biome column B0, B1, B2, B3, B4, B5+ (SPEC §7.2's table; 0 = not in the deck there). */
 export const WEIGHTS: Readonly<Record<string, readonly number[]>> = {
   goldenVein: [14, 12, 12, 10, 10, 10],
   glimmerfall: [0, 16, 14, 10, 10, 10],
-  mothSwarm: [0, 18, 8, 6, 6, 6],
-  treasureMole: [0, 10, 12, 12, 10, 10],
+  seedFall: [0, 18, 8, 6, 6, 6],
+  rattlingBricks: [0, 10, 12, 12, 10, 10],
   caveIn: [0, 0, 12, 14, 10, 10],
   supplyRope: [0, 0, 10, 14, 10, 10],
-  mimic: [0, 0, 0, 12, 10, 10],
+  wedgedChest: [0, 0, 0, 12, 10, 10],
   treasureMap: [0, 0, 0, 12, 10, 10],
   ancientEcho: [0, 0, 0, 0, 10, 10],
   signature: [10, 12, 12, 12, 14, 14],
@@ -92,7 +96,7 @@ export const DIRECTOR = {
 /** A signature event's widget and target kind per biome (SPEC §6.5, §7.3). */
 export const SIGNATURES: Readonly<Record<string, { widget: WidgetKind; kind: string; targets: readonly [number, number]; life: number }>> = {
   rootPull: { widget: 'mash', kind: 'root', targets: [1, 1], life: 5 },
-  mothSwarm: { widget: 'catch', kind: 'moth', targets: [6, 10], life: 8 },
+  seedFall: { widget: 'catch', kind: 'seed', targets: [6, 10], life: 8 },
   crystalBloom: { widget: 'mash', kind: 'bloom', targets: [1, 1], life: 5 },
   pressureValves: { widget: 'strike', kind: 'valve', targets: [1, 1], life: 8 },
   sporeBurst: { widget: 'catch', kind: 'spore', targets: [6, 9], life: 7 },

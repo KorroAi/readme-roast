@@ -1,12 +1,16 @@
-// A scripted play session of the idle game in headless Chromium (SwiftShader), portrait, with REAL touches (CDP).
+// A scripted play session of the first-person game in headless Chromium (SwiftShader), portrait, with REAL touches
+// (CDP, stamped with the finger's own times: the game reads event.timeStamp, src/ui/hybrid/TapSurface.ts).
 //
 // Usage: node tools/play.mjs script.json [outDir=artifacts/play] [size=390x844] [dpr=1]
 // The script is a list of steps; each may hold any of:
 //   { "tap": [x, y] }                    one touch at a point (CSS px)
-//   { "col": 3, "n": 20, "every": 150 }  n taps on a floor column (0..6), `every` ms apart (default 1, 150)
-//   { "hud": "quick:0" }                 tap a HUD control by its __DD__.idle.hud() rect key (tab:dig, quick:2, …)
-//   { "hold": "quick:0", "ms": 1500 }    press and hold a HUD control
-//   { "eval": "js" }                     evaluate in the page (window.__DD__.idle is the surface), print the result
+//   { "face": 3, "n": 20, "every": 150 } n taps on the face's front block in column 3 (any live block when gone),
+//                                        `every` ms apart (default 1, 150); stops when the drift ends
+//   { "hud": "card-pick" }               tap a HUD control by its __DD__.hybrid.hud() rect key (card-pick, menu, goal, …)
+//   { "hold": "card-pick", "ms": 1500 }  press and hold a HUD control (or { "hold": [x, y] } a point)
+//   { "drag": [x, y, dx, dy], "ms": 300 } a drag (Explore's look)
+//   { "floor": 4 }                       tap the 4th visible floor point 2-9 m away (Explore's walk)
+//   { "eval": "js" }                     evaluate in the page (window.__DD__.hybrid is the surface), print the result
 //   { "frames": 10 }                     wait for that many drawn frames
 //   { "wait": 500 }                      wait (ms)
 //   { "shot": "name" }                   screenshot to outDir/name.png
@@ -29,49 +33,72 @@ const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--ena
 const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: Number(dpr), hasTouch: true });
 const page = await context.newPage();
 const cdp = await context.newCDPSession(page);
-const touch = async (type, pts) => cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id ?? 1, radiusX: 8, radiusY: 8, force: 1 })) });
+const touch = async (type, pts, at = Date.now()) =>
+  cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id ?? 1, radiusX: 8, radiusY: 8, force: 1 })), timestamp: at / 1000 });
 const tapAt = async (x, y) => {
-  await touch('touchStart', [{ x, y, id: 2 }]);
-  await touch('touchEnd', []);
+  const t = Date.now();
+  await touch('touchStart', [{ x, y, id: 2 }], t);
+  await touch('touchEnd', [], t + 60);
+};
+const holdAt = async (p, ms) => {
+  const t = Date.now();
+  await touch('touchStart', [{ ...p, id: 3 }], t);
+  await page.waitForTimeout(ms);
+  await touch('touchEnd', [], t + ms);
+};
+const dragFrom = async ([x, y, dx, dy], ms) => {
+  const t = Date.now();
+  await touch('touchStart', [{ x, y, id: 4 }], t);
+  for (let i = 1; i <= 10; i++) {
+    const at = t + (ms * i) / 10;
+    const wait = at - Date.now();
+    if (wait > 0) await page.waitForTimeout(wait);
+    await touch('touchMove', [{ x: x + (dx * i) / 10, y: y + (dy * i) / 10, id: 4 }], at);
+  }
+  await touch('touchEnd', [], t + ms + 16);
 };
 const rect = async (key) => {
-  const r = await page.evaluate((k) => window.__DD__.idle.hud().rects[k], key);
+  const r = await page.evaluate((k) => window.__DD__.hybrid.hud().rects[k], key);
   if (!r || !r.visible) throw new Error(`no visible HUD control ${key}`);
   return { x: r.x + r.w / 2, y: r.y + r.h / 2 };
 };
 const frames = async (n) => {
-  const f0 = await page.evaluate(() => window.__DD__.idle.frame());
-  await page.waitForFunction((t) => window.__DD__.idle.frame() >= t, f0 + n, { timeout: 240_000, polling: 50 });
+  const f0 = await page.evaluate(() => window.__DD__.hybrid.frame());
+  await page.waitForFunction((t) => window.__DD__.hybrid.frame() >= t, f0 + n, { timeout: 240_000, polling: 50 });
 };
 const logs = [];
 page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
 page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack}`));
 try {
   await page.goto(`${url}index.html`);
-  await page.waitForFunction(() => window.__DD__?.idle?.ready, null, { timeout: 180_000 });
+  await page.waitForFunction(() => window.__DD__?.hybrid?.ready, null, { timeout: 180_000 });
   for (const step of steps) {
     if (step.tap) await tapAt(step.tap[0], step.tap[1]);
-    if (step.col !== undefined) {
+    if (step.face !== undefined) {
       for (let i = 0; i < (step.n ?? 1); i++) {
         const p = await page.evaluate((c) => {
-          const cs = window.__DD__.idle.columns();
-          const s = cs.strips[c];
-          return { x: (s.left + s.right) / 2, y: cs.floorY + 18 };
-        }, step.col);
-        await tapAt(p.x, p.y);
+          if (window.__DD__.hybrid.node().phase !== 'drift') return null;
+          const cs = window.__DD__.hybrid.faceCells();
+          const r = (cs.find((x) => x.col === c) ?? cs[0])?.rect;
+          return r ? { x: r.x + r.w / 2, y: r.y + r.h / 2 } : { wait: true };
+        }, step.face);
+        if (!p) break;
+        if (!p.wait) await tapAt(p.x, p.y);
         await page.waitForTimeout(step.every ?? 150);
       }
     }
+    if (step.floor !== undefined) {
+      const pts = await page.evaluate(() => window.__DD__.hybrid.floorPoints(8, 2, 9));
+      const f = pts[Math.min(step.floor, pts.length - 1)];
+      if (!f) throw new Error('no floor point on screen');
+      await tapAt(f.x, f.y);
+    }
+    if (step.drag) await dragFrom(step.drag, step.ms ?? 300);
     if (step.hud) {
       const p = await rect(step.hud);
       await tapAt(p.x, p.y);
     }
-    if (step.hold) {
-      const p = await rect(step.hold);
-      await touch('touchStart', [{ ...p, id: 3 }]);
-      await page.waitForTimeout(step.ms ?? 1000);
-      await touch('touchEnd', []);
-    }
+    if (step.hold) await holdAt(Array.isArray(step.hold) ? { x: step.hold[0], y: step.hold[1] } : await rect(step.hold), step.ms ?? 1000);
     if (step.eval) {
       const r = await page.evaluate(step.eval);
       if (r !== undefined) console.log('eval ->', typeof r === 'string' ? r : JSON.stringify(r));

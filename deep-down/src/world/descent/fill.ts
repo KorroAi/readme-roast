@@ -39,7 +39,7 @@ export interface FillReport {
   density: Record<string, number>;
   /** Emitters per slab outside the biome's range (W6). */
   budget: number;
-  /** Mean per 20 m window: caverns, tappables, creatures, motes. */
+  /** Mean per 20 m window: caverns, tappables, motes. */
   means: Record<string, number>;
 }
 
@@ -70,7 +70,6 @@ export function scanFill(seed: number, from: number, to: number, kinds: (row: nu
   const props: PropSpec[] = [];
   const caverns = new Map<string, CavernSpec>();
   const motes: Array<{ x: number; y: number; z: number }> = [];
-  const creatures: Array<{ y: number }> = [];
   const liquids: Array<{ y: number; z1: number }> = [];
   const shaftKinds = new Map<number, ArrayLike<number>>();
   const add = (v: FillViolation) => {
@@ -91,7 +90,6 @@ export function scanFill(seed: number, from: number, to: number, kinds: (row: nu
     for (const p of s.props) props.push(p);
     for (const c of s.caverns) if (!caverns.has(c.id)) caverns.set(c.id, c);
     for (const m of s.motes) motes.push(m);
-    for (const c of s.creatures) creatures.push(c);
     for (const l of s.liquids) liquids.push(l);
     // W6: the slab's emitters inside its biome's budget.
     const b = baseBiome(biomeAt(k * SLAB_ROWS + 8));
@@ -186,7 +184,7 @@ export function scanFill(seed: number, from: number, to: number, kinds: (row: nu
     report.density[t] = (report.density[t] ?? 0) + 1;
     add({ rule: `W1:${t}`, id: `w${d}`, depth: d, detail: `the 20 m window at ${d} m misses '${t}'` });
   };
-  const sum: Record<string, number> = { caverns: 0, tappables: 0, creatures: 0, motes: 0 };
+  const sum: Record<string, number> = { caverns: 0, tappables: 0, motes: 0 };
   const tapRows = props.filter((p) => p.tap).map((p) => Math.round(-p.y - 0.5)).sort((a, b) => a - b);
   for (let d = Math.max(from, 0); d + 20 <= to; d += 10) {
     report.windows++;
@@ -205,7 +203,7 @@ export function scanFill(seed: number, from: number, to: number, kinds: (row: nu
           if (isEmitter(id) && id !== B.LIGHT_LAMP && (id === key || id >= 176)) hue = true;
         }
     if (!hue) fail('light', d);
-    const crs = creatures.filter((c) => -c.y >= d && -c.y < e).length;
+    const crs = 0;
     const mts = motes.filter((m) => -m.y >= d && -m.y < e).length;
     // Only pools a frontal camera can see count: those in caverns open at the cut (their front edge near it).
     const lqs = liquids.filter((l) => -l.y >= d && -l.y < e && l.z1 >= CUT - 2).length;
@@ -214,7 +212,6 @@ export function scanFill(seed: number, from: number, to: number, kinds: (row: nu
     if (taps + crs + mts + 3 < 8) fail('interactive', d);
     sum.caverns += cav.length;
     sum.tappables += taps;
-    sum.creatures += crs;
     sum.motes += mts;
     for (let r = d; r < e; r += 4) {
       let any = false;

@@ -17,7 +17,7 @@ function atSeal(k: number, seed: number) {
   return s;
 }
 
-describe('seals and Wardens (SPEC §7.1, E21)', () => {
+describe('seals as mechanisms (hybrid SPEC §5.5, E21)', () => {
   it('E21: an active player at 4 taps/s breaks a first-time seal on the first try in ≥ 90 % of seeds; the crew alone cannot', () => {
     let wins = 0;
     let crewWins = 0;
@@ -128,7 +128,7 @@ describe('seals and Wardens (SPEC §7.1, E21)', () => {
     expect(broke).not.toBeNull();
     expect(broke!.gems).toBe(SEAL.gems);
     expect(opened).toContain('seal');
-    expect(s.meta.finds['find:1:4']).toBeGreaterThanOrEqual(1);
+    expect(s.meta.finds['find:1:5']).toBeGreaterThanOrEqual(1); // the seal's own relic (slot 5: the Root Crown)
     expect(s.meta.lore).toContain('lore:1:seal');
     expect(s.shaft.rows[0].kinds[0]).not.toBe(CELL.SEAL);
   });

@@ -64,7 +64,7 @@ describe('the Director (SPEC §7.2, E23)', () => {
   });
 
   it('every event type starts, takes its taps and ends with its rewards; a miss never subtracts (L11)', () => {
-    for (const type of ['goldenVein', 'glimmerfall', 'mothSwarm', 'treasureMole', 'caveIn', 'supplyRope', 'mimic', 'treasureMap', 'ancientEcho', 'signature']) {
+    for (const type of ['goldenVein', 'glimmerfall', 'seedFall', 'rattlingBricks', 'caveIn', 'supplyRope', 'wedgedChest', 'treasureMap', 'ancientEcho', 'signature']) {
       for (const catchIt of [true, false]) {
         const s = stateAt(700, 12, { pick: 150, lines: [150, 140, 120, 100, 80, 40] });
         const bus = createIdleBus();

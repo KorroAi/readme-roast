@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { waitMode } from './dd';
 
-// The release shell around the idle game (src/main.ts), in portrait: the crash panel, the Android bridge
+// The release shell around the first-person game (src/main.ts), in portrait: the crash panel, the Android bridge
 // (predictive Back, lifecycle), the context-loss notice, the automatic quality governor and the boot failure.
 // A first launch lands in the shaft; the second launch shows the menu at the surface (Descend, Settings, About).
 
@@ -25,7 +25,7 @@ const saveSlots = (page: Page) =>
   page.evaluate(() => Object.fromEntries(Object.keys(localStorage).filter((k) => k.startsWith('deepdown.save')).sort().map((k) => [k, localStorage.getItem(k)])));
 
 const savesSince = (page: Page, t0: number) =>
-  page.evaluate((t) => window.__DD__.idle.events('game:saved').filter((e) => e.t >= t).map((e) => e.payload.reason as string), t0);
+  page.evaluate((t) => window.__DD__.hybrid.events('game:saved').filter((e) => e.t >= t).map((e) => e.payload.reason as string), t0);
 
 /** Record when the crash panel appears, and every toast, from the first script on. */
 async function watchPage(page: Page) {
@@ -53,7 +53,7 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   await page.goto('/index.html');
   // A first launch goes straight into the shaft.
   await waitMode(page, 'playing');
-  expect(await page.evaluate(() => window.__DD__.idle.save())).toBe(true);
+  expect(await page.evaluate(() => window.__DD__.hybrid.save())).toBe(true);
 
   errors.length = 0;
   await page.evaluate(() => {
@@ -76,7 +76,7 @@ test('a GPU failure ends in the crash panel; Restart returns to the pre-crash sa
   // share is bounded loosely and the panel's tightly.
   expect(timing.crashAt - timing.firstThrow, 'guard trips within 3 frames').toBeLessThan(5000);
   expect(timing.panelAt - timing.crashAt, 'panel within 1 s of the crash').toBeLessThan(1000);
-  expect(await page.evaluate(() => window.__DD__.idle.mode())).toBe('crashed');
+  expect(await page.evaluate(() => window.__DD__.hybrid.mode())).toBe('crashed');
   const before = await saveSlots(page);
   expect(Object.keys(before).length).toBeGreaterThan(0);
   // Let a few more frames come and go: the stopped loop must stay quiet and save nothing.
@@ -135,7 +135,7 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
       keepScreenOn: (on: boolean) => screenOn.push(on),
       setBackHandled: (handled: boolean) => {
         const d = window.__DD__;
-        const s = d?.idle?.ready ? { mode: d.idle.mode(), screen: d.internals.game.screen as string } : { mode: 'boot', screen: 'loading' };
+        const s = d?.hybrid?.ready ? { mode: d.hybrid.mode(), screen: d.internals.game.screen as string } : { mode: 'boot', screen: 'loading' };
         calls.push({ handled, mode: s.mode, screen: s.screen });
       },
     };
@@ -179,7 +179,7 @@ test('Android bridge: Back is the page’s except at the menu root; pause saves 
   const t0 = await page.evaluate(() => performance.now());
   expect(await page.evaluate(() => (window as unknown as Win).deepDownLifecycle('pause'))).toBe(true);
   expect(await savesSince(page, t0)).toEqual(['background']);
-  expect(await page.evaluate(() => window.__DD__.idle.mode())).toBe('paused');
+  expect(await page.evaluate(() => window.__DD__.hybrid.mode())).toBe('paused');
   // A second pause within a second does not save again.
   expect(await page.evaluate(() => (window as unknown as Win).deepDownLifecycle('pause'))).toBe(true);
   expect(await savesSince(page, t0)).toHaveLength(1);
@@ -217,14 +217,14 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
   });
   await page.goto('/index.html?autoq=1');
   await waitMode(page, 'playing');
-  const quality = () => page.evaluate(() => window.__DD__.idle.settings().quality as string);
+  const quality = () => page.evaluate(() => window.__DD__.hybrid.settings().quality as string);
   expect(await quality()).toBe('balanced');
   expect(await page.evaluate(() => (window as unknown as Win).__DD_RELEASE__.governor())).toMatchObject({ auto: true });
 
   const cdp = await page.context().newCDPSession(page);
   await cdp.send('Emulation.setCPUThrottlingRate', { rate: 6 });
   try {
-    await page.waitForFunction(() => window.__DD__.idle.settings().quality === 'battery', null, { timeout: 150_000, polling: 500 });
+    await page.waitForFunction(() => window.__DD__.hybrid.settings().quality === 'battery', null, { timeout: 150_000, polling: 500 });
     await page.waitForTimeout(2000);
   } finally {
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 1 });
@@ -239,7 +239,7 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
   await waitMode(page, 'menu');
   expect(await quality()).toBe('battery');
   // A manual choice switches it off for good.
-  await page.evaluate(() => window.__DD__.idle.settings({ quality: 'high' }));
+  await page.evaluate(() => window.__DD__.hybrid.settings({ quality: 'high' }));
   await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('deepdown.autoquality') ?? 'null')?.auto), { timeout: 5_000 }).toBe(false);
 });
 

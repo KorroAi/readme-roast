@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { Big } from '../../../src/core/big';
 import { createIdleBus } from '../../../src/idle/bus';
 import { AUTHORED_BIOMES } from '../../../src/idle/config/biomes';
-import { FINDS, pageEntries } from '../../../src/idle/config/codex';
+import { FINDS, PAGE_SIZE, pageEntries } from '../../../src/idle/config/codex';
 import { CONTRACT, CONTRACTS } from '../../../src/idle/config/contracts';
 import { FACETS, RARITY } from '../../../src/idle/config/facets';
 import { FEATS, featThreshold, SECRETS } from '../../../src/idle/config/feats';
 import { rankNeed } from '../../../src/idle/config/rank';
-import { addLore, awardFind, catchCreature, codexCount, pageCount } from '../../../src/idle/model/codex';
+import { addLore, awardFind, codexCount, pageCount } from '../../../src/idle/model/codex';
 import { contractEta, fillBoard, generate, rerollContract, tickContracts } from '../../../src/idle/model/contracts';
 import { claimDaily, localDay, tickDaily } from '../../../src/idle/model/daily';
 import { facetStats, offerHand, pick, queueHand, reroll } from '../../../src/idle/model/facets';
@@ -31,7 +31,7 @@ describe('contracts (SPEC §7.4, E22)', () => {
         s.playTime = secs;
         refreshRates(s, taps);
         for (const d of CONTRACTS) {
-          // A seal, a creature, a Find, a perfect Strike and a combo streak come at their own cadence (not rated).
+          // A seal, lamps, a Find, a perfect Strike and a combo streak come at their own cadence (not rated).
           if (d.fixed || d.tpl === 'combo') continue;
           const c = generate(s, d, false);
           const eta = contractEta(s, c);
@@ -104,7 +104,7 @@ describe('the Codex (SPEC §7.5)', () => {
   it('196 entries, each reachable; a complete page stamps its Biome Seal; a Codex chest every 10 entries', () => {
     let all = 0;
     for (let b = 0; b < AUTHORED_BIOMES; b++) all += pageEntries(b).length;
-    expect(all).toBe(196);
+    expect(all).toBe(14 * PAGE_SIZE);
     expect(FINDS.length).toBe(84);
     const s = stateAt(100, 5);
     const bus = createIdleBus();
@@ -114,15 +114,14 @@ describe('the Codex (SPEC §7.5)', () => {
     bus.on('codex:page', () => pages++);
     for (const id of pageEntries(2)) {
       if (id.startsWith('find:')) awardFind(s, id, bus);
-      else if (id.startsWith('creature:')) catchCreature(s, id.slice(9), bus);
       else addLore(s, id, bus);
     }
-    expect(pageCount(s, 2)).toBe(14);
+    expect(pageCount(s, 2)).toBe(PAGE_SIZE);
     expect(s.meta.biomeSeals).toEqual([2]);
     expect(pages).toBe(1);
     expect(chests).toBe(1);
     // The Codex chest (Crystal) may itself hold a new Find.
-    expect(codexCount(s)).toBeGreaterThanOrEqual(14);
+    expect(codexCount(s)).toBeGreaterThanOrEqual(PAGE_SIZE);
     // A duplicate levels the Find (+1 %).
     const m0 = mults(s).gold;
     awardFind(s, 'find:2:0', bus);

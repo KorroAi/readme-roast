@@ -12,6 +12,7 @@ import { flagSecret } from './feats';
 import { comboLostHint } from './hints';
 import { comboCap, comboMult, comboWindow, critChance, critMult, surgeDuration, surgeMult, tapBaseLog10 } from './run';
 import { applyHit, cellHpLog10, rowAt, targetCell } from './shaft';
+import { stopDepthFor } from './nodes';
 import { hitSeal } from './seals';
 import { CELL, COLS, type CellKind, type IdleState } from './state';
 
@@ -19,7 +20,7 @@ const L10 = Math.log10;
 
 export type TapKind = 'tap' | 'hold' | 'swipe' | 'key';
 
-/** One counted input for the model. `col` −1 with an `entity` id for entity taps (chests, the moth). */
+/** One counted input for the model. `col` −1 with an `entity` id for entity taps (chests, the ember). */
 export interface ModelTap {
   col: number;
   kind: TapKind;
@@ -52,7 +53,7 @@ export interface TapResult {
 
 const OUT: TapResult = { col: 0, depth: 0, dmgLog10: -Infinity, crit: false, combo: 0, cells: 0, chain: 0, seal: false, kind: CELL.ROCK };
 
-/** Hooks other systems add to a tap (W2: facets, Cataclysm; the Moth Frenzy is in run.skillMultLog10). */
+/** Hooks other systems add to a tap (W2: facets, Cataclysm; the Ember Frenzy is in run.skillMultLog10). */
 export interface TapHooks {
   /** Extra log10 multiplier on D (skills, facets). */
   dmgLog10?: (s: IdleState) => number;
@@ -62,9 +63,22 @@ export interface TapHooks {
 
 export const tapHooks: TapHooks = {};
 
-/** Resolve one counted hit on column `col` (SPEC §3.2). */
-export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleBus): TapResult {
-  const r = OUT;
+/** Steps 1–7 of a tap (SPEC §3.2): combo, base, crit, combo multiplier, Surge, hooks. The damage is `d` (log10). */
+export interface PreparedTap {
+  d: number;
+  crit: boolean;
+  mega: boolean;
+  surge: boolean;
+  nth: number;
+}
+
+const PREP: PreparedTap = { d: -Infinity, crit: false, mega: false, surge: false, nth: 0 };
+
+/**
+ * Resolve a tap's damage (shared by the face, the chamber tappables, the skin, the ride glints and the seal's weak
+ * point): the combo, the base, the crit, the combo multiplier, the Surge and the hooks. Returns a shared object.
+ */
+export function prepareTap(s: IdleState, kind: TapKind): PreparedTap {
   const t = s.time;
   const hold = kind === 'hold';
   const fs = facetStats(s);
@@ -74,6 +88,11 @@ export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleB
   else s.tap.combo = Math.max(fs.comboFloor, (hold ? COMBO.holdGain : 1) * build);
   s.tap.lastHit = t;
   s.tap.decayAt = t + COMBO.decayAfter;
+  // The hold stream: a hold hit within 0.6 s of the last one continues it; a tap ends it.
+  if (hold) {
+    if (s.tap.holdSince < 0 || t - s.tap.holdLast > 0.6) s.tap.holdSince = t;
+    s.tap.holdLast = t;
+  } else s.tap.holdSince = -1;
   s.hints.lastHitAt = t;
   s.run.taps++;
   const nth = s.run.taps;
@@ -99,6 +118,46 @@ export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleB
   if (storm && storm.end > t) d += L10(storm.mult);
   // 7. Skills and facets (hooks).
   if (tapHooks.dmgLog10) d += tapHooks.dmgLog10(s);
+  PREP.d = d;
+  PREP.crit = crit;
+  PREP.mega = mega;
+  PREP.surge = surge;
+  PREP.nth = nth;
+  return PREP;
+}
+
+/** Step 11 of a tap: the meters, the stats and the records (after the damage applied; `cells` it broke). */
+export function finishTap(s: IdleState, kind: TapKind, crit: boolean, surge: boolean, d: number, cells: number, bus?: IdleBus): void {
+  const hold = kind === 'hold';
+  const gain = (crit ? SURGE.perCrit : SURGE.perHit) * (hold ? SURGE.holdFactor : 1);
+  if (!surge) addSurge(s, gain, bus);
+  s.meta.stats.taps++;
+  if (crit) s.meta.stats.crits++;
+  if (s.tap.combo > s.meta.records.bestCombo) {
+    const old = s.meta.records.bestCombo;
+    s.meta.records.bestCombo = Math.floor(s.tap.combo);
+    if (old >= 10 && Math.floor(s.tap.combo) % 10 === 0) bus?.emit('record:new', { id: 'bestCombo', value: s.meta.records.bestCombo, old });
+  }
+  if (cells > s.meta.records.bestTapCells) s.meta.records.bestTapCells = cells;
+  if (d > s.meta.records.bestHit.log10()) s.meta.records.bestHit.setLog10(d);
+  s.meta.lastUsed.tap = s.playTime;
+  if (crit) s.meta.lastUsed.crit = s.playTime;
+  if (s.tap.combo >= 25) s.meta.lastUsed.combo = s.playTime;
+  comboTiers(s, bus);
+}
+
+/** Resolve one counted hit on column `col` (SPEC §3.2). */
+export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleBus): TapResult {
+  const r = OUT;
+  const t = s.time;
+  const fs = facetStats(s);
+  const pre = prepareTap(s, kind);
+  const d = pre.d;
+  const crit = pre.crit;
+  const mega = pre.mega;
+  const surge = pre.surge;
+  const nth = pre.nth;
+  void t;
   r.dmgLog10 = d;
   r.crit = crit;
   r.combo = s.tap.combo;
@@ -115,7 +174,7 @@ export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleB
     r.depth = floor.depth;
     hitSeal(s, d, false, bus);
   } else {
-    const tgt = targetCell(s, col);
+    const tgt = targetCell(s, col, 2, stopDepthFor(s, source));
     if (tgt) {
       r.col = tgt.col;
       r.depth = tgt.depth;
@@ -152,21 +211,7 @@ export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleB
     }
   }
   // 11. Meters.
-  const gain = (crit ? SURGE.perCrit : SURGE.perHit) * (hold ? SURGE.holdFactor : 1);
-  if (!surge) addSurge(s, gain, bus);
-  s.meta.stats.taps++;
-  if (crit) s.meta.stats.crits++;
-  if (s.tap.combo > s.meta.records.bestCombo) {
-    const old = s.meta.records.bestCombo;
-    s.meta.records.bestCombo = Math.floor(s.tap.combo);
-    if (old >= 10 && Math.floor(s.tap.combo) % 10 === 0) bus?.emit('record:new', { id: 'bestCombo', value: s.meta.records.bestCombo, old });
-  }
-  if (r.cells > s.meta.records.bestTapCells) s.meta.records.bestTapCells = r.cells;
-  if (d > s.meta.records.bestHit.log10()) s.meta.records.bestHit.setLog10(d);
-  s.meta.lastUsed.tap = s.playTime;
-  if (crit) s.meta.lastUsed.crit = s.playTime;
-  if (s.tap.combo >= 25) s.meta.lastUsed.combo = s.playTime;
-  comboTiers(s, bus);
+  finishTap(s, kind, crit, surge, d, r.cells, bus);
   bus?.emit('tap:hit', {
     col: r.col, depth: r.depth, kind: r.kind, source, dmg: Big.fromLog10(d), crit,
     combo: s.tap.combo, comboMult: comboMult(s.tap.combo), cells: r.cells, chain: r.chain, surge,
@@ -176,7 +221,7 @@ export function resolveTap(s: IdleState, col: number, kind: TapKind, bus?: IdleB
 
 /**
  * Fill the Surge meter. A full meter waits up to 8 s for a tap on the ring (`fireSurge`), then fires by itself
- * (CRITIQUE SHOULD 1: the player may save it for a Warden or an event). The very first Surge fires at once.
+ * (CRITIQUE SHOULD 1: the player may save it for a seal or an event). The very first Surge fires at once.
  */
 export function addSurge(s: IdleState, amount: number, bus?: IdleBus): void {
   if (!s.meta.revealed.includes('surge')) return;
