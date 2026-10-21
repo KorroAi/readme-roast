@@ -751,7 +751,7 @@ void main() {
     // soft inner glow carries it.
     float lineAmb = 1.0 - smoothstep(0.06, 0.12, hiFrac);
     // Line width in pixels (crisp: about 1.7 px ambient, 2.6 px selected), never wider than 9 cm.
-    vec2 w = min(hiW * mix(1.7, 2.6, sel), vec2(0.09));
+    vec2 w = min(hiW * mix(2.4, 2.6, sel), vec2(0.09));
     float line = 0.0;
     float outer = 0.0;
     float minD = 1.0;
@@ -774,11 +774,17 @@ void main() {
       // up close (a vein's edges are arbitrary lines on the wall: never).
       bool rim = other && oc != hiC;
       bool convex = !other && hiSel && !oreCell;
-      if (!rim && !convex) continue;
-      float ev = rim ? mix(lineAmb, lineVis, sel) : 1.0;
+      // A selected block inside a heap also takes its own edges against the heap, but only while
+      // it is small on screen (from ~3.4 m out); up close its glow and the cracks carry it.
+      bool inner = other && oc == hiC && hiSel && !oreCell;
+      if (!rim && !convex && !inner) continue;
+      // Convex edges stay on a little nearer (to ~2.1 m), then they too fade: at arm's length a
+      // block's own outline would be a frame across the screen.
+      float ev = rim ? mix(lineAmb, lineVis, sel) : inner ? lineVis : 1.0 - smoothstep(0.16, 0.3, hiFrac);
       float ww = k < 2 ? w.x : w.y;
       if (rim) minD = min(minD, d);
-      line = max(line, ev * (1.0 - smoothstep(ww * 0.55, ww * 1.15, d)));
+      // Ambient: a soft-edged rim (a glow line, not a drawn box); selected: crisp.
+      line = max(line, ev * (1.0 - smoothstep(ww * mix(0.25, 0.55, sel), ww * 1.15, d)));
       outer = max(outer, ev * smoothstep(ww * 1.0, ww * 1.4, d) * (1.0 - smoothstep(ww * 1.8, ww * 2.6, d)));
     }
     int code = hiC;
@@ -794,7 +800,8 @@ void main() {
     float gather = exp(-minD * 11.0) * (oreCell ? lineVis : mix(mix(0.3, 1.0, lineVis), 1.0, sel));
     // Ambient: the find glows softly from within and its rim is only a hairline (never a white box
     // on the wall); selected, the crisp line carries it.
-    vec3 hi = hc * (line * mix(0.04, 0.36, sel) + gather * mix(0.03, 0.02, sel) + mix(0.004, 0.0015, sel) + (oreCell ? 0.0 : 0.006 * sel * (1.0 - lineVis))) * k;
+    // (no flat tint over an ambient find's faces: on dark stone even a breath of it read as a pale box)
+    vec3 hi = hc * (line * mix(0.065, 0.28, sel) + gather * mix(0.045, 0.02, sel) + 0.0006 + (oreCell ? 0.0 : 0.008 * sel * (1.0 - lineVis))) * k;
     // Ore up close: the rarity colour runs round the nuggets (a crisp rim) with a faint glow on
     // the metal: the vein's outline is its metal, brighter on the struck block.
     hi += hc * (oreRim * mix(0.0, 0.04, sel) + oreMetal * oreNear * mix(0.004, 0.01, sel)) * k * (1.0 - lineVis * 0.5);

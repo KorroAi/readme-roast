@@ -1,4 +1,5 @@
-import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, crackCurve, fbm, mixHex, ramp, wrap, wrapDelta } from './paint';
+import { MAT_SIZE, MatCanvas, PeriodicCells, Rng, crackCurve, crackPath as crackPathE, fbm, mixHex, ramp, wrap, wrapDelta } from './paint';
+import { bedrock as bedrockGlass } from './rock';
 import { crystal } from './minerals';
 import * as P from './palette';
 
@@ -136,7 +137,9 @@ export function gemOre(c: MatCanvas, rng: Rng): void {
       if (r > R) {
         // Host rock between the pockets, a lighter rind around each pocket.
         const rind = r < R + 1.3 ? 0.14 : 0;
-        c.set(x, y, ramp(P.DEEP, 0.22 + (hostN(x, y) - 0.5) * 0.22 + rind, x, y, 0), 90 + rind * 300);
+        // Polish 2: a little lighter (0.22 -> 0.34), so a gem pocket in warm stone reads as rock with
+        // crystal in it, not as a black box in the wall.
+        c.set(x, y, ramp(P.DEEP, 0.34 + (hostN(x, y) - 0.5) * 0.22 + rind, x, y, 0), 90 + rind * 300);
         continue;
       }
       const lum = (c.rgb[i * 3] * 0.3 + c.rgb[i * 3 + 1] * 0.55 + c.rgb[i * 3 + 2] * 0.15) / 255;
@@ -148,4 +151,28 @@ export function gemOre(c: MatCanvas, rng: Rng): void {
       const core = 1 - r / R;
       c.set(x, y, hex, Math.min(255, glow * 1.1 + core * 60));
     }
+}
+
+/**
+ * Polish 2: ember glass, the Ember Deep's black seal. Bedrock's dark glassy stone with a net of hot
+ * ember cracks glowing through it (the glow is the alpha of an emissive layer), so the seal reads as
+ * a lit thing in the wall from across the Glowroot, not as a flat dark patch.
+ */
+export function emberGlass(c: MatCanvas, rng: Rng): void {
+  bedrockGlass(c, rng);
+  // The glass itself does not glow; only its cracks do.
+  for (let i = 0; i < c.a.length; i++) c.a[i] = Math.min(c.a[i], 14);
+  const TAU = Math.PI * 2;
+  for (let k = 0; k < 9; k++) {
+    const pts = crackPathE(rng, rng.next() * S, rng.next() * S, rng.next() * TAU, rng.int(26, 70), 0.3, 0.07);
+    pts.forEach(([x, y], j) => {
+      const hot = 0.6 + 0.4 * Math.sin((j / Math.max(1, pts.length - 1)) * Math.PI);
+      c.set(x, y, mixHex(0xc2380e, 0xffb25a, hot * 0.8), 150 + hot * 100);
+      // A dim ember rim either side of the crack.
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const i = c.idx(x + dx, y + dy);
+        if (c.a[i] < 60) c.set(x + dx, y + dy, mixHex(c.getHex(x + dx, y + dy), 0x6a1a08, 0.7), 46 * hot);
+      }
+    });
+  }
 }

@@ -2,7 +2,7 @@ import { B } from '../../config/blocks';
 import { MAT_SIZE, MatCanvas, rngFor } from './paint';
 import { PAINTERS, type MaterialPainter } from './painters';
 import { echoCrystal } from './minerals';
-import { gemOre, roots, rubble } from './finds';
+import { emberGlass, gemOre, roots, rubble } from './finds';
 import { beginHostCache, endHostCache } from './rock';
 
 /**
@@ -59,6 +59,8 @@ export const MATERIAL_NAMES = [
   'rubble',
   'roots',
   'gemOre',
+  // Polish 2: the Ember Deep's black seal, its cracks glowing (finds.ts emberGlass).
+  'emberGlass',
 ] as const;
 
 export type MaterialName = (typeof MATERIAL_NAMES)[number];
@@ -106,6 +108,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   rubble: { glow: 0 },
   roots: { glow: 0 },
   gemOre: { glow: 0.9 },
+  emberGlass: { glow: 1.1 },
 };
 
 /**
@@ -160,7 +163,7 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   // ember veins) and ember glass (the Ember Deep's black seal: bedrock's dark glassy stone; its red
   // light comes from the block's emission in the light volume).
   [B.LANTERNSTONE]: { top: 'hearth', side: 'hearth', bottom: 'hearth', family: FAMILY.NONE, rigidity: 2 },
-  [B.EMBER_GLASS]: { top: 'bedrock', side: 'bedrock', bottom: 'bedrock', family: FAMILY.NONE, rigidity: 1 },
+  [B.EMBER_GLASS]: { top: 'emberGlass', side: 'emberGlass', bottom: 'emberGlass', family: FAMILY.NONE, rigidity: 1 },
   // Round 2 (WORLD's minable finds): a loose-stone heap, root tangles, a violet gem pocket.
   [B.RUBBLE]: rock('rubble', 'rubble'),
   [B.ROOTS]: rock('roots', 'roots'),
@@ -211,7 +214,7 @@ export interface MaterialAtlas {
 }
 
 /** Layers added after the painters table (final pass W3): painted from here, after all the others. */
-const EXTRA_PAINTERS: Record<string, MaterialPainter> = { echoCrystal, rubble, roots, gemOre };
+const EXTRA_PAINTERS: Record<string, MaterialPainter> = { echoCrystal, rubble, roots, gemOre, emberGlass };
 
 /** Paint every material layer (deterministic). */
 export function generateMaterials(): MaterialAtlas {
