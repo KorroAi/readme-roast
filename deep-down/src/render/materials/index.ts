@@ -3,13 +3,6 @@ import { MAT_SIZE, MatCanvas, rngFor } from './paint';
 import { PAINTERS, type MaterialPainter } from './painters';
 import { echoCrystal } from './minerals';
 import { beginHostCache, endHostCache } from './rock';
-import { recolor } from './recolor';
-import { copperVein, crystal, ironVein } from './minerals';
-import { beamSide, plank } from './timber';
-import { dampSide, weatheredSide } from './rock';
-import { masonry } from './masonry';
-import { soil } from './earth';
-import { BIOME_BLOCKS, EMITTER_BASE, SLOT } from '../../config/blocks';
 
 /**
  * Terrain material library.
@@ -61,26 +54,6 @@ export const MATERIAL_NAMES = [
   'script',
   // The deep tier (final pass W3): Echo crystal, the crystal bleached pale (minerals.ts echoCrystal).
   'echoCrystal',
-  // The descent (W1): ores, gems and fittings of biomes 0-3 recoloured from the existing painters
-  // (recolor.ts) until W2's painters land, plus the chest shell, gate stone, fossil and gold leaf.
-  'copperOre',
-  'amberVein',
-  'tinVein',
-  'jadeVein',
-  'quartzVein',
-  'sapphireVein',
-  'silverVein',
-  'brassPlate',
-  'rootWood',
-  'glowroot',
-  'gemRose',
-  'gemJade',
-  'gemViolet',
-  'goldLeaf',
-  'fossilBone',
-  'chestShell',
-  'gateStone',
-  'turf',
 ] as const;
 
 export type MaterialName = (typeof MATERIAL_NAMES)[number];
@@ -124,24 +97,6 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   crumblingB: { glow: 0.9 },
   script: { glow: 0 },
   echoCrystal: { glow: 0.95 },
-  copperOre: { glow: 0 },
-  amberVein: { glow: 0.9 },
-  tinVein: { glow: 0 },
-  jadeVein: { glow: 0.9 },
-  quartzVein: { glow: 0 },
-  sapphireVein: { glow: 0.95 },
-  silverVein: { glow: 0 },
-  brassPlate: { glow: 0 },
-  rootWood: { glow: 0 },
-  glowroot: { glow: 1.2 },
-  gemRose: { glow: 1.0 },
-  gemJade: { glow: 1.0 },
-  gemViolet: { glow: 1.0 },
-  goldLeaf: { glow: 0.6 },
-  fossilBone: { glow: 0 },
-  chestShell: { glow: 0 },
-  gateStone: { glow: 0 },
-  turf: { glow: 0 },
 };
 
 /**
@@ -194,33 +149,6 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   [B.IRONBOUND]: { top: 'sealStone', side: 'sealStone', bottom: 'sealStone', family: FAMILY.NONE, rigidity: 2, rune: true },
 };
 
-// ---- The descent's blocks (config/blocks: 41..63 specials, 64 + 8 b + slot, 176.. emitters) ----
-const flat = (m: MaterialName, family: number = FAMILY.NONE, rigidity: 0 | 1 | 2 | 3 = 1): BlockSurface => ({ top: m, side: m, bottom: m, family, rigidity });
-BLOCK_SURFACES[B.CHEST_SHELL] = flat('chestShell', FAMILY.NONE, 0);
-BLOCK_SURFACES[B.GATE_STONE] = { top: 'masonryTop', side: 'gateStone', bottom: 'masonryTop', family: FAMILY.NONE, rigidity: 1 };
-BLOCK_SURFACES[B.SEAL_STONE] = flat('sealStone', FAMILY.NONE, 2);
-BLOCK_SURFACES[B.FOSSIL] = rock('fossilBone', 'fossilBone');
-BLOCK_SURFACES[B.GEODE] = flat('crystal', FAMILY.CRYSTAL, 1);
-BLOCK_SURFACES[B.GOLDEN] = rock('goldLeaf', 'goldLeaf');
-BLOCK_SURFACES[B.BOULDER] = rock('deepTop', 'deepSide');
-BLOCK_SURFACES[B.TOPSOIL] = rock('turf', 'turf');
-// The hybrid's blocks (1B, W1): a secret's cracked wall, Halden masonry, timber decks and treads.
-BLOCK_SURFACES[B.CRACK] = { top: 'crumbling', side: 'crumbling', bottom: 'crumbling', family: FAMILY.MASONRY, rigidity: 1 };
-BLOCK_SURFACES[B.MASONRY] = { top: 'masonryTop', side: 'masonry', bottom: 'masonryTop', family: FAMILY.MASONRY, rigidity: 1 };
-BLOCK_SURFACES[B.DECK] = flat('plank', FAMILY.NONE, 0);
-/** W1 kits per biome slot (hostA, hostB, soft, hard, ore, rich, gem, special); biomes 4..13 reuse them. */
-const KIT_SURFACES: ReadonlyArray<ReadonlyArray<BlockSurface>> = [
-  [rock('soil', 'soilSide'), rock('gravel', 'gravel'), rock('weatheredTop', 'weatheredSide'), flat('rootWood', FAMILY.NONE, 2), rock('copperOre', 'copperOre'), flat('amberVein', FAMILY.CRYSTAL), flat('gemRose', FAMILY.CRYSTAL), flat('rootWood', FAMILY.NONE, 2)],
-  [rock('dampTop', 'dampSide', 'stoneSide'), rock('stoneTop', 'stoneSide'), rock('dampTop', 'dampSide'), flat('rootWood', FAMILY.NONE, 2), rock('tinVein', 'tinVein'), flat('jadeVein', FAMILY.CRYSTAL), flat('gemJade', FAMILY.CRYSTAL), flat('glowroot', FAMILY.CRYSTAL)],
-  [rock('stoneTop', 'stoneSide'), rock('deepTop', 'deepSide'), flat('echoCrystal', FAMILY.CRYSTAL), flat('crystal', FAMILY.CRYSTAL), rock('quartzVein', 'quartzVein'), flat('sapphireVein', FAMILY.CRYSTAL), flat('gemViolet', FAMILY.CRYSTAL), flat('crystal', FAMILY.CRYSTAL)],
-  [rock('deepTop', 'deepSide'), { top: 'masonryTop', side: 'masonry', bottom: 'masonryTop', family: FAMILY.MASONRY, rigidity: 1 }, flat('plank', FAMILY.NONE, 0), flat('brassPlate', FAMILY.NONE, 1), rock('ironTop', 'ironVein'), rock('silverVein', 'silverVein'), flat('gemRose', FAMILY.CRYSTAL), { top: 'beamEnd', side: 'beamSide', bottom: 'beamEnd', family: FAMILY.NONE, rigidity: 0 }],
-];
-for (let b = 0; b < BIOME_BLOCKS; b++)
-  for (let slot = 0; slot < 8; slot++) BLOCK_SURFACES[64 + 8 * b + slot] = KIT_SURFACES[b % KIT_SURFACES.length][slot];
-const EMITTER_MATS: MaterialName[] = ['glowroot', 'crystal', 'amberVein', 'goldLeaf', 'gemViolet', 'jadeVein', 'sapphireVein', 'amberVein', 'amberVein', 'echoCrystal', 'goldLeaf', 'sapphireVein', 'goldLeaf', 'gemViolet', 'crystal', 'gemRose'];
-EMITTER_MATS.forEach((m, i) => (BLOCK_SURFACES[EMITTER_BASE + i] = flat(m, FAMILY.CRYSTAL, 1)));
-void SLOT;
-
 /** Per block id: lowest-rigidity lookup used by the mesher (255 = not solid / no constraint). */
 export const RIGIDITY = new Uint8Array(256).fill(255);
 /** Per block id: material layer for top / side / bottom faces (mesher vertex data). */
@@ -257,27 +185,6 @@ for (const s of Object.values(BLOCK_SURFACES)) {
   GEO_SIDE_OF[top] = GEO_SIDE_OF[side] = side;
 }
 
-/**
- * The section look's guess of a block from its material layer (src/render/look.ts), used until the exact
- * cut-plane ids (SectionIds) are bound and for the 3D faces of biome blocks (cavern walls, ledges), which
- * take their biome's ramp: < 0 means "the biome at this depth, slot -v - 1"; > 0 a special block id; 0 none.
- */
-/** Kits per biome (BLOCK_SURFACES: biome b uses KIT_SURFACES[b % KITS]); LAYER_FALLBACK is per kit. */
-export const KITS = KIT_SURFACES.length;
-/** Per kit k: LAYER_FALLBACK[k * layers + layer] (a layer like stoneSide is hostB in one kit and hostA in another). */
-export const LAYER_FALLBACK = new Int16Array(KITS * MATERIAL_NAMES.length);
-KIT_SURFACES.forEach((kit, k) => {
-  const base = k * MATERIAL_NAMES.length;
-  kit.forEach((s, slot) => {
-    for (const l of [MAT[s.side], MAT[s.top], MAT[s.bottom]]) if (LAYER_FALLBACK[base + l] === 0) LAYER_FALLBACK[base + l] = -(slot + 1);
-  });
-  LAYER_FALLBACK[base + MAT.chestShell] = B.CHEST_SHELL;
-  LAYER_FALLBACK[base + MAT.gateStone] = B.GATE_STONE;
-  LAYER_FALLBACK[base + MAT.fossilBone] = B.FOSSIL;
-  LAYER_FALLBACK[base + MAT.goldLeaf] = B.GOLDEN;
-  LAYER_FALLBACK[base + MAT.turf] = B.TOPSOIL;
-});
-
 export interface MaterialAtlas {
   size: number;
   layers: number;
@@ -285,29 +192,8 @@ export interface MaterialAtlas {
   data: Uint8Array;
 }
 
-/** Layers added after the painters table: painted from here, after all the others. */
-const EXTRA_PAINTERS: Record<string, MaterialPainter> = {
-  echoCrystal,
-  copperOre: recolor(copperVein, [0x1c0c06, 0x3e1c0c, 0x7a3a18, 0xc06a2c, 0xf0a060, 0xffd0a0], 1.05),
-  amberVein: recolor(crystal, [0x2a1404, 0x6a3008, 0xb8600e, 0xf09a28, 0xffd070], 1.1),
-  tinVein: recolor(ironVein, [0x1c2026, 0x343a44, 0x566070, 0x8a96a8, 0xb4c0d0], 0.95),
-  jadeVein: recolor(crystal, [0x04140c, 0x0c3a22, 0x1c7848, 0x46c080, 0xa8f0c8], 1.1),
-  quartzVein: recolor(ironVein, [0x241e26, 0x463a48, 0x7a6880, 0xb09ab8, 0xd8c8e0], 0.95),
-  sapphireVein: recolor(crystal, [0x02061a, 0x081c5a, 0x1840a8, 0x3c78f0, 0x9cc4ff], 1.1),
-  silverVein: recolor(ironVein, [0x22262c, 0x444a54, 0x707884, 0xa4acb8, 0xd4dae4], 1.0),
-  brassPlate: recolor(copperVein, [0x3a2a10, 0x6c4e1c, 0xa8803a, 0xd8b064, 0xf8e0a0]),
-  rootWood: recolor(beamSide, [0x1a120c, 0x2e2016, 0x4a3422, 0x6a4c32, 0x8a6a48]),
-  glowroot: recolor(crystal, [0x020a04, 0x06301a, 0x1a7a40, 0x5ad888, 0xc8ffd8], 1.1),
-  gemRose: recolor(crystal, [0x1a0410, 0x5a1438, 0xb03a78, 0xf07ab0, 0xffd0e8], 1.15),
-  gemJade: recolor(crystal, [0x041a10, 0x14583a, 0x3aa874, 0x84f0b4, 0xd8fff0], 1.15),
-  gemViolet: recolor(crystal, [0x0c041a, 0x30145a, 0x6a3ab0, 0xa880f0, 0xe8d8ff], 1.15),
-  goldLeaf: recolor(copperVein, [0x4a3008, 0x8a6014, 0xd0a030, 0xf8d860, 0xfff4b8], 1.1),
-  fossilBone: recolor(weatheredSide, [0x2a241c, 0x5a5040, 0x948670, 0xc8b8a0, 0xeee4d0]),
-  chestShell: recolor(plank, [0x24160c, 0x4a2e18, 0x7a5230, 0xa87a48, 0xd0a060]),
-  gateStone: recolor(masonry, [0x1a1c22, 0x343842, 0x565c6a, 0x7c8494, 0xa8b0c0]),
-  turf: recolor(soil, [0x0e0c08, 0x1e1a10, 0x2e3018, 0x3c4622, 0x52602e], 0.9),
-};
-void dampSide;
+/** Layers added after the painters table (final pass W3): painted from here, after all the others. */
+const EXTRA_PAINTERS: Record<string, MaterialPainter> = { echoCrystal };
 
 /** Paint every material layer (deterministic). */
 export function generateMaterials(): MaterialAtlas {

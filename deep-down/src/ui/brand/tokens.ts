@@ -3,7 +3,7 @@
 // reads at WCAG AA (4.5:1) on the surface it is used on.
 //
 // Two registers that never mix:
-// - the kit (everything the player owns or does): slate plates, brass rims, amber light;
+// - expedition kit (everything the player owns or does): slate plates, brass rims, amber light;
 // - builders' script (discoveries, lore, runes, the logo's O): cyan ink carved in stone.
 // Violet means the unknown (locked entries, records, relics). Red means danger only.
 

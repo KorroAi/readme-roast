@@ -396,32 +396,7 @@ const lAo = new Uint8Array(L * L * L);
 let stamp = 0;
 
 /** Mesher options (debug viewer): `sculpt: false` meshes plain cubes with face normals. */
-export const MESH_OPTIONS = { sculpt: true, wide: 1, relax: 0.5, smoothAo: true, aoBias: 0.1, aoPow: 3, section: true };
-
-/**
- * The descent's drawn section (SPEC §6.2, CRITIQUE B4/B5). The cut plane is the world plane z = SECTION_Z
- * (RingWorld: voxels z >= 60 are the light apron): lattice points on it never move in z and move at most
- * SECTION_XY_MAX in x and y, so the section is flat with an organic outline that the rim can follow. In the
- * dig band (x within 3 cells of the shaft, z from the back wall to the cut) nothing is sculpted: the cells,
- * their ledges and the shaft walls are crisp, and a break never moves a neighbour's outline.
- */
-export const SECTION_Z = 60;
-export const SECTION_XY_MAX = 0.15;
-export const DIG_BAND_X0 = 25;
-export const DIG_BAND_X1 = 38;
-export const DIG_BAND_Z0 = 56;
-
-/** A world whose y axis is a ring (RingWorld): storage chunk rows map to world chunk rows. */
-interface RingChunks {
-  worldChunkY(scy: number): number | null;
-  copyPaddedWorld(ccx: number, scy: number, ccz: number, out: Uint8Array): Uint8Array;
-}
-const isRing = (w: unknown): w is RingChunks => typeof (w as RingChunks).copyPaddedWorld === 'function';
-
-/** World chunk y of storage chunk row `ccy` (identity for a plain VoxelWorld; null: a dead ring slot). */
-export function worldChunkY(world: VoxelWorld, ccy: number): number | null {
-  return isRing(world) ? world.worldChunkY(ccy) : ccy;
-}
+export const MESH_OPTIONS = { sculpt: true, wide: 1, relax: 0.5, smoothAo: true, aoBias: 0.1, aoPow: 3 };
 /** AO byte = AO (0..3) x AO_SCALE, so the smooth lattice AO keeps its gradient (the vertex
  *  shader divides). */
 export const AO_SCALE = 85;
@@ -479,9 +454,6 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
     const rv = SCULPT_RIGIDITY[id];
     if (rv < r) r = rv;
   }
-  // The dig band is never sculpted (crisp cells and shaft walls).
-  const section = MESH_OPTIONS.section;
-  if (section && wx >= DIG_BAND_X0 && wx <= DIG_BAND_X1 && wz >= DIG_BAND_Z0) r = 0;
   lRig[li] = r;
   const o3 = li * 3;
   if (mask === 0 || mask === 255) {
@@ -674,12 +646,6 @@ function lattice(lx: number, ly: number, lz: number, wx: number, wy: number, wz:
       nz /= l;
     }
   }
-  if (section && wz === SECTION_Z) {
-    // The cut plane: flat in z, an organic outline at most SECTION_XY_MAX in the plane.
-    oz = 0;
-    ox = Math.max(-SECTION_XY_MAX, Math.min(SECTION_XY_MAX, ox));
-    oy = Math.max(-SECTION_XY_MAX, Math.min(SECTION_XY_MAX, oy));
-  }
   lOff[o3] = Math.max(1, Math.min(255, Math.round(ox / OFF_STEP) + 128));
   lOff[o3 + 1] = Math.max(1, Math.min(255, Math.round(oy / OFF_STEP) + 128));
   lOff[o3 + 2] = Math.max(1, Math.min(255, Math.round(oz / OFF_STEP) + 128));
@@ -744,7 +710,6 @@ export const PADDED_VOXELS = P * P * P;
 export function copyPadded(world: VoxelWorld, ccx: number, ccy: number, ccz: number, out: Uint8Array = new Uint8Array(PADDED_VOXELS)): Uint8Array {
   const cs = world.chunkSize;
   if (cs !== 16) throw new Error('mesher expects 16^3 chunks');
-  if (isRing(world)) return world.copyPaddedWorld(ccx, ccy, ccz, out);
   const bx = ccx * cs - PAD;
   const by = ccy * cs - PAD;
   const bz = ccz * cs - PAD;
@@ -772,9 +737,7 @@ export function copyPadded(world: VoxelWorld, ccx: number, ccy: number, ccz: num
 
 export function meshChunk(world: VoxelWorld, ccx: number, ccy: number, ccz: number): ChunkMeshData {
   copyPadded(world, ccx, ccy, ccz, pad);
-  // A ring world meshes in world space: the storage row's world chunk y drives the relief noise.
-  const wcy = worldChunkY(world, ccy);
-  return meshPad(ccx, wcy ?? ccy, ccz);
+  return meshPad(ccx, ccy, ccz);
 }
 
 /**
@@ -825,11 +788,8 @@ function meshPad(ccx: number, ccy: number, ccz: number): ChunkMeshData {
           if (!VISIBLE[id]) continue;
           const family = FAMILY_OF[id];
           const flags = (family << 4) | (RUNE_FLAG[id] << 6);
-          const flatVoxel = !sculpt || family === FAMILY.CRYSTAL;
-          const onCut = MESH_OPTIONS.section && oz0 + z - PAD === SECTION_Z - 1;
+          const flat = !sculpt || family === FAMILY.CRYSTAL;
           for (let f = 0; f < 6; f++) {
-            // Section faces (the +z face of a voxel on the cut plane) are flat-shaded: the drawn section.
-            const flat = flatVoxel || (onCut && f === 4);
             const front = i + FACE_DELTA[f];
             if (OPAQUE[pad[front]]) continue;
             const matOf = f === 2 ? MAT_TOP : f === 3 ? MAT_BOTTOM : MAT_SIDE;
@@ -843,14 +803,7 @@ function meshPad(ccx: number, ccy: number, ccz: number): ChunkMeshData {
             let nb1 = 255;
             let nb2 = 255;
             let nb3 = 255;
-            if (flat && onCut && f === 4) {
-              // A section face: mark the edges where the cut meets air (254), for the rim
-              // ("lamplight on the lintel"); section faces never blend with a partner.
-              nb0 = OPAQUE[pad[i - d1]] ? 255 : 254;
-              nb1 = OPAQUE[pad[i + d1]] ? 255 : 254;
-              nb2 = OPAQUE[pad[i - d2]] ? 255 : 254;
-              nb3 = OPAQUE[pad[i + d2]] ? 255 : 254;
-            } else if (family !== 0) {
+            if (family !== 0) {
               let n = pad[i - d1];
               if (OPAQUE[n] && FAMILY_OF[n] === family && matOf[n] !== layer) nb0 = matOf[n];
               n = pad[i + d1];

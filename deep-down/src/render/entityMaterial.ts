@@ -102,7 +102,7 @@ void main() {
     vec3 warm = uLanternColor * vec3(1.0, 0.62, 0.36) * uLanternIntensity;
     emissive += albedo * warm * (rim * away * near * 0.15 * uRim);
   }
-  vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact) + impactLight(vWorldPos, n);
+  vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
   vec3 color = albedo * light;
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);

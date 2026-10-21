@@ -1,16 +1,15 @@
-import type { EventBus } from '../core/events';
-import type { IdleEvents } from '../idle/bus';
+import { PLAYER } from '../config/balance';
+import type { EventBus, GameEvents } from '../core/events';
 import { lerp, saturate, smoothstep } from '../core/math';
 import { Rng } from '../core/rng';
 import { DEFAULT_SETTINGS } from '../save/types';
-import { AUDIBLE_EVENTS, SoundCues, type SfxRequest } from './eventMap';
+import { AUDIBLE_EVENTS, sfxForEvent } from './eventMap';
 import { busTarget, createMixGraph, type MixGraph } from './graph';
 import { CampfireLoop, CaveBed, CrystalHum, LanternLoop, ParamTarget } from './layers';
 import { MusicPlayer } from './MusicPlayer';
 import { SFX, playSfx, type BusName, type SfxName, type SfxParams } from './sfx';
 import type { SynthTarget, Voice } from './synth';
-import { biomeMood, moodFor, volumeToGain, type MoodName } from './theory';
-import { RhythmLayers } from './drums';
+import { moodFor, volumeToGain, type MoodName } from './theory';
 import type { AudioVolumes, AudioWorldState, UiSound } from './types';
 import { RateGate, VoiceLimiter } from './voices';
 
@@ -63,7 +62,6 @@ interface Live {
   graph: MixGraph;
   targets: Record<BusName, SynthTarget>;
   music: MusicPlayer;
-  rhythm: RhythmLayers;
   lantern: LanternLoop;
   campfire: CampfireLoop;
   cave: CaveBed;
@@ -73,9 +71,8 @@ interface Live {
 }
 
 /**
- * The game's audio, fully synthesized with Web Audio: IdleEvent-driven effects on musical ladders,
- * continuous layers (lantern, camp fire at the surface, cave bed, crystal hum, drips, rumbles) and a
- * generative score.
+ * The game's audio, fully synthesized with Web Audio: event-driven effects, continuous
+ * layers (lantern, campfire, cave bed, crystal hum, drips, rumbles) and a generative score.
  *
  * Nothing exists until unlock() is called from a user gesture (mobile autoplay policy).
  * Before that, and wherever Web Audio is missing, every method is a safe no-op.
@@ -94,10 +91,9 @@ export class AudioSystem {
     ambience: DEFAULT_SETTINGS.ambienceVolume,
   };
   /** Last good world state: a non-finite field in a frame keeps its previous value. */
-  private readonly world: AudioWorldState = { depth: 0, openness: 0.3, nearCrystal: 0, nearFire: 0, inMenu: false };
-  /** The ladders (break pentatonic, purchase arpeggio, combo steps). */
-  private readonly cues = new SoundCues();
-  private readonly reqs: SfxRequest[] = [];
+  private readonly world: AudioWorldState = {
+    depth: 0, atCamp: false, openness: 0, lanternFuel: 1, lanternLit: false, nearCrystal: 0, nearFire: 0, playerSpeed: 0, inMenu: false,
+  };
   private paused = false;
   private inMenu = false;
   private backgrounded = false;
@@ -111,9 +107,11 @@ export class AudioSystem {
   private control = CONTROL_PERIOD;
   private dripIn = 3;
   private rumbleIn = 30;
+  private flickerIn = 0;
+  private flickering = false;
   private musicDuckUntil = 0;
 
-  constructor(private readonly bus: EventBus<IdleEvents>) {
+  constructor(private readonly bus: EventBus<GameEvents>) {
     for (const type of AUDIBLE_EVENTS) this.listen(type);
   }
 
@@ -174,15 +172,13 @@ export class AudioSystem {
       }
       const now = live.ctx.currentTime;
 
-      this.mood = s.music && s.biome !== undefined && s.depth >= 4 ? biomeMood(s.biome, s.music) : moodFor(s.depth, s.depth < 4, this.mood);
-      live.music.plucks = s.plucks ?? true;
+      this.mood = moodFor(s.depth, s.atCamp, this.mood);
       live.music.update(now, this.mood);
-      if (!this.paused && !s.inMenu) live.rhythm.update(now, dt, s.music?.bpm ?? 84, s.drums ?? 0, s.boss ?? 0);
-      else live.rhythm.update(now, dt, s.music?.bpm ?? 84, 0, 0);
       if (this.musicDuckUntil > 0 && now >= this.musicDuckUntil) {
         this.musicDuckUntil = 0;
         this.applyGains(0.8);
       }
+      this.sputter(live, dt, now, s);
       this.control += dt;
       if (this.control >= CONTROL_PERIOD) {
         this.controlLayers(live, now, this.control, s);
@@ -198,17 +194,7 @@ export class AudioSystem {
     this.play(`ui.${name}`, NO_PARAMS);
   }
 
-  /** Play a one-shot now (cues the event map does not cover: coin landings, ready pings). */
-  play(name: SfxName, params: SfxParams = NO_PARAMS): void {
-    this.start(name, params);
-  }
-
-  /** Duck the music for `seconds` under a stinger (−4 dB) or a T3+ moment. */
-  duck(seconds: number): void {
-    this.duckMusic(seconds);
-  }
-
-  /** Duck music and ambience and silence the lantern while paused. */
+  /** Duck music and ambience, silence the lantern and ignore footsteps while paused. */
   setPaused(paused: boolean): void {
     if (paused === this.paused) return;
     this.paused = paused;
@@ -304,14 +290,13 @@ export class AudioSystem {
     const w = this.world;
     w.depth = finiteOr(s.depth, w.depth);
     w.openness = finiteOr(s.openness, w.openness);
+    w.lanternFuel = finiteOr(s.lanternFuel, w.lanternFuel);
     w.nearCrystal = finiteOr(s.nearCrystal, w.nearCrystal);
     w.nearFire = finiteOr(s.nearFire, w.nearFire);
+    w.playerSpeed = finiteOr(s.playerSpeed, w.playerSpeed);
+    w.atCamp = s.atCamp;
+    w.lanternLit = s.lanternLit;
     w.inMenu = s.inMenu;
-    w.biome = s.biome;
-    w.music = s.music;
-    w.drums = finiteOr(s.drums ?? 0, 0);
-    w.boss = finiteOr(s.boss ?? 0, 0);
-    w.plucks = s.plucks;
     return w;
   }
 
@@ -338,13 +323,6 @@ export class AudioSystem {
         graph,
         targets,
         music: new MusicPlayer(targets.music, SEED),
-        rhythm: new RhythmLayers((name, t, gain) => {
-          try {
-            playSfx(targets.music, name, { gain }, t);
-          } catch (err) {
-            console.warn('[audio] rhythm', err);
-          }
-        }),
         lantern: new LanternLoop(ctx, noise, buses.sfx.input),
         campfire: new CampfireLoop(ctx, noise, buses.ambience.input),
         cave: new CaveBed(ctx, noise, buses.ambience.input, 1.5),
@@ -384,22 +362,24 @@ export class AudioSystem {
     }
   }
 
-  private listen<K extends keyof IdleEvents>(type: K): void {
+  private listen<K extends keyof GameEvents>(type: K): void {
     this.offs.push(this.bus.on(type, (payload) => this.onEvent(type, payload)));
   }
 
-  private onEvent<K extends keyof IdleEvents>(type: K, payload: IdleEvents[K]): void {
+  private onEvent<K extends keyof GameEvents>(type: K, payload: GameEvents[K]): void {
     if (!this.live) return;
     try {
-      for (const r of this.cues.request(type, payload, this.live.ctx.currentTime, this.reqs)) this.start(r.name, r.params);
-      // Stingers duck the music (SPEC §10.10: −4 dB under stingers).
-      if (type === 'biome:reveal' || type === 'seal:break') this.duckMusic(3);
+      if (this.paused && type === 'player:footstep') return;
+      const req = sfxForEvent(type, payload);
+      if (req) this.play(req.name, req.params);
+      if (type === 'player:damaged') this.muffle(req?.params.intensity ?? 0.5);
+      if (type === 'player:died') this.duckMusic(4);
     } catch (err) {
       console.warn(`[audio] "${String(type)}" handler failed`, err);
     }
   }
 
-  private start(name: SfxName, params: SfxParams): void {
+  private play(name: SfxName, params: SfxParams): void {
     const live = this.live;
     if (!live || this.backgrounded) return;
     // While the first gesture is resuming the context, only the UI sound that caused it may queue.
@@ -416,6 +396,18 @@ export class AudioSystem {
     }
   }
 
+  /** Taking damage briefly muffles the whole mix, like a blow to the head. */
+  private muffle(intensity: number): void {
+    const live = this.live;
+    if (!live) return;
+    const t = live.ctx.currentTime;
+    const f = live.graph.muffle.frequency;
+    f.cancelScheduledValues(t);
+    f.setValueAtTime(f.value, t);
+    f.exponentialRampToValueAtTime(lerp(1400, 600, saturate(intensity)), t + 0.03);
+    f.setTargetAtTime(20000, t + 0.15, 0.35);
+  }
+
   private duckMusic(seconds: number): void {
     const live = this.live;
     if (!live) return;
@@ -426,28 +418,45 @@ export class AudioSystem {
   private controlLayers(live: Live, now: number, dt: number, s: AudioWorldState): void {
     const depth01 = smoothstep(45, 145, s.depth);
     const open = saturate(s.openness);
-    const lanternOn = !this.paused && !s.inMenu;
-    live.lantern.setLevel(lanternOn ? LANTERN_LEVEL : 0, now, dt);
+    const lanternOn = s.lanternLit && !this.paused && !s.inMenu;
+    live.lantern.setLevel(lanternOn ? LANTERN_LEVEL * (0.35 + 0.65 * Math.sqrt(saturate(s.lanternFuel))) : 0, now, dt);
     live.campfire.setLevel(CAMPFIRE_LEVEL * Math.pow(saturate(s.nearFire), 1.4), now, dt);
     live.crystal.setLevel(CRYSTAL_LEVEL * Math.pow(saturate(s.nearCrystal), 1.5), now, dt);
     // The cave bed gets darker (lower cutoff), deeper (more sub) and a touch louder with depth;
     // the air band follows how open the space is.
-    live.cave.setLevel(lerp(0.35, 0.55, depth01) * (s.depth < 4 ? 0.6 : 1), now, dt);
+    live.cave.setLevel(lerp(0.35, 0.55, depth01) * (s.atCamp ? 0.6 : 1), now, dt);
     live.cave.shape(lerp(340, 130, depth01), (0.03 + 0.2 * open) * (1 - 0.3 * depth01), 0.02 + 0.1 * depth01, now);
     live.reverb.set(0.3 + 0.9 * open, now);
+  }
+
+  /** Irregular flame dips while the lantern is low on fuel; deeper and more frequent near empty. */
+  private sputter(live: Live, dt: number, now: number, s: AudioWorldState): void {
+    const low = s.lanternLit && s.lanternFuel < PLAYER.lanternLowFraction && !this.paused;
+    if (!low) {
+      if (this.flickering) live.lantern.flicker(1, now);
+      this.flickering = false;
+      return;
+    }
+    this.flickering = true;
+    this.flickerIn -= dt;
+    if (this.flickerIn > 0) return;
+    const severity = 1 - saturate(s.lanternFuel / PLAYER.lanternLowFraction);
+    this.flickerIn = this.rng.range(0.04, 0.14);
+    const dip = this.rng.chance(0.25 + 0.45 * severity);
+    live.lantern.flicker(dip ? this.rng.range(0.1, 0.5) : this.rng.range(0.75, 1.1), now);
   }
 
   private ambientOneShots(dt: number, s: AudioWorldState): void {
     const depth01 = smoothstep(45, 145, s.depth);
     this.dripIn -= dt;
     if (this.dripIn <= 0) {
-      this.dripIn = this.interval(s.depth < 4 ? 10 : lerp(6.5, 3.2, saturate(s.openness)));
+      this.dripIn = this.interval(s.atCamp ? 10 : lerp(6.5, 3.2, saturate(s.openness)));
       this.play('amb.drip', { pan: this.rng.range(-0.85, 0.85), pitch: lerp(1.1, 0.75, depth01), gain: this.rng.range(0.5, 1) });
     }
     this.rumbleIn -= dt;
     if (this.rumbleIn <= 0) {
       this.rumbleIn = this.interval(lerp(90, 35, depth01));
-      if (s.depth >= 4) this.play('amb.rumble', { pan: this.rng.range(-0.7, 0.7), gain: lerp(0.6, 1, depth01) });
+      if (!s.atCamp) this.play('amb.rumble', { pan: this.rng.range(-0.7, 0.7), gain: lerp(0.6, 1, depth01) });
     }
   }
 

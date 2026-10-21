@@ -1,0 +1,57 @@
+[
+  {
+    "eval": "(() => { const D = window.__DD__; return 'menu: mode ' + D.state().mode + ', screen ' + D.state().screen + ', buttons [' + [...document.querySelectorAll('button')].map((b) => b.textContent.trim()).filter(Boolean).join(' | ') + ']'; })()",
+    "wait": 2500,
+    "shot": "01-menu"
+  },
+  {
+    "eval": "(() => { const b = [...document.querySelectorAll('button')].find((x) => /New Expedition/i.test(x.textContent)); if (!b) return 'FAIL no New Expedition button'; b.click(); return 'new game: clicked'; })()",
+    "wait": 9000
+  },
+  {
+    "eval": "(() => { const s = window.__DD__.state(); return 'camp: mode ' + s.mode + ', atCamp ' + s.atCamp + ', objective \"' + (s.objective && s.objective.text) + '\"'; })()",
+    "wait": 1500,
+    "shot": "02-camp-start"
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; const g = D.game; const route = g.session.layout.route; const i = Math.min(route.length - 2, Math.max(1, Math.floor(route.length * 0.3))); const a = route[i], b = route[i + 1]; const s = D.standableNear(a[0], a[1], a[2]); if (!s) return 'FAIL no standable cell in the tunnel'; D.teleport(s[0], s[1], s[2]); const yaw = Math.atan2(-(b[0] - a[0]), -(b[2] - a[2])); g.player.yaw = yaw + Math.PI; g.cameraRig.yaw = yaw; g.cameraRig.pitch = -0.15; g.cameraRig.snapTo(s[0], s[1] + 1.45, s[2]); return 'tunnel: route point ' + i + '/' + route.length + ' at ' + s.map((v) => v.toFixed(1)).join(','); })()",
+    "wait": 4000,
+    "shot": "03-tunnel"
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; const lm = D.landmarks(); const p = D.prepareMining(7, lm.firstCrystals[0], lm.firstCrystals[1], lm.firstCrystals[2], 26); if (!p) return 'FAIL no reachable copper near the first crystals'; window.__tour = p; D.clearEvents(); D.aimAt(p.block[0], p.block[1], p.block[2]); D.input({ mining: true, aimX: 0, aimY: 0 }); return 'copper: mining block ' + p.block.join(',') + ' from ' + p.stand.join(','); })()",
+    "wait": 1500,
+    "shot": "04-copper-mining"
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; const p = window.__tour; if (p) D.aimAt(p.block[0], p.block[1], p.block[2]); return 'copper: still mining, hits so far ' + D.events('block:hit').length; })()",
+    "wait": 18000
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; D.input({ mining: false }); const p = window.__tour; const s = D.state(); const copper = s.backpack.filter((x) => x && x.item === 'copperOre').reduce((n, x) => n + x.count, 0); return (p && D.block(p.block[0], p.block[1], p.block[2]) === 0 ? 'copper: block broken' : 'FAIL copper block not broken') + ', ' + D.events('block:hit').length + ' hits, copper in pack ' + copper + ', drops on the floor ' + s.drops; })()",
+    "wait": 4000,
+    "shot": "05-copper-mined"
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; const c = D.landmarks().campfire; const s = D.standableNear(c[0] - 2, c[1], c[2]); if (!s) return 'FAIL no standable cell at camp'; D.teleport(s[0], s[1], s[2]); return 'return: teleported to camp at ' + s.map((v) => v.toFixed(1)).join(','); })()",
+    "wait": 5000
+  },
+  {
+    "eval": "(() => { const s = window.__DD__.state(); return 'return: atCamp ' + s.atCamp + ', storage ' + JSON.stringify(s.storage) + ', mode ' + s.mode + ', screen ' + s.screen; })()",
+    "wait": 1000,
+    "shot": "06-camp-return"
+  },
+  {
+    "eval": "(() => { const D = window.__DD__; const g = D.game; if (D.state().screen !== 'none') g.ui.showScreen('none'); const w = D.landmarks().workbench; const s = D.standableNear(w[0], w[1], w[2] + 1.6); if (!s) return 'FAIL no standable cell at the workbench'; D.teleport(s[0], s[1], s[2]); const yaw = Math.atan2(-(w[0] + 0.5 - s[0]), -(w[2] + 0.5 - s[2])); g.player.yaw = yaw + Math.PI; g.cameraRig.yaw = yaw; g.cameraRig.pitch = -0.3; g.cameraRig.snapTo(s[0], s[1] + 1.45, s[2]); return 'workbench: standing at ' + s.map((v) => v.toFixed(1)).join(','); })()",
+    "wait": 3000
+  },
+  {
+    "eval": "(() => { window.__DD__.interactFocused(); return 'workbench: interact pressed'; })()",
+    "wait": 3000
+  },
+  {
+    "eval": "(() => { const s = window.__DD__.state(); return (s.screen === 'none' ? 'FAIL workbench did not open' : 'workbench: screen ' + s.screen) + ', mode ' + s.mode; })()",
+    "wait": 500,
+    "shot": "07-workbench"
+  }
+]

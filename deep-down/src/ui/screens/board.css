@@ -1,0 +1,158 @@
+/* The Survey Table board (screens/board.ts): the records ledger and the rumour list. */
+
+.dd-board {
+  width: min(880px, 100%);
+}
+.dd-board-body {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: 0 18px;
+  padding: 4px 18px 16px;
+  align-items: start;
+  align-content: start;
+}
+.dd-board-col {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.dd-board-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dd-board-ledger .dd-ledger-value {
+  font-family: var(--font-lintel);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+.dd-board-ledger .dd-ledger-row.record .dd-ledger-value {
+  color: var(--deep-300);
+}
+.dd-board-day {
+  font-size: calc(13px * var(--s));
+}
+.dd-board-empty {
+  padding: 4px 0;
+}
+.dd-rumours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+/* A rumour: a plate with a pin, its line, the ore that grew, and the walk from camp. */
+.dd-rumour {
+  --cut: var(--cut-btn);
+  --fill: rgba(19, 26, 36, 0.7);
+  --rim: var(--slate-600);
+  position: relative;
+  width: 100%;
+  min-height: 52px;
+  padding: 6px 12px 6px 10px;
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-areas: 'pin main dist' 'pin main state';
+  align-items: center;
+  gap: 0 10px;
+  color: var(--bone-100);
+  text-align: left;
+  font-size: calc(14px * var(--s));
+}
+.dd-rumour:hover:not(:disabled) {
+  --rim: var(--brass-500);
+}
+.dd-rumour.target {
+  --rim: var(--amber-400);
+  --face: linear-gradient(90deg, rgba(255, 179, 92, 0.14), transparent 70%);
+}
+.dd-rumour:disabled {
+  cursor: default;
+  color: var(--bone-500);
+}
+.dd-rumour:focus-visible {
+  outline: 2px solid var(--amber-300);
+  outline-offset: -4px;
+}
+.dd-rumour-pin {
+  grid-area: pin;
+  width: 9px;
+  height: 9px;
+  margin-left: 2px;
+  background: var(--amber-400);
+  transform: rotate(45deg);
+}
+.dd-rumour.bloom .dd-rumour-pin {
+  background: var(--rune-200);
+}
+.dd-rumour-home .dd-rumour-pin {
+  background: none;
+  border: 2px solid var(--brass-300);
+}
+.dd-rumour-main {
+  grid-area: main;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.dd-rumour-text {
+  grid-area: main;
+  line-height: 1.35;
+}
+.dd-rumour-ore {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: calc(12px * var(--s));
+  color: var(--ink-dim);
+}
+.dd-rumour-ore-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.dd-rumour-dist {
+  grid-area: dist;
+  justify-self: end;
+  font-family: var(--font-lintel);
+  font-size: calc(15px * var(--s));
+  letter-spacing: 0.04em;
+  color: var(--amber-300);
+  white-space: nowrap;
+}
+.dd-rumour-state {
+  grid-area: state;
+  justify-self: end;
+  font-size: calc(12px * var(--s));
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber-300);
+  white-space: nowrap;
+}
+.dd-rumour-state:empty {
+  display: none;
+}
+.dd-rumour-home {
+  margin-top: 4px;
+}
+
+@media (orientation: portrait) {
+  .dd-board {
+    height: 100%;
+  }
+  .dd-board-body {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 4px 14px 14px;
+  }
+}
+
+.dd-board .dd-ledger-label {
+  white-space: normal;
+  overflow: visible;
+  line-height: 1.25;
+}

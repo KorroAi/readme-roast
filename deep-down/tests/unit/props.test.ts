@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import * as THREE from 'three';
-import type { PropKind, PropSpec } from '../../src/render/props/types';
+import type { PropKind, PropSpec } from '../../src/world/gen/types';
 import type { LightingUniforms } from '../../src/render/lighting';
 import { PropRenderer } from '../../src/render/props/PropRenderer';
 import { PROP_KINDS, PROP_VARIANTS, buildPropModel, propVariant, type PropModel } from '../../src/render/props/models';
@@ -22,7 +22,6 @@ function lighting(): LightingUniforms {
     uEmitGain: { value: 1.7 },
     uFogColor: { value: new THREE.Color() },
     uFogDensity: { value: 0.02 },
-    uFogStart: { value: 0 },
     uTime: { value: 0 },
     uDebug: { value: new THREE.Vector3() },
   };
@@ -56,18 +55,6 @@ const SIZE: Record<PropKind, [[number, number], [number, number], [number, numbe
   surveyTable: [[1.35, 1.55], [0.95, 1.1], [0.85, 1.0]],
   relicShelf: [[1.15, 1.3], [1.4, 1.55], [0.45, 0.6]],
   runeStone: [[0.5, 0.7], [0.75, 0.9], [0.25, 0.5]],
-  mushroom: [[0.25, 1.0], [0.5, 2.0], [0.25, 1.0]],
-  stalagmite: [[0.8, 0.9], [0.9, 2.2], [0.8, 0.9]],
-  root: [[0.5, 2.3], [1.0, 1.9], [0.2, 1.4]],
-  urn: [[0.5, 0.6], [0.7, 0.75], [0.5, 0.6]],
-  coral: [[0.35, 0.75], [0.6, 0.85], [0.45, 0.6]],
-  bone: [[1.0, 1.5], [0.1, 0.2], [0.7, 1.35]],
-  rib: [[1.2, 1.3], [1.85, 2.4], [0.1, 0.16]],
-  gear: [[1.3, 1.8], [1.3, 1.8], [0.14, 0.2]],
-  iceSpire: [[0.7, 0.9], [1.7, 2.7], [0.45, 0.55]],
-  sunshard: [[0.7, 0.95], [1.4, 1.8], [0.4, 0.5]],
-  nullShard: [[0.75, 0.9], [1.3, 1.45], [0.35, 0.45]],
-  pebbles: [[0.6, 0.85], [0.1, 0.2], [0.5, 0.7]],
 };
 
 /** Variants to check per kind: all of them, but a few masks of the Relic Shelf's 256. */

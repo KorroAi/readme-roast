@@ -1,4 +1,4 @@
-import type { StructureSpec } from './types';
+import type { StructureSpec } from '../../world/gen/types';
 import type { StructureBuilder } from './builder';
 import { buildBridge } from './bridge';
 import { buildBlock, buildColumn, buildDrum } from './columns';

@@ -1,6 +1,6 @@
 import { Rng } from '../../core/rng';
-import { BRIDGE_NEWEL, archCircle } from './geometry';
-import type { StructureSpec } from './types';
+import { BRIDGE_NEWEL, archCircle } from '../../world/gen/architecture';
+import type { StructureSpec } from '../../world/gen/types';
 import { MAT } from '../materials';
 import { StructureBuilder, TexMode, type V3 } from './builder';
 import { newel } from './parts';

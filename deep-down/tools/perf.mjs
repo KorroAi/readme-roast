@@ -1,237 +1,281 @@
-// Performance of DEEP DOWN's first-person renderer in headless Chromium (SwiftShader software GPU), portrait (owner 1E;
-// W1-LEAD §4.10, SPEC §11). SwiftShader rasterizes on the CPU, so FPS here is NOT a phone number; what is meaningful:
-// the scene's complexity (draw calls, triangles, shader programs), the passes the lighting stack runs and their pixel
-// counts, the shadow-cube refreshes, the boot time and the heap, and the GPU cost model below.
+// Performance measurement in headless Chromium (SwiftShader software GPU).
+// SwiftShader rasterizes on the CPU, so FPS here is NOT a phone GPU number; CPU-side costs
+// (JS frame time, chunk rebuilds, light updates, saves) and scene complexity (draw calls,
+// triangles, memory) are meaningful and are what this tool reports.
 //
-// Targets:
-//   --target lab   the light lab (src/render/light/lab/, through a Vite dev server): every lab shot, still and walking
-//   --target game  the game (a production build: dist/ by default, --outDir picks another) through
-//                  window.__DD__.hybrid: the drift, a chamber in Explore, walking (the camera moving every frame)
-// Usage: node tools/perf.mjs [--target lab|game] [--quality balanced] [--size 390x844] [--seconds 3]
-//                            [--out artifacts/hybrid/w1/E/perf-<target>-<quality>.json] [--outDir dist]
+// Measures the production build in dist/ (run `npm run build` first) served by `vite preview`;
+// pass --dev 1 to measure the dev server (unbundled modules) instead.
 //
-// The GPU cost model (W1-LEAD §4.10): SwiftShader cannot time a phone GPU, so every pass (window.__DD__.render
-// .passes(): pixels written, texture fetches and ALU per pixel) is scaled to the reference device (390 × 844 at DPR
-// 2.75, capped by the preset's composite DPR) and priced with phone A's throughput (Adreno 642L / Mali-G68 class: ~0.057
-// ns per bilinear fetch, ~0.0024 ns per ALU op, ~0.16 ns per 4 bytes written, ~1.4 ns per shadow-pass triangle). The
-// world pass is modelled from the light chunk's per-pixel cost at the preset's features (shadow taps, practicals, the
-// probe). The tool fails (exit 1) when a group is over budget: bloom 1.0 ms, composite (resolve + FXAA + final) 1.9 ms,
-// lighting (depth, GTAO, blur, volumetrics, composite) 3.2 ms, the world 8.5 ms, the whole GPU frame 16 ms (W1-LEAD
-// §4.10 replaces SPEC §11's 12 ms), GPU memory 80 MB.
+// Usage: node tools/perf.mjs [--quality balanced] [--size 915x412] [--out artifacts/perf.json] [--dev 1]
 import { chromium } from '@playwright/test';
 import { createServer, preview } from 'vite';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = { target: 'lab', quality: 'balanced', size: '390x844', seconds: '3', outDir: 'dist', out: '' };
+const opt = { quality: 'balanced', size: '915x412', out: 'artifacts/perf.json', seconds: '4' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
-const out = opt.out || `artifacts/hybrid/w1/E/perf-${opt.target}-${opt.quality}.json`;
 const [width, height] = opt.size.split('x').map(Number);
 
 let server;
-if (opt.target === 'lab') {
-  server = await createServer({ configFile: 'vite.config.ts', server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
+if (opt.dev) {
+  server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
   await server.listen();
 } else {
-  if (!existsSync(`${opt.outDir}/index.html`)) throw new Error(`${opt.outDir}/ missing: run npm run build first`);
-  server = await preview({ build: { outDir: opt.outDir }, preview: { port: 5197, strictPort: false }, logLevel: 'error' });
+  if (!existsSync('dist/index.html')) throw new Error('dist/ missing: run npm run build first (or pass --dev 1)');
+  server = await preview({ preview: { port: 5197, strictPort: false }, logLevel: 'error' });
 }
 const url = server.resolvedUrls.local[0];
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--enable-precise-memory-info'] });
-const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: 1, hasTouch: true });
-let page = await context.newPage();
+const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
 const errors = [];
-const watch = (p) => {
-  p.on('pageerror', (e) => errors.push(e.message));
-  p.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+page.on('pageerror', (e) => errors.push(e.message));
+const t0 = Date.now();
+await page.goto(`${url}index.html`);
+await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: 180000 });
+const bootMs = Date.now() - t0;
+// Zone load and initial meshing at boot (mesh workers: 0 = main thread only, or a build without them).
+const boot = await page.evaluate(() => {
+  const r = window.__DD__.report();
+  const c = r.chunks;
+  return { ...r.timings, meshWorkers: c.workers ?? 0, workerFallback: c.workerFallback ?? null, bootWorkerMeshes: c.workerMeshes ?? 0, bootMainMeshes: c.syncMeshes ?? null };
+});
+console.log('boot', JSON.stringify({ bootToMenuMs: bootMs, ...boot }));
+await page.evaluate(async (q) => {
+  const g = window.__DD__.game;
+  g.updateSettings({ quality: q });
+  await g.newGame();
+}, opt.quality);
+await page.waitForFunction(() => window.__DD__.state().mode === 'playing');
+
+const spots = {
+  camp: { lm: 'campfire', dx: -2, yaw: -0.6, pitch: -0.25 },
+  tunnel: { lm: 'firstCrystals', dx: -4, yaw: -2.3, pitch: -0.15 },
+  ledgeVista: { lm: 'ledge', dx: 2, yaw: -2.5, pitch: -0.35 },
+  hollowFloor: { lm: 'stairsBottom', dx: -4, yaw: 1.2, pitch: -0.05 },
+  bridge: { lm: 'bridge', dx: 0, yaw: 3.1, pitch: -0.4 },
 };
-watch(page);
-
-// ---- The GPU cost model ----
-const REF_DPR = 2.75;
-const NS = { fetch: 0.057, alu: 0.0024, write4: 0.16, shadowTri: 1.4 };
-const BUDGET = { bloom: 1.0, composite: 1.9, lighting: 3.2, world: 8.5, frame: 16, memoryMB: 80 };
-const CAPS = { battery: 2, balanced: 2.25, high: 3 };
-const LIGHT_PASSES = ['lightDepth', 'gtao', 'aoBlur', 'vol', 'composite'];
-
-/** Per-pixel cost of the world's surfaces (1C's stone through the light chunk) at the preset's features. */
-function worldCost(f) {
-  // The surface itself: 2–3 array taps of two layers, the micro-relief noise, the crack loop: ~8 fetches, ~260 ALU.
-  let fetches = 8;
-  let alu = 260;
-  // shade(): the SH, the irradiance (2 fetches), the BRDF of the lantern (~70 ALU), the env (1 fetch).
-  fetches += (f.probes ? 1 : 0) + 2;
-  alu += 180;
-  // The lantern's cube shadow: the 4-tap blocker search on every lit pixel, the PCF where a blocker was found (~30 %).
-  if (f.shadows) {
-    fetches += 4 + 0.3 * f.shadowTaps;
-    alu += 60 + 0.3 * f.shadowTaps * 14;
-  }
-  // Practicals: in range of ~2.5 of them on average (~55 ALU each with GGX); the loop's tests for the rest.
-  alu += 2.5 * 55 + f.practicals * 6;
-  // Light shafts (up to 2): the cylinder test on every pixel, the BRDF where a pixel sits in a beam (~20 %).
-  alu += 2 * 15 + 0.2 * 55;
-  // Battery fogs in the material (~40 ALU).
-  if (!f.volumetric) alu += 40;
-  return { fetches, alu };
-}
-
-/** Price one sample: { passes, features, light, dpr, quality, memoryBytes, tris }. */
-function price(sample) {
-  const refDpr = Math.min(REF_DPR, CAPS[sample.quality] ?? 2.25);
-  const k = (refDpr / sample.dpr) ** 2;
-  const priced = sample.passes.map((p) => {
-    const px = p.px * k;
-    const bytes = ['bright', 'down', 'up', 'vol', 'composite', 'gtao', 'aoBlur', 'lightDepth'].includes(p.name) ? 8 : 4;
-    const ms = (px * (p.fetches * NS.fetch + p.alu * NS.alu + (bytes / 4) * NS.write4)) / 1e6;
-    return { name: p.name, px: Math.round(px), ms: +ms.toFixed(3) };
-  });
-  const scenePx = (sample.passes.find((p) => p.name === 'resolve')?.px ?? 0) * k;
-  const wc = worldCost(sample.features);
-  // ~85 % of the scene's pixels are lit surfaces, at 1.4x overdraw (the face, props, ledges).
-  const worldMs = (scenePx * 0.85 * 1.4 * (wc.fetches * NS.fetch + wc.alu * NS.alu + 2 * NS.write4)) / 1e6;
-  // The shadow cube while the lantern moves: 6 faces of res² (the distance shader, ~12 ALU, 2 bytes) and the triangles
-  // within 14 m (about 45 % of the frame's, each in ~1.6 faces), every N frames.
-  const f = sample.features;
-  let shadowMs = 0;
-  if (f.shadows) {
-    const fill = (6 * f.shadowRes * f.shadowRes * (12 * NS.alu + 0.5 * NS.write4)) / 1e6;
-    const geo = (sample.tris * 0.45 * 1.6 * NS.shadowTri) / 1e6;
-    shadowMs = (fill + geo) / Math.max(1, f.shadowEveryFrames) * (f.secondShadow ? 1.15 : 1);
-  }
-  const sum = (names) => priced.filter((p) => names.includes(p.name)).reduce((a, p) => a + p.ms, 0);
-  const groups = {
-    bloom: +sum(['bright', 'down', 'up']).toFixed(3),
-    composite: +sum(['resolve', 'fxaa', 'final']).toFixed(3),
-    lighting: +sum(LIGHT_PASSES).toFixed(3),
-    world: +worldMs.toFixed(3),
-    shadowWalking: +shadowMs.toFixed(3),
-  };
-  // The viewmodel, the crew and props besides the world, transparent effects at their SPEC budgets.
-  const restMs = 1.2 + 0.8 + 0.6;
-  const frameWalking = +(groups.bloom + groups.composite + groups.lighting + groups.world + groups.shadowWalking + restMs).toFixed(2);
-  const frameRest = +(groups.bloom + groups.composite + groups.lighting + groups.world + restMs).toFixed(2);
-  const memMB = +((sample.memoryBytes * k) / 1048576 + (sample.lightBytes ?? 0) / 1048576 + 4.3 + 8).toFixed(1);
-  const over = ['bloom', 'composite', 'lighting', 'world'].filter((g) => groups[g] > BUDGET[g]);
-  if (frameWalking > BUDGET.frame) over.push('frame');
-  if (memMB > BUDGET.memoryMB) over.push('memory');
-  return { refDpr, scale: sample.scale, passes: priced, groups, frameRestMs: frameRest, frameWalkingMs: frameWalking, memoryMB: memMB, over };
-}
-
-const results = { target: opt.target, quality: opt.quality, viewport: opt.size, shots: {}, errors, budget: BUDGET };
-let worst = [];
-
-if (opt.target === 'lab') {
-  const shots = ['arrival', 'pillar', 'shaft', 'crystal', 'grazing'];
-  for (const shot of shots) {
-    const t0 = Date.now();
-    // A fresh page per shot: SwiftShader's queue of the last page never delays the next navigation.
-    await page.close();
-    page = await context.newPage();
-    watch(page);
-    await page.goto(`${url}src/render/light/lab/index.html?capture=1&q=${opt.quality}&shot=${shot}`, { timeout: 300_000, waitUntil: 'domcontentloaded' });
-    await page.waitForFunction(() => window.__LAB__?.ready, null, { timeout: 300_000 });
-    const bootMs = Date.now() - t0;
-    // At rest: 20 frames; then walking: the eye moves 4 cm a frame (2.4 m/s) for 20 frames.
-    const rest = await page.evaluate(() => {
-      const L = window.__LAB__;
-      const s0 = L.stats().stats.shadowRenders;
-      const t = performance.now();
-      L.frames(20);
-      const ms = (performance.now() - t) / 20;
-      const st = L.stats();
-      return { cpuMsPerFrame: +ms.toFixed(1), shadowRendersAtRest: st.stats.shadowRenders - s0, st };
+const results = { quality: opt.quality, viewport: opt.size, bootToMenuMs: bootMs, boot, spots: {}, mining: null, save: null, memory: null };
+for (const [name, s] of Object.entries(spots)) {
+  await page.evaluate(({ s }) => {
+    const dd = window.__DD__;
+    const p = dd.landmarks()[s.lm];
+    const st = dd.standableNear(p[0] + s.dx, p[1], p[2]);
+    dd.teleport(st[0], st[1], st[2]);
+    dd.look(s.yaw, s.pitch);
+  }, { s });
+  await page.waitForTimeout(1500);
+  const sample = await page.evaluate(async (seconds) => {
+    const g = window.__DD__.game;
+    const frames = [];
+    const cpu = [];
+    let last = performance.now();
+    const end = last + seconds * 1000;
+    await new Promise((resolve) => {
+      const tick = (now) => {
+        frames.push(now - last);
+        cpu.push(g.frameMs);
+        last = now;
+        if (now < end) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
     });
-    const walk = await page.evaluate(() => {
-      const L = window.__LAB__;
-      const s0 = L.stats().stats.shadowRenders;
-      for (let i = 0; i < 20; i++) {
-        L.nudge(0, 0, 0.04);
-        L.frames(1);
-      }
-      const st = L.stats();
-      return { shadowRendersWalking: st.stats.shadowRenders - s0, calls: st.frame.calls, tris: st.frame.tris };
-    });
-    const s = rest.st;
-    const gpu = price({
-      passes: s.passes,
-      features: s.features,
-      dpr: await page.evaluate(() => window.__LAB__.renderer.dpr()),
-      quality: opt.quality,
-      memoryBytes: s.memory,
-      lightBytes: s.shadowBytes + s.probeBytes,
-      scale: s.scale,
-      tris: s.frame.tris,
-    });
-    results.shots[shot] = {
-      bootMs,
-      calls: s.frame.calls,
-      tris: s.frame.tris,
-      sceneTris: s.tris,
-      shadowRendersAtRest: rest.shadowRendersAtRest,
-      shadowRendersWalking20: walk.shadowRendersWalking,
-      callsWalking: walk.calls,
-      gpu,
+    const sorted = [...cpu].sort((a, b) => a - b);
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    const r = window.__DD__.report();
+    return {
+      wallFps: Math.round(1000 / avg(frames)),
+      cpuFrameMsAvg: +avg(cpu).toFixed(2),
+      cpuFrameMsP95: +sorted[Math.floor(sorted.length * 0.95)].toFixed(2),
+      drawCalls: r.render.calls,
+      trianglesK: Math.round(r.render.triangles / 1000),
+      visibleChunks: g.session.chunks.group.children.filter((c) => c.visible).length,
+      particles: r.particles,
     };
-    worst = worst.concat(gpu.over.map((g) => `${shot}:${g}`));
-    console.log(
-      `${shot.padEnd(8)} calls ${s.frame.calls} (walking ${walk.calls}) · tris ${Math.round(s.frame.tris / 1000)}k · shadow renders rest ${rest.shadowRendersAtRest}/20, walking ${walk.shadowRendersWalking}/20 · ` +
-        `GPU model rest ${gpu.frameRestMs} ms, walking ${gpu.frameWalkingMs} ms ${JSON.stringify(gpu.groups)} · mem ${gpu.memoryMB} MB`,
-    );
-  }
-} else {
-  const t0 = Date.now();
-  await page.goto(`${url}index.html`, { timeout: 180_000 });
-  await page.waitForFunction(() => window.__DD__?.hybrid?.ready, null, { timeout: 180_000, polling: 50 });
-  results.bootMs = Date.now() - t0;
-  await page.evaluate((q) => window.__DD__.hybrid.settings({ quality: q }), opt.quality).catch(() => undefined);
-  await page.waitForTimeout(2000);
-  const probe = async (label) => {
-    const perf = await page.evaluate(() => window.__DD__.hybrid.perf());
-    const r = await page.evaluate(() => {
-      const d = window.__DD__.render;
-      const l = d.light();
-      return { passes: d.passes(), dpr: d.dpr(), scale: d.scale(), memoryBytes: d.memoryBytes(), quality: d.quality(), light: l };
-    });
-    // The world's own calls and triangles: the frame's minus what the shadow cubes and the probe face added to it.
-    // (The two counters can come from different frames: when the passes' share is not below the frame's, it is unknown.)
-    const pc = r.light.stats.passCalls ?? 0;
-    const pt = r.light.stats.passTris ?? 0;
-    const worldCalls = pc < perf.calls ? perf.calls - pc : perf.calls;
-    const worldTris = pt < perf.tris ? perf.tris - pt : perf.tris;
-    const gpu = price({ ...r, features: r.light.features, lightBytes: r.light.shadowBytes + r.light.probeBytes, tris: worldTris });
-    results.shots[label] = { perf, worldCalls, worldTris, light: r.light.stats, gpu };
-    worst = worst.concat(gpu.over.map((g) => `${label}:${g}`));
-    console.log(`${label.padEnd(10)} calls ${perf.calls} (world ${worldCalls}, light passes ${r.light.stats.passCalls ?? 0}) · tris ${Math.round(perf.tris / 1000)}k (world ${Math.round(worldTris / 1000)}k) · GPU model rest ${gpu.frameRestMs} ms, walking ${gpu.frameWalkingMs} ms ${JSON.stringify(gpu.groups)} · mem ${gpu.memoryMB} MB`);
-  };
-  // One forced refresh of the lantern cube (what walking costs every N frames): its draw calls and casters.
-  const refresh = async (label) => {
-    await page.evaluate(() => window.__DD__.render.setLight({ refresh: true }));
-    await page.waitForFunction((n) => window.__DD__.render.light().stats.shadowRenders > n, await page.evaluate(() => window.__DD__.render.light().stats.shadowRenders), { timeout: 120_000 });
-    const st = await page.evaluate(() => window.__DD__.render.light().stats);
-    const every = results.shots[label].gpu ? (await page.evaluate(() => window.__DD__.render.light().features.shadowEveryFrames)) : 1;
-    const walkingCalls = Math.round(results.shots[label].worldCalls + st.lastShadowCalls / Math.max(1, every));
-    results.shots[label].shadowRefresh = { calls: st.lastShadowCalls, casters: st.lastShadowCasters, everyFrames: every, walkingCallsPerFrame: walkingCalls };
-    console.log(`${label.padEnd(10)} one lantern-cube refresh: ${st.lastShadowCalls} draw calls (6 faces), ${st.lastShadowCasters} casters within 14 m; walking ≈ ${walkingCalls} calls a frame (a refresh every ${every} frames)`);
-  };
-  await probe('drift');
-  await refresh('drift');
-  await page.evaluate(() => window.__DD__.hybrid.setNode(1, 'chamber'));
-  await page.waitForTimeout(3000);
-  await probe('chamber');
-  await refresh('chamber');
+  }, Number(opt.seconds));
+  results.spots[name] = sample;
+  console.log(name, JSON.stringify(sample));
 }
 
-const heap = await page.evaluate(() => (performance.memory ? performance.memory.usedJSHeapSize : 0));
-results.heapMB = +(heap / 1048576).toFixed(1);
-if (errors.length) console.log('page errors:', errors.slice(0, 5).join(' | '));
-mkdirSync(dirname(out), { recursive: true });
-writeFileSync(out, JSON.stringify(results, null, 2));
-console.log(`wrote ${out}`);
+// Mining cost, in the real frame loop: break 20 blocks near the hall floor, each at the start of a
+// frame's ChunkRenderer.update() (where a block broken in Game.step lands), and let the game render
+// on. Per block: the main-thread chunk work of every frame until nothing is left to mesh (update()
+// itself, plus worker results applied between frames on builds with mesh workers), the worst single
+// frame of it, and how late the mined chunk's new mesh is drawn (0 = in the frame of the edit, as
+// the synchronous mesher does; 1 = the next frame). The same code measures builds with and without
+// workers. The light update is timed on its own.
+results.mining = await page.evaluate(async () => {
+  const g = window.__DD__.game;
+  const s = g.session;
+  const cr = s.chunks;
+  const w = s.world;
+  const p = window.__DD__.landmarks().stairsBottom;
+  const minable = new Set([1, 2, 3, 4, 5, 6]);
+  const exposed = (x, y, z) => [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]].some(([a, b, c]) => w.get(x + a, y + b, z + c) === 0);
+  const blocks = [];
+  for (let z = Math.floor(p[2]) - 12; z < p[2] + 12 && blocks.length < 20; z++)
+    for (let y = Math.floor(p[1]) - 3; y < p[1] + 3 && blocks.length < 20; y++)
+      for (let x = Math.floor(p[0]) - 16; x < p[0] && blocks.length < 20; x++) if (minable.has(w.get(x, y, z)) && exposed(x, y, z)) blocks.push([x, y, z]);
+  // Exclude boot from the per-chunk maxima.
+  for (const k of ['maxRebuildMs', 'maxWorkerMs', 'maxRoundTripMs', 'maxLatencyFrames']) if (k in cr.stats) cr.stats[k] = 0;
+  const mainMs = () => cr.stats.mainMs ?? 0;
+  const geoOf = (x, y, z) => cr.group.getObjectByName(`chunk_${x >> 4}_${y >> 4}_${z >> 4}`)?.geometry ?? null;
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+  let edit = null;
+  let log = null;
+  let exitMain = mainMs();
+  const update = cr.update;
+  cr.update = function (focus, budget) {
+    if (edit) {
+      const e = edit;
+      edit = null;
+      e();
+    }
+    const between = mainMs() - exitMain; // worker results applied since the last frame
+    const t0 = performance.now();
+    const n = update.call(this, focus, budget);
+    const ms = performance.now() - t0;
+    exitMain = mainMs();
+    log?.push({ ms: ms + Math.max(0, between), geo: log.geo() });
+    return n;
+  };
+  const lightMs = [];
+  const perBlock = [];
+  const frameMs = [];
+  const late = [];
+  const settle = [];
+  const crystalMs = [];
+  try {
+    for (const [x, y, z] of blocks) {
+      const before = geoOf(x, y, z);
+      log = [];
+      log.geo = () => geoOf(x, y, z);
+      edit = () => {
+        const old = w.get(x, y, z);
+        w.set(x, y, z, 0);
+        const t1 = performance.now();
+        s.blockChanged(x, y, z, old);
+        lightMs.push(performance.now() - t1);
+      };
+      for (let f = 0; f < 120; f++) {
+        await nextFrame();
+        if (edit || !log.length) continue;
+        if (log.at(-1).geo !== before && !w.dirty.includes(1) && !(cr.stats.pending > 0)) break;
+      }
+      const shown = log.findIndex((e) => e.geo !== before);
+      late.push(shown);
+      settle.push(log.length);
+      perBlock.push(log.reduce((a, e) => a + e.ms, 0));
+      frameMs.push(Math.max(...log.map((e) => e.ms)));
+    }
+    // Worst case for light: remove an emitter (crystal) -> local light rebuild.
+    for (let i = 0; i < w.blocks.length && !crystalMs.length; i++) {
+      if (w.blocks[i] !== 9) continue;
+      const z = Math.floor(i / (w.sx * w.sy));
+      const y = Math.floor(i / w.sx) % w.sy;
+      const x = i % w.sx;
+      w.set(x, y, z, 0);
+      const t = performance.now();
+      s.blockChanged(x, y, z, 9);
+      crystalMs.push(performance.now() - t);
+    }
+    await nextFrame();
+  } finally {
+    log = null;
+    delete cr.update; // back to the prototype method
+  }
+  const avg = (a) => +(a.reduce((x, y) => x + y, 0) / Math.max(1, a.length)).toFixed(2);
+  const max = (a) => +Math.max(...a).toFixed(2);
+  const st = cr.stats;
+  const check = window.__DD__.meshCheck ? await window.__DD__.meshCheck() : null;
+  return {
+    blocks: perBlock.length,
+    lightMsAvg: avg(lightMs),
+    lightMsMax: max(lightMs),
+    remeshMsAvg: avg(perBlock),
+    remeshMsMax: max(perBlock),
+    remeshFrameMsMax: max(frameMs),
+    framesLateAvg: avg(late),
+    framesLateMax: Math.max(...late),
+    framesToSettleAvg: avg(settle),
+    framesToSettleMax: Math.max(...settle),
+    emitterRemovalLightMs: +crystalMs[0].toFixed(2),
+    maxChunkRebuildMs: +st.maxRebuildMs.toFixed(2),
+    meshWorkers: st.workers ?? 0,
+    meshWorkersWarming: st.warmUpLeft ?? null, // > 0: edits were still meshed on the main thread
+    workerMeshMsMax: st.maxWorkerMs !== undefined ? +st.maxWorkerMs.toFixed(2) : null,
+    workerRoundTripMsMax: st.maxRoundTripMs !== undefined ? +st.maxRoundTripMs.toFixed(2) : null,
+    workerLatencyFramesMax: st.maxLatencyFrames ?? null,
+    staleResults: st.staleResults ?? null,
+    meshCheck: check ? { checked: check.checked, mismatched: check.mismatched.length } : null,
+  };
+});
+console.log('mining', JSON.stringify(results.mining));
+
+results.save = await page.evaluate(() => {
+  const g = window.__DD__.game;
+  const t1 = performance.now();
+  const data = g.buildSave();
+  const t2 = performance.now();
+  const ok = g.saves.save(data).ok;
+  const t3 = performance.now();
+  const res = g.saves.load();
+  const t4 = performance.now();
+  return { ok, loadedOk: !!res.data, buildMs: +(t2 - t1).toFixed(2), writeMs: +(t3 - t2).toFixed(2), readMs: +(t4 - t3).toFixed(2), bytes: JSON.stringify(data).length, worldEdits: data.worldEdits.length / 2 };
+});
+console.log('save', JSON.stringify(results.save));
+
+results.memory = await page.evaluate(() => {
+  const g = window.__DD__.game;
+  let geometryBytes = 0;
+  const seen = new Set();
+  g.scene.traverse((o) => {
+    const geo = o.geometry;
+    if (!geo || seen.has(geo)) return;
+    seen.add(geo);
+    // Interleaved attributes share one buffer: count each buffer once.
+    for (const a of Object.values(geo.attributes)) {
+      const buf = a.isInterleavedBufferAttribute ? a.data : a;
+      if (seen.has(buf)) continue;
+      seen.add(buf);
+      geometryBytes += buf.array.byteLength;
+    }
+    if (geo.index) geometryBytes += geo.index.array.byteLength;
+  });
+  const w = g.session.world;
+  const lightTexBytes = w.sx * w.sy * w.sz * 4;
+  const canvas = g.renderer.canvas;
+  const rtBytes = canvas.width * canvas.height * 8 * (g.renderer.preset.msaa ? 1 + g.renderer.preset.msaa : 1) * 1.4;
+  const heap = performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1048576) : null;
+  return {
+    jsHeapMB: heap,
+    gpuGeometryMB: +(geometryBytes / 1048576).toFixed(1),
+    lightVolumeMB: +(lightTexBytes / 1048576).toFixed(1),
+    renderTargetsMB: +(rtBytes / 1048576).toFixed(1),
+    textures: g.renderer.gl.info.memory.textures,
+    geometries: g.renderer.gl.info.memory.geometries,
+    renderTargetsAreEstimate: true, // width x height x 8 B x (MSAA) x 1.4 for bloom levels
+    dynamicLights: 1, // by design: the lantern is the only light computed at runtime
+    emitters: (() => {
+      const b = g.session.world.blocks;
+      let propLights = 0;
+      let crystal = 0;
+      let glyphStone = 0;
+      for (let i = 0; i < b.length; i++) {
+        if (b[i] >= 19 && b[i] <= 23) propLights++;
+        else if (b[i] === 9) crystal++;
+        else if (b[i] === 14) glyphStone++;
+      }
+      return { propLights, crystal, glyphStone, total: propLights + crystal + glyphStone };
+    })(),
+    canvas: `${canvas.width}x${canvas.height}`,
+  };
+});
+console.log('memory', JSON.stringify(results.memory));
+results.errors = errors;
+mkdirSync(dirname(opt.out), { recursive: true });
+writeFileSync(opt.out, JSON.stringify(results, null, 2));
+console.log('wrote', opt.out, 'errors:', errors.length);
 await browser.close();
 await server.close();
-if (worst.length) {
-  console.log(`perf: the GPU cost model is over budget in: ${worst.join(', ')}`);
-  process.exitCode = 1;
-}

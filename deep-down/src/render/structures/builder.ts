@@ -1,6 +1,6 @@
 import { SOLID, VISIBLE } from '../../config/blocks';
 import { MAT_DENSITY } from '../materials/paint';
-import { hash01 } from './geometry';
+import { hash01 } from '../../world/gen/architecture';
 import type { VoxelWorld } from '../../world/VoxelWorld';
 
 /**

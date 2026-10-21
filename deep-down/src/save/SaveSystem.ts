@@ -1,9 +1,9 @@
 import { SAVE } from '../config/balance';
-import { migrateV3toV4, normalizeSave, validateSaveData } from './saveData';
+import { migrateV1, normalizeSave, validateSaveData } from './saveData';
 import { sanitizeSettings } from './settings';
 import type { SaveData, Settings } from './types';
 
-export { createNewSave, decodeRuns, encodeRuns, migrateV3toV4, normalizeSave, saveToState, stateToSave, validateSaveData } from './saveData';
+export { createNewSave, normalizeSave, shiftWorldIfNeeded, validateSaveData } from './saveData';
 
 /**
  * Versioned two-slot persistence.
@@ -107,8 +107,6 @@ export const SAVE_KEYS = {
   slotB: 'deepdown.save.b',
   active: 'deepdown.save.active',
   settings: 'deepdown.settings',
-  /** Set once the "old cave game" notice was shown (SPEC §12.3). */
-  legacyNotice: 'deepdown.legacyNoticeShown',
 } as const;
 
 type SlotId = 'a' | 'b';
@@ -120,19 +118,13 @@ export type Migration = (old: Record<string, unknown>) => Record<string, unknown
 
 /**
  * Save format history. When SAVE.version is bumped to N + 1, add MIGRATIONS[N] here.
- * - v3 (the cutaway descent) → v4 (the first-person node crawl, hybrid SPEC §10): the meta is kept (gems, time
- *   crystals, Embers, Threads, Sigils, records, Feats minus the two the purge removed, Finds, lore, rank), the run starts
- *   fresh at the camp, and a one-time notice is raised (`meta.rechartNotice` = 1).
- * - Saves of versions 1 and 2 belong to the old cave game, a different game: they are reported as `legacy`, not loaded,
- *   and the two-slot rotation overwrites them with the first saves of this build.
+ * - 1 -> 2: the progression block and genVersion; stacks above the new stack sizes move into
+ *   camp storage (save/saveData migrateV1).
  */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = { 3: migrateV3toV4 };
-
-/** Versions before this are the old game (legacy: never loaded). */
-export const FIRST_LOADABLE_VERSION = 3;
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1 };
 
 export type SaveErrorCode = 'invalid' | 'serialize' | 'quota' | 'unavailable' | 'verify';
-export type LoadErrorCode = 'corrupt' | 'version' | 'legacy';
+export type LoadErrorCode = 'corrupt' | 'version';
 
 export interface SaveResult {
   ok: boolean;
@@ -145,10 +137,8 @@ export interface LoadResult {
   recovered: boolean;
   /** Set when save data existed but none of it could be loaded. */
   error?: LoadErrorCode;
-  /** Unknown fields removed while loading (only set when > 0). */
+  /** Items with ids this build does not know, removed while loading (only set when > 0). */
   dropped?: number;
-  /** A save of the old game (v1 or v2) was found and ignored (the one-line notice). */
-  legacy?: boolean;
 }
 
 export interface SaveSystemOptions {
@@ -218,20 +208,14 @@ export class SaveSystem {
     }
     const data = slot ? valid(slot) : null;
     this.good = slot && data ? { slot, savedAt: data.savedAt } : null;
-    const legacy = isLegacy(reads.a) || isLegacy(reads.b);
     if (data && slot) {
       const r = reads[slot];
       const dropped = r && 'dropped' in r ? r.dropped : 0;
-      const res: LoadResult = { data, recovered: active !== null && slot !== active && !isLegacy(reads[active]) };
+      const res: LoadResult = { data, recovered: active !== null && slot !== active };
       if (dropped > 0) res.dropped = dropped;
-      if (legacy) res.legacy = true;
       return res;
     }
-    const error = loadError(reads.a, reads.b);
-    const res: LoadResult = { data: null, recovered: false };
-    if (error) res.error = error;
-    if (legacy) res.legacy = true;
-    return res;
+    return { data: null, recovered: false, error: loadError(reads.a, reads.b) };
   }
 
   hasSave(): boolean {
@@ -254,20 +238,6 @@ export class SaveSystem {
       }
     }
     this.good = null;
-  }
-
-  /** True when a legacy save exists and its notice was never shown (show it once, then markLegacyNoticeShown). */
-  legacyNoticePending(): boolean {
-    if (this.read(SAVE_KEYS.legacyNotice) === '1') return false;
-    return this.load().legacy === true;
-  }
-
-  markLegacyNoticeShown(): void {
-    try {
-      this.store.setItem(SAVE_KEYS.legacyNotice, '1');
-    } catch {
-      // Best effort: the notice may show once more.
-    }
   }
 
   /** Stored settings merged over the defaults; damaged settings yield the defaults. */
@@ -318,7 +288,6 @@ export class SaveSystem {
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { error: 'corrupt' };
       const version = (parsed as { version?: unknown }).version;
       if (typeof version === 'number' && version > this.version) return { error: 'version' };
-      if (typeof version === 'number' && version >= 1 && version < FIRST_LOADABLE_VERSION && this.version >= FIRST_LOADABLE_VERSION) return { error: 'legacy' };
       const res = this.migrate(parsed as Record<string, unknown>);
       return res ?? { error: 'corrupt' };
     } catch {
@@ -340,9 +309,6 @@ export class SaveSystem {
       v = (v as number) + 1;
       cur = { ...step(cur), version: v };
     }
-    // The essentials must be there and typed before defaults fill the rest (a damaged run is never
-    // silently replaced by a fresh one).
-    if (!validateSaveData(cur)) return null;
     const { data: norm, report } = normalizeSave(cur);
     return validateSaveData(norm) ? { data: norm, dropped: report.dropped } : null;
   }
@@ -358,14 +324,10 @@ export function checksum(s: string): string {
   return (h >>> 0).toString(16).padStart(8, '0');
 }
 
-/** Why nothing loaded: 'version' wins so a save from a newer build is reported as such; legacy is not an error. */
+/** Why nothing loaded: 'version' wins so a save from a newer build is reported as such. */
 function loadError(...reads: SlotRead[]): LoadErrorCode | undefined {
   const errors = reads.map((r) => (r && 'error' in r ? r.error : undefined));
   return errors.includes('version') ? 'version' : errors.includes('corrupt') ? 'corrupt' : undefined;
-}
-
-function isLegacy(r: SlotRead): boolean {
-  return !!r && 'error' in r && r.error === 'legacy';
 }
 
 function resolveLocalStorage(): WebStorage | null {

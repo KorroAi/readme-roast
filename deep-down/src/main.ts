@@ -1,13 +1,15 @@
-import { HybridGame } from './game/hybrid/HybridGame';
+import { Game } from './game/Game';
+import type { UiFactory } from './game/GameUi';
 import { Renderer } from './render/Renderer';
 import { GOVERNOR, QualityGovernor, initialQuality } from './render/QualityGovernor';
 import { LocalStorageStore, SAVE_KEYS, SaveSystem } from './save/SaveSystem';
+import { UI } from './ui/UI';
 import { t } from './i18n';
 import { BUILD, VERSION, VERSION_CODE } from './version';
 
-// Entry point and the release shell around the first-person game (src/game/hybrid/HybridGame.ts): the crash panel, the
-// Android bridge (Back, lifecycle), the context-loss notice and the automatic quality governor. Everything here talks to
-// the game through its public API only.
+// Entry point and the release shell around the game: the crash panel, the Android bridge
+// (Back, lifecycle), the context-loss notice and the automatic quality governor. Everything
+// here talks to the game through its public API only.
 
 /** What the Android shell (android/.../MainActivity.java) injects as window.DeepDownAndroid. */
 interface AndroidBridge {
@@ -23,7 +25,7 @@ type ReleaseWindow = Window & {
 };
 const win = window as ReleaseWindow;
 
-let game: HybridGame | null = null;
+let game: Game | null = null;
 let booted = false;
 
 // ---------------------------------------------------------------------------------------
@@ -89,7 +91,7 @@ const panel = (() => {
       return details();
     },
     /** The GPU's name for the report (UNMASKED_RENDERER where the browser exposes it). */
-    readRenderer(g: HybridGame): void {
+    readRenderer(g: Game): void {
       try {
         const gl = g.renderer.gl.getContext();
         const ext = gl.getExtension('WEBGL_debug_renderer_info');
@@ -198,11 +200,11 @@ window.addEventListener('unhandledrejection', (e) => {
 
 win.deepDownBack = () => !panel.visible;
 
-/** Back belongs to the page everywhere except the camp at dusk with nothing open (the menu root) and the crash panel. */
+/** Back belongs to the page everywhere except the main menu root (and the crash panel). */
 function backHandled(): boolean {
   if (panel.visible) return false;
   if (!game || !booted) return true;
-  return game.screen !== 'menu';
+  return !(game.mode === 'menu' && game.ui.screen === 'menu');
 }
 
 {
@@ -244,7 +246,7 @@ win.deepDownLifecycle = (phase) => {
 // restores it on its own; meanwhile the game pauses behind a notice, and after 10 s without the
 // context back the crash panel takes over.
 
-function watchContext(g: HybridGame): void {
+function watchContext(g: Game): void {
   const canvas = g.renderer.gl.domElement;
   let notice: HTMLElement | null = null;
   let timer = 0;
@@ -343,7 +345,7 @@ function firstLaunch(): AutoQState {
   return state;
 }
 
-function startGovernor(g: HybridGame, state: AutoQState): QualityGovernor {
+function startGovernor(g: Game, state: AutoQState): QualityGovernor {
   const store = new LocalStorageStore();
   const gov = new QualityGovernor(state.auto);
   let expected = { quality: g.settings.quality, renderScale: g.settings.renderScale };
@@ -370,7 +372,7 @@ function startGovernor(g: HybridGame, state: AutoQState): QualityGovernor {
     expected = { quality: g.settings.quality, renderScale: g.settings.renderScale };
     if (!state.toasted) {
       state.toasted = true;
-      g.ui.toast(t('release.quality.lowered'), 'info');
+      g.bus.emit('toast', { text: t('release.quality.lowered'), tone: 'info' });
     }
     writeAutoQ(store, { auto: true, toasted: state.toasted });
   };
@@ -380,6 +382,8 @@ function startGovernor(g: HybridGame, state: AutoQState): QualityGovernor {
 
 // ---------------------------------------------------------------------------------------
 // Boot
+
+const createUi: UiFactory = (root, actions, bus, input) => new UI(root, actions, bus, input);
 
 async function boot(): Promise<void> {
   // index.html found the engine too old and already shows the 'update your WebView' message.
@@ -391,19 +395,12 @@ async function boot(): Promise<void> {
   const autoq = prepareAutoQuality();
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const ui = document.getElementById('ui') as HTMLElement;
-  game = new HybridGame(canvas, ui);
+  game = new Game(canvas, ui, createUi);
   await game.boot();
   const g = game;
   booted = true;
-  // The boot mark (index.html) gives way to the first frame of the descent.
-  const mark = document.getElementById('dd-boot');
-  if (mark) {
-    mark.style.transition = 'opacity 240ms ease';
-    mark.style.opacity = '0';
-    window.setTimeout(() => mark.remove(), 260);
-  }
   panel.readRenderer(g);
-  // The game installs its own Back handler during boot; the crash panel takes precedence.
+  // Game installs its own Back handler during boot; the crash panel takes precedence.
   const gameBack = win.deepDownBack;
   win.deepDownBack = () => (panel.visible ? false : gameBack ? gameBack() : true);
   g.bus.on('game:saved', () => {
@@ -411,7 +408,7 @@ async function boot(): Promise<void> {
   });
   watchContext(g);
   const gov = autoq ? startGovernor(g, autoq) : null;
-  // Test and support surface for the release shell (the game's own is window.__DD__.hybrid).
+  // Test and support surface for the release shell (the game's own is window.__DD__).
   win.__DD_RELEASE__ = {
     version: { version: VERSION, build: BUILD, versionCode: VERSION_CODE },
     crashPanel: () => panel.visible,

@@ -1,8 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { Big } from '../../src/core/big';
-import { EventBus } from '../../src/core/events';
-import type { IdleEvents } from '../../src/idle/bus';
-import { CELL } from '../../src/idle/model/state';
+import { B } from '../../src/config/blocks';
+import { EventBus, type GameEvents } from '../../src/core/events';
 import { AudioSystem, SFX_VOICES, type AudioWorldState } from '../../src/audio/AudioSystem';
 import { MUSIC_PRIORITY, MUSIC_VOICES } from '../../src/audio/MusicPlayer';
 import { MusicScheduler, type MusicNote } from '../../src/audio/MusicScheduler';
@@ -152,23 +150,22 @@ class FakeAudioContext {
   createAnalyser = () => this.node();
 }
 
-const STATE: AudioWorldState = { depth: 95, openness: 0.6, nearCrystal: 0.4, nearFire: 0.3, inMenu: false };
+const STATE: AudioWorldState = {
+  depth: 95, atCamp: false, openness: 0.6, lanternFuel: 0.12, lanternLit: true,
+  nearCrystal: 0.4, nearFire: 0.3, playerSpeed: 3, inMenu: false,
+};
 
-const G = (n: number) => Big.from(n);
-const hit = (kind: number, combo = 0): IdleEvents['tap:hit'] => ({ col: 3, depth: 95, kind: kind as IdleEvents['tap:hit']['kind'], source: 'tap', dmg: G(4), crit: combo % 7 === 0, combo, comboMult: 1, cells: 0, chain: 1, surge: false });
-const EVENTS: Array<[keyof IdleEvents, unknown]> = [
-  ['tap:hit', hit(CELL.ROCK)], ['tap:hit', hit(CELL.ORE, 20)],
-  ['cell:break', { col: 2, depth: 95, kind: CELL.GEM, source: 'tap', gold: G(30), gems: 1, chainIndex: 0, belowRecord: true, crit: false }],
-  ['row:crumble', { depth: 96, cols: [1, 5] }], ['row:clear', { depth: 96, rows: 1, source: 'tap' }],
-  ['buy:done', { id: 'pick', mode: 'x1', levels: 1, from: 3, to: 4, cost: G(90) }], ['buy:fail', { id: 'pick', reason: 'gold' }],
-  ['crew:star', { line: 0, level: 10, stars: 1 }], ['pick:tier', { tier: 1, from: 0, tiers: 1, level: 25 }],
-  ['combo:tier', { tier: 10, combo: 10 }], ['combo:lost', { combo: 12 }],
-  ['chest:exposed', { id: 'chest:1', col: 3, depth: 97, floor: 'wood' }],
-  ['chest:open', { id: 'chest:1', floor: 'wood', tier: 'crystal', steps: 2, gold: G(500), gems: 2, source: 'tap' }],
-  ['seal:start', { biome: 0, depth: 120, hp: G(4000), time: 30 }], ['seal:hit', { biome: 0, left: 0.4, dmg: G(80), weak: false }],
-  ['seal:break', { biome: 0, depth: 120, time: 18 }], ['biome:reveal', { biome: 1 }],
-  ['skill:dynamite', { from: 120, rows: 6, gold: G(1000) }],
-  ['offline:collect', { gold: G(9000), chests: 1 }],
+const at = { x: 0, y: 0, z: 0 };
+const EVENTS: Array<[keyof GameEvents, unknown]> = [
+  ['block:hit', { ...at, block: B.SLATE, progress: 0.3 }], ['block:hit', { ...at, block: B.IRON_ORE, progress: 0.6 }],
+  ['block:broken', { ...at, block: B.CRYSTAL }], ['block:tooHard', { ...at, block: B.BEDROCK, requiredTier: 99 }],
+  ['prop:hit', { ...at, propId: 'c', progress: 0.5 }], ['prop:broken', { ...at, propId: 'c' }], ['tool:swing', { tier: 2 }],
+  ['item:picked', { item: 'copperOre', count: 1 }], ['item:rejected', { item: 'stone' }],
+  ['items:banked', { total: 5, items: { stone: 5 } }], ['craft:done', { recipe: 'copperPickaxe' }],
+  ['craft:failed', { recipe: 'copperPickaxe', reason: 'x' }], ['discovery', { id: 'hollow' }],
+  ['player:footstep', { block: B.PLANK, speed: 4 }], ['player:jump', {}], ['player:land', { fallSpeed: 12, block: B.SOIL }],
+  ['player:damaged', { amount: 15, cause: 'fall' }], ['player:died', { lost: {} }], ['player:respawned', {}],
+  ['camp:entered', {}], ['lantern:low', {}], ['lantern:empty', {}], ['lantern:refueled', {}], ['game:saved', { reason: 't' }],
 ];
 
 describe('AudioSystem on a (fake) Web Audio context', () => {
@@ -235,7 +232,7 @@ describe('AudioSystem on a (fake) Web Audio context', () => {
   });
 
   it('plays every event within the voice cap and releases every node of finished sounds', () => {
-    const bus = new EventBus<IdleEvents>();
+    const bus = new EventBus<GameEvents>();
     const audio = new AudioSystem(bus);
     void audio.unlock();
     const ctx = FakeAudioContext.last!;
@@ -245,7 +242,7 @@ describe('AudioSystem on a (fake) Web Audio context', () => {
       ctx.currentTime += 0.2;
     }
     for (let i = 0; i < 100; i++) {
-      bus.emit('tap:hit', hit(i % 2 ? CELL.ROCK : CELL.GEM, i));
+      bus.emit('block:hit', { ...at, block: i % 2 ? B.SLATE : B.CRYSTAL, progress: (i % 10) / 10 });
       ctx.currentTime += 0.03;
       expect(audio.stats().sfxVoices).toBeLessThanOrEqual(SFX_VOICES);
     }
@@ -264,8 +261,7 @@ describe('AudioSystem on a (fake) Web Audio context', () => {
     const ctx = FakeAudioContext.last!;
     for (let i = 0; i < 600; i++) {
       ctx.currentTime += 1 / 60;
-      // Back at the surface (the camp at the top of the shaft) after five seconds.
-      audio.update(1 / 60, { ...STATE, depth: i > 300 ? 0 : 95 });
+      audio.update(1 / 60, { ...STATE, atCamp: i > 300 });
     }
     expect(audio.stats().mood).toBe('camp');
     expect(audio.stats().musicVoices).toBeGreaterThan(0);
@@ -274,7 +270,7 @@ describe('AudioSystem on a (fake) Web Audio context', () => {
       ctx.currentTime += 1 / 60;
       audio.update(1 / 60, { ...STATE, nearFire: 0, nearCrystal: 0 });
     }
-    const bad = { ...STATE, depth: Number.NaN, openness: Number.NaN, nearCrystal: Number.POSITIVE_INFINITY, nearFire: Number.NaN };
+    const bad = { ...STATE, depth: Number.NaN, openness: Number.NaN, lanternFuel: Number.POSITIVE_INFINITY, nearFire: Number.NaN };
     for (let i = 0; i < 30; i++) {
       ctx.currentTime += 1 / 60;
       audio.update(i % 2 ? Number.NaN : 1 / 60, bad);

@@ -1,0 +1,563 @@
+/* The upgrade tree (screens/workbench.ts). Expedition kit: slate plates, brass rims, amber for
+   what can be made, violet for the unknown. Nodes are 56 px octagons at a 64 px row pitch;
+   each column's tiers hang from a carved groove. */
+
+.dd-tree {
+  width: min(980px, 100%);
+  height: min(470px, 100%);
+}
+.dd-tree-head {
+  gap: 10px;
+  padding-left: 16px;
+}
+.dd-tree-title {
+  flex: none;
+  font-size: calc(19px * var(--s));
+}
+.dd-tree-tabs {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 2px;
+  justify-content: center;
+}
+.dd-tree-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 48px;
+}
+/* A station not built yet (the Forge): a small brass padlock after its name. */
+.dd-tree-tab-lock {
+  position: relative;
+  width: 9px;
+  height: 7px;
+  margin-top: 4px;
+  background: var(--brass-500);
+}
+.dd-tree-tab-lock::before {
+  content: '';
+  position: absolute;
+  left: 1px;
+  top: -5px;
+  width: 3px;
+  height: 4px;
+  border: 2px solid var(--brass-500);
+  border-bottom: none;
+}
+
+.dd-tree-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40%;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+.dd-tree-board {
+  padding: 8px 6px 10px 10px;
+}
+.dd-tree-grid {
+  --pitch: 64px;
+  --node: 56px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(64px, 1fr));
+  gap: 0 2px;
+}
+.dd-tree-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+}
+.dd-tree-col-label {
+  height: 22px;
+  font-size: calc(12px * var(--s));
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--head);
+  white-space: nowrap;
+}
+.dd-tree-track {
+  position: relative;
+  width: var(--node);
+  height: calc(var(--rows) * var(--pitch) - (var(--pitch) - var(--node)));
+}
+/* The carved groove the tiers descend along: 3 px (dark over brass), like the lintel. */
+.dd-tree-groove {
+  position: absolute;
+  left: calc(50% - 1.5px);
+  width: 3px;
+  background: linear-gradient(90deg, var(--carve) 0 1px, rgba(176, 130, 63, 0.55) 1px 2px, rgba(4, 7, 11, 0.35) 2px 3px);
+  pointer-events: none;
+}
+
+/* A node: a 56 px octagon plate holding its specimen. */
+.dd-node {
+  --cut: 12px;
+  --fill: var(--slate-800);
+  --rim: var(--slate-600);
+  --face: linear-gradient(180deg, rgba(239, 231, 216, 0.05), transparent);
+  position: absolute;
+  left: 0;
+  width: var(--node);
+  height: var(--node);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--bone-100);
+}
+.dd-node-icon {
+  width: 36px;
+  height: 36px;
+  position: relative;
+}
+.dd-node.here {
+  --rim: var(--brass-700);
+}
+.dd-node.elsewhere .dd-node-icon,
+.dd-node.elsewhere .dd-node-check {
+  opacity: 0.45;
+}
+.dd-node.elsewhere .dd-node-q {
+  opacity: 0.75;
+}
+.dd-node.elsewhere {
+  --fill: rgba(19, 26, 36, 0.7);
+}
+.dd-node.owned {
+  --rim: rgba(143, 196, 164, 0.55);
+  --face: linear-gradient(180deg, rgba(143, 196, 164, 0.12), transparent);
+}
+.dd-node.craftable {
+  --rim: var(--amber-400);
+  --face: linear-gradient(180deg, rgba(255, 179, 92, 0.3), rgba(255, 179, 92, 0.06));
+}
+.dd-node.craftable.elsewhere {
+  --rim: var(--amber-700);
+}
+.dd-node.locked {
+  --rim: rgba(185, 162, 255, 0.4);
+  --fill: rgba(16, 14, 30, 0.85);
+}
+.dd-node.locked .dd-node-icon,
+.dd-node.locked.elsewhere .dd-node-icon {
+  opacity: 0.16;
+}
+.dd-node.away .dd-node-icon,
+.dd-node.short .dd-node-icon {
+  opacity: 0.75;
+}
+.dd-node.selected {
+  --rim: var(--brass-300);
+}
+.dd-node.selected::after {
+  content: '';
+  position: absolute;
+  inset: 3px;
+  pointer-events: none;
+  border: 1px solid rgba(226, 182, 115, 0.6);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+}
+.dd-node:focus-visible {
+  outline: none;
+}
+.dd-node:focus-visible::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  pointer-events: none;
+  border: 2px solid var(--amber-300);
+  clip-path: polygon(10px 0, calc(100% - 10px) 0, 100% 10px, 100% calc(100% - 10px), calc(100% - 10px) 100%, 10px 100%, 0 calc(100% - 10px), 0 10px);
+}
+.dd-node:active {
+  transform: translateY(1px);
+}
+
+/* Locked: the violet '?', in the builders' Lintel face. */
+.dd-node-q {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-lintel);
+  font-size: 28px;
+  color: var(--deep-300);
+  text-shadow: 0 0 6px rgba(4, 7, 11, 0.9), 0 1px 0 var(--carve);
+  pointer-events: none;
+}
+/* Owned: a verdigris check in the corner. */
+.dd-node-check {
+  position: absolute;
+  right: 7px;
+  bottom: 9px;
+  width: 11px;
+  height: 6px;
+  border-left: 3px solid var(--verdigris-300);
+  border-bottom: 3px solid var(--verdigris-300);
+  transform: rotate(-45deg);
+  pointer-events: none;
+}
+/* A field site: carry the cost there (an arrow out of the corner). */
+.dd-node-carry {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 8px;
+  height: 8px;
+  border-top: 3px solid var(--amber-300);
+  border-right: 3px solid var(--amber-300);
+  pointer-events: none;
+}
+/* The Next line points here: a small amber diamond on the top edge. */
+.dd-node-next {
+  position: absolute;
+  top: 4px;
+  left: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  background: var(--amber-400);
+  transform: rotate(45deg);
+  pointer-events: none;
+}
+/* Partial: the materials ring traced inside the plate. */
+.dd-node-ring {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dd-node-ring polygon {
+  fill: none;
+  stroke: var(--amber-400);
+  stroke-width: 2.5;
+  stroke-linejoin: miter;
+}
+
+/* Craftable nodes pulse twice when the tree opens. */
+.dd-node.pulse {
+  animation: dd-node-pulse 640ms var(--ease-enter) 2;
+}
+@keyframes dd-node-pulse {
+  50% {
+    transform: scale(1.07);
+  }
+}
+/* A craft: the node lights for 220 ms ... */
+.dd-node-flash {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(circle, rgba(255, 244, 220, 0.95), rgba(255, 179, 92, 0.6) 60%, rgba(255, 179, 92, 0) 100%);
+  opacity: 0;
+  pointer-events: none;
+  animation: dd-node-flash 220ms ease-out;
+}
+@keyframes dd-node-flash {
+  from {
+    opacity: 1;
+  }
+}
+/* ... and a spark runs down its groove for 400 ms. */
+.dd-tree-spark {
+  position: absolute;
+  left: calc(50% - 4px);
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  background: var(--amber-300);
+  box-shadow: 0 0 8px 2px rgba(255, 179, 92, 0.85);
+  transform: rotate(45deg);
+  opacity: 0;
+  pointer-events: none;
+  animation: dd-spark 400ms cubic-bezier(0.4, 0, 0.6, 1);
+}
+@keyframes dd-spark {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(45deg);
+  }
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(var(--d)) rotate(45deg);
+  }
+}
+
+/* The detail pane: a plate of its own, the action pinned at its foot. */
+.dd-tree-detail {
+  --cut: var(--cut-panel);
+  --fill: rgba(7, 10, 15, 0.6);
+  --rim: var(--slate-700);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 8px 10px 10px 4px;
+}
+.dd-tree-detail.craftable {
+  --rim: rgba(255, 179, 92, 0.55);
+}
+.dd-tree-detail.locked {
+  --rim: rgba(185, 162, 255, 0.35);
+}
+.dd-tree-detail-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px 8px;
+}
+.dd-tree-id {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dd-tree-id-icon {
+  width: 44px;
+  height: 44px;
+}
+.dd-tree-id-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.dd-tree-name {
+  margin: 0;
+  font-size: calc(17px * var(--s));
+  font-weight: 700;
+  line-height: 1.2;
+}
+.dd-tree-detail.locked .dd-tree-name {
+  color: var(--deep-300);
+}
+.dd-tree-does {
+  margin: 0;
+  font-size: calc(14px * var(--s));
+  line-height: 1.4;
+  color: var(--ink);
+}
+.dd-tree-prereqs {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: calc(13px * var(--s));
+  color: var(--ink-dim);
+}
+.dd-tree-prereq {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.dd-tree-prereq-mark {
+  width: 7px;
+  height: 7px;
+  border: 2px solid var(--deep-300);
+  transform: rotate(45deg);
+}
+.dd-tree-prereq.met .dd-tree-prereq-mark {
+  border-color: var(--verdigris-300);
+  background: var(--verdigris-300);
+}
+.dd-tree-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+.dd-stat {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+.dd-stat-label {
+  font-size: calc(13px * var(--s));
+  color: var(--ink-dim);
+}
+.dd-stat-values {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: calc(13px * var(--s));
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dd-stat-before {
+  color: var(--bone-300);
+}
+.dd-stat-arrow {
+  color: var(--brass-500);
+}
+.dd-stat-after {
+  color: var(--amber-300);
+}
+.dd-stat-bar {
+  --cut: var(--cut-cap);
+  grid-column: 1 / -1;
+  position: relative;
+  height: 6px;
+  overflow: hidden;
+  background: rgba(4, 7, 11, 0.85);
+  clip-path: polygon(3px 0, calc(100% - 3px) 0, 100% 50%, calc(100% - 3px) 100%, 3px 100%, 0 50%);
+}
+.dd-stat-gain,
+.dd-stat-was {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+}
+.dd-stat-gain {
+  background: var(--amber-400);
+}
+.dd-stat-was {
+  background: var(--brass-500);
+}
+.dd-tree-cost-title {
+  margin: 6px 0 0;
+}
+.dd-tree-cost {
+  padding: 0 10px;
+}
+.dd-tree-cost .dd-ledger-row {
+  min-height: 30px;
+}
+.dd-tree-cost .dd-ledger-row.ok .dd-ledger-value {
+  color: var(--good);
+}
+.dd-tree-cost .dd-ledger-row.short .dd-ledger-value {
+  color: var(--danger-400);
+}
+.dd-tree-cost .dd-ledger-row.paid .dd-ledger-value {
+  color: var(--bone-500);
+}
+.dd-tree-action {
+  flex: none;
+  padding: 8px 12px 12px;
+}
+.dd-tree-action .dd-craft-btn {
+  width: 100%;
+  min-width: 0;
+}
+.dd-tree-action .dd-craft-btn.locked {
+  color: var(--deep-300);
+}
+
+/* Short landscape phones (740 x 360, 844 x 390): tighter rhythm so the tree needs no scroll. */
+@media (max-height: 460px) {
+  .dd-tree-board {
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+  .dd-tree-col-label {
+    height: 18px;
+  }
+  .dd-tree-detail {
+    margin-top: 4px;
+    margin-bottom: 6px;
+  }
+  .dd-tree-detail-body {
+    padding-top: 8px;
+    gap: 4px;
+  }
+  .dd-tree-action {
+    padding: 6px 10px 8px;
+  }
+}
+@media (max-height: 400px) {
+  .dd-tree-grid {
+    --pitch: 58px;
+    --node: 52px;
+  }
+  .dd-node {
+    --cut: 11px;
+  }
+  /* The pane keeps what matters on a short screen: name, sentence, bars, cost, button. */
+  .dd-tree-detail .dd-eyebrow {
+    display: none;
+  }
+  .dd-tree-id-icon {
+    width: 32px;
+    height: 32px;
+  }
+  .dd-tree-name {
+    font-size: calc(16px * var(--s));
+  }
+  .dd-tree-does {
+    font-size: calc(13px * var(--s));
+    line-height: 1.35;
+  }
+  .dd-stat {
+    gap: 0 8px;
+  }
+  .dd-tree-cost .dd-ledger-row {
+    min-height: 28px;
+  }
+  .dd-tree-cost-title {
+    margin-top: 2px;
+  }
+}
+@media (orientation: landscape) and (max-width: 800px) {
+  .dd-large .dd-tree-col-label {
+    letter-spacing: 0.02em;
+  }
+}
+
+/* Portrait: the tree on top, the detail as a 46 % bottom sheet. */
+@media (orientation: portrait) {
+  .dd-tree {
+    height: 100%;
+  }
+  .dd-tree-title {
+    display: none;
+  }
+  .dd-tree-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 0;
+  }
+  .dd-tree-tab {
+    justify-content: center;
+    padding: 0 4px;
+    letter-spacing: 0.04em;
+    line-height: 1.15;
+    white-space: normal;
+    text-align: center;
+  }
+  /* The close control keeps its accessible name; the X alone fits beside three tabs. */
+  .dd-tree-head .dd-close-text {
+    display: none;
+  }
+  .dd-tree-head {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  .dd-tree-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) 46%;
+  }
+  /* The tree sits centred above the sheet (auto margins never clip an overflowing scroll). */
+  .dd-tree-board {
+    display: flex;
+    flex-direction: column;
+    padding: 8px 4px 6px;
+  }
+  .dd-tree-grid {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-top: auto;
+    margin-bottom: auto;
+  }
+  .dd-tree-col-label {
+    letter-spacing: 0.02em;
+  }
+  .dd-large .dd-tree-col-label {
+    font-size: 12.5px;
+  }
+  .dd-tree-detail {
+    margin: 0 8px 8px;
+  }
+}
+.dd-node-ring {
+  width: 100%;
+  height: 100%;
+}

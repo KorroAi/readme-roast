@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { FINE, FineScaleController, GOVERNOR, QualityGovernor, initialQuality, type GovernorAction } from '../../src/render/QualityGovernor';
+import { GOVERNOR, QualityGovernor, initialQuality, type GovernorAction } from '../../src/render/QualityGovernor';
 import type { QualityLevel } from '../../src/render/Renderer';
 
 /** Feed a constant frame interval for `seconds` of frame time; apply each step like main.ts does. */
@@ -95,56 +95,5 @@ describe('QualityGovernor', () => {
     }
     expect(action).toBe('none');
     expect(g.lastMedianMs).toBe(16);
-  });
-});
-
-describe('FineScaleController (SPEC §11.3: the fine resolution controller)', () => {
-  /** Feed `ms` frames for `seconds`, starting at t0; returns the steps with their times. */
-  const feed = (c: FineScaleController, ms: number, seconds: number, t0 = 0): Array<{ t: number; step: number }> => {
-    const out: Array<{ t: number; step: number }> = [];
-    for (let t = t0 + ms; t <= t0 + seconds * 1000; t += ms) {
-      const s = c.sample(ms, t);
-      if (s !== 0) out.push({ t, step: s });
-    }
-    return out;
-  };
-
-  it('steps down 0.05 when the median frame is above 17.5 ms, at most once per 2 s', () => {
-    const c = new FineScaleController();
-    const steps = feed(c, 25, 10);
-    expect(steps.length).toBeGreaterThanOrEqual(4);
-    expect(steps.every((s) => s.step === -FINE.step)).toBe(true);
-    for (let i = 1; i < steps.length; i++) expect(steps[i].t - steps[i - 1].t).toBeGreaterThanOrEqual(FINE.minGapMs);
-    expect(c.lastMedianMs).toBeCloseTo(25, 5);
-  });
-
-  it('steps up only after 4 s below 14.5 ms, and holds between the thresholds', () => {
-    const c = new FineScaleController();
-    expect(feed(c, 12, 3.5)).toEqual([]);
-    const up = feed(c, 12, 2, 3500);
-    expect(up.length).toBe(1);
-    expect(up[0].step).toBe(FINE.step);
-    expect(up[0].t).toBeGreaterThanOrEqual(4000);
-    const c2 = new FineScaleController();
-    expect(feed(c2, 16, 20)).toEqual([]);
-  });
-
-  it('uses the median (one long hitch does not step) and ignores gaps', () => {
-    const c = new FineScaleController();
-    let steps = 0;
-    for (let t = 0; t < 10000; t += 16) {
-      const ms = t % 1000 < 16 ? 120 : 16;
-      if (c.sample(ms, t) !== 0) steps++;
-    }
-    expect(steps).toBe(0);
-    expect(c.sample(5000, 20000)).toBe(0);
-    expect(c.sample(Number.NaN, 20016)).toBe(0);
-  });
-
-  it('a fresh window after reset()', () => {
-    const c = new FineScaleController();
-    feed(c, 25, 0.9);
-    c.reset();
-    expect(feed(c, 25, 0.9, 900)).toEqual([]);
   });
 });

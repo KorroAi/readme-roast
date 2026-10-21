@@ -8,24 +8,29 @@ import { midiToHz } from './theory';
 // and envelopes. Recipes only talk to a Voice, so the same code plays live through the mix
 // graph or renders into an OfflineAudioContext for tests.
 
+export type StepKind = 'stone' | 'soil' | 'wood' | 'ancient';
 export type BusName = 'music' | 'sfx' | 'ambience';
 
 /** Reverb send every voice of a category gets on top of its own (music sits further back). */
 const BASE_SEND: Record<BusName, number> = { music: 0.35, sfx: 0.12, ambience: 0.3 };
 
 export interface SfxParams {
-  /** Crack progress in [0, 1]: hits get slightly higher and brighter as the cell weakens. */
+  /** Mining progress in [0, 1]: hits get slightly higher and brighter as the block weakens. */
   progress?: number;
-  /** Generic strength in [0, 1] (a boom's size, a chest's tier). */
+  /** Generic strength in [0, 1] (landing speed, walking pace, damage). */
   intensity?: number;
-  /** How many things are involved (the cash roll's ticks). */
+  /** How many things are involved (banked items). */
   count?: number;
   /** Stereo position in [-1, 1]. */
   pan?: number;
   /** Gain multiplier on top of the sound's own level. */
   gain?: number;
-  /** Pitch multiplier (ladders, combo semitones; drips get lower in the depths). */
+  /** Pitch multiplier (drips get lower in the depths). */
   pitch?: number;
+  /** Pickaxe tier (heavier tools swing a little higher). */
+  tier?: number;
+  /** Surface under the player for landings. */
+  material?: StepKind;
 }
 
 interface SfxDef {
@@ -82,6 +87,7 @@ interface Partials {
 // Inharmonic partial sets. Metal follows a free bar's mode ratios (clink), the clang is
 // lower and denser, crystal is near-harmonic and high (glassy).
 const METAL: Partials = { ratios: [1, 2.32, 4.25, 6.63], amps: [0.28, 0.22, 0.15, 0.09], decays: [0.55, 0.35, 0.22, 0.14] };
+const CLANG: Partials = { ratios: [1, 2.41, 3.88, 5.2], amps: [0.34, 0.2, 0.1, 0.05], decays: [0.32, 0.2, 0.12, 0.08] };
 const ANVIL: Partials = { ratios: [1, 2.76, 5.4, 8.93], amps: [0.32, 0.2, 0.09, 0.04], decays: [1.0, 0.55, 0.25, 0.12] };
 const CRYSTAL: Partials = { ratios: [1, 1.5, 2.01, 2.99, 4.03], amps: [0.26, 0.1, 0.16, 0.09, 0.05], decays: [0.9, 0.6, 0.5, 0.32, 0.2] };
 const TINK: Partials = { ratios: [1, 2.76], amps: [0.16, 0.06], decays: [0.22, 0.08] };
@@ -121,6 +127,15 @@ function pluck(v: Voice, t: number, freq: number, amp: number, decay: number, de
   v.osc('triangle', freq * 2, t, t + 0.35).connect(v.perc(t, 0.002, amp * 0.14, 0.25)).connect(dest);
 }
 
+/** Irregular little pops (lantern sputter). */
+function pops(v: Voice, t: number, n: number, spread: readonly [number, number], lo: number, hi: number): void {
+  let at = t;
+  for (let k = 0; k < n; k++) {
+    at += v.rand(spread[0], spread[1]);
+    burst(v, at, 'white', 'bandpass', v.rand(lo, hi), 1, v.rand(0.25, 0.5), v.rand(0.015, 0.045));
+  }
+}
+
 /** Swept band of pink noise: whooshes, ignitions, the extinguish "fwip". */
 function sweep(v: Voice, t: number, from: number, to: number, sweepTime: number, q: number, attack: number, peak: number, release: number): void {
   const f = v.filter('bandpass', from, q);
@@ -142,8 +157,7 @@ function padChord(v: Voice, t: number, freqs: readonly number[], type: Oscillato
 /** Variation shared by mining hits. */
 function hitShape(v: Voice, p: SfxParams): { pitch: number; bright: number; pr: number } {
   const pr = saturate(p.progress ?? 0);
-  const k = p.pitch ?? 1;
-  return { pitch: v.vary(0.06) * (1 + 0.12 * pr) * k, bright: v.vary(0.15) * (1 + 0.45 * pr) * Math.sqrt(k), pr };
+  return { pitch: v.vary(0.06) * (1 + 0.12 * pr), bright: v.vary(0.15) * (1 + 0.45 * pr), pr };
 }
 
 // ---------------------------------------------------------------------------------------
@@ -270,6 +284,32 @@ const BREAK: Record<SoundKind, (v: Voice) => void> = {
   },
 };
 
+const STEP: Record<StepKind, (v: Voice, t: number) => void> = {
+  stone(v, t) {
+    const k = v.vary(0.1);
+    burst(v, t, 'white', 'lowpass', 1400 * v.vary(0.2), 0.8, 0.3, 0.045);
+    thump(v, t, 95 * k, 60 * k, 0.22, 0.05);
+    grains(v, t, 0.06, 'bandpass', 2600 * v.vary(0.2), 1.2, 0.12, 1, v.rand(0, 0.3));
+  },
+  soil(v, t) {
+    const k = v.vary(0.1);
+    grains(v, t, 0.12, 'lowpass', 750 * v.vary(0.2), 0.8, 0.4, v.rand(0.6, 0.85), v.rand(0, 0.25));
+    thump(v, t, 70 * k, 45 * k, 0.18, 0.06);
+  },
+  wood(v, t) {
+    const k = v.vary(0.08);
+    thump(v, t, 185 * k, 150 * k, 0.3, 0.07, 'triangle');
+    burst(v, t, 'white', 'bandpass', 620 * v.vary(0.1), 4, 0.25, 0.04);
+  },
+  ancient(v, t) {
+    const k = v.vary(0.08);
+    burst(v, t, 'white', 'bandpass', 1800 * v.vary(0.15), 1.5, 0.28, 0.035);
+    thump(v, t, 125 * k, 80 * k, 0.24, 0.05);
+  },
+};
+
+const D_MAJOR_ADD9 = [293.66, 369.99, 440, 659.25];
+
 // ---------------------------------------------------------------------------------------
 // Registry
 
@@ -277,304 +317,214 @@ const def = (bus: BusName, gain: number, wet: number, priority: number, length: 
   bus, gain, wet, priority, length, minGap, build,
 });
 
-/** A tap: the material hit, shifted by p.pitch (the combo's semitones). */
-const tap = (kind: SoundKind, length: number, wet: number) =>
-  def('sfx', 0.72, wet, 2, length, (v, p) => HIT[kind](v, p), 0.035);
-/** A break: the material's collapse plus a pluck on the break ladder at p.pitch. */
-const brk = (kind: SoundKind, length: number, wet: number) =>
-  def('sfx', 0.8, wet, 2, length, (v, p) => {
-    BREAK[kind](v);
-    if (p.pitch) pluck(v, v.t + 0.005, 587.33 * p.pitch, 0.13, 0.7);
-  }, 0.035);
+const hit = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.75, wet, 2, length, HIT[kind], 0.04);
+const brk = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.8, wet, 2, length, BREAK[kind], 0.04);
+const step = (kind: StepKind) => def('sfx', 0.45, 0.08, 1, 0.2, (v) => STEP[kind](v, v.t), 0.06);
+const pickup = (freqs: readonly number[], spacing: number, amp: number, decay: number, sparkle: number) => (v: Voice) => {
+  freqs.forEach((f, i) => blip(v, v.t + i * spacing, f * v.vary(0.005), amp, decay));
+  if (sparkle > 0) burst(v, v.t + 0.02, 'white', 'highpass', 7000, 0.7, sparkle, 0.08 + freqs.length * 0.03);
+};
 
 export const SFX = {
-  // ----- the tap (SPEC §10.3, §10.10): a material hit, ±6 % pitch, +1 semitone per 5 combo (p.pitch) -----
-  'tap.stone': tap('stone', 0.4, 0.12),
-  'tap.metal': tap('metal', 0.9, 0.18),
-  'tap.crystal': tap('crystal', 1.2, 0.35),
-  'tap.wood': tap('wood', 0.3, 0.1),
-  'tap.soil': tap('soil', 0.35, 0.08),
-  'tap.ancient': tap('ancient', 1.6, 0.3),
-  // ----- breaks: the material's collapse plus a note on the pentatonic break ladder (p.pitch) -----
-  'break.stone': brk('stone', 1.0, 0.25),
-  'break.metal': brk('metal', 1.3, 0.3),
-  'break.crystal': brk('crystal', 1.4, 0.5),
-  'break.wood': brk('wood', 0.8, 0.2),
-  'break.soil': brk('soil', 0.9, 0.15),
+  'hit.stone': hit('stone', 0.4, 0.15),
+  'hit.metal': hit('metal', 0.9, 0.2),
+  'hit.crystal': hit('crystal', 1.2, 0.4),
+  'hit.wood': hit('wood', 0.3, 0.12),
+  'hit.soil': hit('soil', 0.35, 0.1),
+  'hit.ancient': hit('ancient', 1.6, 0.35),
+  'break.stone': brk('stone', 0.9, 0.25),
+  'break.metal': brk('metal', 1.2, 0.3),
+  'break.crystal': brk('crystal', 1.4, 0.55),
+  'break.wood': brk('wood', 0.7, 0.2),
+  'break.soil': brk('soil', 0.8, 0.15),
   'break.ancient': brk('ancient', 1.6, 0.35),
 
-  /** A crit: a sharp crack and a 55 Hz thump under the hit. */
-  crit: def('sfx', 0.85, 0.15, 3, 0.5, (v) => {
+  // Can't break this: a dull clang whose pitch sags, then a weaker bounce off the surface.
+  tooHard: def('sfx', 0.9, 0.2, 3, 0.6, (v) => {
     const t = v.t;
-    burst(v, t, 'white', 'highpass', 3200 * v.vary(0.08), 0.8, 0.5, 0.05);
-    burst(v, t + 0.006, 'white', 'bandpass', 1500, 2, 0.3, 0.03);
-    thump(v, t, 110, 55, 0.95, 0.22);
-  }, 0.05),
-
-  /** An ore or rich-ore break: a bright chime pitched from the value (p.pitch). */
-  'ore.chime': def('sfx', 0.7, 0.45, 3, 1.4, (v, p) => {
-    const f = 1046.5 * (p.pitch ?? 1);
-    ring(v, v.t, f, TINK, 1.2);
-    pluck(v, v.t + 0.02, f * 1.5, 0.12, 0.9);
-    burst(v, v.t, 'white', 'highpass', 6500, 0.7, 0.08, 0.05);
-  }, 0.05),
-
-  /** A gem or geode: a crystal ring. */
-  'gem.ring': def('sfx', 0.75, 0.6, 3, 2.0, (v, p) => {
-    const t = v.t;
-    const base = 1568 * (p.pitch ?? 1);
-    ring(v, t, base, CRYSTAL, 1.1);
-    ring(v, t + 0.06, base * 1.5, CRYSTAL, 0.5);
-    burst(v, t, 'white', 'highpass', 7000, 0.7, 0.1, 0.12);
-  }, 0.08),
-
-  /** A coin lands on the counter: a small bright tick, +1 semitone per landing within 600 ms (p.pitch). */
-  'coin.tick': def('sfx', 0.55, 0.08, 1, 0.15, (v, p) => {
-    const t = v.t;
-    const f = 2637 * (p.pitch ?? 1);
-    v.osc('sine', f, t, t + 0.07).connect(v.perc(t, 0.001, 0.1, 0.05)).connect(v.out);
-    v.osc('sine', f * 2.76, t, t + 0.04).connect(v.perc(t, 0.001, 0.03, 0.025)).connect(v.out);
-  }, 0.018),
-
-  /** A row clears: root + 5th + octave on the current ladder step, over a low thunk. */
-  'row.clear': def('sfx', 0.8, 0.35, 3, 1.6, (v, p) => {
-    const t = v.t;
-    const f = 293.66 * (p.pitch ?? 1);
-    thump(v, t, 120, 46, 0.7, 0.16);
-    grains(v, t, 0.25, 'lowpass', 700, 0.8, 0.3, 0.75);
-    for (const [k, a] of [[1, 0.16], [1.5, 0.12], [2, 0.1]] as const) pluck(v, t + 0.01, f * k, a, 1.1);
-  }, 0.08),
-
-  /** The leftover crumble: a gravel slide. */
-  crumble: def('sfx', 0.6, 0.2, 2, 0.8, (v) => {
-    grains(v, v.t, 0.6, 'bandpass', 900, 0.9, 0.45, 0.85);
-    burst(v, v.t, 'brown', 'lowpass', 380, 0.7, 0.3, 0.4);
-  }, 0.1),
-
-  /** A pierce chain or a column burst: a low boom (p.intensity 0..1). */
-  boom: def('sfx', 0.85, 0.3, 3, 1.4, (v, p) => {
-    const i = saturate(p.intensity ?? 0.5);
-    const t = v.t;
-    thump(v, t, 90, 34, 0.7 + 0.3 * i, 0.3 + 0.2 * i);
-    burst(v, t, 'brown', 'lowpass', 300 + 300 * i, 0.7, 0.5, 0.5);
-    grains(v, t + 0.03, 0.5, 'bandpass', 1300, 0.8, 0.4 * i, 1);
+    const k = v.vary(0.04);
+    const dull = v.filter('lowpass', 2400, 0.7);
+    dull.connect(v.out);
+    thump(v, t, 190 * k, 115 * k, 0.45, 0.07);
+    ring(v, t, 520 * k, CLANG, 1, dull, 0.93);
+    burst(v, t + 0.005, 'white', 'bandpass', 2600, 3, 0.14, 0.08);
+    thump(v, t + 0.085, 210 * k, 130 * k, 0.18, 0.05);
+    ring(v, t + 0.085, 545 * k, CLANG, 0.35, dull, 0.95);
   }, 0.12),
 
-  /** A purchase: a brass ka-ching on the next note of the purchase arpeggio (p.pitch). */
-  buy: def('sfx', 0.75, 0.25, 3, 0.7, (v, p) => {
+  swing: def('sfx', 0.9, 0.05, 1, 0.3, (v, p) => {
+    const k = v.vary(0.08) * (1 + 0.06 * ((p.tier ?? 1) - 1));
     const t = v.t;
-    const f = 587.33 * (p.pitch ?? 1);
-    ring(v, t, f * 2, METAL, 0.5);
-    blip(v, t, f, 0.2, 0.25);
-    blip(v, t + 0.045, f * 1.5, 0.16, 0.3);
-    burst(v, t, 'white', 'highpass', 6000, 0.7, 0.07, 0.04);
-  }, 0.03),
+    const f = v.filter('bandpass', 350 * k, 1.3);
+    f.frequency.setValueAtTime(350 * k, t);
+    f.frequency.exponentialRampToValueAtTime(1500 * k, t + 0.09);
+    f.frequency.exponentialRampToValueAtTime(500 * k, t + 0.22);
+    v.noise('pink', t, t + 0.26).connect(f).connect(v.swell(t, 0.07, 0.75, 0.01, 0.16)).connect(v.out);
+  }, 0.08),
 
-  /** A ★: a stinger a fifth above the last purchase note (p.pitch). */
-  'buy.star': def('sfx', 0.85, 0.5, 4, 1.8, (v, p) => {
-    const t = v.t;
-    const f = 880 * (p.pitch ?? 1);
-    [1, 1.25, 1.5, 2].forEach((k, i) => pluck(v, t + i * 0.055, f * k, 0.17, 1.2));
-    ring(v, t + 0.2, f * 2, CRYSTAL, 0.5);
-    burst(v, t, 'white', 'highpass', 6500, 0.7, 0.08, 0.3);
-  }, 0.1),
+  // Pickups get more notes, more sparkle and more space as items get rarer.
+  'pickup.common': def('sfx', 0.8, 0.05, 2, 0.25, pickup([880], 0, 0.22, 0.13, 0), 0.05),
+  'pickup.uncommon': def('sfx', 0.8, 0.1, 2, 0.35, pickup([880, 1318.51], 0.055, 0.22, 0.2, 0), 0.05),
+  'pickup.rare': def('sfx', 0.8, 0.3, 3, 0.6, pickup([880, 1108.73, 1318.51], 0.05, 0.2, 0.3, 0.05), 0.05),
+  'pickup.relic': def('sfx', 0.85, 0.45, 3, 1.0, pickup([1108.73, 1318.51, 1760, 2217.46], 0.06, 0.2, 0.5, 0.13), 0.05),
 
-  /** The pick reaches a new tier: forge hits, a rising choir, a crash. */
-  'tool.tier': def('sfx', 0.85, 0.5, 4, 2.6, (v) => {
+  rejected: def('sfx', 0.8, 0.05, 2, 0.35, (v) => {
+    const lp = v.filter('lowpass', 1400, 0.7);
+    lp.connect(v.out);
+    [392, 311.13].forEach((f, i) => {
+      const at = v.t + i * 0.085;
+      v.osc('triangle', f, at, at + 0.15).connect(v.perc(at, 0.004, 0.24, 0.1)).connect(lp);
+    });
+  }, 0.2),
+
+  // Stones and ore spilling into the chest, then a warm chord.
+  banked: def('sfx', 0.85, 0.3, 3, 2.0, (v, p) => {
     const t = v.t;
+    const n = Math.max(3, Math.min(12, 3 + Math.round((p.count ?? 4) / 2)));
+    for (let i = 0; i < n; i++) {
+      const at = t + v.rand(0, 0.42);
+      burst(v, at, 'white', 'bandpass', v.rand(1800, 3600), 4, v.rand(0.08, 0.2), v.rand(0.02, 0.04));
+      if (v.rand(0, 1) < 0.4) v.osc('sine', v.rand(2400, 4200), at, at + 0.15).connect(v.perc(at, 0.001, 0.06, 0.12)).connect(v.out);
+    }
+    grains(v, t, 0.45, 'bandpass', 2500, 1, 0.25, 1.2);
+    padChord(v, t + 0.08, D_MAJOR_ADD9, 'triangle', 0.07, 1600, 0.3, 0.35, 1.1);
+  }, 0.3),
+
+  // Forge breath, two anvil strikes, then a rising chime.
+  craft: def('sfx', 0.7, 0.4, 3, 2.6, (v) => {
+    const t = v.t;
+    const fw = v.filter('lowpass', 300, 0.9);
+    fw.frequency.setValueAtTime(300, t);
+    fw.frequency.exponentialRampToValueAtTime(1800, t + 0.14);
+    fw.frequency.exponentialRampToValueAtTime(400, t + 0.4);
+    v.noise('pink', t, t + 0.45).connect(fw).connect(v.swell(t, 0.12, 0.3, 0.02, 0.28)).connect(v.out);
     const anvil = (at: number, g: number, k: number) => {
       thump(v, at, 170 * k, 70 * k, 0.7 * g, 0.12);
       ring(v, at, 820 * k, ANVIL, g);
+      burst(v, at, 'white', 'highpass', 3000, 0.7, 0.2 * g, 0.02);
     };
-    anvil(t, 0.7, 1);
-    anvil(t + 0.18, 0.85, 1.06);
-    padChord(v, t + 0.25, [293.66, 369.99, 440, 587.33], 'sawtooth', 0.035, 900, 0.4, 0.3, 1.2);
-    burst(v, t + 0.7, 'white', 'highpass', 2500, 0.7, 0.5, 0.6);
-    thump(v, t + 0.7, 80, 30, 0.9, 0.4);
-  }, 0.5),
+    anvil(t + 0.12, 1, 1);
+    anvil(t + 0.4, 0.6, 1.06);
+    [587.33, 739.99, 880, 1174.66].forEach((f, i) => pluck(v, t + 0.72 + i * 0.09, f, 0.16, 1.0));
+  }, 0.3),
 
-  /** A combo tier (10, 25, 50): a rising chime, a step per tier (p.pitch). */
-  'combo.tier': def('sfx', 0.7, 0.4, 3, 1.0, (v, p) => {
-    const f = 1174.66 * (p.pitch ?? 1);
-    [1, 1.25, 1.5].forEach((k, i) => blip(v, v.t + i * 0.05, f * k, 0.14, 0.3));
-  }, 0.2),
+  // The rare discovery cue: an open D add9 pad blooming under a shimmering ascending lydian
+  // arpeggio (the raised fourth is heard nowhere else), sent deep into the reverb.
+  discovery: def('sfx', 0.9, 0.75, 4, 4.6, (v) => {
+    const t = v.t;
+    const lp = padChord(v, t, [146.83, 146.83 * 1.004, 220, 220 * 0.996, 329.63, 329.63 * 1.004, 369.99, 369.99 * 0.996], 'sawtooth', 0.045, 400, 0.9, 1.3, 2.2);
+    lp.frequency.setValueAtTime(400, t);
+    lp.frequency.exponentialRampToValueAtTime(2600, t + 1.6);
+    lp.frequency.exponentialRampToValueAtTime(900, t + 4.2);
+    const trem = v.gain(1);
+    trem.connect(v.out);
+    v.lfo(trem.gain, 6.5, 0.3, t, t + 4.5);
+    [587.33, 659.25, 739.99, 830.61, 880, 1108.73, 1318.51, 1479.98, 1760].forEach((f, i) => pluck(v, t + 0.25 + i * 0.12, f, 0.15, 1.4, trem));
+    burst(v, t + 0.3, 'white', 'highpass', 6000, 0.7, 0.05, 1.4, 0.6);
+  }, 1),
 
-  /** A combo of 10 or more fades away: a soft fizz at −18 dB. Costs nothing. */
-  'combo.lost': def('sfx', 0.12, 0.2, 1, 0.5, (v) => {
-    sweep(v, v.t, 3000, 700, 0.3, 1, 0.01, 0.4, 0.3);
-  }, 0.5),
+  'step.stone': step('stone'),
+  'step.soil': step('soil'),
+  'step.wood': step('wood'),
+  'step.ancient': step('ancient'),
 
-  /** The ready ping of a card: a tink pitched C, E or G by slot (p.pitch). */
-  'ui.tink': def('sfx', 0.6, 0.2, 2, 0.4, (v, p) => {
-    ring(v, v.t, 2093 * (p.pitch ?? 1), TINK, 0.8);
+  jump: def('sfx', 0.7, 0.05, 1, 0.25, (v) => {
+    sweep(v, v.t, 500, 1300, 0.1, 1, 0.03, 0.18, 0.12);
+    thump(v, v.t, 90, 60, 0.12, 0.05);
   }, 0.1),
 
-  /** A chest pops out of its cell: a creak and a sparkle. */
-  'chest.creak': def('sfx', 0.7, 0.25, 3, 0.8, (v) => {
+  // Heavier thud with fall speed, plus the surface the player lands on.
+  land: def('sfx', 0.65, 0.12, 2, 0.6, (v, p) => {
+    const i = saturate(p.intensity ?? 0.5);
     const t = v.t;
-    const o = v.osc('sawtooth', 180, t, t + 0.35);
-    o.frequency.setValueAtTime(180, t);
-    o.frequency.exponentialRampToValueAtTime(120, t + 0.3);
-    o.connect(v.filter('bandpass', 900, 6)).connect(v.swell(t, 0.04, 0.12, 0.1, 0.2)).connect(v.out);
-    burst(v, t + 0.2, 'white', 'highpass', 7000, 0.7, 0.1, 0.25);
-  }, 0.2),
+    thump(v, t, 100, 40, 0.35 + 0.55 * i, 0.12 + 0.12 * i);
+    burst(v, t, 'pink', 'lowpass', 700 + 500 * i, 0.7, 0.25 + 0.4 * i, 0.08 + 0.1 * i);
+    grains(v, t, 0.1 + 0.25 * i, 'bandpass', 1500, 0.9, 0.1 + 0.3 * i, 0.9);
+    STEP[p.material ?? 'stone'](v, t);
+  }, 0.1),
 
-  /** A chest opens (p.intensity by tier): a pop up to a bright bloom. */
-  'chest.open': def('sfx', 0.85, 0.5, 4, 1.8, (v, p) => {
-    const i = saturate(p.intensity ?? 0);
+  // Grunt-like: a low hit plus a buzzy source through two vocal formants, muffled.
+  damaged: def('sfx', 0.85, 0.1, 3, 0.5, (v, p) => {
     const t = v.t;
-    thump(v, t, 200, 120, 0.5, 0.08);
-    [523.25, 659.25, 783.99, 1046.5].slice(0, 2 + Math.round(2 * i)).forEach((f, k) => pluck(v, t + 0.03 + k * 0.06, f * (p.pitch ?? 1), 0.16, 1));
-    burst(v, t, 'white', 'highpass', 6000, 0.7, 0.1 + 0.15 * i, 0.3);
+    const k = v.vary(0.05);
+    const g = 0.7 + 0.3 * saturate(p.intensity ?? 0.5);
+    thump(v, t, 125 * k, 55 * k, 0.75 * g, 0.18);
+    burst(v, t, 'pink', 'lowpass', 380, 0.7, 0.45 * g, 0.16);
+    const src = v.osc('sawtooth', 140 * k, t, t + 0.3);
+    src.frequency.setValueAtTime(140 * k, t);
+    src.frequency.exponentialRampToValueAtTime(92 * k, t + 0.22);
+    const env = v.swell(t, 0.02, 0.32 * g, 0.05, 0.14);
+    env.connect(v.filter('lowpass', 1400, 0.7)).connect(v.out);
+    src.connect(v.filter('bandpass', 520, 3)).connect(env);
+    src.connect(v.filter('bandpass', 1150, 4)).connect(v.gain(0.6)).connect(env);
   }, 0.15),
 
-  /** A seal appears: a low drone and a drum hit. */
-  'seal.appear': def('sfx', 0.85, 0.45, 4, 2.4, (v) => {
+  // A low drone falling away into the dark.
+  died: def('sfx', 0.7, 0.45, 4, 3.4, (v) => {
     const t = v.t;
-    padChord(v, t, [73.42, 110, 146.83], 'sawtooth', 0.05, 500, 0.3, 0.8, 1.2);
-    thump(v, t, 70, 36, 0.9, 0.35);
-    thump(v, t + 0.4, 70, 36, 0.7, 0.3);
+    const lp = v.filter('lowpass', 1400, 1.2);
+    lp.frequency.setValueAtTime(1400, t);
+    lp.frequency.exponentialRampToValueAtTime(160, t + 2.8);
+    lp.connect(v.swell(t, 0.04, 0.32, 0.5, 2.4)).connect(v.out);
+    for (const d of [-0.006, 0.006]) {
+      const o = v.osc('sawtooth', 110 * (1 + d), t, t + 3.1);
+      o.frequency.setValueAtTime(110 * (1 + d), t);
+      o.frequency.exponentialRampToValueAtTime(36 * (1 + d), t + 2.8);
+      o.connect(lp);
+    }
+    const sub = v.osc('sine', 55, t, t + 3.1);
+    sub.frequency.setValueAtTime(55, t);
+    sub.frequency.exponentialRampToValueAtTime(28, t + 2.8);
+    sub.connect(v.swell(t, 0.05, 0.35, 0.6, 2.2)).connect(v.out);
+    burst(v, t, 'brown', 'lowpass', 220, 0.7, 0.5, 2.5, 0.4);
   }, 1),
 
-  /** A hit on the seal: a low stone gong. */
-  'seal.hit': def('sfx', 0.6, 0.35, 2, 0.8, (v) => {
-    thump(v, v.t, 160, 80, 0.5, 0.12);
-    ring(v, v.t, 330 * v.vary(0.03), ANVIL, 0.35);
-  }, 0.06),
-
-  /** The seal breaks: a shatter and a rising choir stinger. */
-  'seal.break': def('sfx', 0.95, 0.6, 4, 3.2, (v) => {
+  respawned: def('sfx', 0.85, 0.45, 3, 3.4, (v) => {
     const t = v.t;
-    collapse(v, t, 1500);
-    burst(v, t, 'white', 'highpass', 3000, 0.7, 0.5, 0.4);
-    padChord(v, t + 0.1, [293.66, 440, 587.33, 739.99], 'sawtooth', 0.04, 600, 0.5, 0.8, 1.6);
-    [587.33, 739.99, 880, 1174.66].forEach((f, i) => pluck(v, t + 0.3 + i * 0.1, f, 0.15, 1.4));
+    padChord(v, t, [146.83, 220, 293.66, 369.99], 'triangle', 0.06, 1300, 1.1, 0.4, 1.6);
+    v.osc('sine', 880, t, t + 3.3).connect(v.swell(t + 0.4, 0.9, 0.03, 0.3, 1.4)).connect(v.out);
   }, 1),
 
-  /** A new biome's stinger (3 s). */
-  reveal: def('sfx', 0.9, 0.75, 4, 4.4, (v) => {
+  // Home: a warm strummed D add9 over a soft pad.
+  camp: def('sfx', 0.85, 0.4, 3, 3.2, (v) => {
     const t = v.t;
-    const lp = padChord(v, t, [146.83, 220, 329.63, 369.99], 'sawtooth', 0.045, 400, 0.8, 1.2, 2.2);
-    lp.frequency.setValueAtTime(400, t);
-    lp.frequency.exponentialRampToValueAtTime(2400, t + 1.4);
-    lp.frequency.exponentialRampToValueAtTime(900, t + 4);
-    [587.33, 739.99, 880, 1108.73, 1318.51, 1760].forEach((f, i) => pluck(v, t + 0.2 + i * 0.12, f, 0.15, 1.4));
-  }, 1),
-
-  // ----- Wave 2 (SPEC §10.10) ------------------------------------------------------------------------------
-
-  /** A chest roll-up step: a major third higher per step (p.pitch), a bright tick and a shimmer. */
-  'chest.step': def('sfx', 0.75, 0.45, 3, 1.0, (v, p) => {
-    const t = v.t;
-    const f = 659.25 * (p.pitch ?? 1);
-    thump(v, t, 260, 150, 0.35, 0.06);
-    pluck(v, t + 0.01, f, 0.16, 0.8);
-    ring(v, t + 0.02, f * 2, CRYSTAL, 0.35);
-    burst(v, t, 'white', 'highpass', 7000, 0.7, 0.06, 0.18);
-  }, 0.08),
-
-  /** A target caught (crystals, glints, boulders): a short bright pluck that climbs per catch (p.pitch). */
-  catch: def('sfx', 0.65, 0.4, 3, 0.7, (v, p) => {
-    const f = 1046.5 * (p.pitch ?? 1);
-    pluck(v, v.t, f, 0.14, 0.5);
-    blip(v, v.t + 0.03, f * 1.5, 0.1, 0.25);
-  }, 0.04),
-
-  /** A perfect Strike: an anvil ring and a rising fifth. */
-  'strike.perfect': def('sfx', 0.85, 0.5, 4, 1.4, (v) => {
-    const t = v.t;
-    thump(v, t, 220, 90, 0.6, 0.1);
-    ring(v, t, 1318.51, ANVIL, 0.8);
-    [1, 1.5, 2].forEach((k, i) => pluck(v, t + 0.05 + i * 0.06, 880 * k, 0.15, 1));
-  }, 0.15),
-
-  /** A Feat tier: a medal chime pitched by tier (p.pitch). */
-  feat: def('sfx', 0.8, 0.5, 4, 1.8, (v, p) => {
-    const t = v.t;
-    const f = 783.99 * (p.pitch ?? 1);
-    [1, 1.25, 1.5, 2].forEach((k, i) => pluck(v, t + i * 0.07, f * k, 0.15, 1.2));
-    ring(v, t + 0.28, f * 2, CRYSTAL, 0.6);
-  }, 0.3),
-
-  /** A rank-up: a warm three-note chime and a low bell. */
-  rank: def('sfx', 0.8, 0.5, 4, 1.6, (v) => {
-    const t = v.t;
-    [587.33, 739.99, 880].forEach((f, i) => pluck(v, t + i * 0.08, f, 0.16, 1.1));
-    ring(v, t, 293.66, ANVIL, 0.4);
-  }, 0.3),
-
-  /** A charted gate: a gate chord with a crack. */
-  gate: def('sfx', 0.85, 0.5, 4, 2.0, (v) => {
-    const t = v.t;
-    collapse(v, t, 900);
-    padChord(v, t + 0.05, [293.66, 440, 587.33], 'sawtooth', 0.04, 900, 0.2, 0.5, 1.0);
-  }, 0.5),
-
-  /** The Rekindle: a deep bell, then rushing wind. */
-  rekindle: def('sfx', 0.95, 0.7, 4, 4.4, (v) => {
-    const t = v.t;
-    ring(v, t, 146.83, ANVIL, 1);
-    thump(v, t, 90, 40, 0.8, 0.6);
-    sweep(v, t + 0.5, 400, 3200, 1.6, 1, 0.3, 0.25, 0.8);
-    padChord(v, t + 1.6, [146.83, 220, 293.66, 369.99], 'sawtooth', 0.04, 700, 0.6, 1.0, 1.8);
+    [146.83, 220, 293.66, 369.99, 440, 659.25].forEach((f, i) => pluck(v, t + i * 0.07, f, 0.14, 1.8));
+    padChord(v, t, [146.83, 220, 369.99], 'triangle', 0.05, 1100, 0.7, 0.5, 1.6);
   }, 2),
 
-  /** The Lantern Surge starts: a gong; the drum layer enters on the next bar. */
-  'surge.start': def('sfx', 0.9, 0.6, 4, 2.6, (v) => {
+  'lantern.low': def('sfx', 0.9, 0.1, 2, 0.9, (v) => {
     const t = v.t;
-    thump(v, t, 110, 50, 0.9, 0.4);
-    ring(v, t, 220, ANVIL, 0.9);
-    burst(v, t, 'white', 'highpass', 4000, 0.7, 0.3, 0.6);
+    pops(v, t, 5, [0.04, 0.16], 1400, 3000);
+    const f = v.filter('bandpass', 650, 0.9);
+    const flutter = v.gain(0.6);
+    v.lfo(flutter.gain, 11, 0.4, t, t + 0.8, 'square');
+    v.noise('pink', t, t + 0.8).connect(f).connect(v.swell(t, 0.05, 0.2, 0.2, 0.4)).connect(flutter).connect(v.out);
+  }, 0.5),
+
+  // Sputter, then the flame collapses with a falling breathy "fwip".
+  'lantern.empty': def('sfx', 0.8, 0.2, 3, 1.0, (v) => {
+    const t = v.t;
+    pops(v, t, 3, [0.05, 0.12], 1400, 3000);
+    sweep(v, t + 0.38, 1800, 220, 0.35, 1.1, 0.015, 0.4, 0.32);
+    thump(v, t + 0.38, 90, 48, 0.2, 0.18);
+  }, 0.5),
+
+  // Whoosh ignite: a rising band of air, a soft "foom" and the first crackles.
+  'lantern.refueled': def('sfx', 0.8, 0.2, 3, 1.0, (v) => {
+    const t = v.t;
+    sweep(v, t, 250, 2600, 0.32, 0.9, 0.26, 0.4, 0.25);
+    burst(v, t + 0.2, 'brown', 'lowpass', 420, 0.7, 0.45, 0.4, 0.05);
+    thump(v, t + 0.2, 72, 52, 0.25, 0.3);
+    pops(v, t + 0.3, 3, [0.05, 0.15], 2000, 3500);
+  }, 0.5),
+
+  saved: def('sfx', 0.8, 0.1, 1, 0.15, (v) => {
+    const t = v.t;
+    v.osc('sine', 2093, t, t + 0.06).connect(v.perc(t, 0.001, 0.08, 0.035)).connect(v.out);
+    v.osc('sine', 3136, t + 0.03, t + 0.08).connect(v.perc(t + 0.03, 0.001, 0.035, 0.03)).connect(v.out);
   }, 1),
 
-  /** The Surge ends: a soft falling sweep. */
-  'surge.end': def('sfx', 0.4, 0.4, 2, 1.0, (v) => {
-    sweep(v, v.t, 2400, 500, 0.6, 1, 0.02, 0.3, 0.5);
-  }, 1),
-
-  /** Earthquake: a long low boom with rubble. */
-  quake: def('sfx', 0.9, 0.4, 3, 2.4, (v) => {
-    const t = v.t;
-    thump(v, t, 60, 28, 1, 0.9);
-    collapse(v, t + 0.05, 600);
-    collapse(v, t + 0.4, 400);
-  }, 0.5),
-
-  /** An event begins: a bright two-note sting. */
-  'event.sting': def('sfx', 0.75, 0.45, 3, 1.2, (v) => {
-    pluck(v, v.t, 880, 0.16, 0.8);
-    pluck(v, v.t + 0.09, 1318.51, 0.16, 1);
-  }, 0.5),
-
-  /** A record broken: a two-note chime in the relic register. */
-  record: def('sfx', 0.7, 0.5, 3, 1.2, (v) => {
-    blip(v, v.t, 987.77, 0.14, 0.4);
-    blip(v, v.t + 0.08, 1479.98, 0.14, 0.5);
-  }, 0.5),
-
-  // ----- The score's rhythm layers (SPEC §10.10): drums at combo ≥ 25, in a Surge, events and the Plunge; the boss pulse
-  // under a seal fight. Scheduled ahead on the music bus by src/audio/drums.ts; p.gain is the layer's level.
-  'drum.kick': def('music', 0.9, 0.15, 1, 0.5, (v) => thump(v, v.t, 120, 42, 0.9, 0.28), 0),
-  'drum.snare': def('music', 0.55, 0.3, 1, 0.4, (v) => {
-    burst(v, v.t, 'white', 'bandpass', 2200, 0.9, 0.5, 0.14);
-    thump(v, v.t, 220, 160, 0.25, 0.06);
-  }, 0),
-  'drum.hat': def('music', 0.3, 0.1, 1, 0.12, (v) => burst(v, v.t, 'white', 'highpass', 8000, 0.7, 0.35, 0.03), 0),
-  'boss.pulse': def('music', 0.7, 0.35, 1, 1.4, (v) => {
-    thump(v, v.t, 55, 38, 0.8, 0.5);
-    padChord(v, v.t, [55, 82.41], 'sawtooth', 0.05, 380, 0.05, 0.4, 0.6);
-  }, 0),
-
-  /** The return feast's cash roll (p.count ticks). */
-  'cash.roll': def('sfx', 0.7, 0.3, 3, 1.6, (v, p) => {
-    const n = Math.max(4, Math.min(24, p.count ?? 12));
-    for (let i = 0; i < n; i++) {
-      const at = v.t + (i * 1.2) / n;
-      v.osc('sine', 2093 * Math.pow(2, (i % 12) / 24), at, at + 0.05).connect(v.perc(at, 0.001, 0.07, 0.04)).connect(v.out);
-    }
-  }, 0.5),
-
-  'ui.tap': def('sfx', 0.8, 0, 3, 0.1, (v) => {
+  'ui.click': def('sfx', 0.8, 0, 3, 0.1, (v) => {
     const t = v.t;
     const o = v.osc('triangle', 1500, t, t + 0.05);
     o.frequency.setValueAtTime(1500, t);
@@ -582,16 +532,6 @@ export const SFX = {
     o.connect(v.perc(t, 0.002, 0.2, 0.035)).connect(v.out);
     burst(v, t, 'white', 'highpass', 5000, 0.7, 0.06, 0.008);
   }, 0.03),
-  /** "Not yet": a low, short buzz (never harsh: nothing is lost). */
-  'ui.no': def('sfx', 0.7, 0.05, 3, 0.3, (v) => {
-    const t = v.t;
-    const lp = v.filter('lowpass', 700, 0.8);
-    lp.connect(v.out);
-    const env = v.perc(t, 0.004, 0.14, 0.1);
-    env.connect(lp);
-    v.osc('square', 146.83, t, t + 0.14).connect(env);
-    v.osc('square', 155.56, t, t + 0.14).connect(env);
-  }, 0.12),
   'ui.open': def('sfx', 0.8, 0.1, 3, 0.3, (v) => {
     blip(v, v.t, 660, 0.16, 0.12);
     blip(v, v.t + 0.05, 990, 0.16, 0.14);
@@ -600,92 +540,24 @@ export const SFX = {
     blip(v, v.t, 990, 0.14, 0.1);
     blip(v, v.t + 0.05, 660, 0.14, 0.12);
   }),
-  saved: def('sfx', 0.8, 0.1, 1, 0.15, (v) => {
+  'ui.error': def('sfx', 0.8, 0.05, 3, 0.35, (v) => {
     const t = v.t;
-    v.osc('sine', 2093, t, t + 0.06).connect(v.perc(t, 0.001, 0.08, 0.035)).connect(v.out);
-    v.osc('sine', 3136, t + 0.03, t + 0.08).connect(v.perc(t + 0.03, 0.001, 0.035, 0.03)).connect(v.out);
-  }, 1),
-
-
-  // ----- the first person (hybrid SPEC §9.2) ----------------------------------------------------------------------
-  /** A Halden lamp relit: a soft whoomp and a brief flame hiss. */
-  'lamp.whoomp': def('sfx', 0.75, 0.35, 3, 1.0, (v) => {
-    const t = v.t;
-    const lp = v.filter('lowpass', 420, 0.7);
-    v.noise('brown', t, t + 0.5).connect(lp).connect(v.swell(t, 0.05, 0.55, 0.08, 0.3)).connect(v.out);
-    thump(v, t + 0.03, 95, 52, 0.35, 0.22);
-    burst(v, t + 0.08, 'white', 'highpass', 4200, 0.6, 0.08, 0.45, 0.06);
-  }, 0.12),
-  /** First light: a soft rising chord in the biome's key (p.pitch), under 1.2 s, never louder than a strike. */
-  'light.chord': def('sfx', 0.55, 0.6, 3, 1.8, (v, p) => {
-    const t = v.t;
-    const f = 293.66 * (p.pitch ?? 1);
-    for (const [k, dt, a] of [[1, 0, 0.12], [1.25, 0.12, 0.1], [1.5, 0.24, 0.1], [2, 0.38, 0.08]] as const) pluck(v, t + dt, f * k, a, 1.2);
-    const pad = v.osc('triangle', f / 2, t, t + 1.4);
-    pad.connect(v.swell(t, 0.25, 0.05, 0.3, 0.8)).connect(v.out);
-  }, 0.8),
-  /** The breakthrough: an air rush and a soft whump as the wall falls inward. */
-  'breach.rush': def('sfx', 0.85, 0.45, 4, 1.6, (v) => {
-    const t = v.t;
-    const f = burst(v, t, 'pink', 'bandpass', 2400, 0.8, 0.45, 0.9, 0.12);
-    f.frequency.setValueAtTime(2400, t);
-    f.frequency.exponentialRampToValueAtTime(380, t + 0.9);
-    thump(v, t + 0.05, 80, 38, 0.6, 0.35);
-    grains(v, t + 0.1, 0.6, 'lowpass', 900, 0.8, 0.3, 0.8);
-  }, 0.5),
-  /** A ladder or rope ride: two creaks of wood and rope. */
-  'ride.ladder': def('sfx', 0.6, 0.35, 2, 1.6, (v) => {
-    const t = v.t;
-    for (const at of [0, 0.55]) {
-      const o = v.osc('sawtooth', v.rand(180, 240), t + at, t + at + 0.28);
-      const bp = v.filter('bandpass', 900, 6);
-      o.frequency.setValueAtTime(v.rand(180, 240), t + at);
-      o.frequency.linearRampToValueAtTime(v.rand(150, 200), t + at + 0.25);
-      o.connect(bp).connect(v.swell(t + at, 0.03, 0.06, 0.08, 0.16)).connect(v.out);
+    const lp = v.filter('lowpass', 900, 0.8);
+    lp.connect(v.out);
+    for (const at of [t, t + 0.13]) {
+      const env = v.perc(at, 0.004, 0.16, 0.09);
+      env.connect(lp);
+      v.osc('square', 196, at, at + 0.12).connect(env);
+      v.osc('square', 207.65, at, at + 0.12).connect(env);
     }
-  }, 0.6),
-  /** The mine-cart run: iron wheels on rails, a low rolling rumble with rail-joint clicks. */
-  'ride.cart': def('sfx', 0.65, 0.3, 2, 3.2, (v) => {
-    const t = v.t;
-    const lp = v.filter('lowpass', 260, 0.8);
-    v.noise('brown', t, t + 3).connect(lp).connect(v.swell(t, 0.4, 0.45, 1.6, 1.0)).connect(v.out);
-    for (let k = 0; k < 6; k++) ring(v, t + 0.3 + k * 0.42, 620 * v.vary(0.05), TINK, 0.35);
-  }, 1.5),
-  /** The focus pop: a short lift whoosh. */
-  'focus.lift': def('sfx', 0.6, 0.2, 3, 0.5, (v) => {
-    const t = v.t;
-    const f = burst(v, t, 'white', 'bandpass', 900, 1.2, 0.18, 0.28, 0.08);
-    f.frequency.setValueAtTime(700, t);
-    f.frequency.exponentialRampToValueAtTime(2200, t + 0.26);
   }, 0.2),
-  /** The relic ring: a tightening brass tick; the gold band a bell. */
-  'relic.tick': def('sfx', 0.55, 0.15, 3, 0.3, (v, p) => ring(v, v.t, 1400 * (p.pitch ?? 1), TINK, 0.6), 0.05),
-  'relic.bell': def('sfx', 0.75, 0.55, 4, 2.2, (v, p) => {
-    ring(v, v.t, 880 * (p.pitch ?? 1), METAL, 0.9);
-    ring(v, v.t + 0.01, 1760 * (p.pitch ?? 1), TINK, 0.5);
-  }, 0.3),
-  /** Lantern Raise: a soft cloth-and-metal lift. */
-  'lantern.lift': def('sfx', 0.45, 0.15, 2, 0.5, (v) => {
-    const t = v.t;
-    burst(v, t, 'pink', 'bandpass', 1600, 0.9, 0.08, 0.22, 0.05);
-    ring(v, t + 0.12, 2300 * v.vary(0.05), TINK, 0.25);
-  }, 0.25),
-  /** Deep rock in reach: a dull tunk (a response, never a miss). */
-  'rock.tunk': def('sfx', 0.6, 0.1, 2, 0.4, (v) => {
-    thump(v, v.t, 150, 70, 0.45, 0.12);
-    burst(v, v.t, 'brown', 'lowpass', 500, 0.7, 0.2, 0.08);
-  }, 0.06),
-  /** A chamber charted: a small brass chime. */
-  'chart.chime': def('sfx', 0.65, 0.5, 3, 1.6, (v, p) => {
-    const f = 1174.7 * (p.pitch ?? 1);
-    ring(v, v.t, f, TINK, 0.8);
-    ring(v, v.t + 0.14, f * 1.5, TINK, 0.7);
-  }, 0.5),
-  /** A footstep on stone while walking (very soft; Explore). */
-  step: def('sfx', 0.35, 0.2, 1, 0.25, (v) => {
-    burst(v, v.t, 'brown', 'lowpass', 700 * v.vary(0.1), 0.7, 0.12, 0.07);
-    grains(v, v.t + 0.01, 0.08, 'bandpass', 2400, 0.9, 0.04, 1.2);
-  }, 0.2),
+  'ui.craft': def('sfx', 0.8, 0.15, 3, 0.35, (v) => {
+    thump(v, v.t, 260, 180, 0.2, 0.04);
+    ring(v, v.t, 1800, TINK);
+  }),
+  'ui.confirm': def('sfx', 0.8, 0.15, 3, 0.45, (v) => {
+    [660, 880, 1320].forEach((f, i) => blip(v, v.t + i * 0.06, f, 0.15, 0.18));
+  }),
 
   // A water drip: a tiny bubble whose pitch jumps upward, heard mostly through the reverb.
   'amb.drip': def('ambience', 0.6, 0.85, 0, 0.6, (v, p) => {

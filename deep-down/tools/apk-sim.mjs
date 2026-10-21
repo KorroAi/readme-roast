@@ -2,9 +2,8 @@
 // virtual origin https://appassets.androidplatform.net/ with the same MIME table, every other
 // request refused (data:/blob: pass through). Then play the opening of the game on a phone-sized
 // touch viewport. This checks packaging, relative paths, module workers and storage on that
-// origin, the bundled privacy statement and licences, and the crash panel: a first launch opens on the plug
-// face first person, a real tap breaks a block, real taps dig through to the first breakthrough (first light in
-// the Root Cellar), and a save survives a reload. It is not a device test: a real Android WebView may still differ.
+// origin, the bundled privacy statement and licences, and the crash panel. It is not a device
+// test: a real Android WebView may still differ.
 //
 // Usage: node tools/apk-sim.mjs [path/to/deep-down-debug.apk]
 // SwiftShader under load is slow: every wait allows minutes, and the load average is printed so
@@ -28,7 +27,7 @@ const since = () => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
 console.log(`apk-sim: ${apk}; load average ${load()}`);
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
-const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
+const ctx = await browser.newContext({ viewport: { width: 915, height: 412 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
 const refused = [];
 const served = [];
 await ctx.route('**/*', async (route) => {
@@ -56,63 +55,38 @@ const check = (ok, what) => {
   console.log(`${ok ? 'PASS' : 'FAIL'} ${what}`);
   if (!ok) process.exitCode = 1;
 };
-const atReady = () => page.waitForFunction(() => window.__DD__?.hybrid?.ready === true, null, { timeout: WAIT, polling: 200 });
-const H = (fn, arg) => page.evaluate(fn, arg);
-const cdp = await ctx.newCDPSession(page);
-// A real touch with the finger's own clock (the game times taps by event.timeStamp, src/ui/hybrid/TapSurface.ts).
-const tap = async (x, y) => {
-  const t = Date.now();
-  const pt = [{ x, y, id: 1, radiusX: 8, radiusY: 8, force: 1 }];
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: pt, timestamp: t / 1000 });
-  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [], timestamp: (t + 60) / 1000 });
-};
-const centre = (r) => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });
+const atMenu = () => page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: WAIT });
 
 try {
-  // SwiftShader draws the lit scene at a few frames a second: the sim plays on the Battery preset at half render
-  // scale (the packaging, paths, workers and storage under test do not depend on it).
-  await page.addInitScript(() => {
-    if (!localStorage.getItem('deepdown.settings')) localStorage.setItem('deepdown.settings', JSON.stringify({ quality: 'battery', autoQuality: false }));
-  });
-  await page.goto(`https://${HOST}/index.html?rscale=0.5`);
-  // A first launch opens on the plug face of the Root Cellar, first person.
-  await atReady();
-  const first = await H(() => ({ mode: window.__DD__.hybrid.mode(), node: window.__DD__.hybrid.node(), goal: window.__DD__.hybrid.goal().text, cells: window.__DD__.hybrid.faceCells().length }));
-  check(first.mode === 'playing' && first.node.phase === 'drift' && first.node.node === 0 && first.cells > 0, `a first launch boots at the plug face from the APK files (${first.cells} blocks, goal "${first.goal}", ${since()})`);
+  await page.goto(`https://${HOST}/index.html`);
+  await atMenu();
+  check(true, `game boots to the main menu from the APK files (${since()})`);
   const version = await page.evaluate(() => window.__DD_RELEASE__?.version ?? null);
   const packaged = JSON.parse(readFileSync(join(www, 'version.json'), 'utf8'));
   check(version?.versionCode === packaged.versionCode && version?.version === packaged.version, `the game reports version ${version?.version} (versionCode ${version?.versionCode}), as packaged`);
-  // A real tap on the rimmed block breaks it.
-  await H(() => window.__DD__.hybrid.clearEvents());
-  const cells = await H(() => window.__DD__.hybrid.faceCells());
-  const c0 = cells.find((c) => c.col === 3) ?? cells[0];
-  await tap(centre(c0.rect).x, centre(c0.rect).y);
-  await page.waitForFunction(() => window.__DD__.hybrid.events('cell:break').length > 0, null, { timeout: WAIT });
-  check(true, `a real tap breaks a block of the face (${since()})`);
-  // Dig through with real taps: the slices fall, the breach, the glide, first light in the Root Cellar.
-  for (let i = 0; i < 120; i++) {
-    const v = await H(() => window.__DD__.hybrid.node());
-    if (v.phase !== 'drift') break;
-    const cs = await H(() => window.__DD__.hybrid.faceCells());
-    if (cs.length) await tap(centre(cs[i % cs.length].rect).x, centre(cs[i % cs.length].rect).y);
-    await page.waitForTimeout(100);
-  }
-  const lit = await page.waitForFunction(() => window.__DD__.hybrid.events('node:firstLight').length > 0, null, { timeout: WAIT }).then(() => true, () => false);
-  const room = await H(() => ({ node: window.__DD__.hybrid.node(), breach: window.__DD__.hybrid.events('node:breach').length }));
-  check(lit && room.breach > 0 && room.node.phase === 'explore', `the first breakthrough: breach, first light, Explore in the Root Cellar (${JSON.stringify({ phase: room.node.phase, lit: room.node.lit })}, ${since()})`);
-  // Streaming: the slabs below the focus come from the module worker.
-  const slabs = await H(() => {
-    const d = window.__DD__.internals.game.deep;
-    return { applied: d?.stats.applied ?? 0, worker: d?.loader.workerBuilds ?? 0 };
+  const timings = await page.evaluate(() => window.__DD__.report().timings);
+  check(timings.worker === 1, `world generated in the module worker (${JSON.stringify(timings)})`);
+  await page.getByRole('button', { name: /New Expedition/i }).tap();
+  await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: WAIT });
+  check(true, `New Expedition starts play (${since()})`);
+  const icons = await page.evaluate(() => [...document.querySelectorAll('img')].filter((i) => i.complete && i.naturalWidth > 0).length);
+  // Generated icons are data: PNGs (the shell must let them through): decode one for real.
+  const heart = await page.evaluate(async () => {
+    const el = [...document.querySelectorAll('[style]')].find((e) => e.style.getPropertyValue('--heart-1'));
+    const url = el?.style.getPropertyValue('--heart-1').match(/url\("(.*)"\)/)?.[1];
+    if (!url) return 0;
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img.naturalWidth;
   });
-  check(slabs.applied > 0, `slabs streamed into the world while descending (${JSON.stringify(slabs)})`);
-  const saved = await H(() => window.__DD__.hybrid.save());
+  check(heart > 0, `HUD heart icon (data: PNG) decodes (${heart} px)`);
+  const saved = await page.evaluate(() => window.__DD__.save());
   const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('deepdown.save')).length);
   check(saved && stored > 0, `save written to localStorage on the app origin (${stored} keys)`);
   await page.reload();
-  await atReady();
-  const back = await H(() => ({ node: window.__DD__.hybrid.node(), st: window.__DD__.hybrid.state().run }));
-  check(back.node.node === 0 && ['explore', 'camp'].includes(back.node.phase) && back.st.node === 0, `after a reload the save keeps the Root Cellar (phase ${back.node.phase}, ${since()})`);
+  await atMenu();
+  check(await page.getByRole('button', { name: /Continue/i }).count() > 0, `after a reload the menu offers Continue (${since()})`);
 
   // The bundled privacy statement and licences open offline from the app origin.
   const doc = await ctx.newPage();
@@ -136,14 +110,13 @@ try {
   const shown = await page.waitForSelector('.dd-crash', { timeout: 30_000 }).then(() => true, () => false);
   const panelText = shown ? await page.locator('.dd-crash').innerText() : '';
   check(shown && /DEEP DOWN hit a problem\. Your last autosave is safe\./.test(panelText) && /Restart/.test(panelText) && /Copy details/.test(panelText), `crash panel shows after a GPU failure (${since()})`);
-  const backKey = await page.evaluate(() => window.deepDownBack?.());
-  check(backKey === false, 'Back on the crash panel exits (deepDownBack returns false)');
+  const back = await page.evaluate(() => window.deepDownBack?.());
+  check(back === false, 'Back on the crash panel exits (deepDownBack returns false)');
   if (shown) {
     await page.locator('.dd-crash-restart').tap();
-    await atReady();
+    await atMenu();
     expectErrors = false;
-    const again = await H(() => window.__DD__.hybrid.node());
-    check(again.node === 0, `Restart reloads into the game from the autosave (phase ${again.phase}, ${since()})`);
+    check(await page.getByRole('button', { name: /Continue/i }).count() > 0, `Restart reloads to the menu with Continue (${since()})`);
   }
 } catch (e) {
   check(false, `${e instanceof Error ? e.message.split('\n')[0] : e} (after ${since()}, load average ${load()})`);

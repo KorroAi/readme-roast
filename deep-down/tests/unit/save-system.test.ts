@@ -3,7 +3,6 @@ import { SAVE } from '../../src/config/balance';
 import {
   LocalStorageStore,
   MemoryStore,
-  MIGRATIONS,
   SAVE_KEYS,
   SaveSystem,
   StoreError,
@@ -14,16 +13,16 @@ import {
 } from '../../src/save/SaveSystem';
 import { DEFAULT_SETTINGS, type SaveData } from '../../src/save/types';
 
+const SPAWN = { x: 30.5, y: 101, z: 40.5, yaw: 1.2 };
+
 function sample(savedAt: number, tweak: (d: SaveData) => void = () => {}): SaveData {
-  const d = createNewSave(0xdeedd0, savedAt);
+  const d = createNewSave(SPAWN, 0xdeedd0, savedAt);
   d.playTime = savedAt / 1000;
-  d.run.gold = [1.5, 12];
-  d.run.pick = 7;
-  d.run.lines = [12, 3];
-  d.run.gear = ['1.tools'];
-  d.meta.gems = 42;
-  d.meta.record = 87;
-  d.meta.sealsOpened = [1];
+  d.backpack[0] = { item: 'stone', count: 12 };
+  d.storage = { copperOre: 8 };
+  d.journal = ['ancientTablet'];
+  d.discoveries = ['hollow'];
+  d.worldEdits = [100, 0, 2048, 0];
   tweak(d);
   return d;
 }
@@ -117,7 +116,7 @@ describe('SaveSystem', () => {
         const json = JSON.parse(raw).json.slice(0, -10);
         return JSON.stringify({ checksum: checksum(json), json });
       }],
-      ['valid checksum over the wrong shape', () => envelopeOf({ ...sample(2), run: 'lots' })],
+      ['valid checksum over the wrong shape', () => envelopeOf({ ...sample(2), backpack: 'lots' })],
       ['empty string', () => ''],
       ['not an object', () => '42'],
     ];
@@ -207,15 +206,15 @@ describe('SaveSystem', () => {
     const saves = new SaveSystem(store);
     saves.save(sample(1000));
     const bad = sample(2000);
-    bad.run.digDepth = Number.NaN;
+    bad.player.x = Number.NaN;
     expect(saves.save(bad)).toEqual({ ok: false, error: 'invalid' });
-    expect(saves.save({ ...sample(3000), version: SAVE.version + 1 } as unknown as SaveData)).toEqual({ ok: false, error: 'invalid' });
+    expect(saves.save({ ...sample(3000), version: SAVE.version + 1 })).toEqual({ ok: false, error: 'invalid' });
     expect(store.getItem(SAVE_KEYS.slotB)).toBeNull();
     expect(new SaveSystem(store).load().data?.savedAt).toBe(1000);
   });
 
   it('reports a quota error and keeps the previous save', () => {
-    const big = sample(2000, (d) => (d.meta.firstTime = Array.from({ length: 4000 }, (_, i) => `seen:${i}`)));
+    const big = sample(2000, (d) => (d.worldEdits = Array.from({ length: 4000 }, (_, i) => (i % 2 ? 0 : i))));
     const small = sample(1000);
     const quota = envelopeOf(small).length * 2 + 200;
     const store = new MemoryStore(quota);
@@ -228,14 +227,14 @@ describe('SaveSystem', () => {
   it('clear() deletes the save but keeps settings', () => {
     const store = new MemoryStore();
     const saves = new SaveSystem(store);
-    saves.saveSettings({ ...DEFAULT_SETTINGS, leftHanded: true });
+    saves.saveSettings({ ...DEFAULT_SETTINGS, invertY: true });
     saves.save(sample(1));
     saves.save(sample(2));
     saves.clear();
     expect(saves.hasSave()).toBe(false);
     expect(saves.timestamp()).toBeNull();
     expect(saves.load()).toEqual({ data: null, recovered: false });
-    expect(saves.loadSettings().leftHanded).toBe(true);
+    expect(saves.loadSettings().invertY).toBe(true);
     expect([...store.data.keys()]).toEqual([SAVE_KEYS.settings]);
     expect(saves.save(sample(3)).ok).toBe(true);
     expect(store.getItem(SAVE_KEYS.active)).toBe('a');
@@ -272,53 +271,60 @@ describe('SaveSystem', () => {
     expect(() => bare.clear()).not.toThrow();
   });
 
-  describe('versions: v3, the legacy saves of the old game, newer builds', () => {
-    /** A save of the third-person game (v1 or v2): a different game, never loaded (SPEC §12.3). */
-    function legacy(version: number, savedAt: number): Record<string, unknown> {
-      return { version, genVersion: 3, savedAt, worldSeed: 1, playTime: 10, player: { x: 1, y: 2, z: 3, yaw: 0, health: 100, lanternFuel: 300 }, backpack: [], storage: {} };
+  describe('versions and migrations', () => {
+    /** A pre-release v1 shape: no removedProps/stats, lantern fuel stored as a fraction. */
+    function legacyV1(): Record<string, unknown> {
+      const d: Partial<SaveData> = sample(1000);
+      delete d.removedProps;
+      delete d.stats;
+      return { ...d, version: 1, player: { ...d.player!, lanternFuel: 0.5 } };
     }
 
-    for (const v of [1, 2]) {
-      it(`a v${v} save is reported as legacy, not loaded, and no error`, () => {
-        const store = new MemoryStore();
-        store.setItem(SAVE_KEYS.slotA, envelopeOf(legacy(v, 500)));
-        store.setItem(SAVE_KEYS.active, 'a');
-        const res = new SaveSystem(store).load();
-        expect(res).toEqual({ data: null, recovered: false, legacy: true });
-        expect(new SaveSystem(store).hasSave()).toBe(false);
-      });
-    }
+    const migrations = {
+      1: (old: Record<string, unknown>) => ({
+        ...old,
+        removedProps: [],
+        stats: { blocksMined: 0, deaths: 0, itemsBanked: 0 },
+        player: { ...(old.player as object), lanternFuel: ((old.player as { lanternFuel: number }).lanternFuel ?? 1) * 300 },
+      }),
+    };
 
-    it('the notice is pending once, and the first v4 saves overwrite both legacy slots (S2)', () => {
+    it('migrates an older save up to the current version', () => {
       const store = new MemoryStore();
-      store.setItem(SAVE_KEYS.slotA, envelopeOf(legacy(2, 500)));
-      store.setItem(SAVE_KEYS.slotB, envelopeOf(legacy(1, 400)));
+      store.setItem(SAVE_KEYS.slotA, envelopeOf(legacyV1()));
       store.setItem(SAVE_KEYS.active, 'a');
-      store.setItem(SAVE_KEYS.settings, JSON.stringify({ ...DEFAULT_SETTINGS, masterVolume: 0.3, invertY: true }));
-      const saves = new SaveSystem(store);
-      expect(saves.legacyNoticePending()).toBe(true);
-      saves.markLegacyNoticeShown();
-      expect(saves.legacyNoticePending()).toBe(false);
-      // Settings survive the switch (minus the old camera fields).
-      expect(saves.loadSettings().masterVolume).toBe(0.3);
-      expect('invertY' in saves.loadSettings()).toBe(false);
-      expect(saves.save(sample(1000)).ok).toBe(true);
-      expect(saves.save(sample(2000)).ok).toBe(true);
-      for (const key of [SAVE_KEYS.slotA, SAVE_KEYS.slotB]) expect(JSON.parse(JSON.parse(store.getItem(key)!).json).version).toBe(4);
-      const res = new SaveSystem(store).load();
-      expect(res).toMatchObject({ recovered: false, data: { savedAt: 2000 } });
-      expect(res.legacy).toBeUndefined();
+      const res = new SaveSystem(store, { version: 2, migrations }).load();
+      expect(res.recovered).toBe(false);
+      expect(res.data?.version).toBe(2);
+      expect(res.data?.player.lanternFuel).toBe(150);
+      expect(res.data?.removedProps).toEqual([]);
+      expect(validateSaveData(res.data)).toBe(true);
     });
 
-    it('a legacy slot beside a v4 slot: the v4 save loads (no recovery flag)', () => {
+    it('chains several migration steps', () => {
       const store = new MemoryStore();
-      new SaveSystem(store).save(sample(1000)); // a
-      store.setItem(SAVE_KEYS.slotB, envelopeOf(legacy(2, 3000)));
-      store.setItem(SAVE_KEYS.active, 'b');
-      const res = new SaveSystem(store).load();
-      expect(res.data?.savedAt).toBe(1000);
-      expect(res.recovered).toBe(false);
-      expect(res.legacy).toBe(true);
+      store.setItem(SAVE_KEYS.slotA, envelopeOf(legacyV1()));
+      store.setItem(SAVE_KEYS.active, 'a');
+      const chain = { ...migrations, 2: (old: Record<string, unknown>) => ({ ...old, playTime: 42 }) };
+      const res = new SaveSystem(store, { version: 3, migrations: chain }).load();
+      expect(res.data).toMatchObject({ version: 3, playTime: 42 });
+    });
+
+    it('the unmigrated legacy shape is rejected by validation', () => {
+      expect(validateSaveData(legacyV1())).toBe(false);
+    });
+
+    it('a missing or throwing migration step makes that slot unloadable', () => {
+      const store = new MemoryStore();
+      store.setItem(SAVE_KEYS.slotA, envelopeOf(legacyV1()));
+      store.setItem(SAVE_KEYS.active, 'a');
+      expect(new SaveSystem(store, { version: 2, migrations: {} }).load()).toEqual({ data: null, recovered: false, error: 'corrupt' });
+      const throwing = {
+        1: () => {
+          throw new Error('bad migration');
+        },
+      };
+      expect(new SaveSystem(store, { version: 2, migrations: throwing }).load().data).toBeNull();
     });
 
     it('a save from a newer build is reported, and the older slot is used if possible', () => {
@@ -330,12 +336,10 @@ describe('SaveSystem', () => {
       expect(new SaveSystem(store).load()).toMatchObject({ recovered: true, data: { savedAt: 1000 } });
     });
 
-    it('the current version is 4 (the node crawl), and a v3 save migrates through MIGRATIONS[3]', () => {
-      expect(SAVE.version).toBe(4);
-      expect(typeof MIGRATIONS[3]).toBe('function');
+    it('the current version loads with the default migration table', () => {
       const store = new MemoryStore();
       new SaveSystem(store).save(sample(1));
-      expect(new SaveSystem(store).load().data?.version).toBe(4);
+      expect(new SaveSystem(store).load().data?.version).toBe(SAVE.version);
     });
   });
 });
@@ -412,30 +416,45 @@ describe('LocalStorageStore', () => {
 });
 
 describe('validateSaveData / createNewSave', () => {
-  it('a new save is a fresh game at the surface and is valid', () => {
-    const d = createNewSave(123, 77);
+  it('a new save has fresh-game defaults and is valid', () => {
+    const d = createNewSave(SPAWN, 123, 77);
     expect(validateSaveData(d)).toBe(true);
-    expect(d).toMatchObject({ version: 4, savedAt: 77, seed: 123, playTime: 0, runIndex: 0 });
-    expect(d.run).toMatchObject({ digDepth: 0, node: 0, phase: 'dig', pick: 1, lines: [], gear: [], gold: [0, 0] });
-    expect(d.run.rows.length).toBeGreaterThanOrEqual(4);
-    expect(d.run.rows[0].kinds).toHaveLength(7);
-    expect(d.meta).toMatchObject({ gems: 0, record: 0, sealsOpened: [], tutorial: { step: 0, done: false } });
+    expect(d).toMatchObject({
+      version: SAVE.version,
+      savedAt: 77,
+      worldSeed: 123,
+      playTime: 0,
+      player: { x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, health: 100, lanternFuel: 300 },
+      storage: {},
+      equipment: { pickaxe: 1, lantern: 1, pack: 1 },
+      objectives: { completed: [], current: 'mineStone', stats: {} },
+      worldEdits: [],
+      stats: { blocksMined: 0, deaths: 0, itemsBanked: 0 },
+    });
+    expect(d.backpack).toEqual([null, null, null, null, null, null]);
   });
 
   const mutations: Array<[string, (d: Record<string, unknown> & SaveData) => void]> = [
-    ['version 2', (d) => ((d as { version: number }).version = 2)],
-    ['fractional version', (d) => ((d as { version: number }).version = 3.5)],
-    ['missing run', (d) => delete (d as Partial<SaveData>).run],
-    ['missing meta', (d) => delete (d as Partial<SaveData>).meta],
-    ['NaN depth', (d) => (d.run.digDepth = Number.NaN)],
-    ['negative depth', (d) => (d.run.digDepth = -3)],
-    ['pick 0', (d) => (d.run.pick = 0)],
-    ['gold not a pair', (d) => ((d.run as unknown as Record<string, unknown>).gold = 12)],
-    ['lines not an array', (d) => ((d.run as unknown as Record<string, unknown>).lines = { 0: 1 })],
-    ['rows not an array', (d) => ((d.run as unknown as Record<string, unknown>).rows = 'x')],
-    ['gems a string', (d) => ((d.meta as unknown as Record<string, unknown>).gems = '5')],
+    ['version 0', (d) => (d.version = 0)],
+    ['fractional version', (d) => (d.version = 1.5)],
+    ['missing player', (d) => delete (d as Partial<SaveData>).player],
+    ['NaN coordinate', (d) => (d.player.y = Number.NaN)],
+    ['string health', (d) => ((d.player as unknown as Record<string, unknown>).health = '100')],
     ['negative play time', (d) => (d.playTime = -1)],
-    ['seed missing', (d) => delete (d as Partial<SaveData>).seed],
+    ['unknown backpack item', (d) => (d.backpack[0] = { item: 'gold' as never, count: 1 })],
+    ['key item in backpack', (d) => (d.backpack[0] = { item: 'ancientTablet', count: 1 })],
+    ['zero count stack', (d) => (d.backpack[0] = { item: 'stone', count: 0 })],
+    ['huge backpack', (d) => (d.backpack = new Array(500).fill(null))],
+    ['storage unknown item', (d) => (d.storage = { gold: 1 } as never)],
+    ['storage negative', (d) => (d.storage = { stone: -1 })],
+    ['equipment tier 0', (d) => (d.equipment.pack = 0)],
+    ['journal not strings', (d) => (d.journal = [1] as never)],
+    ['objectives current number', (d) => (d.objectives.current = 3 as never)],
+    ['objectives stats NaN', (d) => (d.objectives.stats = { a: Number.NaN })],
+    ['odd world edits', (d) => (d.worldEdits = [1, 2, 3])],
+    ['fractional world edit', (d) => (d.worldEdits = [1.5, 2])],
+    ['removedProps missing', (d) => delete (d as Partial<SaveData>).removedProps],
+    ['stats fractional', (d) => (d.stats.deaths = 0.5)],
   ];
 
   for (const [name, mutate] of mutations) {

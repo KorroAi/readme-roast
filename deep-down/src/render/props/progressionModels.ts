@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { Rng } from '../../core/rng';
-import { runePixels } from './runes';
+import { runePixels } from '../../config/runes';
 import type { ModelBuilder, PropModelOptions } from './models';
 import { ASH, BRICK, CLOTH, COPPER, CYAN, FIRE, IRON, LEATHER, SLATE, WOOD } from './palette';
 import { beam, shade, vary } from './shapes';
@@ -269,7 +269,7 @@ export function relicShelf(m: ModelBuilder, rng: Rng, o: PropModelOptions): void
 
 /**
  * A rune stone: a weathered standing stone set in the floor, one glyph inked on its face. The
- * variant is the glyph (props/runes).
+ * variant is the glyph (config/runes).
  */
 export function runeStone(m: ModelBuilder, rng: Rng, o: PropModelOptions): void {
   const b = m.body;

@@ -13,27 +13,12 @@ describe('sanitizeSettings', () => {
   });
 
   it('merges partial settings over the defaults', () => {
-    expect(sanitizeSettings({ quality: 'high', motion: 'reduced' })).toEqual({ ...DEFAULT_SETTINGS, quality: 'high', motion: 'reduced' });
-  });
-
-  it('drops the third-person fields and keeps the rest of a v2 settings object (S2)', () => {
-    const v2 = { quality: 'battery', lookSensitivity: 1.6, invertY: true, cameraFollow: false, masterVolume: 0.4, vibration: false, leftHanded: true };
-    const s = sanitizeSettings(v2);
-    for (const k of ['lookSensitivity', 'invertY', 'cameraFollow']) expect(k in s).toBe(false);
-    expect(s).toMatchObject({ quality: 'battery', masterVolume: 0.4, vibration: false, hapticStrength: 'off', leftHanded: true });
-  });
-
-  it('sanitizes the new fields (motion, flashes, notation, haptic strength, break reminder, auto facets)', () => {
-    expect(sanitizeSettings({ motion: 'off', flashes: 'soft', notation: 'scientific', hapticStrength: 'strong', breakReminder: false, autoFacets: true })).toMatchObject({
-      motion: 'off', flashes: 'soft', notation: 'scientific', hapticStrength: 'strong', breakReminder: false, autoFacets: true,
-    });
-    expect(sanitizeSettings({ motion: 'wild', flashes: 1, notation: 'roman', hapticStrength: 'max' })).toMatchObject({
-      motion: 'full', flashes: 'on', notation: 'letters', hapticStrength: 'normal',
-    });
+    expect(sanitizeSettings({ quality: 'high', invertY: true })).toEqual({ ...DEFAULT_SETTINGS, quality: 'high', invertY: true });
   });
 
   it('clamps numeric ranges', () => {
     const s = sanitizeSettings({
+      lookSensitivity: 9,
       masterVolume: -1,
       musicVolume: 2,
       sfxVolume: 0.3,
@@ -41,12 +26,14 @@ describe('sanitizeSettings', () => {
       cameraShake: -0.5,
       renderScale: 0.1,
     });
+    expect(s.lookSensitivity).toBe(SETTINGS_LIMITS.lookSensitivity[1]);
     expect(s.masterVolume).toBe(0);
     expect(s.musicVolume).toBe(1);
     expect(s.sfxVolume).toBe(0.3);
     expect(s.ambienceVolume).toBe(1);
     expect(s.cameraShake).toBe(0);
     expect(s.renderScale).toBe(SETTINGS_LIMITS.renderScale[0]);
+    expect(sanitizeSettings({ lookSensitivity: 0 }).lookSensitivity).toBe(SETTINGS_LIMITS.lookSensitivity[0]);
     expect(sanitizeSettings({ brightness: 3 }).brightness).toBe(SETTINGS_LIMITS.brightness[1]);
     expect(sanitizeSettings({ brightness: 'dark' }).brightness).toBe(1);
   });
@@ -56,7 +43,7 @@ describe('sanitizeSettings', () => {
       quality: 'ultra',
       bloom: 'yes',
       showFps: 1,
-      cameraShake: Number.NaN,
+      lookSensitivity: Number.NaN,
       masterVolume: '0.5',
       textSize: 'huge',
       highContrast: null,
@@ -85,7 +72,7 @@ describe('SaveSystem settings', () => {
 
   it('round-trips settings', () => {
     const store = new MemoryStore();
-    const custom: Settings = { ...DEFAULT_SETTINGS, quality: 'high', bloom: false, notation: 'engineering', textSize: 'large' };
+    const custom: Settings = { ...DEFAULT_SETTINGS, quality: 'high', bloom: false, lookSensitivity: 1.6, textSize: 'large' };
     expect(new SaveSystem(store).saveSettings(custom)).toEqual({ ok: true });
     expect(new SaveSystem(store).loadSettings()).toEqual(custom);
   });

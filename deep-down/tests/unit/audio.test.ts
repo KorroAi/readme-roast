@@ -1,75 +1,76 @@
 import { describe, expect, it } from 'vitest';
-import type { SoundKind } from '../../src/config/blocks';
-import { Big } from '../../src/core/big';
-import { EventBus } from '../../src/core/events';
-import type { IdleEvents } from '../../src/idle/bus';
-import { CELL } from '../../src/idle/model/state';
+import { B, BLOCKS, type SoundKind } from '../../src/config/blocks';
+import { ITEM_IDS, ITEMS } from '../../src/config/items';
+import { EventBus, type GameEvents } from '../../src/core/events';
 import { Rng } from '../../src/core/rng';
 import { activeDuration, peakOf, rmsOf, spectralCentroid } from '../../src/audio/analysis';
 import { AudioSystem, renderSfxOffline, type AudioWorldState } from '../../src/audio/AudioSystem';
 import { brownNoise, crackleTexture, crumbleTexture, impulseResponse, pinkNoise } from '../../src/audio/buffers';
-import { AUDIBLE_EVENTS, CEREMONY_TIMED, PENTATONIC, SoundCues, materialOf, semis } from '../../src/audio/eventMap';
+import { AUDIBLE_EVENTS, sfxForEvent, stepKindOf } from '../../src/audio/eventMap';
 import { MusicScheduler, type MusicNote } from '../../src/audio/MusicScheduler';
 import { SFX, SFX_NAMES, isSfxName } from '../../src/audio/sfx';
 import { MODES, MOODS, degreeToMidi, inMode, midiToHz, moodFor, volumeToGain, type MoodName } from '../../src/audio/theory';
 import { RateGate, VoiceLimiter } from '../../src/audio/voices';
 
-const G = (n: number) => Big.from(n);
-
-/** One payload per event the audio listens to, plus a few it must ignore. */
-const SAMPLES: Partial<{ [K in keyof IdleEvents]: IdleEvents[K] }> = {
-  'tap:hit': { col: 3, depth: 4, kind: CELL.ROCK, source: 'tap', dmg: G(5), crit: false, combo: 12, comboMult: 1.1, cells: 0, chain: 1, surge: false },
-  'cell:break': { col: 3, depth: 4, kind: CELL.ORE, source: 'tap', gold: G(9), gems: 0, chainIndex: 0, belowRecord: true, crit: false },
-  'row:clear': { depth: 5, rows: 1, source: 'tap' },
-  'row:crumble': { depth: 5, cols: [0, 6] },
-  'buy:done': { id: 'pick', mode: 'x1', levels: 1, from: 1, to: 2, cost: G(30) },
-  'buy:fail': { id: 'pick', reason: 'gold' },
-  'crew:star': { line: 0, level: 10, stars: 1 },
-  'crew:crown': { line: 0, level: 50, crowns: 1 },
-  'pick:tier': { tier: 1, from: 0, tiers: 1, level: 25 },
-  'combo:tier': { tier: 25, combo: 25 },
-  'combo:lost': { combo: 14 },
-  'chest:exposed': { id: 'chest:1', col: 3, depth: 20, floor: 'wood' },
-  'chest:open': { id: 'chest:1', floor: 'wood', tier: 'copper', steps: 1, gold: G(400), gems: 1, source: 'tap' },
-  'seal:start': { biome: 0, depth: 120, hp: G(5000), time: 30 },
-  'seal:hit': { biome: 0, left: 0.6, dmg: G(50), weak: false },
-  'seal:break': { biome: 0, depth: 120, time: 21 },
-  'biome:reveal': { biome: 1 },
-  'skill:dynamite': { from: 40, rows: 6, gold: G(900) },
-  'offline:collect': { gold: G(12000), chests: 2 },
-  'surge:start': { duration: 8, scripted: false },
-  'surge:end': {},
-  'skill:earthquake': { dmg: G(5000), rows: 3 },
-  'skill:cataclysm': { duration: 20 },
-  'event:start': { id: '1', type: 'glimmerfall', widget: 'catch', life: 8, first: true, depth: 60 },
-  'record:new': { id: 'deepest', value: 120, old: 100 },
-  'seal:fail': { biome: 0, left: 0.4, kept: 0.5, pct: 40 },
-  'facet:offer': { cards: [], rerollFree: true, rerollGems: 0 },
-  // The node crawl (hybrid SPEC §9.2).
-  'drift:slice': { node: 0, slice: 2, K: 5, depth: 2 },
-  'node:breach': { node: 1, by: 'player', promise: 'treasure', depth: 5 },
-  'node:firstLight': { node: 1, first: true, biome: 0 },
-  'lamp:relight': { node: 1, id: 'l0', lit: 1, of: 2 },
-  'chamber:charted': { node: 1, first: true, gems: 1 },
-  'tappable:hit': { node: 1, id: 'v0', kind: 'vein', left: 0.5, stage: 1, dmg: G(50), crit: false },
-  'chamber:harvest': { node: 1, id: 'v0', kind: 'vein', gold: G(90), gems: 0, crit: false },
-  'skin:strike': { node: 1, id: 'skin:1,2,3', broke: true, left: 0, gold: G(3) },
-  'skin:pocket': { node: 1, id: 'skin:1,2,3', kind: 'nugget', gold: G(12), gems: 0, find: '' },
-  'secret:found': { node: 1, id: 'x0', cache: 'x0:cache', reveals: 'gems:3' },
-  'rock:tunk': { node: 1, hint: 'v1' },
-  'lantern:raise': { node: 1, x: 3, y: 2, z: -8 },
-  'focus:open': { node: 1, id: 'f0', kind: 'chest' },
-  'relic:grade': { node: 4, id: 'f0', relic: 'compass', grade: 'fine', u: 0.85, gems: 5, better: true },
-  'ride:start': { node: 2, to: 3, kind: 'cart', targets: ['ride:2:0'], seconds: 7 },
-  'ride:glint': { node: 2, id: 'ride:2:0', kind: 'ore', gold: G(30), gems: 0 },
-  'seal:weak': { biome: 0, lit: true },
-  // Silent: gains are the coin flights' business (the ledger ticks them), goals are the bar's.
-  'gold:gain': { amount: G(9), source: 'cell', col: 3, depth: 4 },
-  'goal:change': { id: 'pick5' },
-  'ui:reveal': { id: 'gold' },
+const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
+  'block:hit': { x: 1, y: 2, z: 3, block: B.SLATE, progress: 0.4 },
+  'block:broken': { x: 1, y: 2, z: 3, block: B.COPPER_ORE },
+  'block:tooHard': { x: 1, y: 2, z: 3, block: B.ANCIENT_BRICK, requiredTier: 99 },
+  'prop:hit': { propId: 'crystalCluster_3', progress: 0.5, x: 0, y: 0, z: 0 },
+  'prop:broken': { propId: 'crystalCluster_3', x: 0, y: 0, z: 0 },
+  'tool:swing': { tier: 1 },
+  'item:picked': { item: 'glimmerShard', count: 2 },
+  'item:rejected': { item: 'stone' },
+  'inventory:changed': {},
+  'items:banked': { total: 9, items: { stone: 6, copperOre: 3 } },
+  'craft:done': { recipe: 'copperPickaxe' },
+  'craft:failed': { recipe: 'copperLantern', reason: 'missing' },
+  discovery: { id: 'hollow' },
+  'objective:changed': { id: 'mineCopper' },
+  'player:footstep': { block: B.SOIL, speed: 4.6 },
+  'player:jump': {},
+  'player:land': { fallSpeed: 14, block: B.SLATE },
+  'player:damaged': { amount: 12, cause: 'fall' },
+  'player:died': { lost: { stone: 3 } },
+  'player:respawned': {},
+  'camp:entered': {},
+  'camp:left': {},
+  'lantern:low': {},
+  'lantern:empty': {},
+  'lantern:refueled': {},
+  'game:saved': { reason: 'camp' },
+  'game:saveFailed': { reason: 'quota' },
+  toast: { text: 'hello' },
+  'expedition:started': { n: 1 },
+  'expedition:ended': {
+    report: {
+      n: 1, outcome: 'returned', duration: 200, deepest: 60, newBest: true, previousBest: 0, mined: 30, found: { stone: 20 }, banked: { stone: 20 },
+      bankedTotal: 20, cached: null, cacheDepth: null, lostCount: 0, damage: 0, fuelLeft: 100, discoveries: [], runes: [], records: ['deepest'], show: true,
+    },
+  },
+  'cache:created': { x: 1, y: 2, z: 3, count: 12, replaced: 0 },
+  'cache:recovered': { count: 12, left: 0 },
+  'lantern:turnBack': { seconds: 40 },
+  'player:cold': { damage: 10 },
+  'record:depth': { depth: 60 },
+  'world:ride': { id: 'hoist', kind: 'hoist', dir: 'up', phase: 'start' },
+  'world:runeWake': { id: 'reliquary', progress: 0.5 },
+  'world:runeOpen': { id: 'reliquary', cells: 9 },
+  'world:hoistReleased': {},
+  'world:note': { id: 'office', first: true },
+  'world:monolith': { first: true },
+  'world:regrow': { epoch: 2, cells: 40, regrown: 6 },
+  'world:bloom': { epoch: 2, site: 'adit', area: 'adit', x: 1, y: 2, z: 3 },
+  'moths:startled': { x: 1, y: 2, z: 3, count: 4 },
+  'station:built': { id: 'forge', x: 42, y: 101, z: 33 },
+  'relic:found': { id: 'runeEye', count: 2, total: 8 },
+  'finale:reached': {},
 };
 
-const WORLD_STATE: AudioWorldState = { depth: 90, openness: 0.7, nearCrystal: 0.5, nearFire: 0, inMenu: false };
+const WORLD_STATE: AudioWorldState = {
+  depth: 90, atCamp: false, openness: 0.7, lanternFuel: 0.1, lanternLit: true,
+  nearCrystal: 0.5, nearFire: 0, playerSpeed: 3, inMenu: false,
+};
 
 describe('music theory', () => {
   it('converts MIDI notes to equal-tempered frequencies', () => {
@@ -86,10 +87,7 @@ describe('music theory', () => {
     expect(degreeToMidi(57, 'phrygian', 1)).toBe(58);
     expect(inMode(66, 62, 'ionian')).toBe(true); // F# in D major
     expect(inMode(65, 62, 'ionian')).toBe(false); // F natural
-    // The diatonic modes have 7 steps; the biome moods add a pentatonic (5) and a whole-tone scale (6).
-    for (const [name, steps] of Object.entries(MODES)) expect(steps.length, name).toBe(name === 'pentatonic' ? 5 : name === 'wholeTone' ? 6 : 7);
-    expect(degreeToMidi(60, 'pentatonic', 5)).toBe(72);
-    expect(degreeToMidi(60, 'wholeTone', 6)).toBe(72);
+    for (const steps of Object.values(MODES)) expect(steps).toHaveLength(7);
   });
 
   it('uses a perceptual, clamped volume curve', () => {
@@ -231,69 +229,53 @@ describe('MusicScheduler', () => {
 });
 
 describe('event to sound mapping', () => {
-  const ask = <K extends keyof IdleEvents>(cues: SoundCues, type: K, p: IdleEvents[K], now = 0) => cues.request(type, p, now, []);
-
-  it('maps every audible event to a registered sound, and stays quiet for the rest', () => {
+  it('maps every audible event to a registered sound', () => {
     for (const type of AUDIBLE_EVENTS) {
-      // A ceremony's own beats play these; the event only ducks the music.
-      if (CEREMONY_TIMED.includes(type)) {
-        expect(ask(new SoundCues(), type, SAMPLES[type] as never), type).toEqual([]);
-        continue;
-      }
-      const p = SAMPLES[type];
-      expect(p, `sample for ${type}`).toBeDefined();
-      const reqs = ask(new SoundCues(), type, p as never);
-      expect(reqs.length, type).toBeGreaterThan(0);
-      for (const r of reqs) expect(isSfxName(r.name), `${type} -> ${r.name}`).toBe(true);
+      const req = sfxForEvent(type, SAMPLE_PAYLOADS[type] as never);
+      expect(req, type).not.toBeNull();
+      expect(isSfxName(req!.name), `${type} -> ${req!.name}`).toBe(true);
     }
-    for (const type of ['gold:gain', 'goal:change', 'ui:reveal'] as const) expect(ask(new SoundCues(), type, SAMPLES[type] as never), type).toEqual([]);
-    // The leftover crumble's own breaks are covered by the crumble rumble, not a pluck each.
-    expect(ask(new SoundCues(), 'cell:break', { ...SAMPLES['cell:break']!, source: 'crumble' })).toEqual([]);
+    expect(sfxForEvent('toast', SAMPLE_PAYLOADS.toast)).toBeNull();
+    expect(sfxForEvent('inventory:changed', {})).toBeNull();
   });
 
-  it('chooses tap and break sounds from the cell and the biome', () => {
-    const kinds = new Set<SoundKind>(['stone', 'metal', 'crystal', 'wood', 'soil', 'ancient']);
+  it('chooses hit and break sounds from the block material', () => {
+    const kinds = new Set<SoundKind>(BLOCKS.filter(Boolean).map((b) => b.sound));
     for (const k of kinds) {
-      expect(isSfxName(`tap.${k}`), k).toBe(true);
-      expect(isSfxName(`break.${k}`), k).toBe(true);
+      expect(isSfxName(`hit.${k}`)).toBe(true);
+      expect(isSfxName(`break.${k}`)).toBe(true);
     }
-    expect(materialOf(CELL.ORE, 10)).toBe('metal');
-    expect(materialOf(CELL.GEM, 10)).toBe('crystal');
-    expect(materialOf(CELL.CHEST, 10)).toBe('wood');
-    expect(materialOf(CELL.GATE, 10)).toBe('ancient');
-    // Host rock sounds like its biome: soil near the surface, stone below.
-    expect(materialOf(CELL.ROCK, 2)).toBe('soil');
-    expect(materialOf(CELL.ROCK, 200)).not.toBe('soil');
-    const r = ask(new SoundCues(), 'tap:hit', { ...SAMPLES['tap:hit']!, crit: true });
-    expect(r.map((x) => x.name)).toEqual(['tap.soil', 'crit']);
+    const hit = (block: number) => sfxForEvent('block:hit', { x: 0, y: 0, z: 0, block, progress: 0 })!.name;
+    expect(hit(B.SLATE)).toBe('hit.stone');
+    expect(hit(B.COPPER_ORE)).toBe('hit.metal');
+    expect(hit(B.IRON_ORE)).toBe('hit.metal');
+    expect(hit(B.CRYSTAL)).toBe('hit.crystal');
+    expect(hit(B.SOIL)).toBe('hit.soil');
+    expect(hit(B.ANCIENT_BRICK)).toBe('hit.ancient');
+    expect(hit(B.PLANK)).toBe('hit.wood');
+    expect(sfxForEvent('block:hit', SAMPLE_PAYLOADS['block:hit'])!.params.progress).toBe(0.4);
+    expect(sfxForEvent('block:broken', { x: 0, y: 0, z: 0, block: B.CRYSTAL })!.name).toBe('break.crystal');
+    expect(sfxForEvent('prop:broken', SAMPLE_PAYLOADS['prop:broken'])!.name).toBe('break.crystal');
   });
 
-  it('raises the tap a semitone per 5 combo, capped at an octave', () => {
-    const pitch = (combo: number) => ask(new SoundCues(), 'tap:hit', { ...SAMPLES['tap:hit']!, combo })[0].params.pitch!;
-    expect(pitch(0)).toBeCloseTo(1, 6);
-    expect(pitch(10)).toBeCloseTo(semis(2), 6);
-    expect(pitch(500)).toBeCloseTo(semis(12), 6);
+  it('brightens pickups with rarity', () => {
+    for (const id of ITEM_IDS) {
+      expect(sfxForEvent('item:picked', { item: id, count: 1 })!.name).toBe(`pickup.${ITEMS[id].rarity}`);
+    }
+    expect(SFX['pickup.relic'].length).toBeGreaterThan(SFX['pickup.common'].length);
+    expect(SFX['pickup.relic'].wet).toBeGreaterThan(SFX['pickup.common'].wet);
   });
 
-  it('climbs the break pentatonic in a spree and resets after a second of quiet', () => {
-    const cues = new SoundCues();
-    const brk = { ...SAMPLES['cell:break']!, kind: CELL.ROCK };
-    const pitches = [0, 0.2, 0.4, 0.6].map((t) => ask(cues, 'cell:break', brk, t)[0].params.pitch!);
-    for (let i = 1; i < pitches.length; i++) expect(pitches[i]).toBeGreaterThan(pitches[i - 1]);
-    expect(pitches[1] / pitches[0]).toBeCloseTo(semis(PENTATONIC[1]), 6);
-    expect(ask(cues, 'cell:break', brk, 2)[0].params.pitch).toBeCloseTo(pitches[0], 6);
-    // Ore adds its chime on top of the break.
-    expect(ask(cues, 'cell:break', SAMPLES['cell:break']!, 2.1).map((x) => x.name)).toEqual(['break.metal', 'ore.chime']);
-  });
-
-  it('climbs the purchase arpeggio, jumps an octave on the 10th buy, and resets after 1.5 s', () => {
-    const cues = new SoundCues();
-    const buy = SAMPLES['buy:done']!;
-    const p: number[] = [];
-    for (let i = 0; i < 10; i++) p.push(ask(cues, 'buy:done', buy, i * 0.3)[0].params.pitch!);
-    expect(p[1]).toBeGreaterThan(p[0]);
-    expect(p[9] / p[4]).toBeCloseTo(2, 6);
-    expect(ask(cues, 'buy:done', buy, 10)[0].params.pitch).toBeCloseTo(p[0], 6);
+  it('picks footstep materials and scales landings with fall speed', () => {
+    expect(stepKindOf(B.SLATE)).toBe('stone');
+    expect(stepKindOf(B.COPPER_ORE)).toBe('stone');
+    expect(stepKindOf(B.GRAVEL)).toBe('soil');
+    expect(stepKindOf(B.PLANK)).toBe('wood');
+    expect(stepKindOf(B.ANCIENT_TILE)).toBe('ancient');
+    const soft = sfxForEvent('player:land', { fallSpeed: 5, block: B.SLATE })!.params.intensity!;
+    const hard = sfxForEvent('player:land', { fallSpeed: 20, block: B.SLATE })!.params.intensity!;
+    expect(hard).toBeGreaterThan(soft);
+    expect(hard).toBeLessThanOrEqual(1);
   });
 
   it('registers sane voice settings for every sound', () => {
@@ -306,10 +288,8 @@ describe('event to sound mapping', () => {
       expect(d.priority, name).toBeGreaterThanOrEqual(0);
       expect(d.priority, name).toBeLessThanOrEqual(4);
     }
-    // Story beats outrank everything and ring out.
-    expect(SFX['seal.break'].priority).toBe(4);
-    expect(SFX['seal.break'].wet).toBeGreaterThan(0.4);
-    expect(SFX['tap.stone'].length).toBeLessThan(SFX['seal.break'].length);
+    expect(SFX.discovery.priority).toBe(4);
+    expect(SFX.discovery.wet).toBeGreaterThan(0.6);
   });
 });
 
@@ -379,9 +359,9 @@ describe('signal analysis', () => {
 });
 
 describe('AudioSystem without Web Audio', () => {
-  class CountingBus extends EventBus<IdleEvents> {
+  class CountingBus extends EventBus<GameEvents> {
     subscribed = 0;
-    override on<K extends keyof IdleEvents>(type: K, fn: (payload: IdleEvents[K]) => void): () => void {
+    override on<K extends keyof GameEvents>(type: K, fn: (payload: GameEvents[K]) => void): () => void {
       this.subscribed++;
       const off = super.on(type, fn);
       return () => {
@@ -399,12 +379,10 @@ describe('AudioSystem without Web Audio', () => {
     await expect(audio.unlock()).resolves.toBeUndefined();
     expect(audio.unlocked).toBe(false);
     audio.setVolumes({ master: 0.5, music: 2, sfx: -1, ambience: 0.3 });
-    for (const type of Object.keys(SAMPLES) as Array<keyof IdleEvents>) {
-      expect(() => bus.emit(type, SAMPLES[type] as never)).not.toThrow();
+    for (const type of Object.keys(SAMPLE_PAYLOADS) as Array<keyof GameEvents>) {
+      expect(() => bus.emit(type, SAMPLE_PAYLOADS[type] as never)).not.toThrow();
     }
-    for (const name of ['tap', 'open', 'close', 'no'] as const) audio.ui(name);
-    audio.play('coin.tick', { pitch: 1.2 });
-    audio.duck(0.5);
+    for (const name of ['click', 'open', 'close', 'error', 'craft', 'confirm'] as const) audio.ui(name);
     for (let i = 0; i < 120; i++) audio.update(1 / 60, { ...WORLD_STATE, inMenu: i > 60 });
     audio.setPaused(true);
     audio.update(1 / 60, WORLD_STATE);
@@ -420,7 +398,7 @@ describe('AudioSystem without Web Audio', () => {
   });
 
   it('returns an empty render when OfflineAudioContext is unavailable', async () => {
-    const out = await renderSfxOffline('tap.stone');
+    const out = await renderSfxOffline('hit.stone');
     expect(out).toBeInstanceOf(Float32Array);
     expect(out.length).toBe(0);
   });

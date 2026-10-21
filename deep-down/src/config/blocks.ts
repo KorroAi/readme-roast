@@ -1,3 +1,5 @@
+import type { TextKey } from '../i18n';
+import type { ItemId } from './items';
 import { TILE } from './tiles';
 
 /** Block ids stored in the voxel grid (one byte per voxel). */
@@ -36,7 +38,7 @@ export const B = {
   STRUCTURE_TIMBER: 25,
   /**
    * Stair flights drawn as structure meshes. A wedge (RAMP_*) is solid below its cell's diagonal,
-   * descending toward +x, -x, +z or -z; the walking plane, so
+   * descending toward +x, -x, +z or -z; the explorer walks on that plane (PlayerController), so
    * the fine stair mesh (0.25 m risers) never floats over 1 m voxel steps. A base cell
    * (RAMP_BASE_*) is the full cube under a wedge: it takes the wedge's plane (its own diagonal one
    * metre up) for the explorer's footing. Everything else (light, camera, mining rays,
@@ -54,83 +56,29 @@ export const B = {
   // STATUE_SOLID 37, FOSSIL 38. Until it defines them they are reserved as air (see below).
   /** Echo crystal (final pass W3): the rift's pale glass. Tier 3; it glows in the shader only, no light. */
   ECHO_CRYSTAL: 39,
-  /** Ironbound stone: the seal-stone with a rune band. */
+  /** Ironbound stone (final pass W3): the seal-stone of the relic niches, with a rune band. Tier 3. */
   IRONBOUND: 40,
-  // The descent (SPEC §6.4): shared cells and specials 41..63.
-  /** A chest cell's timber shell with brass bands (its lid shows in the section 6 rows ahead). */
-  CHEST_SHELL: 41,
-  /** The gate row at a biome start: carved builders' stone with a frieze. */
-  GATE_STONE: 42,
-  /** A never-opened seal's slab. */
-  SEAL_STONE: 43,
-  /** A fossil cell (bone in the rock). */
-  FOSSIL: 44,
-  /** A geode cell (a crystal-lined shell). */
-  GEODE: 45,
-  /** A golden cell (the Golden Vein event): gold leaf. */
-  GOLDEN: 46,
-  /** A boulder left by a Cave-in. */
-  BOULDER: 47,
-  /** The surface row's turf and loam. */
-  TOPSOIL: 48,
-  // The first-person hybrid (W1, src/world/hybrid): 49..55.
-  /** A drift's face plug (the K slices not dug yet): solid for light, picking and walking, never meshed (the
-   *  FaceRenderer draws the face blocks). A slice's plug voxels turn to AIR when the slice falls. */
-  FACE_PLUG: 49,
-  /** A secret's cracked wall, hollow floor or loose brick (W1-LEAD §3): solid, visible, breaks open on strikes. */
-  CRACK: 50,
-  /** The Halden Hatch's planks in the Lift Bottom's floor (the seal): solid, never meshed (SealRenderer draws it). */
-  HATCH: 51,
-  /** Dusk sky light falling down a sky shaft (invisible, non-solid emitter, cool blue: SPEC §8.4 #9fc3e6). */
-  LIGHT_SKY: 52,
-  /** The light that leaks through a breach or a seal's seams in the promise colour (invisible, non-solid). */
-  LIGHT_LEAK_GREEN: 53,
-  /** Halden masonry (dressed stone in courses, the bevel language of built things). */
-  MASONRY: 54,
-  /** Timber decking and stair treads (walkable timber). */
-  DECK: 55,
 } as const;
-
-/** Biome block slots (SPEC §6.4): id = 64 + 8 b + slot for b = 0..13. */
-export const SLOT = { HOST_A: 0, HOST_B: 1, SOFT: 2, HARD: 3, ORE: 4, RICH: 5, GEM: 6, SPECIAL: 7 } as const;
-export const BIOME_BLOCK_BASE = 64;
-export const BIOME_BLOCKS = 14;
-/** The block id of a biome's slot. */
-export const biomeBlock = (biome: number, slot: number): number => BIOME_BLOCK_BASE + 8 * (((biome % BIOME_BLOCKS) + BIOME_BLOCKS) % BIOME_BLOCKS) + slot;
-/** Descent emitters 176..191: solid, visible glowing fissure stone in a key colour (the glow below, alcoves). */
-export const EMITTER_BASE = 176;
-export const EMITTER = {
-  GLOWROOT: 176,
-  CRYSTAL: 177,
-  SODIUM: 178,
-  GOLD: 179,
-  SPORE: 180,
-  AQUA: 181,
-  LAVA: 182,
-  RESIN: 183,
-  ICE: 184,
-  WHITE_GOLD: 185,
-  STEEL: 186,
-  STAR: 187,
-  VOID: 188,
-  RUNE: 189,
-  CORAL: 190,
-  EMBER: 191,
-} as const;
-
-/** @deprecated the old game's tool tiers (kept until src/gameplay is deleted). */
-export const UNBREAKABLE_TIER = 99;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
 
+/** Minimum pickaxe tier meaning "cannot be mined by any tool in this build". */
+export const UNBREAKABLE_TIER = 99;
+
 export interface BlockDef {
   id: number;
-  /** Debug name (never shown to players: the game shows cell kinds, not blocks). */
-  name: string;
+  name: TextKey;
   /** Collides and blocks light. */
   solid: boolean;
   /** Produces faces in the chunk mesh. */
   visible: boolean;
+  /** Hit points in pickaxe-power units. */
+  hardness: number;
+  /** Minimum pickaxe tier able to break it. */
+  tier: number;
+  /** Why it cannot be mined at any tier (shown to the player). */
+  protectedReason?: 'unbreakable' | 'protected';
+  drop: { item: ItemId; min: number; max: number; chance: number } | null;
   sound: SoundKind;
   tiles: { top: number; side: number; bottom: number };
   /** Emitted light, linear RGB in [0, 1] (scaled by LIGHT.maxLevel). */
@@ -149,169 +97,67 @@ function def(d: Omit<BlockDef, 'glow' | 'emission' | 'debris'> & Partial<Pick<Bl
   defs[d.id] = { glow: 0, emission: null, debris: [0x55606e, 0x3c4450], ...d };
 }
 
+const noDrop = null;
+const stoneDrop = { item: 'stone' as const, min: 1, max: 1, chance: 1 };
 
-def({ id: B.AIR, name: 'block.air', solid: false, visible: false, sound: 'stone', tiles: same(0) });
-def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, sound: 'stone', tiles: same(TILE.slate), debris: [0x363b44, 0x252a33, 0x41454d] });
-def({ id: B.DEEP_SLATE, name: 'block.deepSlate', solid: true, visible: true, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x2e3440, 0x252a33, 0x3b4250] });
-def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, sound: 'stone', tiles: same(TILE.umber), debris: [0x4a4b4d, 0x37383b, 0x404144] });
-def({ id: B.SOIL, name: 'block.soil', solid: true, visible: true, sound: 'soil', tiles: same(TILE.soil), debris: [0x4a3a2e, 0x3a2d23] });
-def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, sound: 'soil', tiles: same(TILE.gravel), debris: [0x2d323b, 0x3a3d42] });
-def({ id: B.MOSS, name: 'block.moss', solid: true, visible: true, sound: 'soil', tiles: { top: TILE.mossTop, side: TILE.mossSide, bottom: TILE.slate }, glow: 0, debris: [0x2f5d55, 0x4d5666] });
-def({ id: B.COPPER_ORE, name: 'block.copperOre', solid: true, visible: true, sound: 'metal', tiles: same(TILE.copperOre), debris: [0xa95628, 0x2d323b, 0x2f4c3e] });
-def({ id: B.IRON_ORE, name: 'block.ironOre', solid: true, visible: true, sound: 'metal', tiles: same(TILE.ironOre), debris: [0x5e6269, 0x222730, 0x572b20] });
+def({ id: B.AIR, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
+def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.slate), debris: [0x363b44, 0x252a33, 0x41454d] });
+def({ id: B.DEEP_SLATE, name: 'block.deepSlate', solid: true, visible: true, hardness: 4, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x2e3440, 0x252a33, 0x3b4250] });
+def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.umber), debris: [0x4a4b4d, 0x37383b, 0x404144] });
+def({ id: B.SOIL, name: 'block.soil', solid: true, visible: true, hardness: 1.4, tier: 1, drop: { item: 'rootFibre', min: 1, max: 1, chance: 0.45 }, sound: 'soil', tiles: same(TILE.soil), debris: [0x4a3a2e, 0x3a2d23] });
+def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, hardness: 1.6, tier: 1, drop: { item: 'stone', min: 1, max: 1, chance: 0.5 }, sound: 'soil', tiles: same(TILE.gravel), debris: [0x2d323b, 0x3a3d42] });
+def({ id: B.MOSS, name: 'block.moss', solid: true, visible: true, hardness: 2.6, tier: 1, drop: stoneDrop, sound: 'soil', tiles: { top: TILE.mossTop, side: TILE.mossSide, bottom: TILE.slate }, glow: 0, debris: [0x2f5d55, 0x4d5666] });
+def({ id: B.COPPER_ORE, name: 'block.copperOre', solid: true, visible: true, hardness: 4, tier: 1, drop: { item: 'copperOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.copperOre), debris: [0xa95628, 0x2d323b, 0x2f4c3e] });
+def({ id: B.IRON_ORE, name: 'block.ironOre', solid: true, visible: true, hardness: 6, tier: 2, drop: { item: 'ironOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.ironOre), debris: [0x5e6269, 0x222730, 0x572b20] });
 def({
-  id: B.CRYSTAL, name: 'block.crystal', solid: true, visible: true, sound: 'crystal', tiles: same(TILE.crystal),
+  id: B.CRYSTAL, name: 'block.crystal', solid: true, visible: true, hardness: 3.5, tier: 1,
+  drop: { item: 'glimmerShard', min: 1, max: 2, chance: 1 }, sound: 'crystal', tiles: same(TILE.crystal),
   // A seam in dark rock, not a lamp: enough light to find it, the clusters carry the glow.
   emission: [0.1, 0.38, 0.48], glow: 1.3, debris: [0x52e8f5, 0x9ff6ff, 0x1b8aa8],
 });
-def({ id: B.HARDENED_SLATE, name: 'block.hardenedSlate', solid: true, visible: true, sound: 'stone', tiles: same(TILE.hardenedSlate), debris: [0x1f222b, 0x2b2f3a] });
-def({ id: B.ANCIENT_BRICK, name: 'block.ancientBrick', solid: true, visible: true, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] });
-def({ id: B.ANCIENT_TILE, name: 'block.ancientTile', solid: true, visible: true, sound: 'ancient', tiles: { top: TILE.ancientTile, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, glow: 0, debris: [0x535a6a] });
-def({ id: B.CRUMBLING_BRICK, name: 'block.crumblingBrick', solid: true, visible: true, sound: 'ancient', tiles: same(TILE.crumblingBrick), glow: 1.4, debris: [0x5c6474, 0x474e5c] });
+def({ id: B.HARDENED_SLATE, name: 'block.hardenedSlate', solid: true, visible: true, hardness: 7, tier: 2, drop: stoneDrop, sound: 'stone', tiles: same(TILE.hardenedSlate), debris: [0x1f222b, 0x2b2f3a] });
+def({ id: B.ANCIENT_BRICK, name: 'block.ancientBrick', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] });
+def({ id: B.ANCIENT_TILE, name: 'block.ancientTile', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientTile, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, glow: 0, debris: [0x535a6a] });
+def({ id: B.CRUMBLING_BRICK, name: 'block.crumblingBrick', solid: true, visible: true, hardness: 2, tier: 1, drop: stoneDrop, sound: 'ancient', tiles: same(TILE.crumblingBrick), glow: 1.4, debris: [0x5c6474, 0x474e5c] });
 def({
-  id: B.GLYPH_STONE, name: 'block.glyphStone', solid: true, visible: true, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.glyphStone, bottom: TILE.ancientBrickTop },
+  id: B.GLYPH_STONE, name: 'block.glyphStone', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable',
+  drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.glyphStone, bottom: TILE.ancientBrickTop },
   // Inscriptions breathe a faint cold light along their course; the carved runes themselves
   // wake near the lantern (terrain shader). They must never flood a room.
   emission: [0.05, 0.23, 0.28], glow: 1.25, debris: [0x535a6a],
 });
-def({ id: B.PLANK, name: 'block.plank', solid: true, visible: true, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
-def({ id: B.BEAM, name: 'block.beam', solid: true, visible: true, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
-def({ id: B.HEARTH, name: 'block.hearth', solid: true, visible: true, sound: 'stone', tiles: same(TILE.hearth), glow: 1.1, debris: [0x332b25] });
-def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, sound: 'ancient', tiles: same(TILE.bedrock), debris: [0x14161c] });
+def({ id: B.PLANK, name: 'block.plank', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
+def({ id: B.BEAM, name: 'block.beam', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
+def({ id: B.HEARTH, name: 'block.hearth', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'stone', tiles: same(TILE.hearth), glow: 1.1, debris: [0x332b25] });
+def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: same(TILE.bedrock), debris: [0x14161c] });
 // Warm lights are amber-gold, not red-orange: the light volume is squared-ish on its way to the
 // shader (lightSample: pow 1.55), and a light with too little green mixes with the cool open fill
 // on the bluish stone into rose and mauve at the rim of every pool. With green at ~0.6 of red
 // after that curve the rim passes through warm grey into blue-black instead.
-def({ id: B.LIGHT_AMBER, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [1.0, 0.74, 0.46] });
-def({ id: B.LIGHT_EMBER, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [1.0, 0.6, 0.32] });
-def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.13, 0.51, 0.66] });
+def({ id: B.LIGHT_AMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.74, 0.46] });
+def({ id: B.LIGHT_EMBER, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.6, 0.32] });
+def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.13, 0.51, 0.66] });
 // Route lamps are a deeper amber than the explorer's pale-gold lantern, so their pools read as
 // separate islands of warmth.
-def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.36] });
-def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
+def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.36] });
+def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
 // Built forms drawn as structure meshes: collision only (no chunk faces), never mined.
-const structureStone = { solid: true, visible: false, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;
+const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;
 def({ id: B.STRUCTURE, name: 'block.ancientBrick', ...structureStone });
-def({ id: B.STRUCTURE_TIMBER, name: 'block.beam', solid: true, visible: false, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
+def({ id: B.STRUCTURE_TIMBER, name: 'block.beam', solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
 for (const id of [B.RAMP_PX, B.RAMP_NX, B.RAMP_PZ, B.RAMP_NZ, B.RAMP_BASE_PX, B.RAMP_BASE_NX, B.RAMP_BASE_PZ, B.RAMP_BASE_NZ]) def({ id, name: 'block.ancientTile', ...structureStone });
 // The deep tier (final pass W3). Echo crystal: the crystal's look in pale cyan-white (materials:
 // echoCrystal), a glow in the shader only and no light emission (the cyan budget holds).
 def({
-  id: B.ECHO_CRYSTAL, name: 'block.echoCrystal', solid: true, visible: true, sound: 'crystal', tiles: same(TILE.crystal),
+  id: B.ECHO_CRYSTAL, name: 'block.echoCrystal', solid: true, visible: true, hardness: 6, tier: 3,
+  drop: { item: 'echoShard', min: 1, max: 1, chance: 1 }, sound: 'crystal', tiles: same(TILE.crystal),
   emission: null, glow: 0, debris: [0xd8f4f6, 0xb9e9ef, 0x6fb8c4],
 });
 // Ironbound: the seal-stone with a rune band; it closes the relic niches until an iron pick opens them.
-def({ id: B.IRONBOUND, name: 'block.ironbound', solid: true, visible: true, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x2b2f3a, 0x4a4f5a, 0x1f222b] });
-// ---- The descent (SPEC §6.4) -------------------------------------------------------------------
-def({ id: B.CHEST_SHELL, name: 'block.chestShell', solid: true, visible: true, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0xc9a24a, 0x5c3f28] });
-def({ id: B.GATE_STONE, name: 'block.gateStone', solid: true, visible: true, sound: 'ancient', tiles: same(TILE.ancientBrick), debris: [0x6a7080, 0x535a6a, 0x8a90a0] });
-def({ id: B.SEAL_STONE, name: 'block.sealStone', solid: true, visible: true, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x343c4b, 0x8290ae] });
-def({ id: B.FOSSIL, name: 'block.fossil', solid: true, visible: true, sound: 'stone', tiles: same(TILE.slate), debris: [0xd8ccb0, 0xa89a80, 0x6c6252] });
-def({ id: B.GEODE, name: 'block.geode', solid: true, visible: true, sound: 'crystal', tiles: same(TILE.crystal), emission: [0.12, 0.3, 0.42], glow: 1, debris: [0x9fe6f0, 0x52b8d0, 0x3a3f4a] });
-def({ id: B.GOLDEN, name: 'block.golden', solid: true, visible: true, sound: 'metal', tiles: same(TILE.copperOre), emission: [0.42, 0.3, 0.08], glow: 1, debris: [0xffd86a, 0xe0a83a, 0xfff2b0] });
-def({ id: B.BOULDER, name: 'block.boulder', solid: true, visible: true, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x3b4250, 0x252a33] });
-def({ id: B.TOPSOIL, name: 'block.topsoil', solid: true, visible: true, sound: 'soil', tiles: same(TILE.soil), debris: [0x5c4839, 0x4a3a2e, 0x6a7a4a] });
-// ---- The first-person hybrid (W1) ---------------------------------------------------------------------------------
-def({ id: B.FACE_PLUG, name: 'block.facePlug', solid: true, visible: false, sound: 'stone', tiles: same(TILE.slate), debris: [0x4a4b4d, 0x37383b] });
-def({ id: B.CRACK, name: 'block.crack', solid: true, visible: true, sound: 'stone', tiles: same(TILE.crumblingBrick), debris: [0x5d6068, 0x43464d, 0x2d3036] });
-def({ id: B.HATCH, name: 'block.hatch', solid: true, visible: false, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28, 0x8a8f99] });
-def({ id: B.LIGHT_SKY, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.36, 0.5, 0.66] });
-def({ id: B.LIGHT_LEAK_GREEN, name: 'block.light', solid: false, visible: false, sound: 'stone', tiles: same(0), emission: [0.22, 0.62, 0.36] });
-def({ id: B.MASONRY, name: 'block.masonry', solid: true, visible: true, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x6a6f7a, 0x535a6a, 0x434957] });
-def({ id: B.DECK, name: 'block.deck', solid: true, visible: true, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
-
-/** Debris and emission of each biome slot (looks: render/materials BIOME_SURFACES). Biomes 4..13 reuse the
- *  W1 kits until their painters land (W2). */
-export interface BiomeSlotLook {
-  sound: SoundKind;
-  debris: readonly number[];
-  emission?: [number, number, number];
-  glow?: number;
-}
-const KIT_LOOKS: ReadonlyArray<ReadonlyArray<BiomeSlotLook>> = [
-  // 0 Topsoil Roots: soil, gravel, umber, root wood; copper / amber.
-  [
-    { sound: 'soil', debris: [0x5c4839, 0x42342b, 0x2d2420] },
-    { sound: 'soil', debris: [0x5f5750, 0x403b37, 0x2d323b] },
-    { sound: 'stone', debris: [0x5d6068, 0x43464d, 0x2d3036] },
-    { sound: 'wood', debris: [0x6d5541, 0x4d3d2f, 0x342821] },
-    { sound: 'metal', debris: [0xe58444, 0xa65126, 0x5b2c19] },
-    { sound: 'crystal', debris: [0xffc35a, 0xe08a20, 0x8a4a10], emission: [0.34, 0.18, 0.04], glow: 1 },
-    { sound: 'crystal', debris: [0xff9ac0, 0xd0608a, 0x6a2a44], emission: [0.3, 0.1, 0.18], glow: 1 },
-    { sound: 'wood', debris: [0x6d5541, 0x4d3d2f] },
-  ],
-  // 1 Glowroot Caverns: moss, slate, root wood, glowroot; tin / jade.
-  [
-    { sound: 'soil', debris: [0x445363, 0x2d3945, 0x4c5a4e] },
-    { sound: 'stone', debris: [0x5c6472, 0x3e4553, 0x272d38] },
-    { sound: 'soil', debris: [0x546475, 0x384553] },
-    { sound: 'wood', debris: [0x6d5541, 0x4d3d2f, 0x342821] },
-    { sound: 'metal', debris: [0xc8d2dc, 0x8e98a6, 0x4a525e] },
-    { sound: 'crystal', debris: [0x8ff0b0, 0x3cb878, 0x1a5a3a], emission: [0.08, 0.36, 0.16], glow: 1 },
-    { sound: 'crystal', debris: [0xb0ffd0, 0x50d890, 0x1a6a44], emission: [0.08, 0.3, 0.16], glow: 1 },
-    { sound: 'soil', debris: [0x9be7a8, 0x4a9a5a], emission: [0.12, 0.42, 0.18], glow: 1 },
-  ],
-  // 2 Crystal Grotto: slate, deep slate, echo crystal, crystal; quartz / sapphire.
-  [
-    { sound: 'stone', debris: [0x5c6472, 0x3e4553, 0x272d38] },
-    { sound: 'stone', debris: [0x48505e, 0x2e3541, 0x1d2129] },
-    { sound: 'crystal', debris: [0xd8f4f6, 0xb9e9ef, 0x6fb8c4] },
-    { sound: 'crystal', debris: [0x52e8f5, 0x9ff6ff, 0x1b8aa8], emission: [0.08, 0.3, 0.38], glow: 1 },
-    { sound: 'crystal', debris: [0xf4e8f0, 0xd0b8c8, 0x8a7a90] },
-    { sound: 'crystal', debris: [0x6aa0ff, 0x2a5ad8, 0x10286a], emission: [0.06, 0.14, 0.42], glow: 1 },
-    { sound: 'crystal', debris: [0xd0a0ff, 0x8a50e0, 0x3a1a6a], emission: [0.2, 0.1, 0.4], glow: 1 },
-    { sound: 'crystal', debris: [0x52e8f5, 0x9ff6ff], emission: [0.08, 0.3, 0.38], glow: 1 },
-  ],
-  // 3 Halden Works: deep slate, ancient brick, timber, brass; iron / silver.
-  [
-    { sound: 'stone', debris: [0x48505e, 0x2e3541, 0x1d2129] },
-    { sound: 'ancient', debris: [0x606675, 0x434955, 0x2e323c] },
-    { sound: 'wood', debris: [0x7f634d, 0x5c4838, 0x403227] },
-    { sound: 'metal', debris: [0xe2b673, 0xb08840, 0x5a4420] },
-    { sound: 'metal', debris: [0x8f97a2, 0x686c75, 0x834434] },
-    { sound: 'metal', debris: [0xf0f4fa, 0xb8c0cc, 0x6a7280], emission: [0.2, 0.22, 0.26], glow: 1 },
-    { sound: 'crystal', debris: [0xff9ac0, 0xd0608a, 0x6a2a44], emission: [0.3, 0.1, 0.18], glow: 1 },
-    { sound: 'wood', debris: [0x5c3f28, 0x7a5536] },
-  ],
-];
-export const SLOT_NAMES = ['hostA', 'hostB', 'soft', 'hard', 'ore', 'rich', 'gem', 'special'] as const;
-for (let b = 0; b < BIOME_BLOCKS; b++)
-  for (let slot = 0; slot < 8; slot++) {
-    const look = KIT_LOOKS[b % KIT_LOOKS.length][slot];
-    def({
-      id: BIOME_BLOCK_BASE + 8 * b + slot,
-      name: `block.b${b}.${SLOT_NAMES[slot]}`,
-      solid: true,
-      visible: true,
-      sound: look.sound,
-      tiles: same(TILE.slate),
-      debris: look.debris,
-      emission: look.emission ?? null,
-      glow: look.glow ?? 0,
-    });
-  }
-/** Fissure emitters (the glow below, alcove lights): solid glowing stone in a key colour. */
-const EMITTER_LIGHT: ReadonlyArray<[number, number, number]> = [
-  [0.26, 0.62, 0.32], [0.1, 0.42, 0.52], [0.9, 0.5, 0.18], [0.9, 0.7, 0.26], [0.6, 0.3, 0.8], [0.5, 0.8, 0.3],
-  [0.2, 0.55, 0.8], [1, 0.4, 0.12], [0.9, 0.6, 0.12], [0.4, 0.75, 0.95], [1, 0.92, 0.7], [0.45, 0.6, 0.9],
-  [0.95, 0.85, 0.6], [0.4, 0.3, 0.95], [0.4, 0.85, 0.9], [0.95, 0.5, 0.6],
-];
-EMITTER_LIGHT.forEach((e, i) => def({ id: EMITTER_BASE + i, name: `block.emitter${i}`, solid: true, visible: true, sound: 'crystal', tiles: same(TILE.crystal), emission: e, glow: 1.2, debris: [0xffffff, 0xd0d0d0] }));
-// Descent block kinds for hot loops: 1 rock, 2 ore, 3 rich, 4 gem/valuable shell (V11 glints).
-export const VALUE_CLASS = new Uint8Array(256);
-for (let b = 0; b < BIOME_BLOCKS; b++) {
-  VALUE_CLASS[BIOME_BLOCK_BASE + 8 * b + SLOT.ORE] = 2;
-  VALUE_CLASS[BIOME_BLOCK_BASE + 8 * b + SLOT.RICH] = 3;
-  VALUE_CLASS[BIOME_BLOCK_BASE + 8 * b + SLOT.GEM] = 4;
-}
-VALUE_CLASS[B.CHEST_SHELL] = 4;
-VALUE_CLASS[B.GOLDEN] = 3;
-VALUE_CLASS[B.GEODE] = 4;
-VALUE_CLASS[B.FOSSIL] = 3;
-
+def({ id: B.IRONBOUND, name: 'block.ironbound', solid: true, visible: true, hardness: 12, tier: 3, drop: stoneDrop, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x2b2f3a, 0x4a4f5a, 0x1f222b] });
 // Ids not defined yet (34..38, the content stream's) behave as air, so tables and loops over
 // BLOCKS have no holes. A definition above or added later replaces the reservation.
-for (let id = 0; id < 256; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, sound: 'stone', tiles: same(0) });
+for (let id = 0; id < B.IRONBOUND; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
 
 export const BLOCKS: readonly BlockDef[] = defs;
 export const BLOCK_COUNT = defs.length;
@@ -357,7 +203,7 @@ setVariants(B.ANCIENT_BRICK, [TILE.ancientBrick, TILE.ancientBrick, TILE.ancient
 export const isEmitter = (id: number): boolean => (EMIT_R[id] | EMIT_G[id] | EMIT_B[id]) !== 0;
 
 /**
- * Stair footing per block id: 0 = an ordinary cube; otherwise
+ * Stair footing per block id (PlayerController): 0 = an ordinary cube; otherwise
  * direction (1 +x, 2 -x, 3 +z, 4 -z, the way the flight descends) + 4 x the height of the plane
  * above the cell's own diagonal (0 for a wedge, 1 for the base cell under it). The plane rises
  * one metre per metre: at the uphill face of the cell it is at y + 1 + lift, at the downhill

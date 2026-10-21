@@ -1,502 +1,59 @@
-// Capture real WebGL screenshots of the idle game in headless Chromium (SwiftShader), portrait by default.
+// Capture real WebGL screenshots in headless Chromium (SwiftShader) for visual inspection.
 //
 // Usage:
-//   node tools/capture.mjs [--page index.html] [--out artifacts/idle/w1] [--size 390x844] [--dpr 2] [--wait 1500]
-//                          [--prefix w1-c-] scene|name=query [...]
-//
-// A bare word runs a built-in scene (below): a scripted path through the game with REAL touches (CDP) and the
-// __DD__.idle surface only for setting up a state (gold, a depth, the clock). `name=query` loads `${page}?${query}`
-// and shoots once the first frame drew. Scenes: first-launch, first-coin, hud-20m, dig-sheet, quickbuy-states, star,
-// return-feast, legacy-notice; `all` runs every scene, then hud-20m at 360x740 and 412x915.
+//   node tools/capture.mjs [--page index.html] [--out artifacts/shots] [--size 1280x720] [--wait 4000]
+//                          name=query [name=query ...]
+// Each shot loads `${page}?${query}`, waits until window.__DD__.ready, then a few extra frames.
 import { chromium } from '@playwright/test';
 import { createServer } from 'vite';
 import { mkdirSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const opt = { page: 'index.html', out: 'artifacts/idle/w1', size: '390x844', wait: '1500', dpr: '2', timeout: '180000', prefix: 'w1-c-' };
+const opt = { page: 'index.html', out: 'artifacts/shots', size: '1280x720', wait: '1500', dpr: '1', timeout: '120000' };
 const shots = [];
 for (let i = 0; i < args.length; i++) {
   const a = args[i];
   if (a.startsWith('--')) opt[a.slice(2)] = args[++i];
   else {
     const eq = a.indexOf('=');
-    shots.push(eq > 0 ? { name: a.slice(0, eq), query: a.slice(eq + 1) } : { scene: a });
+    shots.push({ name: a.slice(0, eq), query: a.slice(eq + 1) });
   }
 }
-if (!shots.length) shots.push({ scene: 'first-launch' });
+if (!shots.length) shots.push({ name: 'default', query: '' });
+const [width, height] = opt.size.split('x').map(Number);
 mkdirSync(opt.out, { recursive: true });
-const size = (s) => s.split('x').map(Number);
-
-// ---------------------------------------------------------------------------------------------------------------
-// Real touches through CDP (the same as tests/e2e/touch.ts).
-
-class Touch {
-  constructor(cdp, page) {
-    this.cdp = cdp;
-    this.page = page;
-  }
-  static async attach(page) {
-    return new Touch(await page.context().newCDPSession(page), page);
-  }
-  async send(type, pts) {
-    await this.cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id: p.id ?? 1, radiusX: 8, radiusY: 8, force: 1 })) });
-  }
-  async tap(x, y) {
-    await this.send('touchStart', [{ x, y, id: 3 }]);
-    await this.page.waitForTimeout(40);
-    await this.send('touchEnd', []);
-  }
-  async hold(x, y, ms) {
-    await this.send('touchStart', [{ x, y, id: 5 }]);
-    await this.page.waitForTimeout(ms);
-    await this.send('touchEnd', []);
-  }
-  async rect(key) {
-    const r = await this.page.evaluate((k) => window.__DD__.idle.hud().rects[k], key);
-    if (!r || !r.visible) throw new Error(`no visible ${key}`);
-    return r;
-  }
-  async tapRect(key) {
-    const r = await this.rect(key);
-    await this.tap(r.x + r.w / 2, r.y + r.h / 2);
-  }
-  async tapColumn(c) {
-    const p = await this.page.evaluate((col) => {
-      const cs = window.__DD__.idle.columns();
-      const s = cs.strips[col];
-      return { x: (s.left + s.right) / 2, y: cs.floorY + 18 };
-    }, c);
-    await this.tap(p.x, p.y);
-  }
-}
-
-const frames = (page) => page.evaluate(() => window.__DD__.idle.frame());
-async function waitFrames(page, n) {
-  const f0 = await frames(page);
-  await page.waitForFunction((t) => window.__DD__.idle.frame() >= t, f0 + n, { timeout: Number(opt.timeout), polling: 50 });
-}
-async function ready(page) {
-  await page.waitForFunction(() => window.__DD__?.idle?.ready === true, null, { timeout: Number(opt.timeout), polling: 250 });
-}
-async function mode(page, m) {
-  await page.waitForFunction((x) => window.__DD__?.idle?.ready === true && window.__DD__.idle.mode() === x, m, { timeout: Number(opt.timeout), polling: 250 });
-}
-
-/** Dig with real taps until `done` (a page-side expression over d = __DD__.idle) holds. */
-async function digUntil(page, touch, done, max = 400) {
-  for (let i = 0; i < max; i++) {
-    if (i % 4 === 0 && (await page.evaluate(`((d) => ${done})(window.__DD__.idle)`))) return;
-    await touch.tapColumn(2 + (i % 3));
-    await page.waitForTimeout(120);
-    if (i % 6 === 5) await waitFrames(page, 1);
-  }
-}
-
-/** The quick-buy card views (cost and BEST), from the game. */
-const quickViews = (page) => page.evaluate(() => window.__DD__.internals.game.quick().map((v) => (v ? { id: v.id, cost: v.costLog10, best: v.best } : null)));
-
-/** The common early game: the Pick and the Shovel Hand bought with taps, then a depth. */
-async function earlyGame(page, touch, depth) {
-  await digUntil(page, touch, "d.hud().quick[0].state === 'ready'");
-  await touch.tapRect('quick:0');
-  await page.evaluate(() => window.__DD__.idle.give({ gold: 60 }));
-  await waitFrames(page, 2);
-  await digUntil(page, touch, "d.hud().quick[2].state === 'ready'", 60);
-  await touch.tapRect('quick:2');
-  await waitFrames(page, 2);
-  if (depth) {
-    await page.evaluate((m) => window.__DD__.idle.setDepth(m), depth);
-    await page.evaluate(() => window.__DD__.idle.give({ gold: 400 }));
-    // The slabs and the crew settle at the new depth.
-    for (let i = 0; i < 6; i++) {
-      await touch.tapColumn(3);
-      await page.waitForTimeout(150);
-    }
-    await waitFrames(page, 8);
-  }
-}
-
-/** W2 set-up: the tutorial done, a depth, a fixed clock speed. */
-async function w2(page, depth, scale = 1) {
-  await mode(page, 'playing');
-  await page.evaluate(
-    ([d, k]) => {
-      const i = window.__DD__.idle;
-      i.skipTutorial();
-      if (d > 0) i.setDepth(d);
-      i.timeScale(k);
-      i.give({ gold: '1e12', gems: 120 });
-    },
-    [depth, scale],
-  );
-  await waitFrames(page, 8);
-  await page.waitForTimeout(700);
-}
-
-/** Hold a ceremony at `t` ms (the capture hook) and wait for it to draw. */
-async function ceremonyAt(page, id, t) {
-  await page.evaluate(([c, at]) => window.__DD__.idle.ceremony(c, at), [id, t]);
-  await waitFrames(page, 4);
-  await page.waitForTimeout(500);
-  return async () => page.evaluate(() => window.__DD__.idle.ceremony('', -1));
-}
-
-/** Wait for an open widget of `kind`. */
-async function widgetOf(page, kind) {
-  await page.waitForFunction((k) => window.__DD__.idle.widget()?.kind === k, kind, { timeout: 60_000, polling: 100 });
-}
-
-const W2 = {
-  async skillrow(page, touch) {
-    await w2(page, 650);
-    for (let i = 0; i < 12; i++) await touch.tapColumn(2 + (i % 3));
-    await waitFrames(page, 6);
-  },
-  async surge(page, touch) {
-    await w2(page, 200);
-    // A meter one tap from full (the Surge revealed and used once before, so a full meter waits on the ring), then
-    // real taps fill it, and a real tap on the armed ring fires it (CRITIQUE SHOULD 1).
-    await page.evaluate(() => {
-      const s = window.__DD__.internals.game.state;
-      if (!s.meta.revealed.includes('surge')) s.meta.revealed.push('surge');
-      if (!s.meta.firstTime.includes('used:surge')) s.meta.firstTime.push('used:surge');
-      s.tap.surge = 236;
-    });
-    for (let i = 0; i < 8; i++) await touch.tapColumn(2 + (i % 3));
-    await waitFrames(page, 3);
-    const ring = await page.evaluate(() => {
-      const el = document.querySelector('.dd-combo');
-      const r = el.getBoundingClientRect();
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2, armed: el.classList.contains('armed') };
-    });
-    console.log(`surge: ring armed ${ring.armed}`);
-    if (ring.armed) await touch.tap(ring.x, ring.y);
-    // The Surge runs on the model clock: slow it so the shot lands inside it on a software renderer.
-    await page.evaluate(() => window.__DD__.idle.timeScale(0.2));
-    for (let i = 0; i < 4; i++) await touch.tapColumn(2 + (i % 3));
-    await waitFrames(page, 3);
-    console.log(`surge: on ${await page.evaluate(() => { const s = window.__DD__.idle.state(); return s.tap.surgeEnd > s.time; })}`);
-  },
-  async 'seal-hud'(page, touch) {
-    await w2(page, 0);
-    await page.evaluate(() => window.__DD__.idle.toSeal());
-    await waitFrames(page, 4);
-    // The pick bought with real taps on its card (gold from w2), then real taps across the floor down to the seal.
-    for (let i = 0; i < 4; i++) {
-      const h = await page.evaluate(() => window.__DD__.idle.hud());
-      if (h.quick[0]?.state !== 'ready' || h.quick[0].level >= 30) break;
-      await touch.tapRect('quick:0');
-      await page.waitForTimeout(120);
-    }
-    for (let i = 0; i < 80; i++) {
-      await touch.tapColumn(i % 7);
-      if (await page.evaluate(() => window.__DD__.idle.state().seal?.phase === 'fight')) break;
-    }
-    for (let i = 0; i < 3; i++) await touch.tapColumn(2 + (i % 3));
-    await waitFrames(page, 4);
-  },
-  async 'chest-crystal-step'(page) {
-    await w2(page, 60);
-    return ceremonyAt(page, 'chest', 590);
-  },
-  async 'chest-reveal-card'(page) {
-    await w2(page, 60);
-    // The debug chest rolls wood → copper → crystal (open at 1,360 ms); its card has turned in by 1,940 ms.
-    return ceremonyAt(page, 'chest', 2100);
-  },
-  async 'facet-hand'(page) {
-    await w2(page, 130);
-    await page.evaluate(() => window.__DD__.idle.facetHand());
-    await waitFrames(page, 6);
-    await page.waitForTimeout(900);
-  },
-  async 'feat-toast'(page) {
-    await w2(page, 30);
-    return ceremonyAt(page, 'feat', 900);
-  },
-  async rankup(page) {
-    await w2(page, 30);
-    return ceremonyAt(page, 'rankUp', 300);
-  },
-  async 'pick-tier'(page) {
-    await w2(page, 30);
-    return ceremonyAt(page, 'pickTier', 1100);
-  },
-  async 'widget-catch'(page) {
-    await w2(page, 60, 0.35);
-    // A Glimmerfall (the e2e's Catch): crystals cross on their curves; held while two are on screen.
-    await page.evaluate(() => window.__DD__.idle.forceEvent('glimmerfall'));
-    await widgetOf(page, 'catch');
-    await page.waitForFunction(() => (window.__DD__.idle.widget()?.targets.length ?? 0) >= 2, null, { timeout: 120_000 });
-    await waitFrames(page, 3);
-  },
-  async 'widget-mash'(page, touch) {
-    await w2(page, 10, 0.3);
-    await page.evaluate(() => window.__DD__.idle.forceEvent('signature'));
-    await widgetOf(page, 'mash');
-    await page.waitForFunction(() => (window.__DD__.idle.widget()?.targets.length ?? 0) > 0, null, { timeout: 60_000 });
-    const t = await page.evaluate(() => window.__DD__.idle.widget().targets[0]);
-    for (let i = 0; i < 18; i++) await touch.tap(t.x, t.y);
-    await waitFrames(page, 3);
-  },
-  async 'widget-strike'(page) {
-    await w2(page, 130, 0.2);
-    await page.evaluate(() => window.__DD__.idle.forceEvent('geode'));
-    await widgetOf(page, 'strike');
-    await waitFrames(page, 4);
-  },
-  async 'widget-sequence'(page) {
-    await w2(page, 410, 0.3);
-    await page.evaluate(() => window.__DD__.idle.forceEvent('ancientEcho'));
-    await widgetOf(page, 'sequence');
-    await page.waitForTimeout(900);
-  },
-  async board(page, touch) {
-    await w2(page, 260);
-    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:board']?.visible, null, { timeout: 30_000 });
-    await touch.tapRect('tab:board');
-    await waitFrames(page, 6);
-    await page.waitForTimeout(700);
-  },
-  async feats(page, touch) {
-    await w2(page, 260);
-    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:feats']?.visible, null, { timeout: 30_000 });
-    await touch.tapRect('tab:feats');
-    await waitFrames(page, 6);
-    await page.waitForTimeout(700);
-  },
-  async codex(page, touch) {
-    await w2(page, 260);
-    await page.evaluate(() => {
-      const s = window.__DD__.internals.game.state;
-      s.meta.finds['find:0:0'] = 2;
-      s.meta.finds['find:2:2'] = 1;
-      s.meta.bestiary.rootGrub = 3;
-      // The stats the model's reveal rule reads (the Codex tab opens with the first entry, after the first Warden).
-      s.meta.stats.finds = Math.max(s.meta.stats.finds, 3);
-      s.meta.stats.creatures = Math.max(s.meta.stats.creatures, 1);
-    });
-    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:codex']?.visible, null, { timeout: 30_000 });
-    await touch.tapRect('tab:codex');
-    await waitFrames(page, 6);
-    await page.waitForTimeout(700);
-  },
-  async lantern(page, touch) {
-    await w2(page, 820);
-    await page.waitForFunction(() => window.__DD__.idle.hud().rects['tab:lantern']?.visible, null, { timeout: 30_000 });
-    await touch.tapRect('tab:lantern');
-    await waitFrames(page, 8);
-    await page.waitForTimeout(900);
-  },
-  async 'reveal-title'(page) {
-    await w2(page, 125);
-    return ceremonyAt(page, 'biomeReveal', 1700);
-  },
-  async 'rekindle-iris'(page) {
-    await w2(page, 650);
-    return ceremonyAt(page, 'rekindle', 1100);
-  },
-  async 'charted-gate'(page) {
-    await w2(page, 125);
-    return ceremonyAt(page, 'chartedGate', 500);
-  },
-};
-
-const SCENES = {
-  ...W2,
-  /** The first frame of a new game: the shaft at the surface, the goal bar, the ghost hand on the rock. */
-  async 'first-launch'(page) {
-    await mode(page, 'playing');
-    await page.waitForFunction(() => !!window.__DD__.idle.guidePoint(), null, { timeout: 60_000 });
-    await waitFrames(page, 4);
-    await page.waitForTimeout(600);
-  },
-  /** The first tap: a coin mid-flight with its trail (the FX clock held for the shot). */
-  async 'first-coin'(page, touch) {
-    await mode(page, 'playing');
-    await waitFrames(page, 3);
-    const p = await page.evaluate(() => window.__DD__.idle.guidePoint());
-    // Freeze the FX clock in the first frame where a coin is past its pop and into the flight.
-    await page.evaluate(() => {
-      const fx = window.__DD__.internals.fx;
-      const tick = () => {
-        const f = window.__DD__.idle.fx().flights.find((x) => x.landed === 0);
-        const now = performance.now();
-        if (f && now - f.launched > 430 && now - f.launched < 640) {
-          fx.frozenAt = now;
-          return;
-        }
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    for (let i = 0; i < 3; i++) {
-      await touch.tap(p ? p.x : 195, p ? p.y + 6 : 600);
-      await page.waitForTimeout(90);
-    }
-    await page.waitForFunction(() => window.__DD__.internals.fx.frozenAt !== null, null, { timeout: 60_000, polling: 30 });
-    await waitFrames(page, 1);
-    return async () => page.evaluate(() => (window.__DD__.internals.fx.frozenAt = null));
-  },
-  /** The HUD at 20 m: every W1 plate, the ruler, the quick-buy row, the crew digging. */
-  async 'hud-20m'(page, touch) {
-    await mode(page, 'playing');
-    await earlyGame(page, touch, 20);
-  },
-  /** The Dig sheet open: the floor re-framed above it. */
-  async 'dig-sheet'(page, touch) {
-    await mode(page, 'playing');
-    await earlyGame(page, touch, 20);
-    await touch.tapRect('tab:dig');
-    await page.waitForFunction(() => window.__DD__.idle.hud().sheet === 'dig', null, { timeout: 30_000 });
-    await waitFrames(page, 6);
-    await page.waitForTimeout(700);
-  },
-  /** Quick-buy states at once: one ready, BEST near (≥ 85 %), one not affordable. */
-  async 'quickbuy-states'(page, touch) {
-    await mode(page, 'playing');
-    await earlyGame(page, touch, 12);
-    // Set the bank so the cheaper card is ready, BEST sits at 90 % of its price and the newest line stays out of
-    // reach (a capture tool may set the state; the shot is of the HUD's answer to it).
-    const v = (await quickViews(page)).filter(Boolean);
-    const best = v.find((x) => x.best) ?? v[0];
-    const cheaper = v.filter((x) => x !== best && x.cost < best.cost + Math.log10(0.9));
-    const target = Math.max(best.cost + Math.log10(0.9), ...cheaper.map((x) => x.cost));
-    await page.evaluate((l) => {
-      const g = window.__DD__.internals.game;
-      g.state.run.gold.setLog10(l);
-      g.ui.hud.top.gold.snap(l);
-    }, target + 1e-4);
-    await waitFrames(page, 6);
-    await page.waitForTimeout(600);
-  },
-  /** The first ★: the Shovel Hand's 10th level bought with taps on its quick-buy card, the ★ on the card, its ring
-   * and the "★ ×2" label (the FX clock held a quarter second into the ceremony). */
-  async star(page, touch) {
-    await mode(page, 'playing');
-    await earlyGame(page, touch, 8);
-    await page.evaluate(() => window.__DD__.idle.give({ gold: 1e5 }));
-    await waitFrames(page, 2);
-    await page.evaluate(() => {
-      const fx = window.__DD__.internals.fx;
-      const tick = () => {
-        const e = window.__DD__.idle.events('crew:star')[0];
-        if (e && performance.now() - e.t > 220) {
-          fx.frozenAt = performance.now();
-          return;
-        }
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
-    });
-    for (let i = 0; i < 14; i++) {
-      if (await page.evaluate(() => window.__DD__.internals.fx.frozenAt !== null)) break;
-      const q = await page.evaluate(() => window.__DD__.idle.hud().quick[2]);
-      if (q.id !== 'crew:0') throw new Error(`slot 3 shows ${q.id}, not the Shovel Hand`);
-      await touch.tapRect('quick:2');
-      await page.waitForTimeout(150);
-      await waitFrames(page, 1);
-    }
-    await page.waitForFunction(() => window.__DD__.internals.fx.frozenAt !== null, null, { timeout: 30_000, polling: 30 });
-    await waitFrames(page, 1);
-    return async () => page.evaluate(() => (window.__DD__.internals.fx.frozenAt = null));
-  },
-  /** Back after two hours: the return feast's plate and count-up. */
-  async 'return-feast'(page, touch) {
-    await mode(page, 'playing');
-    await earlyGame(page, touch, 14);
-    const nav = page.waitForNavigation({ timeout: 60_000 }).catch(() => undefined);
-    await page.evaluate(() => window.__DD__.idle.offline(2)).catch(() => undefined);
-    await nav;
-    await mode(page, 'menu');
-    await waitFrames(page, 3);
-    const r = await page.evaluate(() => {
-      const b = document.querySelector('[data-key="continue"]');
-      const q = b?.getBoundingClientRect();
-      return q ? { x: q.left + q.width / 2, y: q.top + q.height / 2 } : null;
-    });
-    if (r) await touch.tap(r.x, r.y);
-    await page.waitForFunction(() => window.__DD__.idle.hud().feast !== '', null, { timeout: 60_000 });
-    await waitFrames(page, 6);
-    await page.waitForTimeout(900);
-  },
-  /** A save of the old cave game: the one-line notice over a fresh descent. */
-  async 'legacy-notice'(page) {
-    await mode(page, 'playing');
-    await page.waitForFunction(() => window.__DD__.idle.hud().legacyNotice, null, { timeout: 30_000 });
-    await waitFrames(page, 3);
-    await page.waitForTimeout(500);
-  },
-};
-
-/** Init scripts per scene (before the page's own). */
-const INIT = {
-  'legacy-notice': () => {
-    if (sessionStorage.getItem('planted')) return;
-    sessionStorage.setItem('planted', '1');
-    const v2 = JSON.stringify({ version: 2, genVersion: 3, savedAt: 1, worldSeed: 1, playTime: 900, player: { x: 1, y: 2, z: 3, yaw: 0, health: 100 }, backpack: [], storage: {} });
-    let h = 0x811c9dc5;
-    for (let i = 0; i < v2.length; i++) {
-      h ^= v2.charCodeAt(i);
-      h = Math.imul(h, 0x01000193);
-    }
-    localStorage.setItem('deepdown.save.a', JSON.stringify({ checksum: (h >>> 0).toString(16).padStart(8, '0'), json: v2 }));
-    localStorage.setItem('deepdown.save.active', 'a');
-    localStorage.removeItem('deepdown.legacyNoticeShown');
-  },
-};
-
-const plan = [];
-for (const s of shots) {
-  if (s.scene === 'all') {
-    for (const k of Object.keys(SCENES)) plan.push({ scene: k, size: opt.size });
-    plan.push({ scene: 'hud-20m', size: '360x740', name: '360x740' });
-    plan.push({ scene: 'hud-20m', size: '412x915', name: '412x915' });
-  } else plan.push({ ...s, size: opt.size });
-}
 
 const server = await createServer({ server: { port: 5199, strictPort: false, hmr: false }, logLevel: 'error' });
 await server.listen();
-const url = server.resolvedUrls?.local?.[0] ?? `http://localhost:${server.config.server.port ?? 5199}/`;
+const port = server.config.server.port ?? 5199;
+const url = server.resolvedUrls?.local?.[0] ?? `http://localhost:${port}/`;
 const browser = await chromium.launch({
   args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist', '--autoplay-policy=no-user-gesture-required'],
 });
-let failed = 0;
 try {
-  for (const shot of plan) {
-    const [width, height] = size(shot.size);
-    const context = await browser.newContext({ viewport: { width, height }, deviceScaleFactor: Number(opt.dpr), hasTouch: true });
-    const page = await context.newPage();
+  for (const shot of shots) {
+    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: Number(opt.dpr) });
     const logs = [];
     page.on('console', (m) => logs.push(`[${m.type()}] ${m.text()}`));
     page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
-    if (shot.scene && INIT[shot.scene]) await page.addInitScript(INIT[shot.scene]);
     const t0 = Date.now();
-    const name = `${opt.prefix}${shot.name ?? shot.scene}`;
+    await page.goto(`${url}${opt.page}?${shot.query}`);
     try {
-      await page.goto(`${url}${opt.page}${shot.query ? `?${shot.query}` : ''}`);
-      await ready(page);
-      let after = null;
-      if (shot.scene) {
-        const fn = SCENES[shot.scene];
-        if (!fn) throw new Error(`unknown scene ${shot.scene} (${Object.keys(SCENES).join(', ')})`);
-        after = await fn(page, await Touch.attach(page));
-      } else await page.waitForTimeout(Number(opt.wait));
-      const file = `${opt.out}/${name}.png`;
-      await page.screenshot({ path: file, timeout: 180_000 });
-      if (after) await after();
-      const perf = await page.evaluate(() => window.__DD__.idle.perf());
-      console.log(`[${name}] ${file} ${Date.now() - t0} ms (${perf.fps} fps)`);
+      await page.waitForFunction(() => window.__DD__ && window.__DD__.ready, null, { timeout: Number(opt.timeout), polling: 250 });
     } catch (e) {
-      failed++;
-      console.log(`[${name}] FAILED: ${e.message}\n${logs.slice(-8).join('\n')}`);
+      console.log(`[${shot.name}] not ready:`, logs.slice(-10).join('\n'));
+      throw e;
     }
-    const errs = logs.filter((l) => l.startsWith('[error]') || l.startsWith('[pageerror]'));
+    await page.waitForTimeout(Number(opt.wait));
+    const file = `${opt.out}/${shot.name}.png`;
+    await page.screenshot({ path: file });
+    const info = await page.evaluate(() => JSON.stringify(window.__DD__.report ? window.__DD__.report() : { info: window.__DD__.info, chunks: window.__DD__.chunks, frames: window.__DD__.frames }));
+    console.log(`[${shot.name}] ${file} ${Date.now() - t0}ms ${info}`);
+    const errs = logs.filter((l) => l.includes('error') || l.includes('warn'));
     if (errs.length) console.log(errs.slice(0, 8).join('\n'));
-    await context.close();
+    await page.close();
   }
 } finally {
   await browser.close();
   await server.close();
 }
-process.exit(failed ? 1 : 0);

@@ -6,7 +6,7 @@ import { CLOTH, FIRE, IRON, LEATHER, ROPE, WOOD } from './palette';
 import { beam, disc, ring, shade, vary } from './shapes';
 
 /**
- * Props of the world-variety pass (the old feature pass): the Halden logs, the hoist gear, and the
+ * Props of the world-variety pass (world/gen/features): the Halden logs, the hoist gear, and the
  * pack an explorer leaves behind on a black-out. Halden timber, iron and leather; nothing cyan.
  * Every model stands on y = 0 and faces +Z, like the others in models.ts.
  */

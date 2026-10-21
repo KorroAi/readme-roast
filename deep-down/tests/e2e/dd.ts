@@ -1,18 +1,65 @@
-// The slice of window.__DD__ the e2e specs use, declared once so every spec type-checks together. The first-person
-// game's surface is `__DD__.hybrid` (src/debug/hybrid.ts, SPEC §13.3): specs set up states and read results through
-// it, and every touch is a real touch (tests/e2e/touch.ts). `internals` reaches the running game, typed loosely, for
-// the release shell's tests only (the renderer's GL context, the settings).
+// The slice of window.__DD__ (src/debug/DebugApi.ts) the e2e specs use, declared once so every
+// spec type-checks together. Game internals are reached through `game` and typed loosely.
 
 import type { Page } from '@playwright/test';
-import type { HybridDebug } from '../../src/debug/hybrid';
 
-export type { HybridDebug, HybridFaceCell, HybridFloorPoint, HybridTappable, HybridNav } from '../../src/debug/hybrid';
+export type Vec3i = [number, number, number];
 
 export type DD = {
-  /** The first-person game's surface (SPEC §13.3). */
-  hybrid: HybridDebug;
-  /** The running game and the FX canvas (debug only). */
-  internals: { game: any; fx: any };
+  ready: boolean;
+  state(): any;
+  report(): any;
+  events(type?: string): Array<{ type: string; payload: any; t: number }>;
+  clearEvents(): void;
+  prepareMining(id: number, x: number, y: number, z: number, r?: number): { block: Vec3i; stand: Vec3i } | null;
+  aimAt(x: number, y: number, z: number, ndcX?: number, ndcY?: number): boolean;
+  teleport(x: number, y: number, z: number, yaw?: number): void;
+  landmarks(): Record<string, Vec3i>;
+  standableNear(x: number, y: number, z: number): Vec3i | null;
+  block(x: number, y: number, z: number): number;
+  give(item: string, n: number): number;
+  isSolid(x: number, y: number, z: number): boolean;
+  save(): boolean;
+  input(patch: Record<string, unknown>): void;
+  look(yaw: number, pitch: number): void;
+  step(frames: number, dt?: number): void;
+  loop: {
+    recompute(): { homeMs: number; reachMs: number; cacheMs: number; homeCells: number };
+    homeSteps(x: number, y: number, z: number): number;
+    reachable(x: number, y: number, z: number): boolean;
+    cache(): { x: number; y: number; z: number; depth: number; items: Record<string, number> } | null;
+    report(): any;
+    next(): { id: string; text: string };
+  };
+  /** World variety (game/WorldFeatures). */
+  features: {
+    state(): any;
+    ride(id: string, dir: 'up' | 'down', t?: number): boolean;
+    release(): void;
+    openDoor(id: string): boolean;
+    wake(id: string): boolean;
+    setEpoch(n: number): number;
+    sites(): Array<{ kind: string; id: string; area: string; x: number; y: number; z: number; epoch: number; present: boolean }>;
+    layout(): any;
+  };
+  /** Mutating helpers run (automation or ?debug=1). */
+  mutations: boolean;
+  setBlock(x: number, y: number, z: number, id: number): void;
+  /** The tree, the stations, the runes, the rumours (final pass W3). */
+  progression: {
+    state(): any;
+    tree(): any;
+    survey(): any;
+    journal(): any;
+    craft(id: string): void;
+    setTarget(id: string | null): void;
+    grantNode(id: string): boolean;
+    grantRunes(n: number): number;
+    stoneDistance(): number;
+    plots(): any[];
+    runeSites(): any[];
+  };
+  game: any;
 };
 
 declare global {
@@ -23,100 +70,37 @@ declare global {
   }
 }
 
-/** Wall-clock ceiling for anything that waits on the game (SwiftShader under load renders at a few fps). */
+
+// ---------------------------------------------------------------------------------------
+// Load-proof waits. Under machine load SwiftShader renders at 0-1 fps, so a wall-clock budget
+// says nothing about the game: the specs wait on game time instead, under a generous
+// wall-clock ceiling. The assertions themselves are unchanged.
+
+/** Wall-clock ceiling for anything that waits on the game. */
 export const LOADED_CEILING_MS = 240_000;
 
-/** Wait until the game drew its first frame. */
-export async function idleReady(page: Page, timeout = 180_000): Promise<void> {
-  await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true, null, { timeout, polling: 200 });
-}
+/** Seconds of play so far (advances only while playing). */
+export const playTime = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.playTime as number);
 
-/** Wait until the game is in `mode` ('playing', 'paused', 'crashed'; the menu is the camp: `waitMenu`). */
-export async function waitMode(page: Page, mode: string, timeout = 180_000): Promise<void> {
-  await page.waitForFunction((m) => window.__DD__?.hybrid?.ready === true && window.__DD__.hybrid.mode() === m, mode, { timeout, polling: 200 });
-}
+/** Seconds of game time in any mode (the shader clock). */
+export const gameClock = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value as number);
 
-/** Frames drawn so far. */
-export const frames = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.hybrid.frame());
-
-/** Wait for `n` more frames (under the wall-clock ceiling). */
-export async function waitFrames(page: Page, n: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
-  const f0 = await frames(page);
-  await page.waitForFunction((t) => window.__DD__.hybrid.frame() >= t, f0 + n, { timeout: ceilingMs, polling: 50 });
-}
-
-/** Poll `done` until it holds or `ms` of wall clock pass. @returns whether it held. */
-export async function until(page: Page, done: () => Promise<boolean>, ms: number, pollMs = 200): Promise<boolean> {
-  const t0 = Date.now();
+/**
+ * Poll `done` until it holds, giving up only after `gameSeconds` of game time (the shader clock)
+ * or the wall-clock ceiling. @returns whether `done` held.
+ */
+export async function untilGame(page: Page, done: () => Promise<boolean>, gameSeconds: number, ceilingMs = LOADED_CEILING_MS, pollMs = 250): Promise<boolean> {
+  const t0 = await gameClock(page);
+  const wall = Date.now();
   for (;;) {
     if (await done()) return true;
-    if (Date.now() - t0 >= ms) return done();
+    if ((await gameClock(page)) - t0 >= gameSeconds || Date.now() - wall >= ceilingMs) return done();
     await page.waitForTimeout(pollMs);
   }
 }
 
-/** A fresh first launch: no save, no settings, no auto-quality record (run before the page's scripts). */
-export async function freshLaunch(page: Page): Promise<void> {
-  await page.addInitScript(() => {
-    if (sessionStorage.getItem('dd.e2e.cleared')) return;
-    sessionStorage.setItem('dd.e2e.cleared', '1');
-    for (const k of Object.keys(localStorage)) if (k.startsWith('deepdown')) localStorage.removeItem(k);
-  });
+/** Wait until `seconds` of play (playTime) have passed, under the wall-clock ceiling. */
+export async function waitPlay(page: Page, seconds: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
+  const t0 = await playTime(page);
+  await page.waitForFunction(([t, s]) => window.__DD__.game.playTime - t >= s, [t0, seconds] as const, { timeout: ceilingMs, polling: 50 });
 }
-
-// ----- the first-person game (SPEC §13.3) -------------------------------------------------------------------------
-
-/** Wait until the hybrid game drew its first frame. */
-export async function hybridReady(page: Page, timeout = 180_000): Promise<void> {
-  await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true, null, { timeout, polling: 200 });
-}
-
-/**
- * Wait for the menu: the camp at the adit mouth with nothing open (SPEC §5.10; `screen === 'menu'`, where Back belongs
- * to the OS). The game's mode there is 'playing': the camp is a place, not a screen.
- */
-export async function waitMenu(page: Page, timeout = 180_000): Promise<void> {
-  await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true && (window.__DD__.internals?.game as { screen?: string } | undefined)?.screen === 'menu', null, { timeout, polling: 200 });
-}
-
-/** "Descend" from the camp: a tap on the objective line ("Go down the adit") walks to the adit, which goes down. */
-export async function descend(page: Page, timeout = 240_000): Promise<void> {
-  await page.locator('[data-hud="goal"]').click();
-  await page.waitForFunction(() => window.__DD__.hybrid.node().phase !== 'camp', null, { timeout, polling: 200 });
-}
-
-/** Wait until the hybrid game is in `mode` ('playing', 'paused', 'crashed'; the menu is the camp: `waitMenu`). */
-export async function hybridMode(page: Page, mode: string, timeout = 180_000): Promise<void> {
-  await page.waitForFunction((m) => window.__DD__?.hybrid?.ready === true && window.__DD__.hybrid.mode() === m, mode, { timeout, polling: 200 });
-}
-
-/** Frames the hybrid game drew so far. */
-export const hybridFrames = (page: Page): Promise<number> => page.evaluate(() => window.__DD__.hybrid.frame());
-
-/** Wait for `n` more hybrid frames. */
-export async function hybridWaitFrames(page: Page, n: number, ceilingMs = LOADED_CEILING_MS): Promise<void> {
-  const f0 = await hybridFrames(page);
-  await page.waitForFunction((t) => window.__DD__.hybrid.frame() >= t, f0 + n, { timeout: ceilingMs, polling: 50 });
-}
-
-/** Wait until the player's phase is `phase` (and, optionally, at node `node`). */
-export async function waitPhase(page: Page, phase: string, node?: number, timeout = LOADED_CEILING_MS): Promise<void> {
-  await page.waitForFunction(
-    ([p, n]) => {
-      const h = window.__DD__?.hybrid;
-      if (!h?.ready) return false;
-      const v = h.node();
-      return v.phase === p && (n === null || v.node === n);
-    },
-    [phase, node ?? null] as const,
-    { timeout, polling: 100 },
-  );
-}
-
-/** Wait until the camera stops moving (glides, walks, rides, the look's settle). */
-export async function waitStill(page: Page, timeout = LOADED_CEILING_MS): Promise<void> {
-  await page.waitForFunction(() => window.__DD__?.hybrid?.ready === true && !window.__DD__.hybrid.camera().moving, null, { timeout, polling: 100 });
-}
-
-/** The centre of a rect. */
-export const centreOf = (r: { x: number; y: number; w: number; h: number }): { x: number; y: number } => ({ x: r.x + r.w / 2, y: r.y + r.h / 2 });

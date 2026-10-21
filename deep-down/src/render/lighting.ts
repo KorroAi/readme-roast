@@ -24,25 +24,7 @@ import { hexToLinear } from '../core/math';
  * sqrt(x / (1 + x)) so values above 1 (crystals, flames) survive the 8-bit clamp and the darks
  * get far finer steps than linear 8-bit. The post chain decodes it.
  */
-export { SCENE_ENCODE } from './light/uniforms';
-import { SCENE_ENCODE } from './light/uniforms';
-
-/**
- * Transient impact lights (CRITIQUE B14; owner 2D): up to 4 point lights with no visibility term, one shared
- * uniform set for the terrain (both paths) and every entity material, so a crit, a break, a blast, a chest
- * opening or a seal break lights the rock and the props around it alike. DescentScene writes them
- * (position + radius, colour + intensity; intensity 0 = off). About 12 ALU each, uniform-driven.
- */
-export const IMPACT_LIGHTS = {
-  uImpactPos: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) } as THREE.IUniform<THREE.Vector4[]>,
-  uImpactCol: { value: Array.from({ length: 4 }, () => new THREE.Vector4(0, 0, 0, 0)) } as THREE.IUniform<THREE.Vector4[]>,
-};
-
-/**
- * The dig lantern's core colour (linear), one shared uniform for every rig and material: BiomeLook writes it
- * per biome (warm biomes whiten it so the human amber stays apart from their accents, W2 §5 MUST 3).
- */
-export const LANTERN_COLOR: THREE.IUniform<THREE.Color> = { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) };
+export const SCENE_ENCODE: THREE.IUniform<number> = { value: 0 };
 
 export interface LightingUniforms {
   [name: string]: THREE.IUniform;
@@ -54,7 +36,6 @@ export interface LightingUniforms {
   uLanternColor: THREE.IUniform<THREE.Color>;
   uLanternRadius: THREE.IUniform<number>;
   uLanternIntensity: THREE.IUniform<number>;
-  uFogStart: THREE.IUniform<number>;
   uAmbient: THREE.IUniform<THREE.Color>;
   uOpenAmbient: THREE.IUniform<THREE.Color>;
   uEmitGain: THREE.IUniform<number>;
@@ -86,28 +67,9 @@ uniform vec3 uFogLow;
 uniform vec4 uFogPool;
 uniform vec4 uAtmos;
 uniform float uFogDensity;
-// Haze starts this far from the eye (the descent: the glass plane, so the dig face is in clear air).
-uniform float uFogStart;
 uniform float uTime;
 uniform vec3 uDebug; // x: fullbright amount, y: clip height (discard above), z: unused
 uniform float uSceneEncode;
-uniform vec4 uImpactPos[4]; // xyz, radius (IMPACT_LIGHTS)
-uniform vec4 uImpactCol[4]; // rgb, intensity
-
-// The transient impact lights at a point with a normal (CRITIQUE B14).
-vec3 impactLight(vec3 p, vec3 n) {
-  vec3 sum = vec3(0.0);
-  for (int i = 0; i < 4; i++) {
-    vec4 ip = uImpactPos[i];
-    vec4 ic = uImpactCol[i];
-    if (ic.a <= 0.0) continue;
-    vec3 d = ip.xyz - p;
-    float dl = length(d);
-    float att = max(0.0, 1.0 - dl / max(ip.w, 0.1));
-    sum += ic.rgb * (ic.a * att * att * (0.3 + 0.7 * max(dot(n, d / max(dl, 1e-3)), 0.0)));
-  }
-  return sum;
-}
 
 // Final write of a lit colour into the scene target (see SCENE_ENCODE).
 vec3 sceneOut(vec3 c) {
@@ -198,12 +160,6 @@ float lanternVisibility(vec3 samplePos) {
 // leaks through walls. open: openness at the sample (light volume alpha): the bounce is stronger
 // in enclosed spaces and weaker in open halls. minDist: entities next to the flame (the explorer
 // who carries it) clamp the distance, so the carrier is never the brightest thing on screen.
-// The amber the flame deepens to; a whitened lantern (warm biomes, BiomeLook) deepens less, so the pool on a
-// warm host does not burn to saturated orange.
-vec3 lanternDeep() {
-  float white = smoothstep(0.62, 0.8, uLanternColor.b / max(uLanternColor.r, 1e-3));
-  return mix(vec3(1.0, 0.71, 0.4), vec3(1.0, 0.84, 0.66), white);
-}
 const float LANTERN_K = 6.0;
 const float LANTERN_GAIN = 1.6;
 vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDist) {
@@ -221,7 +177,7 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float wrap = 0.05 + 0.2 * up;
   float diff = clamp(dot(n, l) * (1.0 - wrap) + wrap, 0.0, 1.0);
   diff *= 1.0 - 0.6 * up * (1.0 - smoothstep(2.5, 4.5, dist));
-  vec3 tint = mix(vec3(1.0), lanternDeep(), smoothstep(0.05, 0.18, x));
+  vec3 tint = mix(vec3(1.0), vec3(1.0, 0.71, 0.4), smoothstep(0.05, 0.18, x));
   float vis = lanternVisibility(samplePos);
   float bounce = uAtmos.y * (1.5 - open);
   vec3 bounceTint = mix(tint, vec3(0.75, 0.85, 1.0), 0.7);
@@ -261,7 +217,6 @@ float poolDepth(vec3 wp, float depth) {
 // deep one glows (light scattered many times), so mid-distance forms (pillars, the Spindle, stair
 // flights) stand as darker silhouettes against the lighter depth behind them.
 vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
-  depth = max(depth - uFogStart, 0.0);
   float f = depth * uFogDensity;
   float od = f * f * 0.6 + f * 0.4 + poolDepth(wp, depth);
   float a = 1.0 - exp(-od);
@@ -383,9 +338,6 @@ export class LightingRig {
   private readonly sy: number;
   private readonly sz: number;
   private pending: Box3i | null = null;
-  /** Ring worlds: the storage rows to upload (a change can cross the ring's wrap), with an x/z box. */
-  private pendingRows: Uint8Array | null = null;
-  private rowBox: Box3i = { x0: 0, y0: 0, z0: 0, x1: -1, y1: -1, z1: -1 };
   /** Current zone weights (camp, tunnel, hollow, rift), smoothed over time. */
   readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0 };
   /** Exposure multiplier of the current atmosphere (the post chain applies it). */
@@ -431,8 +383,8 @@ export class LightingRig {
       uWorldSize: { value: new THREE.Vector3(sx, sy, sz) },
       uLanternOrigin: { value: new THREE.Vector3() },
       uLanternPos: { value: new THREE.Vector3() },
-      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m). Shared (LANTERN_COLOR).
-      uLanternColor: LANTERN_COLOR,
+      // Warm-pale core, pale gold rather than white (the shader deepens it to amber by ~1.8 m).
+      uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffe6c6)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
       uAmbient: { value: new THREE.Color() },
@@ -443,11 +395,9 @@ export class LightingRig {
       uFogPool: { value: this.fogPool },
       uAtmos: { value: this.atmos },
       uFogDensity: { value: 0.02 },
-      uFogStart: { value: 0 },
       uTime: { value: 0 },
       uDebug: { value: new THREE.Vector3(0, 9999, 0) },
       uSceneEncode: SCENE_ENCODE,
-      ...IMPACT_LIGHTS,
     };
     // Default until updateAtmosphere() runs (Visual Lab, viewer): the Hollow's colours and
     // distance fog without its height pool, whose level is a height in the game world.
@@ -547,23 +497,6 @@ export class LightingRig {
     this.exposure = m.k[7];
   }
 
-  /**
-   * Set the atmosphere directly from linear colours (the descent's BiomeLook): haze, pooled haze, base
-   * ambient and open fill, the haze density and where it starts, scatter/bounce/absorb and exposure.
-   */
-  applyLook(l: { fog: THREE.Color; fogLow: THREE.Color; ambient: THREE.Color; open: THREE.Color; density: number; fogStart: number; scatter: number; bounce: number; absorb: number; exposure: number }): void {
-    const u = this.uniforms;
-    u.uFogColor.value.copy(l.fog);
-    this.fogLow.copy(l.fogLow);
-    u.uAmbient.value.copy(l.ambient);
-    u.uOpenAmbient.value.copy(l.open);
-    u.uFogDensity.value = l.density;
-    u.uFogStart.value = l.fogStart;
-    this.fogPool.set(-1000, 0.25, 0, 0);
-    this.atmos.set(l.scatter, l.bounce, l.absorb, 0);
-    this.exposure = l.exposure;
-  }
-
   /** Queue a sub-region of the world light texture for upload. */
   markLightDirty(box: Box3i): void {
     if (box.x1 < box.x0) return;
@@ -580,37 +513,6 @@ export class LightingRig {
     p.z1 = Math.max(p.z1, box.z1);
   }
 
-  /**
-   * Queue storage rows of the light texture for upload (ring worlds: `rows[y]` = 1), over the x/z extent of
-   * `box` (its y range is ignored). Each contiguous run of rows becomes one texSubImage3D.
-   */
-  markLightRows(rows: Uint8Array, box: Box3i | null = null): void {
-    if (!this.pendingRows) this.pendingRows = new Uint8Array(this.sy);
-    let any = false;
-    for (let y = 0; y < this.sy; y++)
-      if (rows[y]) {
-        this.pendingRows[y] = 1;
-        any = true;
-      }
-    if (!any) return;
-    const b = this.rowBox;
-    const x0 = box && box.x1 >= box.x0 ? box.x0 : 0;
-    const x1 = box && box.x1 >= box.x0 ? box.x1 : this.sx - 1;
-    const z0 = box && box.x1 >= box.x0 ? box.z0 : 0;
-    const z1 = box && box.x1 >= box.x0 ? box.z1 : this.sz - 1;
-    if (b.x1 < b.x0) {
-      b.x0 = x0;
-      b.x1 = x1;
-      b.z0 = z0;
-      b.z1 = z1;
-    } else {
-      b.x0 = Math.min(b.x0, x0);
-      b.x1 = Math.max(b.x1, x1);
-      b.z0 = Math.min(b.z0, z0);
-      b.z1 = Math.max(b.z1, z1);
-    }
-  }
-
   /** Mark the whole lantern volume for re-upload (it is tiny: 32 KB). */
   markLanternDirty(origin: THREE.Vector3Like): void {
     this.uniforms.uLanternOrigin.value.set(origin.x, origin.y, origin.z);
@@ -622,33 +524,9 @@ export class LightingRig {
    * whole world volume. Falls back to a full upload if the texture is not on the GPU yet.
    */
   flush(renderer: THREE.WebGLRenderer): void {
-    if (this.pendingRows) {
-      const rows = this.pendingRows;
-      const rb = this.rowBox;
-      this.pendingRows = null;
-      if (rb.x1 >= rb.x0) {
-        // One upload per contiguous run of rows.
-        for (let y = 0; y < this.sy; ) {
-          if (!rows[y]) {
-            y++;
-            continue;
-          }
-          let e = y;
-          while (e + 1 < this.sy && rows[e + 1]) e++;
-          this.uploadBox(renderer, { x0: rb.x0, x1: rb.x1, z0: rb.z0, z1: rb.z1, y0: y, y1: e });
-          y = e + 1;
-        }
-      }
-      rb.x0 = rb.y0 = rb.z0 = 0;
-      rb.x1 = rb.y1 = rb.z1 = -1;
-    }
     const box = this.pending;
     if (!box) return;
     this.pending = null;
-    this.uploadBox(renderer, box);
-  }
-
-  private uploadBox(renderer: THREE.WebGLRenderer, box: Box3i): void {
     const props = renderer.properties.get(this.lightTex) as { __webglTexture?: WebGLTexture };
     const glTex = props.__webglTexture;
     if (!glTex || this.lightTex.version === 0) {
