@@ -1,0 +1,64 @@
+[
+ {
+  "name": "vm-01-camp",
+  "at": [
+   38.5,
+   101,
+   44.5
+  ],
+  "look": [
+   40.5,
+   101.6,
+   37.5
+  ],
+  "pitch": -0.12
+ },
+ {
+  "name": "vm-02-mining",
+  "at": [
+   60.5,
+   100,
+   34.5
+  ],
+  "look": [
+   63.5,
+   101.2,
+   34.5
+  ],
+  "pitch": -0.05,
+  "eval": "window.__afterTeleport=()=>{const D=window.__DD__;const p=D.game.player;let best=null,bd=9;for(let x=-4;x<=4;x++)for(let y=-1;y<=3;y++)for(let z=-4;z<=4;z++){const X=Math.floor(p.x)+x,Y=Math.floor(p.y)+y,Z=Math.floor(p.z)+z;if(D.block(X,Y,Z)!==7)continue;const d=Math.hypot(X+0.5-p.x,Y+0.5-p.y-1.6,Z+0.5-p.z);if(d<bd){bd=d;best=[X,Y,Z];}}if(best){D.aimAt(best[0],best[1],best[2]);D.input({mining:true});}};",
+  "frames": 24
+ },
+ {
+  "name": "vm-03-hoist-ride",
+  "at": [
+   87,
+   88,
+   82.5
+  ],
+  "look": [
+   85.5,
+   60,
+   84.5
+  ],
+  "pitch": -0.2,
+  "eval": "window.__afterTeleport=()=>{window.__DD__.input({mining:false});window.__DD__.features.ride('hoist','down',0.45);};",
+  "frames": 10
+ },
+ {
+  "name": "vm-04-rope-ride",
+  "at": [
+   133.5,
+   25,
+   124.5
+  ],
+  "look": [
+   130.5,
+   7,
+   124.5
+  ],
+  "pitch": -0.3,
+  "eval": "window.__afterTeleport=()=>window.__DD__.features.ride('riftRope','down',0.5);",
+  "frames": 10
+ }
+]

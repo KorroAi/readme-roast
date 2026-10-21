@@ -64,6 +64,10 @@ uniform vec3 uEmissiveColor;
 uniform float uFlash;
 uniform float uFade;
 uniform float uRim;
+// Rarity highlight (render/highlight.ts): x ambient (0..1, breathing), y selected (0..1).
+uniform vec3 uHiColor;
+uniform vec2 uHi;
+uniform float uHiShimmer; // 1 for legendary finds: a slow band of light travels over them
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -129,10 +133,32 @@ void main() {
   vec3 color = nearShoulder(albedo * light, albedo * lantern);
   // The flame glints on crafted things (wood, iron, brass) as it moves: soft lobe, low reflectance.
   color += lanternSpec(n, normalize(cameraPosition - vWorldPos), 0.5, vec3(0.04)) * contact;
+#ifdef CRYSTAL
+  // Round 2: crystal is glass with a light inside, not lit plastic. Its glow gathers at the edges
+  // turned away from the eye (the core reads deep and darker), and the flame draws a tight,
+  // bright streak on the facets as it moves.
+  {
+    vec3 vv = normalize(cameraPosition - vWorldPos);
+    float fr = 1.0 - clamp(abs(dot(n, vv)), 0.0, 1.0);
+    emissive *= 0.45 + 0.75 * fr * fr + 0.25 * fr;
+    color = color * 0.6 + lanternSpec(n, vv, 0.12, vec3(0.09)) * 2.2;
+  }
+#endif
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
   color += emissive * uAtmos.w * (1.0 - atm.a * uAtmos.z);
   color += uFlash * vec3(1.0, 0.95, 0.85);
+  if (uHi.x + uHi.y > 0.0) {
+    // A thin rim of the rarity colour on the silhouette and a faint inner glow, brighter selected.
+    vec3 v = normalize(cameraPosition - vWorldPos);
+    float f = 1.0 - clamp(abs(dot(n, v)), 0.0, 1.0);
+    float rim = smoothstep(0.55, 0.95, f);
+    color += uHiColor * (rim * (0.44 * uHi.x + 0.8 * uHi.y) + (0.035 * uHi.x + 0.07 * uHi.y));
+    if (uHiShimmer > 0.5) {
+      float band = smoothstep(0.8, 1.0, sin(dot(vWorldPos, vec3(1.1, 0.7, 0.9)) * 2.2 - uTime * 1.25));
+      color += uHiColor * band * (0.05 + 0.35 * rim) * max(uHi.x, uHi.y);
+    }
+  }
   fragColor = vec4(sceneOut(color), 1.0);
 }
 `;
@@ -157,6 +183,8 @@ export interface EntityMaterialOptions {
    * and shrunk away near the lens (gone within 0.6 m of the camera).
    */
   debris?: boolean;
+  /** Crystal shards (round 2): glass with an inner light, edge-weighted glow and a tight glint. */
+  crystal?: boolean;
 }
 
 export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMaterialOptions = {}): THREE.ShaderMaterial {
@@ -170,8 +198,11 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uFlash: { value: 0 },
       uFade: { value: 1 },
       uRim: { value: opts.rim ?? (opts.fade ? 1 : 0) },
+      uHiColor: { value: new THREE.Vector3(1, 1, 1) },
+      uHi: { value: new THREE.Vector2(0, 0) },
+      uHiShimmer: { value: 0 },
     },
-    defines: opts.debris ? { DEBRIS: '' } : {},
+    defines: { ...(opts.debris ? { DEBRIS: '' } : {}), ...(opts.crystal ? { CRYSTAL: '' } : {}) },
     vertexShader: vertex,
     fragmentShader: fragment,
     side: opts.doubleSided ? THREE.DoubleSide : THREE.FrontSide,

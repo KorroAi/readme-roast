@@ -107,14 +107,14 @@ export const core = {
   // Hints & tutorial
   'hint.move': 'Tap the floor to walk there. Drag anywhere to look.',
   'hint.look': 'Drag anywhere to look around.',
-  'hint.mine': 'Tap a rock to mine it to the end. Hold to keep mining.',
-  'hint.mineDesktop': 'Hold the left mouse button on a block to mine it.',
+  'hint.mine': 'Tap a glowing vein or loose stone to mine it. Hold to keep mining.',
+  'hint.mineDesktop': 'Hold the left mouse button on a glowing vein or loose stone to mine it.',
   'hint.moveDesktop': 'WASD to move · Mouse to look · Space to jump.',
   'hint.pickup': 'Your finds fly into your bag. Tap the bag at the top to look inside.',
   'hint.camp': 'Return to camp to bank your finds and refill your lantern.',
   'hint.workbench': 'Use the Workbench to craft upgrades.',
   'hint.tooHard': 'Too hard. You need a {tool}.',
-  'hint.unbreakable': 'This ancient stone will not yield to any pickaxe… yet.',
+  'hint.unbreakable': 'Solid rock. Only what glows can be taken.',
   'hint.protected': 'Better not wreck your own camp.',
   'hint.outOfReach': 'Out of reach.',
   'hint.backpackFull': 'Backpack full! Return to camp to bank your finds.',
@@ -154,7 +154,7 @@ export const core = {
   'discovery.ironVein.body': 'Dark iron, too hard for copper alone. Stronger tools will come from this.',
 
   // Objectives
-  'objective.mineStone': 'Mine stone ({have}/{need})',
+  'objective.mineStone': 'Gather loose stone ({have}/{need})',
   'objective.findCopper': 'Find copper ore ({have}/{need})',
   'objective.returnToCamp': 'Return to camp',
   'objective.craftPickaxe': 'Craft a Copper Pickaxe at the Workbench',

@@ -183,7 +183,7 @@ export function closestNode(ctx: CraftContext): { id: NodeId; missing: number; s
 
 /** Can anything in the tree be made right now (the report's CTA)? */
 export function anyCraftable(ctx: CraftContext): boolean {
-  return NODE_LIST.some((def) => !def.auto && evaluate(def.id, ctx).ok);
+  return NODE_LIST.some((def) => !def.auto && !def.repeat && evaluate(def.id, ctx).ok);
 }
 
 export { nodeDef };

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { Viewmodel } from '../../src/game/fp/Viewmodel';
+import { Viewmodel, actionPose, type RightTool } from '../../src/game/fp/Viewmodel';
 
 // The first-person tools' screen footprint at rest, measured through the viewmodel's own lens:
 // every triangle of the pick (with its glove and sleeve) and of the lantern (with its own) is
@@ -116,7 +116,7 @@ describe('viewmodel layout', () => {
     }
   });
 
-  it('is smaller than the first cut (pick and lantern ~20 % smaller) and the whole lantern stays on screen', () => {
+  it('is smaller than the first cut (the pick ~20 % smaller, the lantern under 3 %) and the whole lantern stays on screen', () => {
     for (const tier of [1, 2, 3, 4]) {
       const vm = new Viewmodel();
       vm.set({ pickTier: tier, lanternTier: Math.min(3, tier) });
@@ -124,7 +124,10 @@ describe('viewmodel layout', () => {
       // The first cut covered 3.1-4.0 % of a portrait screen with the pick and 3.2-4.0 % with the
       // lantern; 20 % smaller each way is 0.64 of that.
       expect(port.pick.area).toBeLessThan(0.64 * 0.04);
-      expect(port.lantern.area).toBeLessThan(0.64 * 0.04);
+      // Round 2 (ROUND2 §0.5): the lantern was redone as the hero of the frame (a brass storm
+      // lantern with panes, guard and flame); it may stand a little taller, still well under the
+      // first cut's 3.2-4.0 %.
+      expect(port.lantern.area).toBeLessThan(0.03);
       expect(port.lanternBody.area).toBeGreaterThan(0.01);
       for (const aspect of SHAPES) {
         const f = footprint(vm, aspect);
@@ -134,5 +137,71 @@ describe('viewmodel layout', () => {
       }
       vm.dispose();
     }
+  });
+
+  it('keeps every weapon in the right hand out of the central column and in the lower part of the view', () => {
+    for (const tool of ['machete', 'spear', 'sling', 'flash'] as RightTool[]) {
+      const vm = new Viewmodel();
+      vm.setRightHand(tool, true);
+      for (const aspect of SHAPES) {
+        for (const mirror of [false, true]) {
+          const f = footprint(vm, aspect, mirror);
+          const at = `${tool}, aspect ${aspect.toFixed(2)}${mirror ? ', left hand' : ''}`;
+          const inner = mirror ? -f.pick.maxX : f.pick.minX;
+          expect(inner, at).toBeGreaterThanOrEqual(0.4);
+          expect(f.pick.maxY, at).toBeLessThan(0.1);
+          expect(f.pick.area, at).toBeLessThan(0.05);
+        }
+      }
+      vm.dispose();
+    }
+  });
+});
+
+describe('weapon actions', () => {
+  it('each blow lands at its contact frame: the spear is driven home, the sling lets go, the flash is thrown', () => {
+    const c = 0.4;
+    // Spear: drawn back before, furthest forward at contact.
+    expect(actionPose('spear', c * 0.5, c).thrust).toBeLessThan(0);
+    expect(actionPose('spear', c, c).thrust).toBeGreaterThan(0.2);
+    expect(actionPose('spear', 0.999, c).thrust).toBeLessThan(0.02);
+    // Sling: no kick until the release, then a kick that dies away.
+    expect(actionPose('sling', c * 0.9, c).kick).toBe(0);
+    expect(actionPose('sling', c + 0.02, c).kick).toBeGreaterThan(0.05);
+    expect(actionPose('sling', c, c).lift).toBeGreaterThan(0.95);
+    // Flash: drawn back low, then thrown up and forward.
+    expect(actionPose('flash', c, c).lift).toBeLessThan(-0.3);
+    expect(actionPose('flash', c + 0.2, c).thrust).toBeGreaterThan(0.1);
+    // Machete: the pick's swing, a little wider; at rest outside the action.
+    expect(actionPose('machete', c, c).angle).toBeLessThan(-1);
+    for (const t of ['pick', 'machete', 'spear', 'sling', 'flash'] as RightTool[]) {
+      expect(actionPose(t, 0, c)).toEqual({ angle: 0, thrust: 0, lift: 0, kick: 0 });
+      expect(actionPose(t, 1, c)).toEqual({ angle: 0, thrust: 0, lift: 0, kick: 0 });
+    }
+  });
+
+  it('a hit stop holds the blow still, then it finishes; a swap lowers the old tool first', () => {
+    const vm = new Viewmodel();
+    const cam = new THREE.PerspectiveCamera(78, 390 / 844, 0.05, 100);
+    cam.updateMatrixWorld();
+    const amb = new THREE.Color(0.05, 0.05, 0.05);
+    const fl = new THREE.Color(1, 0.6, 0.3);
+    vm.attack('machete', null, cam, 0.4, 0.4);
+    expect(vm.rightHand).toBe('machete');
+    for (let i = 0; i < 10; i++) vm.update(1 / 60, cam, 390 / 844, 0, 0, amb, fl);
+    vm.hitStop(0.04);
+    const internals = vm as unknown as { actT: number };
+    const held = internals.actT;
+    vm.update(0.02, cam, 390 / 844, 0, 0, amb, fl);
+    expect(internals.actT).toBe(held);
+    for (let i = 0; i < 40; i++) vm.update(1 / 60, cam, 390 / 844, 0, 0, amb, fl);
+    expect(vm.swinging).toBe(false);
+    // Back to the pick: lowered, then changed, then raised.
+    vm.setRightHand('pick');
+    vm.update(0.05, cam, 390 / 844, 0, 0, amb, fl);
+    expect((vm as unknown as { shown: string }).shown).toBe('machete');
+    for (let i = 0; i < 30; i++) vm.update(1 / 60, cam, 390 / 844, 0, 0, amb, fl);
+    expect((vm as unknown as { shown: string }).shown).toBe('pick');
+    vm.dispose();
   });
 });

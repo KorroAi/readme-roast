@@ -52,9 +52,19 @@ export const B = {
   RAMP_BASE_NX: 31,
   RAMP_BASE_PZ: 32,
   RAMP_BASE_NZ: 33,
-  // 34, 36..38 stay reserved for the content stream (tin, resonance, statues, fossils): air for now.
+  /**
+   * Round 2 (WORLD): only interesting things are minable. Ordinary rock is indestructible, so the
+   * stone recipes need comes from rubble: loose-stone heaps on the floors near the camp and along
+   * the routes (common).
+   */
+  RUBBLE: 34,
   /** Lanternstone (content): warm-veined stone; breaking it frees a Lantern Ember (+30 s of flame). */
   LANTERNSTONE: 35,
+  /** Root tangles (round 2): hanging and creeping roots, the source of Root Fibre now that soil is indestructible (common). */
+  ROOTS: 36,
+  /** Gem pockets (round 2): violet geodes in the deep caverns' walls (epic); they drop gems. */
+  GEM_ORE: 37,
+  // 38 stays reserved (statues, fossils): air for now.
   /** Echo crystal (final pass W3): the rift's pale glass. Tier 3; it glows in the shader only, no light. */
   ECHO_CRYSTAL: 39,
   /** Ironbound stone (final pass W3): the seal-stone of the relic niches, with a rune band. Tier 3. */
@@ -64,6 +74,13 @@ export const B = {
   LIGHT_MAGMA: 42,
   /** Ember glass (content): the black glass sealing the Ember Deep. Tier 4: only a Glimmer-edged Pickaxe cuts it. */
   EMBER_GLASS: 43,
+  /**
+   * Round 2 (WORLD): the events director's passing lights (a crystal bloom, the echo light, a spore
+   * geyser). Invisible, non-solid emitters that never persist: WorldSession.worldEdits saves them as
+   * air and the director clears any it finds when a world is attached.
+   */
+  LIGHT_EVENT: 44,
+  LIGHT_EVENT_GOLD: 45,
 } as const;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
@@ -84,6 +101,11 @@ export interface BlockDef {
   tier: number;
   /** Why it cannot be mined at any tier (shown to the player). */
   protectedReason?: 'unbreakable' | 'protected';
+  /**
+   * Ordinary rock (round 2): never minable. A tap gives a soft "tunk" and a tiny chip, never damage
+   * or a crack (config/rarity isMinable). Set on every plain stone, soil and gravel block.
+   */
+  plain?: true;
   drop: { item: ItemId; min: number; max: number; chance: number } | null;
   sound: SoundKind;
   tiles: { top: number; side: number; bottom: number };
@@ -107,12 +129,12 @@ const noDrop = null;
 const stoneDrop = { item: 'stone' as const, min: 1, max: 1, chance: 1 };
 
 def({ id: B.AIR, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
-def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.slate), debris: [0x363b44, 0x252a33, 0x41454d] });
-def({ id: B.DEEP_SLATE, name: 'block.deepSlate', solid: true, visible: true, hardness: 4, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x2e3440, 0x252a33, 0x3b4250] });
-def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, hardness: 3, tier: 1, drop: stoneDrop, sound: 'stone', tiles: same(TILE.umber), debris: [0x4a4b4d, 0x37383b, 0x404144] });
-def({ id: B.SOIL, name: 'block.soil', solid: true, visible: true, hardness: 1.4, tier: 1, drop: { item: 'rootFibre', min: 1, max: 1, chance: 0.45 }, sound: 'soil', tiles: same(TILE.soil), debris: [0x4a3a2e, 0x3a2d23] });
-def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, hardness: 1.6, tier: 1, drop: { item: 'stone', min: 1, max: 1, chance: 0.5 }, sound: 'soil', tiles: same(TILE.gravel), debris: [0x2d323b, 0x3a3d42] });
-def({ id: B.MOSS, name: 'block.moss', solid: true, visible: true, hardness: 2.6, tier: 1, drop: stoneDrop, sound: 'soil', tiles: { top: TILE.mossTop, side: TILE.mossSide, bottom: TILE.slate }, glow: 0, debris: [0x2f5d55, 0x4d5666] });
+def({ id: B.SLATE, name: 'block.slate', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'stone', tiles: same(TILE.slate), debris: [0x363b44, 0x252a33, 0x41454d] });
+def({ id: B.DEEP_SLATE, name: 'block.deepSlate', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'stone', tiles: same(TILE.deepSlate), debris: [0x2e3440, 0x252a33, 0x3b4250] });
+def({ id: B.UMBER, name: 'block.umber', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'stone', tiles: same(TILE.umber), debris: [0x4a4b4d, 0x37383b, 0x404144] });
+def({ id: B.SOIL, name: 'block.soil', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'soil', tiles: same(TILE.soil), debris: [0x4a3a2e, 0x3a2d23] });
+def({ id: B.GRAVEL, name: 'block.gravel', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'soil', tiles: same(TILE.gravel), debris: [0x2d323b, 0x3a3d42] });
+def({ id: B.MOSS, name: 'block.moss', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'soil', tiles: { top: TILE.mossTop, side: TILE.mossSide, bottom: TILE.slate }, glow: 0, debris: [0x2f5d55, 0x4d5666] });
 def({ id: B.COPPER_ORE, name: 'block.copperOre', solid: true, visible: true, hardness: 4, tier: 1, drop: { item: 'copperOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.copperOre), debris: [0xa95628, 0x2d323b, 0x2f4c3e] });
 def({ id: B.IRON_ORE, name: 'block.ironOre', solid: true, visible: true, hardness: 6, tier: 2, drop: { item: 'ironOre', min: 1, max: 2, chance: 1 }, sound: 'metal', tiles: same(TILE.ironOre), debris: [0x5e6269, 0x222730, 0x572b20] });
 def({
@@ -122,11 +144,11 @@ def({
   emission: [0.1, 0.38, 0.48], glow: 1.3, debris: [0x52e8f5, 0x9ff6ff, 0x1b8aa8],
 });
 def({ id: B.HARDENED_SLATE, name: 'block.hardenedSlate', solid: true, visible: true, hardness: 7, tier: 2, drop: stoneDrop, sound: 'stone', tiles: same(TILE.hardenedSlate), debris: [0x1f222b, 0x2b2f3a] });
-def({ id: B.ANCIENT_BRICK, name: 'block.ancientBrick', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] });
-def({ id: B.ANCIENT_TILE, name: 'block.ancientTile', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientTile, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, glow: 0, debris: [0x535a6a] });
+def({ id: B.ANCIENT_BRICK, name: 'block.ancientBrick', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] });
+def({ id: B.ANCIENT_TILE, name: 'block.ancientTile', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientTile, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, glow: 0, debris: [0x535a6a] });
 def({ id: B.CRUMBLING_BRICK, name: 'block.crumblingBrick', solid: true, visible: true, hardness: 2, tier: 1, drop: stoneDrop, sound: 'ancient', tiles: same(TILE.crumblingBrick), glow: 1.4, debris: [0x5c6474, 0x474e5c] });
 def({
-  id: B.GLYPH_STONE, name: 'block.glyphStone', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable',
+  id: B.GLYPH_STONE, name: 'block.glyphStone', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true,
   drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.glyphStone, bottom: TILE.ancientBrickTop },
   // Inscriptions breathe a faint cold light along their course; the carved runes themselves
   // wake near the lantern (terrain shader). They must never flood a room.
@@ -135,7 +157,7 @@ def({
 def({ id: B.PLANK, name: 'block.plank', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: same(TILE.plank), debris: [0x7a5536, 0x5c3f28] });
 def({ id: B.BEAM, name: 'block.beam', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
 def({ id: B.HEARTH, name: 'block.hearth', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'stone', tiles: same(TILE.hearth), glow: 1.1, debris: [0x332b25] });
-def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: same(TILE.bedrock), debris: [0x14161c] });
+def({ id: B.BEDROCK, name: 'block.bedrock', solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'ancient', tiles: same(TILE.bedrock), debris: [0x14161c] });
 // Warm lights are amber-gold, not red-orange: the light volume is squared-ish on its way to the
 // shader (lightSample: pow 1.55), and a light with too little green mixes with the cool open fill
 // on the bluish stone into rose and mauve at the rim of every pool. With green at ~0.6 of red
@@ -148,7 +170,7 @@ def({ id: B.LIGHT_CYAN, name: 'block.light', solid: false, visible: false, hardn
 def({ id: B.LIGHT_LAMP, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [1.0, 0.7, 0.36] });
 def({ id: B.LIGHT_ABYSS, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.5, 0.32, 1.0] });
 // Built forms drawn as structure meshes: collision only (no chunk faces), never mined.
-const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;
+const structureStone = { solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'unbreakable', plain: true, drop: noDrop, sound: 'ancient', tiles: { top: TILE.ancientBrickTop, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, debris: [0x535a6a, 0x434957] } as const;
 def({ id: B.STRUCTURE, name: 'block.ancientBrick', ...structureStone });
 def({ id: B.STRUCTURE_TIMBER, name: 'block.beam', solid: true, visible: false, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'wood', tiles: { top: TILE.beamEnd, side: TILE.beamSide, bottom: TILE.beamEnd }, debris: [0x5c3f28] });
 for (const id of [B.RAMP_PX, B.RAMP_NX, B.RAMP_PZ, B.RAMP_NZ, B.RAMP_BASE_PX, B.RAMP_BASE_NX, B.RAMP_BASE_PZ, B.RAMP_BASE_NZ]) def({ id, name: 'block.ancientTile', ...structureStone });
@@ -172,7 +194,23 @@ def({ id: B.LIGHT_GLOWROOT, name: 'block.light', solid: false, visible: false, h
 def({ id: B.LIGHT_MAGMA, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.85, 0.32, 0.1] });
 // Ember glass: black glass with a red heart, tier 4. It glows faintly so the seal reads in the dark.
 def({ id: B.EMBER_GLASS, name: 'block.emberGlass', solid: true, visible: true, hardness: 14, tier: 4, drop: stoneDrop, sound: 'crystal', tiles: same(TILE.hardenedSlate), emission: [0.16, 0.05, 0.02], glow: 0.4, debris: [0x1a1014, 0x5a1a0c, 0x2b2f3a] });
-// Ids not defined yet (34, 36..38) behave as air, so tables and loops over BLOCKS have no holes.
+// Round 2 (WORLD): the minable things that replace free digging. Rubble heaps give the stone the
+// recipes need, root tangles the fibre, gem pockets the gems (config/rarity: common, common, epic).
+def({ id: B.RUBBLE, name: 'block.rubble', solid: true, visible: true, hardness: 1.2, tier: 1, drop: { item: 'stone', min: 1, max: 2, chance: 1 }, sound: 'soil', tiles: same(TILE.gravel), debris: [0x5a5f68, 0x3d424b, 0x777b82] });
+def({ id: B.ROOTS, name: 'block.roots', solid: true, visible: true, hardness: 1, tier: 1, drop: { item: 'rootFibre', min: 1, max: 2, chance: 1 }, sound: 'wood', tiles: same(TILE.soil), debris: [0x7a5a3a, 0x5a4028, 0x9a7a52] });
+def({
+  id: B.GEM_ORE, name: 'block.gemOre', solid: true, visible: true, hardness: 5, tier: 2,
+  drop: { item: 'gem', min: 1, max: 1, chance: 1 }, sound: 'crystal', tiles: same(TILE.crystal),
+  // A violet geode. No light of its own (the cold budget): its epic highlight and the shader glow show it.
+  emission: null, glow: 0.9, debris: [0xb98cff, 0x7a4fd0, 0x2b2f3a],
+});
+def({ id: B.LIGHT_EVENT, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.2, 0.62, 0.78] });
+def({ id: B.LIGHT_EVENT_GOLD, name: 'block.light', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0), emission: [0.62, 0.7, 0.22] });
+/** The events director's passing lights (never saved). */
+export const EVENT_LIGHT = new Uint8Array(256);
+EVENT_LIGHT[B.LIGHT_EVENT] = 1;
+EVENT_LIGHT[B.LIGHT_EVENT_GOLD] = 1;
+// Ids not defined yet (38) behave as air, so tables and loops over BLOCKS have no holes.
 // A definition above or added later replaces the reservation.
 for (let id = 0; id < B.EMBER_GLASS; id++) if (!defs[id]) def({ id, name: 'block.air', solid: false, visible: false, hardness: 0, tier: 0, drop: noDrop, sound: 'stone', tiles: same(0) });
 

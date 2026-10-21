@@ -19,7 +19,7 @@ beforeAll(() => {
   rows = economyTable(layout);
 }, 120_000);
 
-const MATS: ItemId[] = ['copperOre', 'ironOre', 'glimmerShard', 'echoShard', 'rootFibre'];
+const MATS: ItemId[] = ['stone', 'copperOre', 'ironOre', 'glimmerShard', 'echoShard', 'rootFibre', 'gem'];
 const fmt = (v: number | undefined) => String(Math.round((v ?? 0) * 10) / 10).padStart(6);
 
 describe('the economy (sight-minable supply vs the tree, renewal off)', () => {

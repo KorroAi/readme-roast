@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
-import { LOADED_CEILING_MS, untilGame, waitPlay } from './dd';
+import { LOADED_CEILING_MS, untilGame, waitPlay, quietDeep } from './dd';
+
+// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+test.beforeEach(async ({ page }) => {
+  await quietDeep(page);
+});
+
 
 // The brief's definition of success, step by step, in first person on an upright phone
 // (390 x 844, real touches): start -> underground -> move with touch -> mine & collect ->
@@ -9,7 +15,7 @@ import { LOADED_CEILING_MS, untilGame, waitPlay } from './dd';
 test.use({ viewport: { width: 390, height: 844 } });
 
 
-const B = { SLATE: 1, COPPER_ORE: 7, HARDENED_SLATE: 10, AIR: 0 };
+const B = { COPPER_ORE: 7, HARDENED_SLATE: 10, AIR: 0 };
 
 async function state(page: Page) {
   return page.evaluate(() => window.__DD__.state());
@@ -96,8 +102,9 @@ async function dragFor(page: Page, from: { x: number; y: number }, to: { x: numb
 }
 
 
-// SwiftShader under load renders a frame or two per second: give each test a generous budget.
-test.describe.configure({ timeout: 900_000 });
+// SwiftShader under load renders a frame or two per second: give each test a generous budget
+// (round 2: 30 min, the machine is shared by four specialists' runs).
+test.describe.configure({ timeout: 1_800_000 });
 
 test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }) => {
   const errors: string[] = [];
@@ -126,8 +133,9 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   await expect(hud.locator('.dd-hearts .dd-heart')).toHaveCount(5);
   await expect(hud.locator('.dd-hearts .dd-heart.f2')).toHaveCount(5); // full health: five full hearts
   await expect(hud.locator('.dd-hearts')).toHaveAttribute('aria-label', /^Health (\d+) of \1$/);
-  // First person: the dot at the centre, the pickaxe and the lantern in view, never the explorer.
-  await expect(hud.locator('.dd-crosshair')).toHaveClass(/\bon\b/);
+  // First person, no dot (round 2: you tap the thing itself; the selection outline answers), the
+  // pickaxe and the lantern in view, never the explorer.
+  await expect(hud.locator('.dd-crosshair')).not.toHaveClass(/\bon\b/);
   expect(await page.evaluate(() => window.__DD__.game.viewmodel.visible)).toBe(true);
   expect(await page.evaluate(() => 'explorer' in window.__DD__.game)).toBe(false);
   // The top bar: depth, oil, the pack (the bag button) and the menu.
@@ -238,14 +246,21 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
     window.__DD__.give('stone', 12);
   });
 
-  // Baseline: hits needed to break slate with the rusty pickaxe.
-  const slateNearCamp = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(1, x, y, z, 20), lm.workbench);
-  expect(slateNearCamp).not.toBeNull();
-  const hitsRusty = await mineWithTouch(page, touch, slateNearCamp!.block);
+  // Baseline: hits needed to break a copper vein with the rusty pickaxe (round 2: ordinary rock is
+  // never minable, so the comparison is on ore).
+  const veinNearCamp = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(7, x, y, z, 30), lm.firstCrystals);
+  expect(veinNearCamp).not.toBeNull();
+  const hitsRusty = await mineWithTouch(page, touch, veinNearCamp!.block);
 
   // 7. Craft an upgrade at the Workbench: walk up, tap Use, pick the node in the tree, tap Craft.
   const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
+  // Round 2: the vein was out in the tunnel (plain rock is not minable), so coming back ends a
+  // short trip and its report opens first: close it with its button.
+  if (await untilGame(page, async () => (await state(page)).screen === 'summary', 4)) {
+    await page.locator('[data-key="summary-close"]').tap();
+    await page.waitForFunction(() => window.__DD__.state().screen === 'none', null, { timeout: LOADED_CEILING_MS });
+  }
   await page.getByRole('button', { name: /Workbench/i }).first().waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
   await page.getByRole('button', { name: /Workbench/i }).first().tap();
   await page.waitForFunction(() => window.__DD__.state().screen === 'crafting', null, { timeout: LOADED_CEILING_MS });
@@ -263,9 +278,10 @@ test('DEEP DOWN vertical slice: the full success path on touch', async ({ page }
   expect(objectiveNow).not.toBe(firstObjective);
   await expect(hud.locator('.dd-objective')).toHaveText(objectiveNow);
 
-  // 8. Feel the difference: fewer hits on slate, and Hardened Slate now breaks.
-  const slate2 = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(1, x, y, z, 20), lm.workbench);
-  const hitsCopper = await mineWithTouch(page, touch, slate2!.block);
+  // 8. Feel the difference: fewer hits on copper, and Hardened Slate now breaks.
+  const vein2 = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(7, x, y, z, 30), lm.firstCrystals);
+  expect(vein2).not.toBeNull();
+  const hitsCopper = await mineWithTouch(page, touch, vein2!.block);
   expect(hitsCopper).toBeLessThan(hitsRusty);
   const seal = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(10, x, y, z, 6), lm.seal);
   expect(seal).not.toBeNull();

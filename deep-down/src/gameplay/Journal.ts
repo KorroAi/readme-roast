@@ -82,6 +82,12 @@ function validIds(x: unknown): string[] {
 export const JOURNAL_ZONES: Readonly<Record<string, 'tunnel' | 'hollow' | 'deep' | 'beyond'>> = {
   crystals: 'tunnel',
   mothGrotto: 'tunnel',
+  // Round 2 (WORLD): the expanse.
+  galleries: 'tunnel',
+  geode: 'tunnel',
+  lake: 'hollow',
+  vault: 'hollow',
+  underhall: 'hollow',
   'note.office': 'tunnel',
   hollow: 'hollow',
   shrine: 'hollow',

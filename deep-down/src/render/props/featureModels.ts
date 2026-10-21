@@ -190,10 +190,19 @@ export function hoistCageGeometry(): THREE.BufferGeometry {
       b.box(sx * h - 0.035, -0.16, sz * h - 0.035, sx * h + 0.035, 0.95, sz * h + 0.035, IRON.dark);
       beam(b, sx * h, 0.95, sz * h, sx * 0.12, HOIST_CAGE_HOOK - 0.55, sz * 0.12, 0.022, 0.022, IRON.mid);
     }
-  b.box(-h, 0.88, -h - 0.03, h, 0.94, -h + 0.03, WOOD.light);
-  b.box(-h, 0.88, h - 0.03, h, 0.94, h + 0.03, WOOD.light);
-  b.box(h - 0.03, 0.88, -h + 0.03, h + 0.03, 0.94, h - 0.03, WOOD.light);
-  b.box(-h - 0.032, 0.42, -h + 0.03, -h + 0.028, 0.47, h - 0.03, WOOD.light);
+  // VIS r2: the rails are the nearest thing on a ride (at the lantern's side): worn mid timber in
+  // two lengths each, not one pale plank that the flame turned flat orange.
+  const rail = (x0: number, z0: number, x1: number, z1: number, y0: number, y1: number) => {
+    const alongX = x1 - x0 > z1 - z0;
+    const mx = (x0 + x1) / 2;
+    const mz = (z0 + z1) / 2;
+    b.box(x0, y0, z0, alongX ? mx : x1, y1, alongX ? z1 : mz, vary(WOOD.mid, CAGE_RNG, 0.1));
+    b.box(alongX ? mx : x0, y0, alongX ? z0 : mz, x1, y1 - 0.004, z1, vary(WOOD.mid, CAGE_RNG, 0.1));
+  };
+  rail(-h, -h - 0.03, h, -h + 0.03, 0.88, 0.94);
+  rail(-h, h - 0.03, h, h + 0.03, 0.88, 0.94);
+  rail(h - 0.03, -h + 0.03, h + 0.03, h - 0.03, 0.88, 0.94);
+  rail(-h - 0.032, -h + 0.03, -h + 0.028, h - 0.03, 0.42, 0.47);
   // Spreader and hook.
   b.box(-0.2, HOIST_CAGE_HOOK - 0.6, -0.2, 0.2, HOIST_CAGE_HOOK - 0.52, 0.2, IRON.mid);
   b.box(-0.03, HOIST_CAGE_HOOK - 0.52, -0.03, 0.03, HOIST_CAGE_HOOK - 0.1, 0.03, IRON.dark);
@@ -203,7 +212,8 @@ export function hoistCageGeometry(): THREE.BufferGeometry {
 
 /** The hoist rope: one metre of rope standing on y = 0 (scaled along y to its length). */
 export function hoistRopeGeometry(): THREE.BufferGeometry {
-  return new VoxBuilder().box(-0.035, 0, -0.035, 0.035, 1, 0.035, ROPE.mid, 0, false).build();
+  // VIS r2: 5 cm (it passes right over the rider's head and read as a plank at 7 cm).
+  return new VoxBuilder().box(-0.025, 0, -0.025, 0.025, 1, 0.025, ROPE.mid, 0, false).build();
 }
 
 const CAGE_RNG = new Rng(0xca9e);

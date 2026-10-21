@@ -160,6 +160,19 @@ void main() {
   vec4 macroN = textureLod(uNoise, vWorldPos * (1.0 / 190.0), 0.0);
   float macro = textureLod(uNoise, vWorldPos * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
+  // Round 2: crisp joints on dressed stone up close (the terrain's height-threshold pass, see
+  // terrainMaterial.ts): magnified bilinear joints no longer smear into soft bands.
+  if (vMode != 2 && uMatGlow[layer] <= 0.0) {
+    vec2 fwm = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
+    float pptm = 1.0 / max(max(fwm.x, fwm.y), 1e-4);
+    float nearK = smoothstep(4.0, 9.0, pptm);
+    if (nearK > 0.0) {
+      float aa = 0.9 / pptm;
+      float joint = 1.0 - smoothstep(0.34 - aa, 0.34 + aa, tex.a);
+      float lip = smoothstep(0.34 + aa, 0.34 + 3.0 * aa, tex.a) * (1.0 - smoothstep(0.5, 0.62, tex.a));
+      albedo *= mix(1.0, (1.0 - 0.55 * joint) * (1.0 + 0.12 * lip), nearK);
+    }
+  }
 
   vec3 ng0 = normalize(vNormal);
   vec4 det = detailAt(vWorldPos, ng0, DETAIL_L[layer]);

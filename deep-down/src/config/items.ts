@@ -9,6 +9,9 @@ export type ItemId =
   | 'ironOre'
   | 'glimmerShard'
   | 'echoShard'
+  // Round 2 (WORLD): gems from the gem pockets (and the Glimmerkin), and the Forge's Flash Charges.
+  | 'gem'
+  | 'flashCharge'
   | 'ancientTablet'
   | 'runeDescent'
   | 'runeEye'
@@ -100,6 +103,26 @@ export const ITEMS: Record<ItemId, ItemDef> = {
     rarity: 'rare',
     icon: { kind: 'shard' },
     color: 0xd8f4f6,
+    keyItem: false,
+  },
+  gem: {
+    id: 'gem',
+    name: 'item.gem',
+    desc: 'item.gem.desc',
+    stackSize: 8,
+    rarity: 'rare',
+    icon: { kind: 'shard' },
+    color: 0xb98cff,
+    keyItem: false,
+  },
+  flashCharge: {
+    id: 'flashCharge',
+    name: 'item.flashCharge',
+    desc: 'item.flashCharge.desc',
+    stackSize: 6,
+    rarity: 'uncommon',
+    icon: { kind: 'shard' },
+    color: 0xfff1c4,
     keyItem: false,
   },
   ancientTablet: {

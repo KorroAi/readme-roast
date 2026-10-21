@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { LOADED_CEILING_MS, untilGame } from './dd';
+import { LOADED_CEILING_MS, untilGame, quietDeep } from './dd';
+
+// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+test.beforeEach(async ({ page }) => {
+  await quietDeep(page);
+});
+
 
 // The upgrade tree and the runes (final pass W3): craft the Copper Pickaxe, build the Survey Table
 // and the Forge (they rise on their camp plots), forge the Iron Pickaxe, with the HUD's Next line
@@ -77,7 +83,9 @@ test('the tree: copper pick, Survey Table, Forge, iron pick; the Next line moves
 
   // 1. The Copper Pickaxe (the plot stake and the tree agree it can be made).
   const tree = await page.evaluate(() => window.__DD__.progression.tree());
-  expect(tree.nodes.length).toBe(12);
+  // The first version's 12 nodes, and (round 2) the Forge's weapons after the first iron.
+  expect(tree.nodes.length).toBeGreaterThanOrEqual(16);
+  for (const id of ['machete', 'spear', 'sling', 'flashCharges']) expect(tree.nodes.some((n: { id: string }) => n.id === id), id).toBe(true);
   expect(tree.nodes.find((n: { id: string }) => n.id === 'copperPickaxe').state).toBe('ok');
   expect(tree.nodes.find((n: { id: string }) => n.id === 'forge').reason).toBe('Make the Copper Pickaxe first');
   await craft(page, 'copperPickaxe');

@@ -22,11 +22,12 @@ function hitsToBreak(blockId: number, pick = RUSTY): number {
 describe('MiningProgress', () => {
   it('accumulates damage and breaks at the block hardness', () => {
     const m = new MiningProgress();
-    const slate = BLOCKS[B.SLATE]; // hardness 3, rusty power 1
+    const slate = BLOCKS[B.COPPER_ORE]; // hardness 4 (round 2: plain slate is no longer minable), rusty power 1
     const r1 = m.hit('1,2,3', slate.hardness, slate.tier, RUSTY);
-    expect(r1).toEqual({ progress: 1 / 3, broken: false, blocked: false, reason: null });
-    expect(m.progress).toBeCloseTo(1 / 3, 9);
+    expect(r1).toEqual({ progress: 1 / 4, broken: false, blocked: false, reason: null });
+    expect(m.progress).toBeCloseTo(1 / 4, 9);
     expect(m.targetKey).toBe('1,2,3');
+    m.hit('1,2,3', slate.hardness, slate.tier, RUSTY);
     m.hit('1,2,3', slate.hardness, slate.tier, RUSTY);
     const r3 = m.hit('1,2,3', slate.hardness, slate.tier, RUSTY);
     expect(r3.broken).toBe(true);
@@ -49,11 +50,16 @@ describe('MiningProgress', () => {
   });
 
   it('the copper pickaxe mines measurably faster', () => {
-    for (const id of [B.SLATE, B.DEEP_SLATE, B.COPPER_ORE, B.CRYSTAL]) {
+    for (const id of [B.COPPER_ORE, B.CRYSTAL, B.LANTERNSTONE]) {
       expect(hitsToBreak(id, COPPER)).toBeLessThan(hitsToBreak(id, RUSTY));
     }
-    expect(hitsToBreak(B.SLATE, RUSTY)).toBe(3);
-    expect(hitsToBreak(B.SLATE, COPPER)).toBe(2);
+    expect(hitsToBreak(B.COPPER_ORE, RUSTY)).toBe(4);
+    expect(hitsToBreak(B.COPPER_ORE, COPPER)).toBe(3);
+    // Rubble and roots go fast with any pick (2 and 1 hits with the rusty one).
+    expect(hitsToBreak(B.RUBBLE, RUSTY)).toBe(2);
+    expect(hitsToBreak(B.ROOTS, RUSTY)).toBe(1);
+    // Round 2: plain rock never yields.
+    for (const id of [B.SLATE, B.DEEP_SLATE, B.UMBER, B.SOIL, B.GRAVEL, B.MOSS]) expect(hitsToBreak(id, COPPER)).toBe(-1);
   });
 
   it('switching target resets progress', () => {
@@ -167,7 +173,7 @@ describe('rollDrop', () => {
 
   it('respects the drop chance', () => {
     const rng = new Rng(99);
-    const gravel = BLOCKS[B.GRAVEL].drop!; // 50% stone
+    const gravel = { item: 'stone' as const, min: 1, max: 1, chance: 0.5 }; // 50% stone
     let drops = 0;
     const N = 4000;
     for (let i = 0; i < N; i++) drops += rollDrop(gravel, rng) > 0 ? 1 : 0;

@@ -1,4 +1,5 @@
 import { BLOCKS, SOLID } from '../config/blocks';
+import { isBreakable, rarityOf, RARITY_RANK } from '../config/rarity';
 import type { EventBus, GameEvents } from '../core/events';
 import { t } from '../i18n';
 import type { InputState, MineLock } from '../input/types';
@@ -8,14 +9,22 @@ import type { VoxelWorld } from '../world/VoxelWorld';
 import type { PropSpec } from '../world/gen/types';
 import type { MiningController, MiningTarget } from './MiningController';
 import { EYE_HEIGHT, REACH } from './fp/constants';
+import './fp/events';
 
 /**
- * Tap to act (touch). One tap does what the player obviously means:
- * - a block (or crystal) in reach is mined until it breaks, with nothing held;
- * - a block out of reach: the explorer walks up to it, then mines it;
- * - ground further than reach: the explorer walks there;
- * - an object with an action (workbench, note, rope...): walk up to it and use it.
- * A tap a little off a block still finds the minable block nearest the finger. The joystick
+ * Tap to act (touch), with no aiming dot: you tap the thing itself. One tap does what the player
+ * obviously means:
+ * - a creature (game/mobs): the host's tapMob answers first (attack a monster, catch or harvest a
+ *   being, walking up to it when it is out of reach);
+ * - a minable find (ore, crystal, rubble, roots, a seal, a cracked wall) in reach is mined until it
+ *   breaks, with nothing held; out of reach, the explorer walks up to it, then mines it;
+ * - an object with an action (workbench, note, rope, chest...): walk up to it and use it;
+ * - ground: the explorer walks there;
+ * - ordinary rock in reach: a soft "tunk" (one strike, a tiny chip, nothing breaks);
+ * - anything else (the far dark, the roof, far plain rock): the view turns a little toward it and the
+ *   lantern is raised, so no tap does nothing.
+ * The hit test is generous: when the finger is not on a find, the nearest minable or usable thing
+ * within SNAP_PX of it is taken, the rarer first, then the nearer the finger. The joystick
  * takes over at once (walking stops; a locked block in reach is still finished). Walking follows a
  * short path over the same moves as the reachability analysis (walk, step up 1, drop up to 3).
  */
@@ -38,14 +47,25 @@ export interface TapHost {
    * turns a little toward it and the lantern is raised, so no tap does nothing.
    */
   nudge(ndcX: number, ndcY: number): void;
+  /** A creature under (or near) the tap: act on it and return true (game/fp/Combat). */
+  tapMob?(ndcX: number, ndcY: number): boolean;
 }
 
 type Goal = { kind: 'walk' } | { kind: 'mine' } | { kind: 'use'; id: string };
+type TapAction = { kind: 'use'; prop: PropSpec } | { kind: 'mine'; target: MiningTarget };
+
+/** A rarity as a preference rank (things with none, e.g. a workbench, rank with the commons). */
+function rankOf(r: ReturnType<typeof rarityOf>): number {
+  return r ? RARITY_RANK[r] : 0;
+}
 
 /** Furthest a tap reaches into the scene (m from the camera). */
 const TAP_RANGE = 48;
-/** Fat-finger search radius (CSS px) for a minable block in reach near the tap. */
-const FAT_FINGER_PX = 30;
+/** Generous hit test (ROUND2 §0.4): a tap snaps to the best find within this many CSS px of the finger. */
+export const SNAP_PX = 56;
+/** The rings searched round the finger (fractions of SNAP_PX) and the samples on each. */
+const SNAP_RINGS = [0.25, 0.5, 0.75, 1];
+const SNAP_SAMPLES = 8;
 /** Nodes searched for a path (about a 25 m radius of open cave). */
 const PATH_NODES = 7000;
 /** Stand this much inside reach before mining (so a step does not drop it out of reach). */
@@ -160,10 +180,13 @@ export class TapController {
   private outOfReachT = 0;
   private last = { x: 0, y: 0, z: 0 };
   private tooHardKey: string | null = null;
-  private readonly offs = new Float32Array(16);
 
   constructor(private readonly host: TapHost, private readonly mining: MiningController, bus: EventBus<GameEvents>) {
     bus.on('block:tooHard', ({ x, y, z }) => {
+      this.tooHardKey = `${x},${y},${z}`;
+    });
+    // One strike on ordinary rock is all a tap does there.
+    bus.on('block:tunk', ({ x, y, z }) => {
       this.tooHardKey = `${x},${y},${z}`;
     });
     bus.on('player:respawned', () => {
@@ -205,6 +228,26 @@ export class TapController {
     if (this.goal) this.follow(input, dt);
   }
 
+  /**
+   * Walk until within `within` m (horizontal, and 1.5 m vertical) of a point: the way to a creature
+   * (game/fp/Combat). False when there is no way; true (and nothing to walk) when already there.
+   */
+  walkNear(x: number, y: number, z: number, within: number): boolean {
+    const p = this.host.player();
+    if (Math.hypot(x - p.x, z - p.z) <= within && Math.abs(y - p.y - 0.8) <= 1.8) {
+      if (this.goal?.kind === 'walk') this.stopWalk();
+      return true;
+    }
+    const ok = this.plan((a, b, c) => Math.hypot(a + 0.5 - x, c + 0.5 - z) <= within && Math.abs(b - y) <= 2.2, [x, y, z], true);
+    if (ok) this.goal = { kind: 'walk' };
+    return ok;
+  }
+
+  /** Stop walking on its own (a strike starts). */
+  stop(): void {
+    this.stopWalk();
+  }
+
   /** Forget everything (menu, death). */
   reset(input: InputState): void {
     this.stopWalk();
@@ -216,45 +259,79 @@ export class TapController {
   // ------------------------------------------------------------------------------------
 
   private onTap(input: InputState): void {
-    const hand = this.host.hand();
-    const r = this.mining.pick(input.tapX, input.tapY, hand.x, hand.y, hand.z, TAP_RANGE);
-    // An object with an action, in front of any block: walk up to it and use it.
-    if (r.prop && r.prop.interact && r.target?.prop !== r.prop && this.host.usable(r.prop)) {
-      this.use(input, r.prop);
+    // A creature first (it moves: the generous pick and the action are game/fp/Combat's).
+    if (this.host.tapMob?.(input.tapX, input.tapY)) {
+      this.stopWalk();
+      input.lock = null;
       return;
     }
-    const tg = r.target && this.minable(r.target) ? r.target : null;
-    // Plain ground (not ore or crystal) is for walking on, unless it is right at the boots: then
-    // the tap digs down.
-    if (tg && tg.kind === 'block' && tg.ny === 1 && !isOre(tg.block) && standable(this.host.world, tg.x, tg.y + 1, tg.z)) {
+    const hand = this.host.hand();
+    const r = this.mining.pick(input.tapX, input.tapY, hand.x, hand.y, hand.z, TAP_RANGE);
+    // The thing under the finger, else the best find near it.
+    const act = this.actionOf(r) ?? this.snap(input.tapX, input.tapY)?.act ?? null;
+    if (act?.kind === 'use') {
+      this.use(input, act.prop);
+      return;
+    }
+    if (act?.kind === 'mine') {
+      if (act.target.inReach) this.lockOn(input, act.target);
+      else this.approach(input, act.target);
+      return;
+    }
+    // Ground: walk there.
+    const hit = r.hit;
+    if (hit && hit.ny === 1 && standable(this.host.world, hit.x, hit.y + 1, hit.z)) {
       const p = this.host.player();
-      if (Math.hypot(tg.x + 0.5 - p.x, tg.z + 0.5 - p.z) > 1.6) {
-        this.walkTo(tg.x, tg.y + 1, tg.z);
+      if (Math.hypot(hit.x + 0.5 - p.x, hit.z + 0.5 - p.z) > 0.9 || Math.abs(hit.y + 1 - p.y) > 0.5) {
+        this.walkTo(hit.x, hit.y + 1, hit.z);
         return;
       }
     }
-    if (tg && tg.inReach) {
-      this.lockOn(input, tg);
-      return;
-    }
-    // A little off a block in reach still finds it.
-    const near = this.nearbyInReach(input.tapX, input.tapY);
-    if (near) {
-      this.lockOn(input, near);
-      return;
-    }
-    if (tg) {
-      // A wall, ceiling or ore further away than reach: go and mine it.
-      this.approach(input, tg);
-      return;
-    }
-    const hit = r.hit;
-    if (hit && hit.ny === 1 && standable(this.host.world, hit.x, hit.y + 1, hit.z)) {
-      this.walkTo(hit.x, hit.y + 1, hit.z);
+    // Ordinary rock in reach: one strike, a soft tunk (MiningController), nothing breaks.
+    const tg = r.target;
+    if (tg && tg.kind === 'block' && tg.inReach && BLOCKS[tg.block]?.visible && !isBreakable(tg.block)) {
+      input.lock = toLock(tg);
+      this.tooHardKey = null;
+      this.stopWalk();
       return;
     }
     // Nothing to act on: look that way, lantern raised.
     this.host.nudge(input.tapX, input.tapY);
+  }
+
+  /** What a tap on this pick result means, if it is a find or something to use (else null). */
+  private actionOf(r: ReturnType<MiningController['pick']>): TapAction | null {
+    // An object with an action, in front of any block: walk up to it and use it.
+    if (r.prop && r.prop.interact && r.target?.prop !== r.prop && this.host.usable(r.prop)) return { kind: 'use', prop: r.prop };
+    if (r.target && this.minable(r.target)) return { kind: 'mine', target: r.target };
+    return null;
+  }
+
+  /**
+   * The generous hit test: the minable or usable things within SNAP_PX of the finger; the rarest
+   * wins, then the one nearest the finger, then the nearest to the explorer.
+   */
+  private snap(ndcX: number, ndcY: number): { act: TapAction; rank: number; px: number } | null {
+    const { width, height } = this.host.viewport();
+    if (width <= 0 || height <= 0) return null;
+    const hand = this.host.hand();
+    let best: { act: TapAction; rank: number; px: number; d: number } | null = null;
+    for (const ring of SNAP_RINGS) {
+      const px = SNAP_PX * ring;
+      for (let k = 0; k < SNAP_SAMPLES; k++) {
+        const a = (k / SNAP_SAMPLES) * Math.PI * 2 + ring * 0.7;
+        const x = ndcX + ((Math.cos(a) * px) / width) * 2;
+        const y = ndcY + ((Math.sin(a) * px) / height) * 2;
+        const r = this.mining.pick(x, y, hand.x, hand.y, hand.z, TAP_RANGE);
+        const act = this.actionOf(r);
+        if (!act) continue;
+        const rank = act.kind === 'use' ? rankOf(rarityOf(act.prop)) : act.target.kind === 'prop' && act.target.prop ? rankOf(rarityOf(act.target.prop)) : rankOf(rarityOf(act.target.block));
+        const pt = act.kind === 'use' ? act.prop : act.target.point;
+        const d = Math.hypot(pt.x - hand.x, pt.y - hand.y, pt.z - hand.z);
+        if (!best || rank > best.rank || (rank === best.rank && (px < best.px - 1e-6 || (Math.abs(px - best.px) < 1e-6 && d < best.d)))) best = { act, rank, px, d };
+      }
+    }
+    return best;
   }
 
   /** The way the current walk goes (world x, z unit vector), or null when not walking. */
@@ -269,45 +346,23 @@ export class TapController {
     return len > 0.4 ? [dx / len, dz / len] : null;
   }
 
+  /** The prop a tapped walk will use on arrival (it wears the selection outline), or null. */
+  get useTarget(): string | null {
+    return this.goal?.kind === 'use' ? this.goal.id : null;
+  }
+
   /** What the walk is for: 'walk', 'mine', 'use', or null. */
   get goalKind(): 'walk' | 'mine' | 'use' | null {
     return this.goal?.kind ?? null;
   }
 
-  /** Something the pick may try (protected and invisible blocks are not targets). */
+  /**
+   * A find the pick may try: a minable prop, or a block some pick can break (ore, crystal, rubble,
+   * roots, a seal, a cracked wall). Ordinary rock, masonry and invisible blocks are not targets.
+   */
   private minable(tg: MiningTarget): boolean {
     if (tg.protectedReason !== null) return false;
-    return tg.kind === 'prop' || !!BLOCKS[tg.block]?.visible;
-  }
-
-  private nearbyInReach(ndcX: number, ndcY: number): MiningTarget | null {
-    const { width, height } = this.host.viewport();
-    if (width <= 0 || height <= 0) return null;
-    const hand = this.host.hand();
-    const ox = (FAT_FINGER_PX / width) * 2;
-    const oy = (FAT_FINGER_PX / height) * 2;
-    const o = this.offs;
-    for (let k = 0; k < 8; k++) {
-      const a = (k / 8) * Math.PI * 2;
-      o[k * 2] = Math.cos(a) * ox;
-      o[k * 2 + 1] = Math.sin(a) * oy;
-    }
-    let best: MiningTarget | null = null;
-    let bestD = Infinity;
-    for (const ring of [0.5, 1]) {
-      for (let k = 0; k < 8; k++) {
-        const r = this.mining.pick(ndcX + o[k * 2] * ring, ndcY + o[k * 2 + 1] * ring, hand.x, hand.y, hand.z, TAP_RANGE);
-        const tg = r.target;
-        if (!tg || !tg.inReach || !this.minable(tg)) continue;
-        const d = Math.hypot(tg.point.x - hand.x, tg.point.y - hand.y, tg.point.z - hand.z) + ring;
-        if (d < bestD) {
-          bestD = d;
-          best = tg;
-        }
-      }
-      if (best) break;
-    }
-    return best;
+    return tg.kind === 'prop' || (!!BLOCKS[tg.block]?.visible && isBreakable(tg.block));
   }
 
   private lockOn(input: InputState, tg: MiningTarget): void {
@@ -508,12 +563,6 @@ export class TapController {
     this.stuckT = 0;
     this.jumped = false;
   }
-}
-
-/** Ore, crystal and other finds: mined even when tapped on the floor (plain rock is walked on). */
-function isOre(id: number): boolean {
-  const item = BLOCKS[id]?.drop?.item;
-  return !!item && item !== 'stone' && item !== 'rootFibre';
 }
 
 function toLock(tg: MiningTarget): MineLock {

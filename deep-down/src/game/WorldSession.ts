@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { B, SOLID, isEmitter } from '../config/blocks';
+import { B, EVENT_LIGHT, SOLID, isEmitter } from '../config/blocks';
 import { loadZone } from '../world/gen/zoneLoader';
 import { WORLD } from '../config/balance';
 import type { PropSpec, WorldLayout } from '../world/gen/types';
@@ -149,8 +149,13 @@ export class WorldSession {
 
   /** Delta of the live world against the generated one: [index, id, ...]. */
   worldEdits(): number[] {
-    return encodeWorldEdits(this.generated, this.world.blocks);
+    const edits = encodeWorldEdits(this.generated, this.world.blocks);
+    // WORLD (round 2): the events director's passing lights are never saved (the cell was air).
+    const out: number[] = [];
+    for (let k = 0; k + 1 < edits.length; k += 2) if (!EVENT_LIGHT[edits[k + 1]]) out.push(edits[k], edits[k + 1]);
+    return out;
   }
+
 
   /** Keep light and props consistent after a gameplay edit. */
   blockChanged(x: number, y: number, z: number, oldId: number): void {

@@ -1,5 +1,11 @@
 import { expect, test, type Page } from '@playwright/test';
-import { LOADED_CEILING_MS, untilGame } from './dd';
+import { LOADED_CEILING_MS, untilGame, quietDeep } from './dd';
+
+// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+test.beforeEach(async ({ page }) => {
+  await quietDeep(page);
+});
+
 
 // Desktop play through real keyboard and mouse input on the production build: WASD moves,
 // Space jumps, right-drag looks, holding the left button mines (with or without pointer lock),
@@ -8,7 +14,7 @@ import { LOADED_CEILING_MS, untilGame } from './dd';
 test.use({ hasTouch: false, isMobile: false, viewport: { width: 1280, height: 720 } });
 
 
-const B = { SLATE: 1, AIR: 0 };
+const B = { COPPER_ORE: 7, AIR: 0 };
 
 async function state(page: Page) {
   return page.evaluate(() => window.__DD__.state());
@@ -104,7 +110,9 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
   const vp = page.viewportSize()!;
   // First person: a modest turn moves the block off the crosshair while it stays in view.
   const turns: Array<[number, number]> = [];
-  for (const yaw of [0.3, -0.3, 0.45, -0.45, 0.2, -0.2, 0.6, -0.6]) for (const pitch of [0.12, 0, -0.12, 0.25]) turns.push([yaw, pitch]);
+  // Round 2: the vein is mined from the cell beside it (a block a metre away fills half the view),
+  // so the wider turns are needed to take it off the centre.
+  for (const yaw of [0.3, -0.3, 0.45, -0.45, 0.2, -0.2, 0.6, -0.6, 0.8, -0.8, 0.95, -0.95]) for (const pitch of [0.12, 0, -0.12, 0.25]) turns.push([yaw, pitch]);
   for (const [turnYaw, turnPitch] of turns) {
     const found = await page.evaluate(
       ([bx, by, bz, turnYaw, turnPitch, w, h]) => {
@@ -148,17 +156,25 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
 }
 
 /**
- * Hold the left mouse button on a slate block near camp until it breaks. A left click asks for
+ * Hold the left mouse button on a copper vein near camp until it breaks (round 2: ordinary rock is
+ * never minable). A left click asks for
  * pointer lock (fine pointer): if it is granted, mining aims from the crosshair at the screen
  * centre; otherwise from the cursor. Both are handled. @returns whether the pointer was locked.
  */
 async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x: number; y: number } }> {
   const vp = page.viewportSize()!;
   const lm = await page.evaluate(() => window.__DD__.landmarks());
-  const slate = await page.evaluate(([x, y, z]) => window.__DD__.prepareMining(1, x, y, z, 20), lm.workbench);
-  expect(slate, 'a reachable slate block near camp').not.toBeNull();
+  const vein = await page.evaluate(([x, y, z, id]) => window.__DD__.prepareMining(id, x, y, z, 30), [...lm.firstCrystals, B.COPPER_ORE] as [number, number, number, number]);
+  expect(vein, 'a reachable copper vein near camp').not.toBeNull();
+  // One block of ore on its own (its copper neighbours become plain slate), so the screen points
+  // whose ray meets this very block are a solid patch, as a slate wall's were.
+  await page.evaluate(([x, y, z]) => {
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dy = -1; dy <= 1; dy++)
+        for (let dx = -1; dx <= 1; dx++) if ((dx || dy || dz) && window.__DD__.block(x + dx, y + dy, z + dz) === 7) window.__DD__.setBlock(x + dx, y + dy, z + dz, 1);
+  }, vein!.block);
   await settle(page);
-  const press = await cursorOnBlock(page, slate!.block);
+  const press = await cursorOnBlock(page, vein!.block);
   expect(press, 'a screen point off the centre whose ray hits the block').not.toBeNull();
   const ndc: [number, number] = [(press!.x / vp.width) * 2 - 1, 1 - (press!.y / vp.height) * 2];
   expect(await canvasAt(page, press!.x, press!.y)).toBe('game');
@@ -191,7 +207,7 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     expect(aim.x).toBeCloseTo(0, 6);
     expect(aim.y).toBeCloseTo(0, 6);
     await expect(page.locator('.dd-crosshair')).toHaveClass(/\bon\b/);
-    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), slate!.block);
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), vein!.block);
   } else {
     // Free cursor: mining aims through the pressed point; no crosshair.
     expect(aim.fromPointer).toBe(true);
@@ -200,13 +216,13 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     await expect(page.locator('.dd-crosshair')).not.toHaveClass(/\bon\b/);
   }
   // Hold for up to 30 s of game time (SwiftShader under load runs at a frame or two per second).
-  await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), slate!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
+  await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
   await page.mouse.up({ button: 'left' });
-  expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), slate!.block)).toBe(B.AIR);
+  expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)).toBe(B.AIR);
   const onTarget = await page.evaluate(([x, y, z]) => {
     const at = (e: { payload: any }) => e.payload.x === x && e.payload.y === y && e.payload.z === z;
     return { hits: window.__DD__.events('block:hit').filter(at).length, broken: window.__DD__.events('block:broken').some(at) };
-  }, slate!.block);
+  }, vein!.block);
   expect(onTarget.hits, 'pickaxe hits on the target').toBeGreaterThan(1);
   expect(onTarget.broken).toBe(true);
   if (!locked) {
@@ -215,11 +231,11 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     const elsewhere = await page.evaluate(([x, y, z]) => {
       const off = (e: { payload: any }) => e.payload.x !== x || e.payload.y !== y || e.payload.z !== z;
       return [...window.__DD__.events('block:hit'), ...window.__DD__.events('block:broken')].filter(off).map((e) => `${e.type} ${e.payload.x},${e.payload.y},${e.payload.z}`);
-    }, slate!.block);
+    }, vein!.block);
     expect(elsewhere, 'strikes away from the block under the cursor').toEqual([]);
   }
   // While the button was held, the HUD named the block under the aim.
-  expect(await hudTargets(page)).toContain('Slate');
+  expect(await hudTargets(page)).toContain('Copper Vein');
   expect(await page.evaluate(() => window.__DD__.game.input.mining)).toBe(false);
   return { locked, press: press! };
 }

@@ -84,7 +84,13 @@ try {
       const D = window.__DD__;
       const g = D.game;
       for (const [x, y, z, id] of s.set ?? []) D.setBlock(x, y, z, id);
-      if (s.eval) (0, eval)(s.eval);
+      if (s.eval) {
+        try {
+          (0, eval)(s.eval);
+        } catch (e) {
+          return { err: 'eval: ' + (e && e.message) };
+        }
+      }
       const at = D.standableNear(s.at[0], s.at[1], s.at[2]);
       if (!at) return { err: 'nostand ' + s.at };
       D.teleport(at[0], at[1], at[2]);
@@ -98,7 +104,18 @@ try {
       } else window.__fp = { x: eye[0], y: eye[1], z: eye[2], yaw, pitch, fov: s.fov };
       g.cameraRig.yaw = yaw;
       g.cameraRig.pitch = pitch;
+      // A shot's eval may leave work for after the teleport (aim and mine, start a ride).
+      if (window.__afterTeleport) {
+        window.__afterTeleport();
+        window.__afterTeleport = null;
+      }
       D.step(s.frames ?? 14);
+      // Back at camp the trip report opens: close it, the shot is of the world.
+      const go = [...document.querySelectorAll('button')].find((b) => /Head Out Again/.test(b.textContent ?? ''));
+      if (go) {
+        go.click();
+        D.step(4);
+      }
       return { at, yaw: +yaw.toFixed(2), pitch: +pitch.toFixed(2) };
     }, { s, real: opt.real });
     if (res.err) { console.log(`[${s.name}] ${res.err}`); continue; }

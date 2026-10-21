@@ -66,6 +66,25 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'relic:found': { id: 'runeEye', count: 2, total: 8 },
   'finale:reached': {},
   'feat:earned': { id: 'firstCopper' },
+  // WORLD (round 2): the world events (src/game/events/types.ts augments GameEvents).
+  'world:event': { event: { id: 'tremor-1', kind: 'tremor', start: 0, end: 6, anchor: [0, 0, 0], radius: 4 }, phase: 'start' },
+  'world:rockfall': { x: 0, y: 0, z: 0, hit: false },
+  'world:pocket': { x: 0, y: 0, z: 0, cells: 12 },
+  // FP (round 2): the feel events (src/game/fp/events.ts augments GameEvents).
+  'block:tunk': { x: 1, y: 2, z: 3, block: B.SLATE, px: 1.5, py: 2.5, pz: 3 },
+  'weapon:swing': { weapon: 'machete', ranged: false },
+  'weapon:hit': { weapon: 'machete', mob: 1, kind: 'crawler', killed: false, x: 0, y: 0, z: 0 },
+  'weapon:flash': { x: 0, y: 0, z: 0, radius: 6, count: 2 },
+  // MOBS (round 2): the creatures (src/game/mobs/MobDirector.ts augments GameEvents).
+  'mob:spawned': { id: 1, kind: 'crawler' },
+  'mob:telegraph': { id: 1, kind: 'crawler', pan: 0.2, gain: 0.8 },
+  'mob:attack': { id: 1, kind: 'crawler', damage: 9, landed: true },
+  'mob:hit': { id: 1, kind: 'crawler', damage: 2, killed: false, armoured: false, pan: 0, gain: 1 },
+  'mob:died': { id: 1, kind: 'crawler', pan: 0, gain: 1 },
+  'mob:interact': { id: 2, kind: 'glimmerkin', action: 'caught' },
+  'mob:cue': { kind: 'gnasher', cue: 'breath', pan: -0.3, gain: 0.6 },
+  'mob:shot': { phase: 'hit', pan: 0, gain: 1 },
+  'mob:met': { kind: 'stalker' },
 };
 
 const WORLD_STATE: AudioWorldState = {

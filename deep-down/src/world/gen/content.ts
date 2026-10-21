@@ -205,8 +205,60 @@ export function placeContent(ctx: ContentCtx): ContentLayout {
       inBand[band]++;
     }
   }
+  // Loose stone and roots first: the drips and glow caps then stand on the floors as they are.
+  scree(order);
   ambientWonder(order);
   return out;
+
+  /**
+   * Round 2 (WORLD): plain rock no longer yields, so the stone the recipes need comes from heaps
+   * of loose stone at the foot of the walls along every route, and root fibre from root tangles in
+   * the walls of the high caves and the Glowroot. Heaps are one course high with two open cells
+   * over them (a step, never a wall), never on a ride's stand, a door or a prop.
+   */
+  function scree(shuffled: number[]): void {
+    const heaps: V3[] = [];
+    const rootsAt: V3[] = [];
+    const stands = (features?.links ?? []).flatMap((l) => [l.top, l.bottom]);
+    const clearOfStands = (x: number, y: number, z: number) => stands.every((s) => Math.hypot(s[0] - x - 0.5, (s[1] - y) * 1.5, s[2] - z - 0.5) >= 2.2);
+    const free = (x: number, y: number, z: number) =>
+      FLOOR_OK.has(w.get(x, y - 1, z)) && !RAMP[w.get(x, y - 1, z)] && !SOLID[w.get(x, y, z)] && !SOLID[w.get(x, y + 1, z)] && !SOLID[w.get(x, y + 2, z)] && !isEmitter(w.get(x, y, z)) && !keep.has(w.index(x, y - 1, z));
+    for (const k of shuffled) {
+      const [x, y, z] = cols[k];
+      if (heaps.length < 46 && heaps.every((p) => Math.hypot(p[0] - x, (p[1] - y) * 0.7, p[2] - z) >= 7)) {
+        const wall = wallNear(x, y, z, 0);
+        if (wall) {
+          // The heap sits against the wall, in the open cell in front of it.
+          const hx = wall.cell[0] + wall.out[0];
+          const hz = wall.cell[2] + wall.out[2];
+          if (free(hx, y, hz) && clearOfProps(hx + 0.5, y, hz + 0.5, 1.4) && clearOfStands(hx, y, hz)) {
+            w.blocks[w.index(hx, y, hz)] = B.RUBBLE;
+            // One or two more stones along the wall.
+            const px = Math.abs(wall.out[2]);
+            const pz = Math.abs(wall.out[0]);
+            for (const side of [1, -1]) {
+              const sx2 = hx + px * side;
+              const sz2 = hz + pz * side;
+              if (rng.chance(0.7) && free(sx2, y, sz2) && clearOfProps(sx2 + 0.5, y, sz2 + 0.5, 1.4) && clearOfStands(sx2, y, sz2)) w.blocks[w.index(sx2, y, sz2)] = B.RUBBLE;
+            }
+            heaps.push([x, y, z]);
+            poi(`c_rubble_${hx}_${y}_${hz}`, [hx + 0.5, y + 0.5, hz + 0.5], 'ore');
+          }
+        }
+      }
+      const rooty = y >= 86 || (x >= 67 && x <= 99 && z >= 119 && y < 20);
+      if (rooty && rootsAt.length < 18 && rootsAt.every((p) => Math.hypot(p[0] - x, (p[1] - y) * 0.7, p[2] - z) >= 9)) {
+        const wall = wallNear(x, y, z, 1);
+        // Roots in the wall at head height (never a floor cell: no pits).
+        if (wall && host(wall.cell[0], wall.cell[1] + 1, wall.cell[2])) {
+          const at = { cell: [wall.cell[0], wall.cell[1] + 1, wall.cell[2]] as V3, out: wall.out };
+          const v = vein(at, B.ROOTS, 2 + rng.int(0, 2));
+          if (v) rootsAt.push([x, y, z]);
+        }
+      }
+      if (heaps.length >= 46 && rootsAt.length >= 18) break;
+    }
+  }
 
   // ------------------------------------------------------------------------------------
 
@@ -234,7 +286,8 @@ export function placeContent(ctx: ContentCtx): ContentLayout {
           caps.push([x, y, z]);
           const fx = x + 0.5 + (wall.cell[0] - x) * 0.35;
           const fz = z + 0.5 + (wall.cell[2] - z) * 0.35;
-          out.ambient.push({ kind: 'fungus', p: [fx, y, fz], n: 3 + rng.int(0, 4) });
+          // The clump's own cell must stand on rock (a wall cell two away can pull it over a step).
+          if (SOLID[w.get(Math.floor(fx), y - 1, Math.floor(fz))] && !SOLID[w.get(Math.floor(fx), y, Math.floor(fz))]) out.ambient.push({ kind: 'fungus', p: [fx, y, fz], n: 3 + rng.int(0, 4) });
         }
       }
       if (drips.length >= 28 && caps.length >= 36) break;

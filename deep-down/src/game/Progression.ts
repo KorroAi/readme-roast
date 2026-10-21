@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { B } from '../config/blocks';
 import { CACHE, COLD, GEAR, HOME, PLAYER, WORLD, lanternForTier, packForTier } from '../config/balance';
 import { ITEMS, RELIC_ITEMS, RUNE_ITEMS, type ItemId } from '../config/items';
-import { NODES, isNodeId, type NodeId, type Place, type StationId } from '../config/recipes';
+import { NODES, WEAPON_NODES, isNodeId, type NodeId, type Place, type StationId } from '../config/recipes';
+import { bestWeapon, type Weapon, type WeaponId } from '../config/weapons';
 import { damp } from '../core/math';
 import { t } from '../i18n';
 import { Cold } from '../gameplay/Cold';
@@ -31,6 +32,8 @@ import type { Game } from './Game';
 import { Guidance } from './Guidance';
 import { Runes, RUNES_TOTAL } from './Runes';
 import { Stations } from './Stations';
+import { EventDirector } from './events/EventDirector';
+import type { EventContext } from './events/types';
 import { areaNameOf, buildRumours, focusRumour, siteCell } from './Survey';
 
 /** Within this far of a compass target's cell (walking steps), it counts as reached. */
@@ -152,7 +155,12 @@ export class Progression {
   constructor(private readonly game: Game) {
     this.stations = new Stations(game);
     this.runes = new Runes(game);
+    this.events = new EventDirector(game);
   }
+
+  /** WORLD (round 2): the events director (game/events): something happens every 2–4 minutes of exploration. */
+  readonly events: EventDirector;
+  private readonly eventCtx: EventContext = { x: 0, y: 0, z: 0, inCamp: true, busy: false, lit: true, depth: 0 };
 
   /** Listen to the world (called once the bus exists, at boot). */
   wire(): void {
@@ -173,6 +181,8 @@ export class Progression {
       this.extra.life.itemsBanked += Math.max(0, e.total | 0);
     });
     bus.on('cache:recovered', () => this.first('recovered'));
+    // WORLD (round 2): a black-out ends any world event (and its passing lights).
+    bus.on('player:died', () => this.events.reset());
   }
 
   // ------------------------------------------------------------------------------------
@@ -246,6 +256,7 @@ export class Progression {
     if (this.runes.count > 0 && !this.extra.stations.includes('relicShelf')) this.extra.stations.push('relicShelf');
     this.stations.attach(this.built);
     this.runes.attach();
+    this.events.reset();
     this.applyGear();
     this.rumoursChanged();
     this.featsCatchUp = true;
@@ -394,6 +405,17 @@ export class Progression {
 
     this.updateCachePickup();
     this.updateTarget();
+    // WORLD (round 2): the world events.
+    const ec = this.eventCtx;
+    ec.x = p.x;
+    ec.y = p.y;
+    ec.z = p.z;
+    ec.inCamp = atCamp;
+    ec.busy = g.ui.isBlockingInput() || g.features.riding;
+    ec.lit = lantern.lit;
+    ec.depth = WORLD.depthOffset - p.y;
+    this.events.update(dt, ec);
+    if (g.health.dead) return true;
     this.stations.update(dt);
     this.runes.update(dt);
 
@@ -1008,6 +1030,34 @@ export class Progression {
     return this.extra.gear.includes(id);
   }
 
+  /** The weapons built at the Forge (round 2): node ids among 'machete', 'sling', 'spear'. The pick is implied. */
+  ownedWeapons(): WeaponId[] {
+    return WEAPON_NODES.filter((id) => this.extra.gear.includes(id));
+  }
+
+  /** The weapon a tap on a monster `distance` m away uses (config/weapons bestWeapon). */
+  bestWeapon(distance = 0): Weapon {
+    return bestWeapon(this.ownedWeapons(), distance);
+  }
+
+  /** Flash Charges carried (pack) and banked (camp storage). */
+  flashCharges(): { pack: number; storage: number } {
+    return { pack: this.game.backpack.count('flashCharge'), storage: this.game.storage.count('flashCharge') };
+  }
+
+  /**
+   * Use one Flash Charge from the pack (at camp, storage counts too). @returns false when there is
+   * none. The burst itself (damage, scare) is MobSystem's: WEAPONS.flash.
+   */
+  useFlashCharge(): boolean {
+    const g = this.game;
+    if (g.backpack.count('flashCharge') > 0) g.backpack.remove('flashCharge', 1);
+    else if (g.inCamp && g.storage.count('flashCharge') > 0) g.storage.remove('flashCharge', 1);
+    else return false;
+    g.bus.emit('inventory:changed', {});
+    return true;
+  }
+
   stationBuilt(id: StationId): boolean {
     return this.extra.stations.includes(id);
   }
@@ -1034,7 +1084,12 @@ export class Progression {
     const res = craftNode(id, this.craftContext());
     if (!res.ok) return res;
     const r = NODES[id].result;
-    if (r.kind === 'station') {
+    const rep = NODES[id].repeat;
+    if (rep) {
+      // WORLD (round 2): a repeatable craft (Flash Charges) puts its items in camp storage.
+      this.game.storage.add(rep.item, rep.count);
+      this.game.bus.emit('inventory:changed', {});
+    } else if (r.kind === 'station') {
       if (!this.extra.stations.includes(id)) this.extra.stations.push(id);
       this.stations.build(r.station);
     } else if (r.kind === 'gear') {

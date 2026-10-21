@@ -9,6 +9,7 @@ import { buildProgression } from './progression';
 import { placeContent } from './content';
 import { buildFeatures } from './features';
 import { focalPoints } from './features/focal';
+import { untrapWorld } from './features/expanse';
 
 /**
  * Authored-procedural generation of the first expedition zone.
@@ -53,6 +54,8 @@ export interface GenerateOptions {
   features?: boolean;
   /** The content pass (world/gen/content): finds on every stretch of floor (default on). */
   content?: boolean;
+  /** Print what the trap pass filled after the content pass (tools). */
+  log?: boolean;
 }
 
 export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions = {}): WorldLayout & { timings: GenTimings } {
@@ -291,6 +294,12 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
         const n = noise.fbm3(x * 0.12, y * 0.12, z * 0.12, 2) * 0.25;
         if (e + n < 1) carve(x, y, z);
       }
+  // Round 2 (WORLD): a door in the west wall to the Root Galleries (world/gen/features/expanse).
+  for (let z = 39; z <= 41; z++)
+    for (let x = 22; x <= 26; x++) {
+      for (let y = 101; y <= (z === 40 ? 104 : 103); y++) carve(x, y, z);
+      if (isAir(x, 100, z)) put(x, 100, z, B.SLATE);
+    }
   // Earthen floor with gravel patches; two small plank decks (work and sleeping areas).
   for (let z = 29; z <= 53; z++)
     for (let x = 23; x <= 51; x++) {
@@ -339,7 +348,13 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
     beam('beam_fallen', [37.35, 101.17, 49.25], [44.35, 101.98, 46.35], 0.3, 0.36, 1, 0.22);
   }
   blob([45, 101, 49], 1.6, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.GRAVEL); });
-  blob([46, 101, 33], 1.4, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.SLATE); });
+  // Round 2: loose stone by the forge plot, the first stone the tutorial asks for.
+  blob([46, 101, 33], 1.4, (x, y, z) => { if (y >= 101 && isAir(x, y, z)) put(x, y, z, B.RUBBLE); });
+  // Round 2: heaps of loose stone against the camp's walls, the first stone the tutorial asks for
+  // (plain rock no longer yields). One course, open over them; never on a plot, a deck or the door.
+  for (const [x, z] of [[45, 32], [46, 32], [46, 34], [45, 34], [47, 33], [25, 35], [26, 35], [25, 36], [41, 51], [42, 51], [42, 50], [43, 50], [48, 44], [48, 45]] as Array<[number, number]>) {
+    if (isAir(x, 101, z) && isAir(x, 102, z) && isAir(x, 103, z) && !isAir(x, 100, z)) put(x, 101, z, B.RUBBLE);
+  }
   // Make sure the camp ceiling clears the frame everywhere.
   for (let z = 34; z <= 49; z++) for (let x = 28; x <= 45; x++) for (let y = 101; y <= 106; y++) if (get(x, y, z) === B.SLATE || get(x, y, z) === B.UMBER) carve(x, y, z);
 
@@ -1071,7 +1086,7 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   // ------------------------------------------------------------------------------------
   // 14. World variety (world/gen/features): the places, rides, rune doors and living rock, built
   // after the key lights with their own random stream, writing only inside the boxes they declare.
-  const features = opts.features === false ? undefined : buildFeatures({ world: w, seed, props, structures, discoveries, landmarks, blob, crystalSeam, groundAt });
+  const features = opts.features === false ? undefined : buildFeatures({ world: w, seed, props, structures, discoveries, landmarks, blob, crystalSeam, groundAt, spawn, camp });
   mark('features');
 
   // ------------------------------------------------------------------------------------
@@ -1082,6 +1097,12 @@ export function generateWorld(seed: number = WORLD.seed, opts: GenerateOptions =
   // 15b. Focal points (features/focal, polish): a warm counterpoint and a lit focal point in the
   // spaces that read monotone. After the content pass, so no find moves.
   if (features) focalPoints({ world: w, seed, props }, features);
+  // 15c. Round 2 (WORLD): the content's veins and heaps must not leave a pit nobody can climb out of.
+  if (features && content) {
+    const fungi = content.ambient.flatMap((a) => (a.kind === 'fungus' ? [{ x: a.p[0], y: a.p[1], z: a.p[2] }] : []));
+    const filled = untrapWorld(w, spawn, camp, features, [...props, ...fungi]);
+    if (filled.length && opts.log) console.log(`untrap after content: ${filled.length} cells`, filled.slice(0, 20).join(' '));
+  }
 
   // Re-assert the bedrock shell (decoration passes must never open the world boundary).
   for (let z = 0; z < sz; z++)

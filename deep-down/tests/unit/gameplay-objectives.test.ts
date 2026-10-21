@@ -15,7 +15,7 @@ function fresh(): Objectives {
 }
 
 function mineStone(o: Objectives, n: number): void {
-  for (let i = 0; i < n; i++) o.onEvent('block:broken', { ...at(i), block: B.SLATE });
+  for (let i = 0; i < n; i++) o.onEvent('block:broken', { ...at(i), block: B.RUBBLE });
 }
 
 /** Play the intended order up to (not including) `stop`. */
@@ -48,10 +48,10 @@ describe('Objectives', () => {
     expect(o.current().text).toBe(t('objective.walkDesktop'));
     expect(o.noteControls(0, 5.5)).toBe(true);
     expect(o.current()).toEqual({ id: 'mineStone', text: t('objective.mineStone', { have: 0, need: OBJECTIVE_NEED.stone }) });
-    expect(o.current().text).toBe('Mine stone (0/12)');
+    expect(o.current().text).toBe('Gather loose stone (0/12)');
     expect(o.completed).toEqual(['look', 'walk']);
     o.setTotals({ touch: true });
-    expect(o.current().text).toBe('Tap a rock wall to mine it (0/12)');
+    expect(o.current().text).toBe('Tap glowing loose stone to gather it (0/12)');
     // Later steps do not count turning or walking.
     expect(o.noteControls(500, 500)).toBe(false);
   });
@@ -65,26 +65,26 @@ describe('Objectives', () => {
   it('counts broken blocks that drop stone, but not other blocks', () => {
     const o = fresh();
     mineStone(o, 3);
-    o.onEvent('block:broken', { ...at(0), block: B.SOIL }); // drops nothing
+    o.onEvent('block:broken', { ...at(0), block: B.ROOTS }); // drops fibre
     o.onEvent('block:broken', { ...at(0), block: B.COPPER_ORE });
-    o.onEvent('block:broken', { ...at(0), block: B.GRAVEL }); // drop item is stone
-    expect(o.current().text).toBe('Mine stone (4/12)');
+    o.onEvent('block:broken', { ...at(0), block: B.CRUMBLING_BRICK }); // drop item is stone
+    expect(o.current().text).toBe('Gather loose stone (4/12)');
   });
 
   it('counts picked-up stone without double counting broken blocks', () => {
     const o = fresh();
     mineStone(o, 5);
     o.onEvent('item:picked', { item: 'stone', count: 5 });
-    expect(o.current().text).toBe('Mine stone (5/12)');
+    expect(o.current().text).toBe('Gather loose stone (5/12)');
     o.onEvent('item:picked', { item: 'stone', count: 3 });
-    expect(o.current().text).toBe('Mine stone (8/12)');
+    expect(o.current().text).toBe('Gather loose stone (8/12)');
   });
 
   it('walks the whole chain in order and reports changes', () => {
     const o = fresh();
     mineStone(o, OBJECTIVE_NEED.stone - 1);
     expect(o.currentId).toBe('mineStone');
-    expect(o.onEvent('block:broken', { ...at(99), block: B.SLATE })).toBe(true);
+    expect(o.onEvent('block:broken', { ...at(99), block: B.RUBBLE })).toBe(true);
     expect(o.current().id).toBe('findCopper');
     expect(o.current().text).toBe('Find copper ore (0/8)');
 
@@ -99,7 +99,7 @@ describe('Objectives', () => {
     expect(o.onEvent('craft:done', { recipe: 'sturdyPack' })).toBe(false);
     expect(o.onEvent('craft:done', { recipe: 'copperPickaxe' })).toBe(true);
     expect(o.current().id).toBe('breakSeal');
-    expect(o.onEvent('block:broken', { ...at(0), block: B.SLATE })).toBe(false);
+    expect(o.onEvent('block:broken', { ...at(0), block: B.RUBBLE })).toBe(false);
     expect(o.onEvent('block:broken', { ...at(0), block: B.HARDENED_SLATE })).toBe(true);
     expect(o.current()).toEqual({ id: 'goDeeper', text: t('objective.goDeeper') });
     expect(o.onEvent('discovery', { id: 'hollow' })).toBe(false);
@@ -114,7 +114,7 @@ describe('Objectives', () => {
     const o = fresh();
     o.onEvent('item:picked', { item: 'stone', count: 4 });
     o.onEvent('item:picked', { item: 'copperOre', count: 3 });
-    expect(o.current().text).toBe('Mine stone (4/12)');
+    expect(o.current().text).toBe('Gather loose stone (4/12)');
     o.onEvent('item:picked', { item: 'stone', count: 40 });
     expect(o.current().text).toBe('Find copper ore (3/8)');
   });
@@ -235,7 +235,7 @@ describe('Objectives', () => {
   it('ignores negative pickup counts', () => {
     const o = fresh();
     o.onEvent('item:picked', { item: 'stone', count: -50 });
-    expect(o.current().text).toBe('Mine stone (0/12)');
+    expect(o.current().text).toBe('Gather loose stone (0/12)');
   });
 });
 

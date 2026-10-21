@@ -1,0 +1,92 @@
+[
+ {
+  "name": "hl-01-camp-floor",
+  "at": [
+   38.5,
+   101,
+   47.5
+  ],
+  "look": [
+   38.5,
+   100.5,
+   40.5
+  ],
+  "pitch": -0.62,
+  "eval": "window.__hlShot={\"at\": [38.5, 101, 47.5], \"look\": [38.5, 100.5, 40.5]};{const D=window.__DD__,g=D.game;const S=window.__hlShot;const st=D.standableNear(S.at[0],S.at[1],S.at[2]);const yaw=Math.atan2(S.look[0]-st[0],S.look[2]-st[2]);const dx=Math.sin(yaw),dz=Math.cos(yaw);const ids=[7,8,39,37,35];window.__hlCells=[];for(let k=0;k<5;k++){const x=Math.floor(st[0]+0.5*0+dx*(2.2+k*1.15)),z=Math.floor(st[2]+dz*(2.2+k*1.15));let y=Math.floor(st[1])-1;if(!D.isSolid(x,y,z)){continue;}D.setBlock(x,y,z,ids[k]);window.__hlCells.push([x,y,z]);}D.meshIdle?.();const hl=g.highlight;const c=window.__hlCells;if(c.length>3){hl.select({kind:'block',x:c[3][0],y:c[3][1],z:c[3][2]});const p=c[1];hl.progress({kind:'block',x:p[0],y:p[1],z:p[2],point:{x:p[0]+0.5,y:p[1]+1.0,z:p[2]+0.5}},0.6);}}"
+ },
+ {
+  "name": "hl-02-tunnel-floor",
+  "at": [
+   66.5,
+   98,
+   46.5
+  ],
+  "look": [
+   70.5,
+   97.5,
+   52.5
+  ],
+  "pitch": -0.62,
+  "eval": "window.__hlShot={\"at\": [66.5, 98, 46.5], \"look\": [70.5, 97.5, 52.5]};{const D=window.__DD__,g=D.game;const S=window.__hlShot;const st=D.standableNear(S.at[0],S.at[1],S.at[2]);const yaw=Math.atan2(S.look[0]-st[0],S.look[2]-st[2]);const dx=Math.sin(yaw),dz=Math.cos(yaw);const ids=[7,8,39,37,35];window.__hlCells=[];for(let k=0;k<5;k++){const x=Math.floor(st[0]+0.5*0+dx*(2.2+k*1.15)),z=Math.floor(st[2]+dz*(2.2+k*1.15));let y=Math.floor(st[1])-1;if(!D.isSolid(x,y,z)){continue;}D.setBlock(x,y,z,ids[k]);window.__hlCells.push([x,y,z]);}D.meshIdle?.();const hl=g.highlight;const c=window.__hlCells;if(c.length>3){hl.select({kind:'block',x:c[3][0],y:c[3][1],z:c[3][2]});const p=c[1];hl.progress({kind:'block',x:p[0],y:p[1],z:p[2],point:{x:p[0]+0.5,y:p[1]+1.0,z:p[2]+0.5}},0.6);}}"
+ },
+ {
+  "name": "hl-03-hollow-floor",
+  "at": [
+   108,
+   42,
+   104
+  ],
+  "look": [
+   114,
+   42,
+   104
+  ],
+  "pitch": -0.62,
+  "eval": "window.__hlShot={\"at\": [108, 42, 104], \"look\": [114, 42, 104]};{const D=window.__DD__,g=D.game;const S=window.__hlShot;const st=D.standableNear(S.at[0],S.at[1],S.at[2]);const yaw=Math.atan2(S.look[0]-st[0],S.look[2]-st[2]);const dx=Math.sin(yaw),dz=Math.cos(yaw);const ids=[7,8,39,37,35];window.__hlCells=[];for(let k=0;k<5;k++){const x=Math.floor(st[0]+0.5*0+dx*(2.2+k*1.15)),z=Math.floor(st[2]+dz*(2.2+k*1.15));let y=Math.floor(st[1])-1;if(!D.isSolid(x,y,z)){continue;}D.setBlock(x,y,z,ids[k]);window.__hlCells.push([x,y,z]);}D.meshIdle?.();const hl=g.highlight;const c=window.__hlCells;if(c.length>3){hl.select({kind:'block',x:c[3][0],y:c[3][1],z:c[3][2]});const p=c[1];hl.progress({kind:'block',x:p[0],y:p[1],z:p[2],point:{x:p[0]+0.5,y:p[1]+1.0,z:p[2]+0.5}},0.6);}}"
+ },
+ {
+  "name": "hl-04-prop-select",
+  "at": [
+   66.5,
+   98,
+   46.2
+  ],
+  "look": [
+   66.4,
+   98.4,
+   48.7
+  ],
+  "pitch": -0.35,
+  "eval": "{const g=window.__DD__.game;g.highlight.select({kind:'prop',id:'c_crate_3'});g.highlight.progress({kind:'prop',id:'c_crate_3'},0.55);}"
+ },
+ {
+  "name": "hl-05-rune-select",
+  "at": [
+   74.5,
+   96,
+   53
+  ],
+  "look": [
+   76.5,
+   96.5,
+   52.5
+  ],
+  "pitch": -0.2,
+  "eval": "{const g=window.__DD__.game;g.highlight.select({kind:'prop',id:'runeStone_56'});g.highlight.progress(null,0);}"
+ },
+ {
+  "name": "hl-06-chest-select",
+  "at": [
+   34.5,
+   26,
+   88.5
+  ],
+  "look": [
+   31.5,
+   26.4,
+   88.6
+  ],
+  "pitch": -0.3,
+  "eval": "{const g=window.__DD__.game;g.highlight.select({kind:'prop',id:'f_lake_3'});g.highlight.progress({kind:'prop',id:'f_lake_3'},0.45);}"
+ }
+]

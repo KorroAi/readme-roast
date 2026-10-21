@@ -76,8 +76,11 @@ describe('rides (the hoist, the rift rope)', () => {
     const links = layout.features!.links;
     const chained = rideEdges(links, false, RIDES.stepsPerSecond);
     const released = rideEdges(links, true, RIDES.stepsPerSecond);
-    expect(chained.length).toBe(3);
-    expect(released.length).toBe(4);
+    // Every ride both ways once released; a chained one (the hoist) not down until then. Round 2's
+    // world adds ropes and shafts, so the counts follow the layout's links.
+    expect(released.length).toBe(2 * links.length);
+    expect(chained.length).toBe(released.length - links.filter((l) => l.lock).length);
+    expect(links.some((l) => l.id === 'hoist' && l.lock)).toBe(true);
     const hoist = links.find((l) => l.id === 'hoist')!;
     const up = chained.find((e) => e.to[1] === Math.floor(hoist.top[1]))!;
     expect(up.from).toEqual([Math.floor(hoist.bottom[0]), hoist.bottom[1], Math.floor(hoist.bottom[2])]);

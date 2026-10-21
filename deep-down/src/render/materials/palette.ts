@@ -34,7 +34,8 @@ export const LICHEN = [0x2a352f, 0x35433a, 0x404c44, 0x4c5a4e, 0x5a6a5b] as cons
 /** Stones that weathered out into the soil: warm-neutral, between rock and soil. */
 export const PEBBLE = [0x252423, 0x322f2c, 0x403b37, 0x4e4843, 0x5f5750, 0x71665d] as const;
 /** Compacted cave soil. */
-export const SOIL = [0x1d1815, 0x251e1a, 0x2d2420, 0x362c25, 0x42342b, 0x4f3e32, 0x5c4839] as const;
+// Round 2: a little less red (lantern-lit camp soil read as one saturated orange).
+export const SOIL = [0x1b1917, 0x231f1c, 0x2b2623, 0x342e29, 0x3e3731, 0x4a4139, 0x564c43] as const;
 
 /** Native copper and chalcopyrite: dark oxidised metal up to a warm copper lit edge. */
 export const COPPER = [0x3d2115, 0x5b2c19, 0x803e1f, 0xa65126, 0xc96832, 0xe58444] as const;

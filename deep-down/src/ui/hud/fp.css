@@ -267,6 +267,42 @@
   display: none;
 }
 
+/* The Flash Charge chip: above the tool in the right hand, only while a monster is near. */
+.dd-touch.dd-fp .dd-flash {
+  position: absolute;
+  right: calc(12px + var(--safe-right));
+  bottom: calc(36% + var(--safe-bottom));
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 48px;
+  padding: 0 14px 0 10px;
+  --cut: var(--cut-chip);
+  --fill: rgba(30, 24, 12, 0.74);
+  --rim: rgba(255, 228, 160, 0.75);
+  color: #fff1c4;
+  font: 800 calc(13px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.04em;
+}
+.dd-touch.dd-fp .dd-flash[hidden] {
+  display: none;
+}
+.dd-touch.dd-fp .dd-flash-glyph {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fffbe8 0 30%, #ffd77a 55%, rgba(255, 200, 90, 0) 72%);
+  box-shadow: 0 0 8px rgba(255, 220, 140, 0.7);
+}
+.dd-touch.dd-fp .dd-flash-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.dd-touch.dd-fp.dd-lefty .dd-flash {
+  right: auto;
+  left: calc(12px + var(--safe-left));
+}
+
 @media (orientation: landscape) {
   .dd-hud.dd-fp .dd-hud-top {
     right: auto;
@@ -312,4 +348,66 @@
     width: min(330px, 44vw);
     transform: translateX(-50%);
   }
+}
+
+/* The rarity legend (first-time card and journal): a dot of each colour, its tier, its finds. */
+.dd-rarity-legend {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+}
+.dd-rarity {
+  display: grid;
+  grid-template-columns: 14px auto 1fr;
+  align-items: center;
+  gap: 8px;
+  font-size: calc(12.5px * var(--s, 1));
+  line-height: 1.25;
+}
+.dd-rarity-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--rc);
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.6), 0 0 7px var(--rc);
+}
+.dd-rarity.r-legendary .dd-rarity-dot {
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.6), 0 0 10px var(--rc), 0 0 2px #fff6d8 inset;
+}
+.dd-rarity-name {
+  font-weight: 800;
+  letter-spacing: 0.03em;
+}
+.dd-rarity-what {
+  color: var(--bone-200, #d9d0bf);
+  opacity: 0.9;
+}
+.dd-journal-legend {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.7);
+  background: rgba(9, 13, 19, 0.5);
+}
+.dd-journal-legend h3 {
+  margin: 0;
+  font-size: calc(12px * var(--s, 1));
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--amber-300, #ffb35c);
+}
+.dd-journal-legend p {
+  margin: 4px 0 0;
+  font-size: calc(12px * var(--s, 1));
+  opacity: 0.85;
+}
+/* The legend's first-time card: no "discovery" label, the five colours under the line. */
+.dd-discovery.legend .dd-discovery-label {
+  display: none;
+}
+.dd-discovery .dd-rarity-legend {
+  max-width: 320px;
+  margin: 10px auto 0;
 }

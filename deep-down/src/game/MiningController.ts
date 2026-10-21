@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../config/blocks';
 import type { PickaxeDef } from '../config/balance';
 import { REACH } from './fp/constants';
+import { isBreakable } from '../config/rarity';
+import './fp/events';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Rng } from '../core/rng';
 import { t, type TextKey } from '../i18n';
@@ -301,6 +303,9 @@ export class MiningController {
     return { target, prop: propFirst, hit };
   }
 
+  /** The plain block the held press has already tunked on (no second strike until it lets go). */
+  private tunkedKey: string | null = null;
+
   /** The last update ran with a finger held on the world (hold to mine, not a tap lock). */
   private heldByFinger = false;
 
@@ -314,11 +319,15 @@ export class MiningController {
     const wantsMine = active && (input.mining || input.lock !== null);
     // The crosshair (desktop) or the aim-assisted block (touch) is shown even when not mining,
     // so the player sees what the next swing will hit.
-    const showHover = active && (wantsMine || !input.aimFromPointer);
+    // On touch nothing is shown until a tap or a finger acts (there is no dot to aim with).
+    const showHover = active && (wantsMine || (!input.aimFromPointer && input.lastDevice !== 'touch'));
     this.target = showHover ? this.findTarget(input, handX, handY, handZ) : null;
     const tgt = this.target && this.target.inReach ? this.target : null;
 
-    if (wantsMine && tgt && this.swingTimer <= 0) {
+    // Ordinary rock answers a press once (one tunk), not with a tunk every swing while it is held.
+    if (!input.mining || !tgt || tgt.key !== this.tunkedKey) this.tunkedKey = null;
+    const tunkDone = !!tgt && tgt.key === this.tunkedKey;
+    if (wantsMine && tgt && this.swingTimer <= 0 && !tunkDone) {
       const pick = this.hooks.pickaxe();
       this.swingTimer = pick.swingInterval;
       this.impactPending = true;
@@ -344,7 +353,8 @@ export class MiningController {
 
     // Marker reflects the current target and its accumulated damage.
     // A locked block is outlined while the explorer walks up to it, too.
-    const shown = this.target && this.target.kind === 'block' && (this.target.inReach || input.lock !== null) ? this.target : null;
+    // Ordinary rock (never minable) shows nothing: no crack, no ring.
+    const shown = this.target && this.target.kind === 'block' && isBreakable(this.target.block) && (this.target.inReach || input.lock !== null) ? this.target : null;
     const progress = shown && this.rules.targetKey === shown.key ? this.rules.progress : 0;
     const blocked = !!shown && (shown.tier > this.hooks.pickaxe().tier || shown.protectedReason !== null);
     // The ray hit centres the strike light and the fractures where the pick actually lands.
@@ -354,6 +364,10 @@ export class MiningController {
   }
 
   private impact(tgt: MiningTarget): void {
+    if (tgt.kind === 'block' && !isBreakable(tgt.block)) {
+      this.tunk(tgt);
+      return;
+    }
     const pick = this.hooks.pickaxe();
     const res = this.rules.hit(tgt.key, tgt.hardness, tgt.tier, pick, tgt.protectedReason);
     const p = tgt.point;
@@ -427,10 +441,27 @@ export class MiningController {
     this.hooks.blockBroken(tgt.x, tgt.y, tgt.z, oldId);
   }
 
-  /** HUD summary of the current target. */
+  /**
+   * The pick meets ordinary rock: a soft "tunk" and one tiny chip off the face, nothing else (no
+   * damage, no crack, no hint). Taps on plain stone are never an error, just stone.
+   */
+  private tunk(tgt: MiningTarget): void {
+    this.tunkedKey = tgt.key;
+    const p = tgt.point;
+    const def = BLOCKS[tgt.block];
+    const n: [number, number, number] = [tgt.nx, tgt.ny, tgt.nz];
+    this.debris.burst(p.x + n[0] * 0.04, p.y + n[1] * 0.04, p.z + n[2] * 0.04, def.debris, this.rng, {
+      count: 1, speed: 0.7, size: [0.015, 0.025], dir: [n[0] * 0.2, -0.8, n[2] * 0.2], life: [0.25, 0.4],
+    });
+    this.particles.dust(p.x, p.y, p.z, def.debris[0], 1, this.rng, 0.06);
+    this.bus.emit('block:tunk', { x: tgt.x, y: tgt.y, z: tgt.z, block: tgt.block, px: p.x, py: p.y, pz: p.z });
+  }
+
+  /** HUD summary of the current target (none on ordinary rock). */
   hudTarget(): { name: string; progress: number; blocked: boolean } | null {
     const tg = this.target;
     if (!tg || !tg.inReach) return null;
+    if (tg.kind === 'block' && !isBreakable(tg.block)) return null;
     const progress = this.rules.targetKey === tg.key ? this.rules.progress : 0;
     const blocked = tg.tier > this.hooks.pickaxe().tier || tg.protectedReason !== null;
     return { name: tg.name, progress, blocked };

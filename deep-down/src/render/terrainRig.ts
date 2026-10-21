@@ -27,7 +27,20 @@ export interface TerrainUniforms {
   uTarget: THREE.IUniform<THREE.Vector4>;
   uTargetFx: THREE.IUniform<THREE.Vector4>;
   uTargetHit: THREE.IUniform<THREE.Vector4>;
+  /** Rarity highlights (render/highlight.ts): HI_SIZE^3 R8 volume of cell codes around the eye. */
+  uHiTex: THREE.IUniform<THREE.Data3DTexture>;
+  /** xyz: the volume's origin cell, w: 1 when the volume is live. */
+  uHiOrigin: THREE.IUniform<THREE.Vector4>;
+  /** xyz: the selected cell, w: its code (2..6 = common..legendary, 0 = nothing selected). */
+  uHiSel: THREE.IUniform<THREE.Vector4>;
+  /** x: time (s), y: selection strength 0..1, z: selection blocked (too hard), w: ambient strength. */
+  uHiFx: THREE.IUniform<THREE.Vector4>;
+  /** Linear rarity colours, common..legendary. */
+  uHiCol: THREE.IUniform<THREE.Vector3[]>;
 }
+
+/** Edge of the highlight volume in cells (render/highlight.ts writes it). */
+export const HI_SIZE = 32;
 
 export const NOISE_SIZE = 32;
 
@@ -59,6 +72,11 @@ export class TerrainRig {
       uTarget: { value: new THREE.Vector4(-9999, -9999, -9999, -1) },
       uTargetFx: { value: new THREE.Vector4(0, 0, 0, 0) },
       uTargetHit: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uHiTex: { value: makeHighlightVolume() },
+      uHiOrigin: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uHiSel: { value: new THREE.Vector4(-9999, -9999, -9999, 0) },
+      uHiFx: { value: new THREE.Vector4(0, 0, 0, 1) },
+      uHiCol: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
     };
   }
 
@@ -78,7 +96,22 @@ export class TerrainRig {
   dispose(): void {
     this.materialTex.dispose();
     this.noiseTex.dispose();
+    this.uniforms.uHiTex.value.dispose();
   }
+}
+
+/** The rarity highlight volume: one byte per cell (0 air, 1 plain solid, 2..6 a rarity), nearest. */
+function makeHighlightVolume(): THREE.Data3DTexture {
+  const n = HI_SIZE;
+  const t = new THREE.Data3DTexture(new Uint8Array(n * n * n), n, n, n);
+  t.format = THREE.RedFormat;
+  t.type = THREE.UnsignedByteType;
+  t.minFilter = t.magFilter = THREE.NearestFilter;
+  t.wrapS = t.wrapT = t.wrapR = THREE.ClampToEdgeWrapping;
+  t.generateMipmaps = false;
+  t.unpackAlignment = 1;
+  t.needsUpdate = true;
+  return t;
 }
 
 /** 32^3 RGBA random lattice; trilinear filtering + REPEAT turns it into smooth tiling value noise. */

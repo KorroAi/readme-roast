@@ -35,6 +35,8 @@ export interface InputState {
   tapY: number;
   /** The Mine button was pressed: lock onto the highlighted block. Edge, cleared each frame. */
   lockAssistPressed: boolean;
+  /** Use a Flash Charge (its chip on touch, F on the keyboard). Edge, cleared each frame. */
+  flashPressed: boolean;
   /** Tap to mine: the locked target (game/TapController), mined until it breaks. */
   lock: MineLock | null;
   /** Tap to walk: automatic movement, camera-relative like moveX/moveY; the stick overrides it. */
@@ -63,6 +65,7 @@ export function createInputState(): InputState {
     tapX: 0,
     tapY: 0,
     lockAssistPressed: false,
+    flashPressed: false,
     lock: null,
     autoMoveX: 0,
     autoMoveY: 0,
@@ -80,4 +83,5 @@ export function consumeEdges(s: InputState): void {
   s.pauseRequested = false;
   s.tapPressed = false;
   s.lockAssistPressed = false;
+  s.flashPressed = false;
 }

@@ -452,6 +452,47 @@ export class ChunkRenderer {
     return { checked, mismatched };
   }
 
+  /**
+   * Round 2 (glitch hunt: props floating over sculpted rims): the drawn height of the top face of
+   * solid cell (floor(px), y - 1, floor(pz)) at the point (px, pz), from its meshed vertices (the
+   * sculpted offsets, interpolated across the face). null when that face is not meshed (covered,
+   * a structure, a chunk not built yet).
+   */
+  surfaceTop(px: number, y: number, pz: number): number | null {
+    const w = this.world;
+    const cs = w.chunkSize;
+    const x = Math.floor(px);
+    const z = Math.floor(pz);
+    const cy = Math.round(y) - 1;
+    if (!w.inBounds(x, cy, z)) return null;
+    const ccx = Math.floor(x / cs);
+    const ccy = Math.floor(cy / cs);
+    const ccz = Math.floor(z / cs);
+    const mesh = this.meshes[w.chunkIndex(ccx, ccy, ccz)];
+    if (!mesh) return null;
+    const v = (mesh.geometry.getAttribute('aGeo') as THREE.InterleavedBufferAttribute).data.array as Uint8Array;
+    const lx = x - ccx * cs;
+    const ly = cy - ccy * cs + 1;
+    const lz = z - ccz * cs;
+    const off = [Number.NaN, Number.NaN, Number.NaN, Number.NaN];
+    const step = OFFSET_RANGE / 127;
+    let found = 0;
+    for (let o = 0; o + VERTEX_BYTES <= v.length && found < 4; o += VERTEX_BYTES) {
+      if (v[o + 4] !== 2 || v[o + 1] !== ly) continue;
+      const dx = v[o] - lx;
+      const dz = v[o + 2] - lz;
+      if (dx < 0 || dx > 1 || dz < 0 || dz > 1) continue;
+      const k = dx + dz * 2;
+      if (Number.isNaN(off[k])) found++;
+      off[k] = (v[o + 13] - 128) * step;
+    }
+    if (found < 4) return null;
+    const fx = px - x;
+    const fz = pz - z;
+    const top = off[0] * (1 - fx) * (1 - fz) + off[1] * fx * (1 - fz) + off[2] * (1 - fx) * fz + off[3] * fx * fz;
+    return cy + 1 + top;
+  }
+
   dispose(): void {
     this.disposed = true;
     this.pool?.terminate();

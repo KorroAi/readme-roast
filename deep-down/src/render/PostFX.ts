@@ -164,7 +164,9 @@ void main() {
   float l = dot(c, LUMA);
   c += uLift * (1.0 - smoothstep(0.0, 0.35, l));
   c *= mix(vec3(1.0), uGain, smoothstep(0.25, 0.9, l));
-  c = max(mix(vec3(l), c, uSat), 0.0);
+  // Round 2: saturation keeps the hued darks and eases off in the lit highlights, so a lamp-lit
+  // camp or a lantern-lit wall reads warm stone, not one saturated orange.
+  c = max(mix(vec3(l), c, mix(uSat, 0.9, smoothstep(0.3, 0.8, l))), 0.0);
   // Vignette for the portrait frame, and a darker crown: the vault frames the view, the eye falls
   // to the lit middle (the HUD corners at the bottom stay clean).
   vec2 qa = q;

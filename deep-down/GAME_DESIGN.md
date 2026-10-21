@@ -183,3 +183,16 @@ balcony). What it adds, each item testable:
 - **Feats** (gameplay/Feats.ts): 29 milestones (firsts, depths, labour, finds, story), each with a calm toast, a small reward paid into camp storage, and a Journal page with lifetime numbers.
 - **Guidance**: the chain now starts by doing (look round, then walk); a hint comes when the objective line has not moved for 75 s; after the finale the Next line leads to each cavern beyond the rift in turn.
 - **No creatures**: the lumen moths are now glow spores, drifting motes of light that carry no gameplay.
+
+## Round 2: the world (WORLD)
+
+- **Only interesting things are minable** (`config/rarity.ts`: `isMinable`, `rarityOf`, `RARITY_COLOR`). Plain rock, soil, gravel, bedrock and masonry hold (a tap is a soft tunk). What breaks, by rarity: loose stone (rubble heaps, the stone for recipes), root tangles (fibre), copper and cracked walls (common); iron and Halden chests (uncommon); crystal clusters and echo crystal (rare); glimmer seams, the glimmer bloom and gem pockets (epic); lanternstone, relics, rune stones and hidden chests (legendary). The seals open by tier (hardened slate 2, Ironbound 3, ember glass 4).
+- **Weapons** (`config/weapons.ts`), made at the Forge once it stands (it needs the first iron): the Iron Machete (fast), the Glimmer Spear (3 m, strong, needs gems), the Flare Sling (16 m, light shards that scare crawlers) and Flash Charges (two per craft, repeatable). A tap on a monster uses `bestWeapon(owned, distance)`; the pick always works, weakly.
+- **A vast, non-linear world** (`world/gen/features/expanse.ts`), +56 % walkable floor, every place on a loop:
+  - the **Root Galleries** through a door in the camp's west wall: five rooms of roots and loose stone, and the **Geode** behind a cracked wall;
+  - the **Sounding Shaft**: two ropes (38 m and 36 m) down to the **Still Lake**, a shallow mirror with an island chest and a window slot over **the Deep**, where the Deep Worm passes;
+  - a climbing passage from the lake to the Hollow's west floor;
+  - the **Underhall**: a stone forest split by a chasm with a natural bridge, joined to the lake and to the Halden Yard;
+  - the **Lantern Vault**: a 65 m shaft north of the Hollow with two balconies (braziers), ropes, a pool, and doors to the tunnel (top), the stair landing (middle) and the Hollow floor (bottom).
+- **No traps**: with no free digging, every pit a walk can drop into, or a player can mine open, is filled at generation until a walk leads home from every reachable cell (`world/analysis/traps.ts`, tested on the world as generated and fully mined out). This also fixed 25 trap cells of the first version (under the ledge rim, beside the landing, on the Hollow's east slope).
+- **Events** (`game/events`): something every 2–4 minutes of exploration, one at a time, never at camp: a tremor that cracks open a hidden pocket, a 60 s crystal bloom (a shard more from each crystal), a Halden echo light leading to a cracked wall, a gust that halves the flame until you reach a lamp, a spore geyser that feeds the lantern, falling rocks that warn first and leave loose stone; the glow-moth migration and the treasure mob are MOBS' to draw.

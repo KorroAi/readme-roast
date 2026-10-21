@@ -1,0 +1,594 @@
+[
+ {
+  "name": "01-camp",
+  "at": [
+   40.5,
+   101,
+   45.5
+  ],
+  "look": [
+   36.5,
+   101.2,
+   40.5
+  ],
+  "pitch": -0.18
+ },
+ {
+  "name": "02-tunnel",
+  "at": [
+   66.5,
+   98,
+   47.5
+  ],
+  "look": [
+   76,
+   96.5,
+   55.5
+  ],
+  "pitch": -0.12
+ },
+ {
+  "name": "03-mining",
+  "at": [
+   75.5,
+   96,
+   58.5
+  ],
+  "look": [
+   77.5,
+   97,
+   54.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "03b-copper",
+  "at": [
+   60.5,
+   100,
+   34.5
+  ],
+  "look": [
+   63.5,
+   101.5,
+   34.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "03c-iron",
+  "at": [
+   104.5,
+   43,
+   54.5
+  ],
+  "look": [
+   101.5,
+   43.5,
+   54
+  ],
+  "pitch": -0.1
+ },
+ {
+  "name": "04-hollow",
+  "at": [
+   92,
+   88,
+   77
+  ],
+  "look": [
+   100.5,
+   55,
+   124.5
+  ],
+  "pitch": -0.32
+ },
+ {
+  "name": "05-hall",
+  "at": [
+   99,
+   41,
+   89
+  ],
+  "look": [
+   100.5,
+   50,
+   124.5
+  ],
+  "pitch": 0.05
+ },
+ {
+  "name": "06-shrine",
+  "at": [
+   61,
+   42,
+   103.5
+  ],
+  "look": [
+   55.5,
+   42.5,
+   104
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "07-gate",
+  "at": [
+   130,
+   42,
+   100.5
+  ],
+  "look": [
+   136.5,
+   43,
+   100.5
+  ],
+  "pitch": 0.0
+ },
+ {
+  "name": "08-rift",
+  "at": [
+   122.5,
+   42,
+   128
+  ],
+  "look": [
+   122.5,
+   20,
+   140
+  ],
+  "pitch": -0.42
+ },
+ {
+  "name": "09-reliquary",
+  "at": [
+   122.5,
+   42,
+   142.5
+  ],
+  "look": [
+   122.5,
+   42.5,
+   148.5
+  ],
+  "pitch": -0.08
+ },
+ {
+  "name": "10-rift-floor",
+  "at": [
+   130.5,
+   7,
+   124.5
+  ],
+  "look": [
+   123.5,
+   8,
+   135.5
+  ],
+  "pitch": 0.02
+ },
+ {
+  "name": "11-glowroot",
+  "at": [
+   90,
+   4,
+   134.5
+  ],
+  "look": [
+   83.5,
+   5,
+   134.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "12-choir",
+  "at": [
+   82.5,
+   4,
+   104
+  ],
+  "look": [
+   82.5,
+   5,
+   98.5
+  ],
+  "pitch": 0.0
+ },
+ {
+  "name": "13-ember",
+  "at": [
+   52,
+   2,
+   133.5
+  ],
+  "look": [
+   44.5,
+   3,
+   133.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "14-roof",
+  "at": [
+   66.5,
+   98,
+   47.5
+  ],
+  "look": [
+   76,
+   96.5,
+   55.5
+  ],
+  "pitch": 0.62
+ },
+ {
+  "name": "15-crack",
+  "at": [
+   60.5,
+   100,
+   34.5
+  ],
+  "look": [
+   63.5,
+   101.5,
+   34.5
+  ],
+  "pitch": -0.05,
+  "eval": "{const D=window.__DD__,g=D.game,m=g.marker;if(!m.__o){m.__o=m.set.bind(m);m.set=(t,p,b,a)=>{const c=g.cameraRig.camera;const o=c.position.clone(),d=c.getWorldDirection(o.clone()).normalize();for(let k=0;k<200;k++){const q=o.clone().addScaledVector(d,k*0.02);if(D.isSolid(Math.floor(q.x),Math.floor(q.y),Math.floor(q.z))){return m.__o({x:Math.floor(q.x),y:Math.floor(q.y),z:Math.floor(q.z),point:{x:q.x,y:q.y,z:q.z}},window.__crackP??0.75,false,true);}}return m.__o(null,0,false,false);};}}"
+ },
+ {
+  "name": "15b-crack-tunnel",
+  "at": [
+   66.5,
+   98,
+   47.5
+  ],
+  "look": [
+   66.5,
+   98.5,
+   40
+  ],
+  "pitch": 0.0,
+  "eval": "{const D=window.__DD__,g=D.game,m=g.marker;if(!m.__o){m.__o=m.set.bind(m);m.set=(t,p,b,a)=>{const c=g.cameraRig.camera;const o=c.position.clone(),d=c.getWorldDirection(o.clone()).normalize();for(let k=0;k<200;k++){const q=o.clone().addScaledVector(d,k*0.02);if(D.isSolid(Math.floor(q.x),Math.floor(q.y),Math.floor(q.z))){return m.__o({x:Math.floor(q.x),y:Math.floor(q.y),z:Math.floor(q.z),point:{x:q.x,y:q.y,z:q.z}},window.__crackP??0.75,false,true);}}return m.__o(null,0,false,false);};}}"
+ },
+ {
+  "name": "16-debris",
+  "at": [
+   60.5,
+   100,
+   34.5
+  ],
+  "look": [
+   63.5,
+   101.5,
+   34.5
+  ],
+  "pitch": -0.05,
+  "eval": "{const g=window.__DD__.game;const m=g.marker;if(m.__o){m.set=m.__o;delete m.__o;}const r=g.rng;const pal=[0x6b5e50,0x4a4038,0x3a332c];g.debris.burst(61.7,101.2,34.5,pal,r,{count:8,speed:0.01,size:[0.05,0.12],life:[60,60],spread:0.35});g.debris.burst(61.25,101.3,34.4,pal,r,{count:3,speed:0.01,size:[0.06,0.1],life:[60,60],spread:0.06});g.debris.burst(60.95,101.5,34.5,pal,r,{count:3,speed:0.01,size:[0.06,0.1],life:[60,60],spread:0.05});g.debris.update(0.001);g.debris.update=()=>{};}"
+ },
+ {
+  "name": "20-camp-up",
+  "at": [
+   38.5,
+   101,
+   44.5
+  ],
+  "look": [
+   36.5,
+   103,
+   40.5
+  ],
+  "pitch": 0.95
+ },
+ {
+  "name": "21-camp-down",
+  "at": [
+   38.5,
+   101,
+   44.5
+  ],
+  "look": [
+   36.5,
+   101,
+   41.5
+  ],
+  "pitch": -1.05
+ },
+ {
+  "name": "22-camp-props",
+  "at": [
+   40.5,
+   101,
+   40.5
+  ],
+  "look": [
+   40.5,
+   101.5,
+   37.5
+  ],
+  "pitch": -0.35
+ },
+ {
+  "name": "23-workbench-near",
+  "at": [
+   40.5,
+   101,
+   39.2
+  ],
+  "look": [
+   40.5,
+   101.6,
+   37.5
+  ],
+  "pitch": -0.2
+ },
+ {
+  "name": "24-office",
+  "at": [
+   56.5,
+   100,
+   35.5
+  ],
+  "look": [
+   59,
+   100.5,
+   35
+  ],
+  "pitch": -0.1
+ },
+ {
+  "name": "25-tunnel-wall",
+  "at": [
+   66.5,
+   98,
+   47.5
+  ],
+  "look": [
+   70,
+   98.6,
+   47.5
+  ],
+  "pitch": 0.0
+ },
+ {
+  "name": "26-tunnel-down",
+  "at": [
+   70.5,
+   97,
+   51.5
+  ],
+  "look": [
+   74,
+   96,
+   54.5
+  ],
+  "pitch": -0.95
+ },
+ {
+  "name": "27-crystals-near",
+  "at": [
+   75.5,
+   96,
+   55.5
+  ],
+  "look": [
+   77,
+   96.6,
+   55
+  ],
+  "pitch": -0.1
+ },
+ {
+  "name": "28-grotto",
+  "at": [
+   60.5,
+   92,
+   62.5
+  ],
+  "look": [
+   60.5,
+   92.5,
+   66.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "29-ledge-vista",
+  "at": [
+   92,
+   88,
+   76
+  ],
+  "look": [
+   110,
+   70,
+   100
+  ],
+  "pitch": -0.25
+ },
+ {
+  "name": "30-stairs",
+  "at": [
+   96.5,
+   88,
+   73.5
+  ],
+  "look": [
+   122.5,
+   65,
+   74.5
+  ],
+  "pitch": -0.35
+ },
+ {
+  "name": "31-landing-up",
+  "at": [
+   122.5,
+   65,
+   74.5
+  ],
+  "look": [
+   122.5,
+   75,
+   80
+  ],
+  "pitch": 0.9
+ },
+ {
+  "name": "32-hollow-floor",
+  "at": [
+   110,
+   42,
+   108
+  ],
+  "look": [
+   113,
+   42,
+   108
+  ],
+  "pitch": -0.6
+ },
+ {
+  "name": "33-spindle-up",
+  "at": [
+   104.5,
+   41,
+   120.5
+  ],
+  "look": [
+   100.5,
+   55,
+   124.5
+  ],
+  "pitch": 0.85
+ },
+ {
+  "name": "34-bridge",
+  "at": [
+   122.5,
+   42,
+   124.5
+  ],
+  "look": [
+   122.5,
+   42,
+   132.5
+  ],
+  "pitch": -0.1
+ },
+ {
+  "name": "35-chasm-down",
+  "at": [
+   122.5,
+   42,
+   128.5
+  ],
+  "look": [
+   122.5,
+   10,
+   129.5
+  ],
+  "pitch": -1.2
+ },
+ {
+  "name": "36-seal-near",
+  "at": [
+   134.5,
+   42,
+   100.5
+  ],
+  "look": [
+   136.5,
+   42.5,
+   100.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "37-shrine-tablet",
+  "at": [
+   58,
+   42,
+   104
+  ],
+  "look": [
+   55.5,
+   42.6,
+   104
+  ],
+  "pitch": -0.15
+ },
+ {
+  "name": "38-gallery",
+  "at": [
+   143.5,
+   25,
+   135.5
+  ],
+  "look": [
+   146.5,
+   25.5,
+   135.5
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "39-lastcamp",
+  "at": [
+   126,
+   6,
+   127
+  ],
+  "look": [
+   124.4,
+   6.4,
+   125.4
+  ],
+  "pitch": -0.3
+ },
+ {
+  "name": "40-hoist-ride",
+  "at": [
+   87,
+   88,
+   82.5
+  ],
+  "look": [
+   85.5,
+   60,
+   84.5
+  ],
+  "pitch": -0.3,
+  "eval": "window.__DD__.features?.ride?.('hoist','down',0.5)"
+ },
+ {
+  "name": "41-lake",
+  "at": [
+   44,
+   24,
+   90
+  ],
+  "look": [
+   30,
+   24.6,
+   88
+  ],
+  "pitch": -0.22
+ },
+ {
+  "name": "42-lake-window",
+  "at": [
+   23.5,
+   24,
+   88.5
+  ],
+  "look": [
+   10,
+   22.5,
+   88.5
+  ],
+  "pitch": -0.12
+ }
+]

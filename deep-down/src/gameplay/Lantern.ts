@@ -18,6 +18,11 @@ export class Lantern {
   private ember: number = PLAYER.emptyLanternFactor;
   // Reused every update so the per-frame call allocates nothing.
   private readonly edges: LanternEdges = { becameLow: false, becameEmpty: false, refueled: false };
+  /**
+   * Round 2 (WORLD): a gust (game/events) dims the light to this fraction until the explorer stands
+   * by a lamp or a fire; 1 otherwise. Multiplies the light's radius and intensity (Game.updateLantern).
+   */
+  dim = 1;
 
   constructor(capacity: number, fuel: number = capacity) {
     this.cap = Math.max(1, Number.isFinite(capacity) ? capacity : 1);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { LANTERNS, PACKS, PICKAXES, packForTier } from '../../src/config/balance';
 import { NODES, NODE_LIST, nodeInputs, type NodeDef, type NodeId } from '../../src/config/recipes';
-import { Crafting, craft, evaluate, type CraftContext } from '../../src/gameplay/Crafting';
+import { Crafting, craft, evaluate, isOwned, type CraftContext } from '../../src/gameplay/Crafting';
 import { buildTreeView, nodeStats } from '../../src/gameplay/Tree';
 import { en } from '../../src/i18n/en';
 import { Equipment } from '../../src/gameplay/Equipment';
@@ -56,11 +56,15 @@ describe('Equipment', () => {
 });
 
 describe('Crafting: the upgrade tree', () => {
-  it('has the 12 nodes of plan 2.3 as amended (no Rift Winch, no Halden Lift), each with a sentence and a place', () => {
+  it('has the 12 nodes of plan 2.3 as amended (no Rift Winch, no Halden Lift) and the 4 weapon nodes of round 2, each with a sentence and a place', () => {
     expect(NODE_LIST.map((n) => n.id)).toEqual([
       'copperPickaxe', 'sturdyPack', 'copperLantern', 'surveyTable', 'forge', 'relicShelf',
       'ironPickaxe', 'expeditionPack', 'gripBoots', 'minersCoat', 'attunedLantern', 'glimmerPickaxe',
+      'machete', 'sling', 'spear', 'flashCharges',
     ]);
+    // Round 2: the weapons come from the Forge (after the first iron); Flash Charges repeat.
+    for (const id of ['machete', 'sling', 'spear', 'flashCharges'] as const) expect(NODES[id].place).toBe('forge');
+    expect(NODES.flashCharges.repeat).toEqual({ item: 'flashCharge', count: 2 });
     expect(NODE_LIST).not.toContainEqual(expect.objectContaining({ id: 'riftWinch' }));
     for (const n of NODE_LIST) {
       expect(en, n.id).toHaveProperty(n.name);
@@ -178,7 +182,7 @@ describe('Crafting: the upgrade tree', () => {
 
   it('every node is makeable from exactly its inputs once its prerequisites hold', () => {
     for (const n of NODE_LIST) {
-      const c = ctxOf({ built: new Set(['forge', 'surveyTable']), rift: true, rune: true });
+      const c = ctxOf({ built: new Set(['forge', 'surveyTable', 'machete']), rift: true, rune: true });
       c.equipment.upgrade('pickaxe', n.id === 'glimmerPickaxe' ? 3 : n.id === 'ironPickaxe' ? 2 : n.id === 'copperPickaxe' ? 1 : 3);
       c.equipment.upgrade('lantern', n.id === 'copperLantern' ? 1 : 2);
       c.equipment.upgrade('pack', n.id === 'sturdyPack' ? 1 : 2);
@@ -189,6 +193,8 @@ describe('Crafting: the upgrade tree', () => {
       const r = craft(n.id, ctx);
       expect(r.ok, n.id).toBe(true);
       expect(ctx.storage.total, n.id).toBe(0);
+      // A repeatable craft is never owned: it can be made again.
+      if (n.repeat) expect(isOwned(n, ctx.equipment, ctx.built), n.id).toBe(false);
       if (n.result.kind === 'equip') expect(ctx.equipment.tier(n.result.slot), n.id).toBe(n.result.tier);
     }
   });
@@ -198,7 +204,7 @@ describe('Crafting: the upgrade tree', () => {
     c.storage.add('copperOre', 8);
     c.storage.add('stone', 12);
     const v = buildTreeView(c, { focus: 'camp', select: 'forge' });
-    expect(v.nodes.length).toBe(12);
+    expect(v.nodes.length).toBe(16);
     expect(v.focus).toBe('camp');
     expect(v.select).toBe('forge');
     const byId = Object.fromEntries(v.nodes.map((n) => [n.id, n]));

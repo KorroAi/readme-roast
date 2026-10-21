@@ -350,8 +350,10 @@ export function echoCrystal(c: MatCanvas, rng: Rng): void {
     for (let x = 0; x < S; x++) {
       const i = c.idx(x, y);
       const lum = (c.rgb[i * 3] * 0.3 + c.rgb[i * 3 + 1] * 0.55 + c.rgb[i * 3 + 2] * 0.15) / 255;
-      c.tint(x, y, ECHO_WHITE, 0.32 + 0.3 * lum);
-      if (c.a[i] > 0) c.a[i] = Math.min(255, c.a[i] * 1.15 + 12);
+      // Round 2: less milk, more glass (up close the bleached facets and the boosted glow read as
+      // a frosted panel): the facets keep their dark valleys, the inner light stays in patches.
+      c.tint(x, y, ECHO_WHITE, 0.2 + 0.26 * lum);
+      if (c.a[i] > 0) c.a[i] = Math.min(255, c.a[i] * 1.05);
     }
 }
 

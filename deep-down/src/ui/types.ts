@@ -364,6 +364,8 @@ export interface DiscoveryNotice {
   total: number;
   /** A major discovery (the hollow, shrine, gate, rift, answer) gets the big banner. */
   major: boolean;
+  /** Round 2: the first-time card of the rarity colours (the banner shows the legend under the body). */
+  legend?: boolean;
 }
 
 export interface PickupNotice {

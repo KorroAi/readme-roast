@@ -22,9 +22,15 @@ void main() {
   float z = max(0.1, -mv.z);
   // Halos keep a minimum on-screen size so distant lamps still read as points of light.
   float px = clamp(max(aSize * uPixelScale / z, 6.0), 1.0, 96.0);
+  // Round 2 (glitch hunt): a halo beside a wall was cut by it in a hard line. The quad is drawn
+  // half its size nearer the eye (same size on screen), so the wall it hangs on no longer slices
+  // it, while rock between the eye and the light still hides it.
+  float pull = min(aSize * 0.5, z * 0.4);
+  mv.xyz += normalize(-mv.xyz) * pull;
+  float z2 = max(0.1, -mv.z);
   // Camera-facing quad rather than a point sprite: GPUs drop a whole point once its centre
   // leaves the screen, which made big halos pop at the edges.
-  mv.xy += aCorner * (0.5 * px * z / uPixelScale);
+  mv.xy += aCorner * (0.5 * px * z2 / uPixelScale);
   gl_Position = projectionMatrix * mv;
   vUv = aCorner;
   vColor = aColor;
@@ -49,7 +55,9 @@ void main() {
   float glow = exp(-d * d * 2.5) * 0.35;
   // Halos are the breadcrumbs across the dark: the haze dims them but never erases them.
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
-  float flicker = 0.92 + 0.08 * sin(uTime * 9.0 + gl_FragCoord.x * 0.01);
+  // A gentle flicker per light (its phase from where it is), never a band sliding across the
+  // halo (the old phase ran with the screen x: glitch hunt, round 2).
+  float flicker = 0.95 + 0.05 * sin(uTime * 7.0 + dot(vWorldPos, vec3(1.7, 3.1, 2.3)));
   vec3 col = vColor * (core + glow) * (1.0 - fog * 0.6) * vNear * flicker * uAtmos.w;
   fragColor = vec4(sceneOut(col), 1.0);
 }

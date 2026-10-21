@@ -380,7 +380,10 @@ describe('PropRenderer', () => {
     r.add(spec('campfire', { id: 'fire' }));
     r.add(spec('hangingLantern', { id: 'lamp', x: 2, y: 2, anchor: [2, 4, 0] }));
     const cam = new THREE.Vector3(0, 1.6, 3);
-    const flame = r.group.getObjectByName('fire')!.children.find((c) => c.position.y > 0) as THREE.Mesh;
+    const fire = r.group.getObjectByName('fire')!;
+    // Round 2: the fire's living flames are shader quads (render/props/flame.ts) beside the hot core part.
+    expect(fire.children.filter((c) => c.userData.flame).length).toBe(3);
+    const flame = fire.children.find((c) => c.position.y > 0 && !c.userData.flame) as THREE.Mesh;
     const heights = new Set<number>();
     for (let i = 0; i < 30; i++) {
       r.update(1 / 30, i / 30, cam);
@@ -393,6 +396,21 @@ describe('PropRenderer', () => {
     expect(Math.abs(pivot.rotation.x) + Math.abs(pivot.rotation.z)).toBeGreaterThan(0.001);
     // Its top reaches the ceiling block it hangs from.
     expect(r.bounds('lamp')!.max.y).toBeCloseTo(4, 2);
+  });
+
+  it('settles ground props onto the drawn (sculpted) surface, never hanging ones', () => {
+    const r = new PropRenderer(lighting());
+    r.add(spec('crate', { id: 'low', x: 0.5, y: 3, z: 0.5, anchor: [0, 2, 0] }));
+    r.add(spec('crate', { id: 'far', x: 4.5, y: 3, z: 0.5, anchor: [4, 2, 0] }));
+    r.add(spec('hangingLantern', { id: 'lamp', x: 2, y: 2, anchor: [2, 4, 0] }));
+    r.surfaceTop = (x) => (x < 2 ? 2.82 : 1.5); // a rim lowered 18 cm; a bogus 1.5 m drop is ignored
+    r.update(1 / 30, 0, new THREE.Vector3(0, 1.6, 3));
+    expect(r.group.getObjectByName('low')!.position.y).toBeCloseTo(2.82, 5);
+    expect(r.group.getObjectByName('far')!.position.y).toBeCloseTo(3, 5);
+    expect(r.group.getObjectByName('lamp')!.position.y).toBeCloseTo(2, 5);
+    // A station's lift adds to the settle.
+    r.setLift('low', -0.5);
+    expect(r.group.getObjectByName('low')!.position.y).toBeCloseTo(2.32, 5);
   });
 
   it('hides props beyond the view distance', () => {

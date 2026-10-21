@@ -59,6 +59,7 @@ export function nodeDef(id: NodeId): NodeDef {
 
 /** True once the node is made: its equipment tier is reached, or its station / gear is built. */
 export function isOwned(def: NodeDef, equipment: Equipment, built: ReadonlySet<string>): boolean {
+  if (def.repeat) return false;
   const r = def.result;
   return r.kind === 'equip' ? equipment.tier(r.slot) >= r.tier : built.has(def.id);
 }

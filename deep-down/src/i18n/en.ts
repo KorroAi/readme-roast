@@ -10,10 +10,12 @@ import { hud } from './en/hud';
 import { feel } from './en/feel';
 import { play } from './en/play';
 import { content } from './en/content';
+import { expanse } from './en/expanse';
+import { mobs } from './en/mobs';
 
 /** The sections, in assembly order (exported for the duplicate-key test). */
-export const EN_SECTIONS = { core, loop, world, release, brand, screens, hud, feel, play, content } as const;
+export const EN_SECTIONS = { core, loop, world, release, brand, screens, hud, feel, play, content, expanse, mobs } as const;
 
-export const en = { ...core, ...loop, ...world, ...release, ...brand, ...screens, ...hud, ...feel, ...play, ...content } as const;
+export const en = { ...core, ...loop, ...world, ...release, ...brand, ...screens, ...hud, ...feel, ...play, ...content, ...expanse, ...mobs } as const;
 
 export type TextKey = keyof typeof en;

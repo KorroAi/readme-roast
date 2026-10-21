@@ -57,6 +57,30 @@ export const EVENT_SOUNDS: EventSounds = {
   'world:hoistReleased': () => req('break.metal', { pitch: 0.6 }),
   'world:note': () => req('hit.wood', { pitch: 1.7, gain: 0.35 }),
   'world:monolith': () => req('hit.ancient', { pitch: 0.45, gain: 0.7 }),
+  // Round 2 (MOBS): the creatures, placed in stereo by game/mobs/MobDirector (pan, gain by distance).
+  'mob:cue': (p) => (isMobCue(p.cue) ? req(`mob.${p.cue}`, { pan: p.pan, gain: p.gain }) : null),
+  'mob:telegraph': (p) => req(TELEGRAPH[p.kind] ?? 'mob.chitter', { pan: p.pan, gain: Math.max(0.35, p.gain) }),
+  'mob:hit': (p) => req(p.kind === 'wisp' ? 'mob.hit.smoke' : p.armoured ? 'mob.hit.armour' : 'mob.hit.flesh', { pan: p.pan, gain: Math.max(0.5, p.gain) }),
+  'mob:died': (p) => req(p.kind === 'wisp' ? 'mob.die.smoke' : p.kind === 'sentinel' ? 'mob.die.stone' : 'mob.die.monster', { pan: p.pan, gain: Math.max(0.4, p.gain) }),
+  'mob:interact': (p) => (p.action === 'spores' ? req('mob.spores') : p.action === 'harvested' ? req('break.crystal', { gain: 0.8 }) : p.action === 'petted' ? null : req('mob.catch')),
+  'mob:shot': (p) => (p.phase === 'fly' ? null : req('weapon.spark', { pan: p.pan, gain: Math.max(0.3, p.gain) })),
+  // FP's weapons (game/fp/events): the swing, the blade's bite, the flash, and the tunk on plain rock.
+  'weapon:swing': (p) => req(p.ranged ? 'weapon.sling' : 'weapon.whoosh', { pitch: p.weapon === 'machete' ? 1.25 : p.weapon === 'spear' ? 0.8 : 1 }),
+  'weapon:hit': (p) => (p.weapon === 'machete' || p.weapon === 'spear' ? req('weapon.slice') : null),
+  'weapon:flash': () => req('weapon.flash'),
+  'block:tunk': () => req('block.tunk'),
+};
+
+const MOB_CUES = new Set(['breath', 'chitter', 'whisper', 'drone', 'grind', 'chirp', 'squeak', 'groan', 'chime']);
+const isMobCue = (c: string): c is 'breath' | 'chitter' | 'whisper' | 'drone' | 'grind' | 'chirp' | 'squeak' | 'groan' | 'chime' => MOB_CUES.has(c);
+
+/** Each monster's wind-up has its own cue, heard before the blow. */
+const TELEGRAPH: Partial<Record<string, SfxName>> = {
+  crawler: 'mob.chitter',
+  gnasher: 'mob.snarl',
+  wisp: 'mob.whisper',
+  stalker: 'mob.shriek',
+  sentinel: 'mob.charge',
 };
 
 export const AUDIBLE_EVENTS = Object.keys(EVENT_SOUNDS) as Array<keyof GameEvents>;

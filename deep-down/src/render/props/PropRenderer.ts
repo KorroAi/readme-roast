@@ -5,6 +5,7 @@ import { createEntityMaterial } from '../entityMaterial';
 import { hash32 } from '../../core/math';
 import { PROP_VARIANTS, buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
 import { FOG_CULL } from '../lighting';
+import { createFlameMaterial, flameQuad } from './flame';
 
 /** Draw distance of props smaller than 2 m in radius (m). */
 const SMALL_PROP_FAR = 45;
@@ -49,6 +50,12 @@ interface PropEntry {
   radius: number;
   /** World -> prop-local transform, for ray tests against the local hit boxes. */
   inverse: THREE.Matrix4;
+  /** Rarity highlight (setRarityGlow), null when off. */
+  hi: { color: THREE.Vector3; amb: number; sel: number; shimmer: boolean } | null;
+  /** setLift's offset (a station rising) and the settle onto the sculpted ground (surface). */
+  lift: number;
+  settle: number;
+  settled: boolean;
 }
 
 /** How long a hit flash takes to fade, in seconds. */
@@ -130,8 +137,17 @@ export class PropRenderer {
 
     const body = staticMesh(model.body, this.solid);
     holder.add(body);
-    const glowMat = model.glow || model.parts.length ? createEntityMaterial(this.lighting, { emissiveScale: model.glowScale }) : null;
+    const glowMat = model.glow || model.parts.length ? createEntityMaterial(this.lighting, { emissiveScale: model.glowScale, crystal: model.anim === 'crystal' }) : null;
     if (model.glow && glowMat) holder.add(staticMesh(model.glow, glowMat));
+    // Living flames (fires): camera-facing shader quads, each its own seed.
+    for (let i = 0; i < model.flames.length; i++) {
+      const f = model.flames[i];
+      const mesh = new THREE.Mesh(flameQuad(), createFlameMaterial(this.lighting, ((spec.seed >>> 0) % 997) / 97 + i * 3.7, f.w, f.h));
+      mesh.position.set(f.x, f.y, f.z);
+      mesh.renderOrder = 9;
+      mesh.userData.flame = true;
+      holder.add(mesh);
+    }
     const parts: AnimatedPart[] = [];
     for (const p of model.parts) {
       const mesh = new THREE.Mesh(p.geometry, glowMat!);
@@ -159,6 +175,10 @@ export class PropRenderer {
       center: sphere.center.applyMatrix4(root.matrix),
       radius: sphere.radius * spec.scale,
       inverse: root.matrix.clone().invert(),
+      hi: null,
+      lift: 0,
+      settle: 0,
+      settled: false,
     };
     this.entries.set(spec.id, entry);
     this.list.push(entry);
@@ -173,6 +193,9 @@ export class PropRenderer {
     if (!e) return;
     if (this.highlighted === e) this.highlighted = null;
     this.group.remove(e.root);
+    e.root.traverse((o) => {
+      if (o.userData.flame) ((o as THREE.Mesh).material as THREE.Material).dispose();
+    });
     e.glowMat?.dispose();
     e.fxMat?.dispose();
     this.entries.delete(id);
@@ -195,7 +218,19 @@ export class PropRenderer {
   setLift(id: string, dy: number): void {
     const e = this.entries.get(id);
     if (!e) return;
-    const y = e.spec.y + dy;
+    e.lift = dy;
+    this.place(e);
+  }
+
+  /**
+   * Where the drawn ground is (ChunkRenderer.surfaceTop): a prop standing on natural rock is set
+   * onto the sculpted surface, which the mesher lowers on thin rims and raises on bumps by up to a
+   * few decimetres (it floated over rims, sank into bumps). Set by the session's owner.
+   */
+  surfaceTop: ((x: number, y: number, z: number) => number | null) | null = null;
+
+  private place(e: PropEntry): void {
+    const y = e.spec.y + e.lift + e.settle;
     if (e.root.position.y === y) return;
     const before = e.root.position.y;
     e.root.position.y = y;
@@ -210,8 +245,34 @@ export class PropRenderer {
     return this.cache.size;
   }
 
+  /** Settle a few props a frame onto the drawn ground (their chunk must be meshed). */
+  private settleSome(): void {
+    const top = this.surfaceTop;
+    if (!top) return;
+    let n = 0;
+    for (const e of this.list) {
+      if (e.settled) continue;
+      if (n++ >= 6) break;
+      const s = e.spec;
+      // Ground props only: anchored below, not hanging, not lifted by a ride or a station.
+      if (!s.anchor || s.anchor[1] >= s.y || e.model.sway) {
+        e.settled = true;
+        continue;
+      }
+      const h = top(s.x, s.y, s.z);
+      if (h === null) continue; // not meshed yet (or a structure deck): try again later
+      e.settled = true;
+      const dy = h - s.y;
+      if (Math.abs(dy) < 0.015 || Math.abs(dy) > 0.4) continue;
+      e.settle = dy;
+      this.place(e);
+    }
+  }
+
   update(dt: number, time: number, cameraPos: THREE.Vector3): void {
-    const highlightPulse = 0.75 + 0.25 * Math.sin(time * 4.2);
+    this.settleSome();
+    // One calm breath every 3 s (ROUND2 §0.3: never faster than 2.5 s).
+    const highlightPulse = 0.8 + 0.2 * Math.sin((time * Math.PI * 2) / 3);
     // Small props (crates, lamps, stakes) are a few pixels past ~45 m in the first-person lens: they
     // stop drawing there (their light stays in the light volume, their halos stay lit), which keeps
     // the open-space views inside the draw-call budget; big ones (radius >= 2 m) go to the full
@@ -222,7 +283,7 @@ export class PropRenderer {
       e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, SMALL_PROP_FAR));
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt / FLASH_TIME);
       const lit = this.highlighted === e;
-      if (lit || e.flash > 0 || e.fxActive) this.applyFx(e, lit ? highlightPulse : 0);
+      if ((lit || e.flash > 0 || e.fxActive) && !(e.hi && !lit && e.flash <= 0)) this.applyFx(e, lit ? highlightPulse : 0);
       if (!e.root.visible || (dist > ANIMATE_DISTANCE && e.model.anim !== 'monolith')) continue;
       animate(e, time, dt);
     }
@@ -258,7 +319,11 @@ export class PropRenderer {
     return e ? e.model.bounds.clone().applyMatrix4(e.root.matrix) : null;
   }
 
+  /** Told when the focused interactable changes (render/highlight.ts selects it with its rarity outline). */
+  onFocus: ((id: string | null) => void) | null = null;
+
   setHighlight(id: string | null): void {
+    if (id !== this.highlightId) this.onFocus?.(id);
     this.highlightId = id;
     const e = id ? (this.entries.get(id) ?? null) : null;
     if (this.highlighted === e) return;
@@ -266,6 +331,32 @@ export class PropRenderer {
     this.highlighted = e;
     if (prev) this.applyFx(prev, 0);
     if (e) this.applyFx(e, 1);
+  }
+
+  /**
+   * Rarity highlight (render/highlight.ts): a rim and inner glow in `color` (linear rgb), `amb` the
+   * ambient strength (0..1, breathing), `sel` the selection strength. null clears it. The prop's
+   * own fx material carries it, so it costs no extra draw call.
+   */
+  setRarityGlow(id: string, color: THREE.Vector3 | null, amb: number, sel: number, shimmer = false): void {
+    const e = this.entries.get(id);
+    if (!e) return;
+    const on = !!color && amb + sel > 0.001;
+    if (!on && !e.hi) return;
+    e.hi = on ? { color: color!, amb, sel, shimmer } : null;
+    this.applyFx(e, this.highlighted === e ? 1 : 0);
+  }
+
+  /** The prop's drawn meshes (body, glow and animated parts), for the selection outline. */
+  meshesOf(id: string): THREE.Mesh[] | null {
+    const e = this.entries.get(id);
+    if (!e) return null;
+    const out: THREE.Mesh[] = [];
+    e.root.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.isMesh && !m.userData.highlightHull && !m.userData.flame) out.push(m);
+    });
+    return out;
   }
 
   flash(id: string): void {
@@ -286,20 +377,28 @@ export class PropRenderer {
    */
   private applyFx(e: PropEntry, highlight: number): void {
     const flash = FLASH_PEAK * e.flash * e.flash;
-    const active = highlight > 0 || flash > 0;
+    const hi = e.hi;
+    const active = highlight > 0 || flash > 0 || !!hi;
     if (active && !e.fxMat) e.fxMat = createEntityMaterial(this.lighting);
-    const tint = active ? HIGHLIGHT_TINT : 1;
-    const lift = highlight * HIGHLIGHT_LIFT + flash;
-    if (e.fxMat) setFx(e.fxMat, tint, lift);
-    if (e.glowMat) setFx(e.glowMat, tint, lift);
+    // The focus brightening is a gentle lift only when no rarity highlight shows (that one speaks).
+    const tint = highlight > 0 && !hi ? HIGHLIGHT_TINT : 1;
+    const lift = (hi ? 0 : highlight * HIGHLIGHT_LIFT) + flash;
+    if (e.fxMat) setFx(e.fxMat, tint, lift, hi);
+    if (e.glowMat) setFx(e.glowMat, tint, lift, hi);
     e.body.material = active && e.fxMat ? e.fxMat : this.solid;
     e.fxActive = active;
   }
 }
 
-function setFx(mat: THREE.ShaderMaterial, tint: number, lift: number): void {
+function setFx(mat: THREE.ShaderMaterial, tint: number, lift: number, hi: PropEntry['hi'] = null): void {
   (mat.uniforms.uTint.value as THREE.Color).setScalar(tint);
   mat.uniforms.uFlash.value = lift;
+  const u = mat.uniforms;
+  if (u.uHi) {
+    if (hi) (u.uHiColor.value as THREE.Vector3).copy(hi.color);
+    (u.uHi.value as THREE.Vector2).set(hi ? hi.amb : 0, hi ? hi.sel : 0);
+    if (u.uHiShimmer) u.uHiShimmer.value = hi?.shimmer ? 1 : 0;
+  }
 }
 
 function modelOptions(spec: PropSpec): PropModelOptions {

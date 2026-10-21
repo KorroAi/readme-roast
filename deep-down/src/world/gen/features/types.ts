@@ -25,8 +25,27 @@ export interface FeatureLayout {
   /** Named areas for rumours and the Survey Table (W3): a centre and a radius. */
   areas: FeatureArea[];
   sockets: { fossil: V3[] };
-  /** Spots for special events (content W4): a creaking adit, a tremor, a surge, headframe dust. */
-  eventSites: Array<{ id: string; p: V3; r: number; tag: 'yardCeiling' | 'riftFloor' | 'bridgeMid' | 'adit' }>;
+  /**
+   * Spots for special events (content W4; round 2's events director, game/events): a creaking adit,
+   * a tremor, a surge, headframe dust; rock falls, spore geysers and glow-moth migrations.
+   */
+  eventSites: Array<{ id: string; p: V3; r: number; tag: 'yardCeiling' | 'riftFloor' | 'bridgeMid' | 'adit' | 'rockfall' | 'geyser' | 'migration' }>;
+  /** Still water (round 2, the expanse): VIS draws a surface at `level` over the mask's columns. */
+  lakes?: LakeDef[];
+  /** The Deep Worm's glimpse path (round 2, MOBS): it rises and sinks along these points, out of reach. */
+  worm?: V3[];
+}
+
+/**
+ * A water surface (round 2): `level` in world metres over the columns x min[0]..max[0], z
+ * min[1]..max[1] where mask[(z - min[1]) * (max[0] - min[0] + 1) + (x - min[0])] is 1.
+ */
+export interface LakeDef {
+  id: string;
+  level: number;
+  min: [number, number];
+  max: [number, number];
+  mask: Uint8Array;
 }
 
 export interface FeaturePoi {
@@ -37,7 +56,7 @@ export interface FeaturePoi {
   mustReach: boolean;
 }
 
-export type FeatureLinkId = 'hoist' | 'riftRope';
+export type FeatureLinkId = 'hoist' | 'riftRope' | 'shaftRopeHigh' | 'shaftRopeLow' | 'vaultRopeHigh' | 'vaultRopeLow';
 
 export interface FeatureLink {
   id: FeatureLinkId;

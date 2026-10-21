@@ -122,7 +122,8 @@ describe('the living rock ("the deep breathes")', () => {
   it('grows the bloom at a new site every expedition (never twice in a row), each standable and reachable', () => {
     const F = layout.features!;
     const n = F.blooms.length;
-    expect(n).toBe(6);
+    // Six sites, and three more in the expanse (round 2: the Still Lake, the Lantern Vault, the Underhall).
+    expect(n).toBe(9);
     const first = F.blooms.findIndex((b) => b.id === 'chasmEast');
     expect(bloomSiteFor(0, n, WORLD.seed, first)).toBe(first);
     const seen = new Set<number>();

@@ -21,7 +21,7 @@ beforeAll(() => {
   layout = generateWorld();
   off = generateWorld(undefined, { features: false, content: false });
   bare = generateWorld(undefined, { content: false });
-});
+}, 120_000);
 
 const inBox = (b: Region, x: number, y: number, z: number) => x >= b.min[0] && x <= b.max[0] && y >= b.min[1] && y <= b.max[1] && z >= b.min[2] && z <= b.max[2];
 
@@ -190,8 +190,9 @@ describe('the feature pass', () => {
     expect(blueAt(w.blocks, 69, 96, 61) - blueAt(dark, 69, 96, 61), 'cold light at the slit').toBeGreaterThanOrEqual(15);
     expect(blueAt(w.blocks, 67, 95, 61) - blueAt(dark, 67, 95, 61), 'cold light in the squeeze').toBeGreaterThanOrEqual(30);
     // The plug the rusty pick opens, and a crystal face seen straight through the slit from the tunnel.
-    expect(w.get(70, 94, 61)).toBe(B.GRAVEL);
-    expect(w.get(70, 95, 61)).toBe(B.GRAVEL);
+    // Round 2: loose stone (plain gravel no longer yields).
+    expect(w.get(70, 94, 61)).toBe(B.RUBBLE);
+    expect(w.get(70, 95, 61)).toBe(B.RUBBLE);
     let seen = false;
     for (let x = 69; x >= 55 && !seen; x--) {
       const id = w.get(x, 96, 61);

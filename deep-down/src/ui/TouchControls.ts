@@ -77,6 +77,10 @@ export class TouchControls {
   private readonly useBtn: HTMLButtonElement;
   private readonly useLabel: HTMLElement;
   private useText: string | null = null;
+  /** The Flash Charge chip: shown only while charges are carried and a monster is near. */
+  private readonly flashBtn: HTMLButtonElement;
+  private readonly flashCount: HTMLElement;
+  private flashShown = -1;
   private readonly disposers: Array<() => void> = [];
 
   constructor(private readonly root: HTMLElement, private readonly input: InputState) {
@@ -88,6 +92,11 @@ export class TouchControls {
       input.interactPressed = true;
     });
     this.useBtn.hidden = true;
+    this.flashCount = h('span', { class: 'dd-flash-count' });
+    this.flashBtn = this.button('dd-tbtn dd-flash', [h('span', { class: 'dd-flash-glyph', 'aria-hidden': 'true' }), h('span', { class: 'dd-flash-label', text: t('weapon.flash') }), this.flashCount], () => {
+      input.flashPressed = true;
+    });
+    this.flashBtn.hidden = true;
     // First person: no Mine or Jump buttons (a tap mines, holding mines on, ledges are stepped up
     // on their own); the bag and the menu are plates of the HUD's top bar.
     this.el = h(
@@ -96,6 +105,7 @@ export class TouchControls {
       this.base,
       this.ring,
       h('div', { class: 'dd-action-cluster' }, this.useBtn),
+      this.flashBtn,
     );
     root.appendChild(this.el);
     this.sizeStick(window.innerWidth, window.innerHeight);
@@ -153,6 +163,16 @@ export class TouchControls {
     this.useText = label;
     this.useBtn.hidden = label === null;
     if (label !== null) this.useLabel.textContent = label;
+  }
+
+  /** Show the Flash Charge chip with the charges carried (0 hides it). */
+  setFlash(count: number): void {
+    const n = Math.max(0, Math.floor(count));
+    if (n === this.flashShown) return;
+    this.flashShown = n;
+    this.flashBtn.hidden = n === 0;
+    this.flashCount.textContent = n > 0 ? `\u00d7${n}` : '';
+    this.flashBtn.setAttribute('aria-label', `${t('weapon.flash')} \u00d7${n}`);
   }
 
   dispose(): void {

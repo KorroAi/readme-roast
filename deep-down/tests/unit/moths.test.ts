@@ -82,8 +82,8 @@ describe('lumen moths', () => {
     f.setLimit(40);
     for (let k = 0; k < 30; k++) f.step(1 / 30, dark, g.x, g.y, g.z, isOpen);
     expect(f.active).toBeLessThanOrEqual(40);
-    // Far from every anchor: none fly.
-    for (let k = 0; k < 30; k++) f.step(1 / 30, dark, 2, 120, 2, isOpen);
+    // Far from every anchor: none fly (round 2: the Root Galleries now reach the west edge, so the far corner is the south-east one).
+    for (let k = 0; k < 30; k++) f.step(1 / 30, dark, 157, 120, 157, isOpen);
     expect(f.active).toBe(0);
   });
 

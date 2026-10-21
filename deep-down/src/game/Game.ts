@@ -38,6 +38,13 @@ import { DropSystem } from './Drops';
 import { DebrisSystem } from './effects/Debris';
 import { ParticleSystem } from './effects/Particles';
 import { TargetMarker } from './effects/TargetMarker';
+// VIS: rarity highlights, the selection outline and the world-space progress ring (render/highlight.ts).
+import { HighlightSystem } from '../render/highlight';
+import { isBreakable } from '../config/rarity';
+// VIS: the lantern's light (flicker, the oil shrinking the pool, the tier's colour).
+import { LanternLight } from '../render/lanternLight';
+import { WaterSurfaces } from '../render/water';
+import { lanternFlicker } from './fp/flame';
 import { Waterfall } from './effects/Waterfall';
 import { HaloSystem, collectWorldLights, type HaloSource } from './effects/Halos';
 import { WorldSession } from './WorldSession';
@@ -45,10 +52,17 @@ import { installDebugApi } from '../debug/DebugApi';
 import { enterGameScreen } from '../ui/screenFormat';
 import { Haptics } from '../ui/haptics';
 import { Progression, summarizeSave } from './Progression';
+import type { EventDirector } from './events/EventDirector';
 import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
 import { FrameGuard } from './FrameGuard';
 import { WorldFeatures } from './WorldFeatures';
 import { TapController } from './TapController';
+// FP: tap a creature to attack, catch or harvest it; the weapons in hand (round 2).
+import { Combat } from './fp/Combat';
+import type { HighlightTarget } from '../render/highlight';
+// MOBS: the creatures of the deep (game/mobs, render/mobs).
+import { MobDirector } from './mobs/MobDirector';
+import { installMobDebug } from './mobs/debug';
 import { VERSION } from '../version';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
@@ -78,6 +92,11 @@ export class Game {
   private lookStill = 0;
   /** Tap to act on touch: tap a block to mine it, ground to walk there, an object to use it. */
   private tap!: TapController;
+  /** Tap a creature: attack it with the best weapon, or catch / harvest a being (game/fp/Combat). */
+  combat!: Combat;
+  private mouseWasDown = false;
+  /** The finger (or the button) held since a tap on a creature. */
+  private holdOnMob = false;
   /** When the last background/pagehide save succeeded (one backgrounding saves once). */
   private lastBackgroundSaveAt = -Infinity;
   desktop!: DesktopInput;
@@ -91,11 +110,17 @@ export class Game {
   debris!: DebrisSystem;
   particles!: ParticleSystem;
   marker!: TargetMarker;
+  // VIS: the rarity highlights and the selection (FP calls highlight.select / highlight.progress).
+  highlight!: HighlightSystem;
+  // VIS: the lantern's light; lanternLight.flame is the flame size for the lantern model (FP).
+  readonly lanternLight = new LanternLight();
   waterfall: Waterfall | null = null;
   private menuCamera: MenuCamera | null = null;
   halos!: HaloSystem;
   /** World variety: rides, rune doors, Halden logs, the black stone, moths, the living rock. */
   features!: WorldFeatures;
+  // MOBS: monsters and beings (FP's tap resolution asks mobs.pick first; mobs.hit / mobs.fire attack).
+  mobs!: MobDirector;
   private halosDirty = false;
   private staticHalos: HaloSource[] | null = null;
 
@@ -111,6 +136,10 @@ export class Game {
   playTime = 0;
   /** Trips, records, the cache, the cold, the walk-home field and the Next line. */
   readonly progression = new Progression(this);
+  // WORLD: the events director (game/events), hosted by Progression; MOBS and the debug API reach it here.
+  get events(): EventDirector {
+    return this.progression.events;
+  }
   /** Stops the loop and raises 'dd:crash' after three failed frames in a row. */
   readonly frameGuard = new FrameGuard((err) => this.crash(err));
 
@@ -184,6 +213,18 @@ export class Game {
     this.particles = new ParticleSystem(s.rig.uniforms, preset.particleBudget);
     this.marker = new TargetMarker(s.tileTexture, s.terrain);
     this.scene.add(this.drops.group, this.debris.group, this.particles.group, this.marker.group);
+    // VIS: rarity highlights (blocks from the voxels, props from the live specs; mobs via setTargets).
+    this.highlight = new HighlightSystem({
+      terrain: s.terrain,
+      props: s.props,
+      world: () => s.world,
+      liveProps: () => s.liveProps.values(),
+      usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)),
+    });
+    this.scene.add(this.highlight.group);
+    this.marker.highlight = this.highlight;
+    // VIS: ground props stand on the drawn (sculpted) rock, not the voxel top (they floated on rims).
+    s.props.surfaceTop = (x, y, z) => s.chunks.surfaceTop(x, y, z);
     s.chunks.viewDistance = preset.viewDistance;
     s.props.viewDistance = preset.viewDistance;
     const ft = layout.landmarks.fallTop;
@@ -201,8 +242,13 @@ export class Game {
     s.rig.setZoneAnchors(zoneAnchorsFor(visLandmarks));
     // VIS: ambient wonder (drips, glow caps, the deep glows and the monotone spaces' focal glows).
     this.scene.add(new Ambience(s.rig.uniforms, s.world, s.layout.content?.ambient ?? [], visLandmarks).group);
+    // VIS: still water over WORLD's lakes (layout.features.lakes): the Still Lake, the Deep, the vault pool.
+    this.scene.add(new WaterSurfaces(s.rig.uniforms, s.world, s.layout.features?.lakes ?? []).group);
     this.features = new WorldFeatures(this);
     this.scene.add(this.features.moths.mesh, this.features.cage);
+    // MOBS: the creatures; a monster's last blow blacks the explorer out like a fall.
+    this.mobs = new MobDirector(this, { die: () => this.die() });
+    this.scene.add(this.mobs.group);
     this.menuCamera = new MenuCamera(layout.landmarks.ledge);
 
     this.mining = new MiningController(s.world, this.bus, this.miningRules, {
@@ -239,7 +285,31 @@ export class Game {
         this.cameraRig.turnToward(x, y, 0.3);
         this.viewmodel.raise();
       },
+      // A creature under the finger answers first (the generous mob pick is Combat's).
+      tapMob: (x, y) => this.combat.tap(x, y),
     }, this.mining, this.bus);
+    this.combat = new Combat({
+      mobs: () => this.mobs ?? null,
+      get world() {
+        return s.world;
+      },
+      owned: () => this.progression.ownedWeapons(),
+      camera: () => this.cameraRig.camera,
+      eye: () => this.handPosition(),
+      viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+      walkNear: (x, y, z, within) => this.tap.walkNear(x, y, z, within),
+      stopWalk: () => this.tap.stop(),
+      flashCharges: () => {
+        const c = this.progression.flashCharges();
+        return c.pack + (this.atCamp ? c.storage : 0);
+      },
+      useFlashCharge: () => this.progression.useFlashCharge(),
+      hint: (text) => this.ui.hint(text, 2200),
+      nudge: (x, y) => {
+        this.cameraRig.turnToward(x, y, 0.3);
+        this.viewmodel.raise();
+      },
+    }, this.viewmodel, this.bus);
 
     this.desktop = new DesktopInput(this.canvas, this.input);
     // Android Back button (see android/MainActivity): returns true when the game handled it.
@@ -247,6 +317,8 @@ export class Game {
     this.wireEvents();
     this.wireLifecycle();
     installDebugApi(this);
+    // MOBS: window.__DD__.mobs (tests and captures).
+    installMobDebug(this, this.mobs);
 
     this.enterMenu();
     this.ready = true;
@@ -271,6 +343,12 @@ export class Game {
     bus.on('craft:done', (e) => objective(this.objectives.onEvent('craft:done', e)));
     bus.on('discovery', (e) => objective(this.objectives.onEvent('discovery', e)));
     bus.on('camp:entered', () => objective(this.objectives.onEvent('camp:entered', {})));
+    // FP: the rarity legend's first-time card, once, as the first trip leaves camp (ROUND2 §0.3).
+    bus.on('camp:left', () => {
+      if (this.progression.hintsShown.has('rarityLegend')) return;
+      this.progression.hintsShown.add('rarityLegend');
+      this.ui.showDiscovery({ id: 'rarityLegend', title: t('rarity.legend.title'), body: t('rarity.legend.body'), index: NaN, total: NaN, major: false, legend: true });
+    });
     bus.on('block:tooHard', ({ block }) => {
       if (block === B.IRON_ORE) this.discover('ironVein');
     });
@@ -326,6 +404,7 @@ export class Game {
     this.mode = 'menu';
     this.mining?.cancel();
     this.tap?.reset(this.input);
+    this.combat?.reset();
     this.features?.cancelRide();
     this.desktop.releasePointer();
     this.ui.setGameplayActive(false);
@@ -336,6 +415,8 @@ export class Game {
     const pose = menuExplorerPose(this.session.world, this.session.layout.landmarks.ledge);
     this.player.teleport(pose.x, pose.y, pose.z, pose.yaw);
     this.menuCamera?.reset();
+    // MOBS: no creature on the title screen.
+    this.mobs?.clear();
   }
 
   async newGame(): Promise<void> {
@@ -418,6 +499,8 @@ export class Game {
     this.features.attach(removed);
     this.progression.attachWorld(this.atCamp);
     this.autosaveTimer = SAVE.autosaveSeconds;
+    // MOBS: a fresh start (New Game, Continue).
+    this.mobs.reset();
   }
 
   /** System Back: close a screen, pause, or resume. False at the main menu (let the OS exit). */
@@ -639,6 +722,8 @@ export class Game {
     this.cameraRig.update(0, this.player.x, this.player.y + EYE_HEIGHT - this.player.stepOffset, this.player.z, this.renderer.aspect);
     this.updateViewmodel(0);
     this.updateLantern(0, false);
+    // MOBS: frozen behind the pause and death screens, still drawn.
+    this.mobs.frame(0, false);
     this.audio.update(dt, this.audioState(true));
   }
 
@@ -648,6 +733,17 @@ export class Game {
     this.playTime += dt;
     // Tap to act runs first: a tap on an object presses Use, a walk sets autoMove for this frame.
     this.tap.update(dt, input, blocked || this.features.riding);
+    // FP: a tapped creature is struck (or caught) when in reach; a finger held on it strikes again
+    // at the weapon's rate (and mines nothing behind it); a Flash Charge on its button.
+    if (this.combat.tapped && input.mining) this.holdOnMob = true;
+    if (!input.mining) this.holdOnMob = false;
+    this.combat.holding = this.holdOnMob;
+    this.combat.update(dt, blocked || this.features.riding);
+    if (!blocked && !this.features.riding && input.flashPressed) this.combat.flash();
+    // FP: with the mouse, a click on a creature strikes it (the held button then mines nothing behind it).
+    const mouseDown = input.mining && input.lastDevice !== 'touch';
+    if (mouseDown && !this.mouseWasDown && !blocked && this.combat.tap(input.aimFromPointer ? input.aimX : 0, input.aimFromPointer ? input.aimY : 0)) input.mining = false;
+    this.mouseWasDown = mouseDown;
 
     if (!blocked) {
       if (input.pausePressed || input.pauseRequested) {
@@ -672,8 +768,11 @@ export class Game {
     const hand = this.handPosition();
     // On a ride (game/WorldFeatures) the explorer follows the hoist or the rope: no walking, no mining.
     const riding = this.features.riding;
-    const swinging = this.mining.update(dt, input, !blocked && !riding, hand.x, hand.y, hand.z);
+    const swinging = this.mining.update(dt, input, !blocked && !riding && !this.combat.busy && !this.holdOnMob, hand.x, hand.y, hand.z);
     p.speedFactor = swinging ? 0.55 : 1;
+    this.updateSelection(blocked || riding);
+    // FP: the Flash Charge chip shows while charges are carried and a monster is near.
+    this.ui.touch.setFlash?.(this.combat.threatNear ? this.progression.flashCharges().pack : 0);
     const mx = blocked || riding ? 0 : input.moveX || input.autoMoveX;
     const my = blocked || riding ? 0 : input.moveY || input.autoMoveY;
     const ev = riding ? this.features.updateRide(dt) : p.update(dt, mx, my, !blocked && input.jumpPressed, this.cameraRig.moveYaw, false);
@@ -684,13 +783,17 @@ export class Game {
     if (ev.jumped) this.bus.emit('player:jump', {});
     if (ev.footstep) this.bus.emit('player:footstep', { block: ev.footBlock, speed: p.speed });
     if (ev.landedSpeed > 0) this.onLanded(ev.landedSpeed);
-    if (ev.rescued) this.ui.hint(t('hint.outOfReach'), 1500);
 
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
 
     this.cameraRig.update(dt, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, this.renderer.aspect);
     this.updateViewmodel(dt);
     this.updateLantern(dt, true);
+    // MOBS: the creatures move, strike and touch the light (after the lantern, before the render);
+    // catchable beings wear their rarity rim. A monster's blow may have blacked the explorer out.
+    this.mobs.frame(dt, true);
+    this.highlight.setTargets(this.mobs.highlightTargets());
+    if (this.mode !== 'playing') return;
 
     this.drops.update(
       dt, this.time, p.x, p.y, p.z,
@@ -725,6 +828,30 @@ export class Game {
 
     this.audio.update(dt, this.audioState(false));
     this.ui.setHud(this.hudState());
+  }
+
+  /**
+   * The selection (no aiming dot): what the tap or the finger acts on wears its rarity outline,
+   * brighter, and a small progress ring on the object itself (render/highlight). A creature being
+   * fought, a block being mined (or walked to), a prop being walked to for use; with the mouse
+   * captured on desktop, what the view is on. Ordinary rock is never selected.
+   */
+  private updateSelection(blocked: boolean): void {
+    const hl = this.highlight;
+    const input = this.input;
+    let sel: HighlightTarget | null = null;
+    let tooHard = false;
+    let progress = 0;
+    const mob = this.combat.target;
+    const tg = this.mining.target;
+    if (!blocked && mob?.object) sel = { kind: 'object', id: `mob:${mob.id}`, object: mob.object, rarity: mob.rarity ?? 'common' };
+    else if (!blocked && tg && (input.lock || input.mining || this.desktop.pointerLocked) && (tg.inReach || input.lock) && (tg.kind === 'prop' || isBreakable(tg.block))) {
+      sel = tg.kind === 'prop' && tg.prop ? { kind: 'prop', id: tg.prop.id, point: tg.point } : { kind: 'block', x: tg.x, y: tg.y, z: tg.z, point: tg.point };
+      tooHard = tg.tier > this.equipment.tiers.pickaxe || tg.protectedReason !== null;
+      progress = this.miningRules.targetKey === tg.key ? this.miningRules.progress : 0;
+    } else if (!blocked && this.tap.useTarget) sel = { kind: 'prop', id: this.tap.useTarget };
+    hl.select(sel, { blocked: tooHard });
+    hl.progress(sel && progress > 0 ? sel : null, progress);
   }
 
   /** Where the pick is swung from: the eye (reach is measured from it). */
@@ -793,6 +920,11 @@ export class Game {
       (amb?.g ?? 0.02) + (open?.g ?? 0.05) * a2 + Math.pow(l.g, 1.55) * gain,
       (amb?.b ?? 0.03) + (open?.b ?? 0.06) * a2 + Math.pow(l.b, 1.55) * gain,
     ).multiplyScalar(0.6 * inv);
+    // FP: the room light on the tools is kept off saturation and glare (it includes the lantern's own
+    // pool): brass and leather keep their colour instead of reading as one orange.
+    const al = this.vmAmbient.r * 0.2126 + this.vmAmbient.g * 0.7152 + this.vmAmbient.b * 0.0722;
+    this.vmAmbient.lerp(this.vmGrey.setScalar(al), 0.4);
+    if (al > 0.3) this.vmAmbient.multiplyScalar(0.3 / al);
     const lc = u.uLanternColor?.value as THREE.Color | undefined;
     const li = typeof u.uLanternIntensity?.value === 'number' ? (u.uLanternIntensity.value as number) : 1;
     // The flame on the tools: a little less saturated than the world's lantern colour (the tools
@@ -800,7 +932,12 @@ export class Game {
     this.vmFlame.setRGB(lc?.r ?? 1, lc?.g ?? 0.62, lc?.b ?? 0.32);
     const fl = this.vmFlame.r * 0.2126 + this.vmFlame.g * 0.7152 + this.vmFlame.b * 0.0722;
     this.vmFlame.lerp(this.vmGrey.setScalar(fl), 0.35).multiplyScalar(1.5 * li * inv);
-    vm.flame = this.lanternFuel.lit ? 0.55 + 0.45 * Math.min(1, this.lanternFuel.fraction * 4) : 0.2;
+    // The flame shrinks on the wick as the oil drains (fp/flame), on the same clock as its light.
+    vm.oil = this.lanternFuel.fraction;
+    vm.lit = this.lanternFuel.lit;
+    vm.flame = vm.lit ? 0.6 + 0.4 * this.lanternFuel.dim : 0.35;
+    vm.dim = this.lanternFuel.dim;
+    vm.clock = this.time;
     vm.update(dt, cam, this.renderer.aspect, p.speed, v.x, this.vmAmbient, this.vmFlame);
   }
 
@@ -835,11 +972,11 @@ export class Game {
       lp.z = damp(lp.z, this.lanternPos.z, 18, dt);
     }
     const u = this.session.rig.uniforms;
-    const flicker = 1 + Math.sin(this.time * 13.1) * 0.025 + Math.sin(this.time * 7.3 + 1.2) * 0.035 + (fuel < PLAYER.lanternLowFraction && lit ? Math.sin(this.time * 31) * 0.08 : 0);
-    const radius = def.radius * (menu ? 1 : this.lanternFuel.radiusFactor);
+    // VIS: radius, intensity, flicker and colour from render/lanternLight.ts.
+    // WORLD: a gust (game/events) dims the light until the explorer stands by a lamp (Lantern.dim, 1 otherwise).
+    const gust = menu ? 1 : this.lanternFuel.dim;
+    const radius = this.lanternLight.update(u, { dt, time: this.time, fuel, lit, tier: this.equipment.tiers.lantern, radius: def.radius * gust, intensity: def.intensity * gust, ember: def.ember, menu, flicker: lit ? lanternFlicker(this.time, fuel) : 1, raised: (this.viewmodel as { raised?: number }).raised ?? 0 });
     u.uLanternPos.value.copy(lp);
-    u.uLanternRadius.value = radius;
-    u.uLanternIntensity.value = def.intensity * (lit ? 0.75 + 0.25 * Math.min(1, fuel * 4) : 0.45) * flicker;
     const s = this.session;
     if (s.lantern.update(lp.x, lp.y, lp.z, radius)) {
       s.rig.markLanternDirty({ x: s.lantern.originX, y: s.lantern.originY, z: s.lantern.originZ });
@@ -1080,6 +1217,7 @@ export class Game {
     this.mode = 'dead';
     this.mining.cancel();
     this.tap.reset(this.input);
+    this.combat.reset();
     this.features.cancelRide();
     this.input.mining = false;
     this.desktop.releasePointer();
@@ -1095,6 +1233,9 @@ export class Game {
   respawn(): void {
     const spawn = this.session.layout.spawn;
     this.features.cancelRide();
+    // FP: no fight follows the explorer home.
+    this.combat.reset();
+    this.viewmodel.setRightHand('pick', true);
     this.health = new Health(this.health.max);
     this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);
@@ -1107,6 +1248,8 @@ export class Game {
     this.cameraRig.snapTo(spawn.x, spawn.y + EYE_HEIGHT, spawn.z);
     this.atCamp = true;
     this.bus.emit('player:respawned', {});
+    // MOBS: the explorer wakes at camp; the deep's creatures are put away.
+    this.mobs.clear();
     this.saveNow('respawn');
   }
 
@@ -1237,7 +1380,9 @@ export class Game {
     h.target = this.mining.hudTarget();
     // First person: the dot is there on touch and with the mouse captured (a free desktop cursor
     // aims where it points instead). It brightens over a target.
-    h.showCrosshair = this.desktop.pointerLocked || this.input.lastDevice === 'touch';
+    // No dot on touch (you tap the thing itself; the selection outline answers). With the mouse
+    // captured on desktop a faint aim mark stays, since the view itself is the aim there.
+    h.showCrosshair = this.desktop.pointerLocked && this.input.lastDevice !== 'touch';
     h.fps = this.fps;
     h.frameMs = Math.round(this.frameMs * 10) / 10;
     h.drawCalls = info.calls;
@@ -1278,6 +1423,9 @@ export class Game {
     s.rig.updateAtmosphere(dt, this.player.x, this.player.y, this.player.z, s.layout.camp);
     this.renderer.post.params.zoneExposure = s.rig.exposure;
     s.props.update(dt, this.time, cam.position);
+    // VIS: rarity highlights follow the eye (off on the title screen).
+    this.highlight.enabled = this.mode !== 'menu';
+    this.highlight.update(dt, this.time, cam);
     this.debris.update(dt);
     this.waterfall?.update(dt, this.particles, this.rng, cam.position);
     this.particles.update(dt, this.time, cam.position.x, cam.position.y, cam.position.z);

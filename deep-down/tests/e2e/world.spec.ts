@@ -1,6 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
 import { Touch } from './touch';
-import { LOADED_CEILING_MS, waitPlay } from './dd';
+import { LOADED_CEILING_MS, waitPlay, quietDeep } from './dd';
+
+// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+test.beforeEach(async ({ page }) => {
+  await quietDeep(page);
+});
+
 
 // Beyond the success path: every discovery can be triggered and shows its banner; a black-out
 // leaves the pack where the explorer last stood (a cache), returns the explorer to camp and is

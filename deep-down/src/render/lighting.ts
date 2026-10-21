@@ -130,11 +130,13 @@ vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao, vec3 lantern) {
   // rift's violet or the Glowroot's green, not lilac or olive.
   // Inside the pool itself (gLanternOwn: in sight of the flame, within ~3-7 m, turned to it) the
   // flame owns the face outright, however strong the cool light there.
-  placed *= 1.0 - 0.8 * cool * max(smoothstep(0.35, 1.4, dot(lantern, LUM) / pl), gLanternOwn);
-  float own = 1.0 - 0.85 * max(smoothstep(0.4, 1.4, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004)), gLanternOwn);
+  // Round 2: a little stronger (0.8 -> 0.9, 0.85 -> 0.92, 0.7 -> 0.85): the shrine's and the gate's
+  // pale floors still read lilac in the lantern's pool.
+  placed *= 1.0 - 0.9 * cool * max(smoothstep(0.35, 1.4, dot(lantern, LUM) / pl), gLanternOwn);
+  float own = 1.0 - 0.92 * max(smoothstep(0.4, 1.4, dot(placed + lantern, LUM) / max(dot(fill, LUM), 0.004)), gLanternOwn);
   // The zone's constant ambient (its hued dark) gives way in the pool too, so pale floors there
   // read gold, not lilac.
-  return uAmbient * (1.0 - 0.7 * gLanternOwn) + fill * own + placed;
+  return uAmbient * (1.0 - 0.85 * gLanternOwn) + fill * own + placed;
 }
 vec3 ambientFrom(vec4 ls, vec3 n, vec2 facing, float ao) {
   return ambientFrom(ls, n, facing, ao, vec3(0.0));
@@ -219,7 +221,8 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   float diff = clamp(dot(n, l) * (1.0 - wrap) + wrap, 0.0, 1.0);
   // The floor right ahead is the largest lit area of a first-person frame: it takes a little less,
   // so the pool stays golden there instead of washing out, and the walls carry the light.
-  diff *= 1.0 - 0.3 * up * (1.0 - smoothstep(1.2, 3.5, dist));
+  // Round 2: a little less again (0.3 -> 0.38): pale dressed floors at the feet washed to beige.
+  diff *= 1.0 - 0.38 * up * (1.0 - smoothstep(1.2, 3.5, dist));
   // Pale gold within ~1 m, amber by ~3 m, deep amber at the rim of the pool (uLanternColor is the
   // amber of the flame; the core is paler).
   vec3 tint = mix(mix(vec3(1.0, 1.05, 1.12), vec3(1.0, 0.92, 0.82), smoothstep(0.04, 0.26, x)), vec3(1.0, 0.8, 0.62), smoothstep(0.3, 0.75, x));
@@ -376,8 +379,8 @@ export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift' | 'glowroot' 
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x1b1a1c, fogLow: 0x101116, density: 0.04, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 1.6, open: 0x3e4a60, openGain: 1.4, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.0, lightGain: 1.8 },
-  tunnel: { fog: 0x14202a, fogLow: 0x0c1218, density: 0.05, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x12243a, ambientGain: 0.6, open: 0x4f7088, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.0, lightGain: 1.36 },
-  hollow: { fog: 0x1c3248, fogLow: 0x121638, density: 0.022, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2a44, ambientGain: 0.6, open: 0x84a0bc, openGain: 0.95, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 1.0, lightGain: 2.25 },
+  tunnel: { fog: 0x14202a, fogLow: 0x0c1218, density: 0.05, poolLevel: 0, poolThickness: 4, poolDensity: 0, ambient: 0x12243a, ambientGain: 0.8, open: 0x4f7088, openGain: 0.8, scatter: 0.1, bounce: 0.1, absorb: 0.85, exposure: 1.0, lightGain: 1.36 },
+  hollow: { fog: 0x1c3248, fogLow: 0x121638, density: 0.022, poolLevel: 38, poolThickness: 6, poolDensity: 0.025, ambient: 0x1a2a44, ambientGain: 0.6, open: 0x7a9fb6, openGain: 0.95, scatter: 0.12, bounce: 0.1, absorb: 0.6, exposure: 1.0, lightGain: 2.25 },
   rift: { fog: 0x1e1a36, fogLow: 0x2a1a4a, density: 0.035, poolLevel: 14, poolThickness: 8, poolDensity: 0.03, ambient: 0x100c18, ambientGain: 0.5, open: 0x6a5a9a, openGain: 0.8, scatter: 0.14, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 2.09 },
   // The deep zones beyond the rift (content pass), told apart by the hue of their own light:
   // the Glowroot's moss-green air over green-gold drifts, the Ember Deep's smoky red over its fissures.

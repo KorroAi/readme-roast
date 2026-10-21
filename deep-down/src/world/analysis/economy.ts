@@ -1,4 +1,5 @@
 import { B, BLOCKS, SOLID } from '../../config/blocks';
+import { isMinable } from '../../config/rarity';
 import type { ItemId } from '../../config/items';
 import { NODE_LIST, nodeInputs, type NodeDef } from '../../config/recipes';
 import type { ItemCounts } from '../../save/types';
@@ -72,7 +73,9 @@ export function inReach(layout: WorldLayout, seen: Uint8Array, x: number, y: num
 export function sightMinable(layout: WorldLayout, seen: Uint8Array, gate: Gate, skip: ReadonlySet<number>): Map<number, number> {
   const w = layout.world;
   const out = new Map<number, number>();
-  const ores = new Set(BLOCKS.filter((b) => b && b.drop && b.drop.item !== 'stone' && b.tier <= gate.pickaxe).map((b) => b.id));
+  // Round 2: only interesting things are minable (config/rarity isMinable), so stone is counted
+  // too: it comes from loose stone (rubble) and the seals, not from every wall.
+  const ores = new Set(BLOCKS.filter((b) => b && b.drop && isMinable(b.id, gate.pickaxe)).map((b) => b.id));
   const open = (x: number, y: number, z: number) => !SOLID[w.get(x, y, z)];
   for (let i = 0; i < w.blocks.length; i++) {
     const id = w.blocks[i];
@@ -89,8 +92,8 @@ export function sightMinable(layout: WorldLayout, seen: Uint8Array, gate: Gate, 
 
 /**
  * Expected materials from what is sight-minable at a gate: each voxel's average drop, plus the
- * minable props (crystal and echo clusters) the pick can break within reach. Stone is not
- * counted here (every wall is stone); the test checks it separately against the walls' supply.
+ * minable props (crystal and echo clusters) the pick can break within reach. Stone counts like
+ * any material (round 2: loose stone, the seals and cracked masonry give it; plain rock holds).
  */
 export function supplyAt(layout: WorldLayout, gate: Gate, seen = reachFor(layout, gate), skip = livingCells(layout)): { items: ItemCounts; voxels: Map<number, number> } {
   const voxels = sightMinable(layout, seen, gate, skip);
@@ -131,7 +134,7 @@ export function gateBefore(nodes: readonly NodeDef[], k: number): Gate {
   return g;
 }
 
-/** One row per node in tree order (MUST nodes; `nodes` defaults to the tree). Stone is left out. */
+/** One row per node in tree order (MUST nodes; `nodes` defaults to the tree). Stone counts (round 2). */
 export function economyTable(layout: WorldLayout, nodes: readonly NodeDef[] = NODE_LIST.filter((n) => n.prio === 'must')): EconomyRow[] {
   const skip = livingCells(layout);
   const cache = new Map<string, ItemCounts>();
@@ -146,7 +149,7 @@ export function economyTable(layout: WorldLayout, nodes: readonly NodeDef[] = NO
       supply = supplyAt(layout, gate, undefined, skip).items;
       cache.set(key, supply);
     }
-    const short = (Object.keys(cost) as ItemId[]).filter((i) => i !== 'stone' && (cost[i] ?? 0) > (supply![i] ?? 0));
+    const short = (Object.keys(cost) as ItemId[]).filter((i) => (cost[i] ?? 0) > (supply![i] ?? 0));
     rows.push({ node: n.id, gate, cost: { ...cost }, supply, short });
   });
   return rows;

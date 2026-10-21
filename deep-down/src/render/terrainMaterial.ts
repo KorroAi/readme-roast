@@ -9,6 +9,7 @@ import { AO_SCALE, OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
 import type { TileAtlas } from './textures';
 import { DETAIL_UNIFORM, detailGlsl } from './detail';
+import { HI_SIZE } from './terrainRig';
 
 /** Builds the sRGB texture array from the procedural tiles, with mipmaps for distant faces. */
 export function createTileTexture(atlas: TileAtlas): THREE.DataArrayTexture {
@@ -102,6 +103,18 @@ uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
 uniform vec4 uTargetHit; // xyz = where the mining ray hits the block, w = 1 when known
 uniform sampler2DArray uDetail; // HD stone (render/detail.ts): rg normal, b height, a tone
 ${detailGlsl(MATERIAL_NAMES)}
+// Rarity highlights (render/highlight.ts): a ${HI_SIZE}^3 byte volume of cell codes around the eye
+// (0 air, 1 plain solid, 2..6 common..legendary), the selected cell and the rarity colours.
+uniform highp sampler3D uHiTex;
+uniform vec4 uHiOrigin;
+uniform vec4 uHiSel;
+uniform vec4 uHiFx;
+uniform vec3 uHiCol[5];
+int hiCode(ivec3 c) {
+  ivec3 l = c - ivec3(uHiOrigin.xyz);
+  if (uHiOrigin.w < 0.5 || any(lessThan(l, ivec3(0))) || any(greaterThan(l, ivec3(${HI_SIZE - 1})))) return 0;
+  return int(texelFetch(uHiTex, l, 0).r * 255.0 + 0.5);
+}
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -289,7 +302,7 @@ vec2 fracture(vec2 q, float dmg, float seed, float px) {
   float reach = 0.14 + 0.66 * dmg;
   if (r > reach + 0.07) return vec2(0.0);
   float ang = atan(q.y, q.x);
-  float c = 1.0 - step(0.012 + 0.016 * dmg + px, r);
+  float c = 1.0 - step(0.008 + 0.01 * dmg + px, r);
   float lip = 0.0;
   for (int k = 0; k < 5; k++) {
     float fk = float(k);
@@ -300,10 +313,11 @@ vec2 fracture(vec2 q, float dmg, float seed, float px) {
     float da = abs(mod(ang - a + 3.14159, 6.28318) - 3.14159) * r;
     // Hairlines: ~1 cm at the root, tapering, never thinner than about 1.2 px (px: metres per
     // pixel at the fragment), so they stay fine at arm's length and still read from 3 m.
-    float w = 0.011 * (1.0 - r / len) + px * 1.2;
+    // Round 2: finer at arm's length (the root was ~11 px wide at 1 m: a dark star), still >= 1.2 px.
+    float w = 0.0055 * (1.0 - r / len) + px * 1.1;
     float on = step(r, len);
     c = max(c, step(da, w) * on);
-    lip = max(lip, step(da, w + 0.025 + px) * on * step(0.0, sin(ang - a)));
+    lip = max(lip, step(da, w + 0.012 + px) * on * step(0.0, sin(ang - a)));
     // a short branch off the middle of some cracks, bending away
     float ab = a + (h1 > 0.5 ? 1.5 : -1.5) * max(r - len * 0.45, 0.0) / len;
     float db = abs(mod(ang - ab + 3.14159, 6.28318) - 3.14159) * r;
@@ -428,6 +442,22 @@ void main() {
   if (!natural) macro = textureLod(uNoise, vGrid * (1.0 / 38.0), 0.0).a * 0.65 + macroN.b * 0.35;
 #endif
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
+  // Round 2: dressed stone up close. Past ~5 px a texel the cut-stone colour is magnified bilinear
+  // (soft), so its joints smeared into blurry bands (floors at the feet, walls at arm's length).
+  // The height channel marks the joints (about 0 in the mortar, 0.6-0.85 on the stone): thresholded
+  // at its midpoint it gives a crisp joint line at any magnification (as a distance field does),
+  // drawn as a dark groove with a faint lit lip, so slabs read cut and sharp, not out of focus.
+  if (family == ${FAMILY.MASONRY} && uMatGlow[shownLayer] <= 0.0) {
+    vec2 fwm = (abs(uvDx) + abs(uvDy)) * ${MAT_SIZE}.0;
+    float pptm = 1.0 / max(max(fwm.x, fwm.y), 1e-4);
+    float nearK = smoothstep(4.0, 9.0, pptm);
+    if (nearK > 0.0) {
+      float aa = 0.9 / pptm;
+      float joint = 1.0 - smoothstep(0.34 - aa, 0.34 + aa, tex.a);
+      float lip = smoothstep(0.34 + aa, 0.34 + 3.0 * aa, tex.a) * (1.0 - smoothstep(0.5, 0.62, tex.a));
+      albedo *= mix(1.0, (1.0 - 0.55 * joint) * (1.0 + 0.12 * lip), nearK);
+    }
+  }
   // Near the lens a rock texel spans many pixels: a fine grain (64 per metre, ALU value noise on
   // the main projection, no fetch, about 25 ALU) fades in there, so close rock reads as stone,
   // not as a magnified pixel. Skipped wherever a texel is under 5 px.
@@ -455,24 +485,75 @@ void main() {
   vec4 det = natural ? (topShown || ng.y < -0.72 ? detailTop(rp, ng.y >= 0.0 ? 1.0 : -1.0, dl) : detailSide(rp, ng, dl)) : detailFace(vGrid, vFace, dl);
   vec3 nd = normalize(ng + det.xyz * dk);
   albedo *= mix(1.0, 0.5 + det.w, dk);
+  // VIS r2: dressed stone's exposed corners (a pedestal, a lintel, a wall's end) are worn round. On
+  // a convex edge (the neighbour in the plane and the cell diagonally in front both air, read from
+  // the highlight volume within ~13 m) the shading normal rolls over toward the side face across
+  // the last ~5 cm and the arris is chipped in places, so a lone block of masonry reads as cut
+  // stone catching the flame on its edges, not as a flat box.
+  if (family == ${FAMILY.MASONRY} && vDepth < 13.0 && uHiOrigin.w > 0.5) {
+    int bax = vFace >> 1;
+    ivec3 bT1 = bax == 0 ? ivec3(0, 1, 0) : ivec3(1, 0, 0);
+    ivec3 bT2 = bax == 2 ? ivec3(0, 1, 0) : ivec3(0, 0, 1);
+    vec3 blc = vGrid - vec3(cell);
+    ivec3 bn = ivec3(n);
+    float chip = textureLod(uNoise, vGrid * 0.9, 0.0).r;
+    float fade = 1.0 - smoothstep(10.0, 13.0, vDepth);
+    for (int k = 0; k < 4; k++) {
+      ivec3 t = k == 0 ? -bT1 : k == 1 ? bT1 : k == 2 ? -bT2 : bT2;
+      float d = k == 0 ? dot(blc, vec3(bT1)) : k == 1 ? 1.0 - dot(blc, vec3(bT1)) : k == 2 ? dot(blc, vec3(bT2)) : 1.0 - dot(blc, vec3(bT2));
+      if (d > 0.08) continue;
+      if (hiCode(cell + t) != 0 || hiCode(cell + t + bn) != 0) continue;
+      float r = (1.0 - smoothstep(0.0, 0.05 * (0.7 + 0.6 * chip), d)) * fade;
+      nd = normalize(nd + vec3(t) * r * 0.9);
+      albedo *= 1.0 - 0.2 * r * smoothstep(0.55, 0.75, chip);
+    }
+  }
   // Ore veins up close: the nuggets are the saturated texels of the vein layer. Their bilinear mask
   // is re-sharpened (a narrow smoothstep: crisp, smooth outlines at any magnification), their rim
   // darkened like a seat in the rock, and the normal bulges out along the mask's screen gradient,
   // so each nugget reads as a rounded lump of metal, not as a blurred orange stain.
   float oreMetal = 0.0;
-  if (shownLayer == ${MAT.copperVein} || shownLayer == ${MAT.copperTop}) {
+  bool isCopper = shownLayer == ${MAT.copperVein} || shownLayer == ${MAT.copperTop};
+  bool isIron = shownLayer == ${MAT.ironVein} || shownLayer == ${MAT.ironTop};
+  if (isCopper || isIron) {
     float cmx = max(tex.r, max(tex.g, tex.b));
     float sat = (cmx - min(tex.r, min(tex.g, tex.b))) / max(cmx, 1e-3);
-    float m = smoothstep(0.4, 0.62, sat) * smoothstep(0.06, 0.16, cmx);
-    float crisp = smoothstep(0.42, 0.58, m);
+    // Copper: its nuggets are the saturated texels. Iron (round 2): its steel bands are the tallest
+    // texels of the layer (height alpha ~0.86+), grey, so they are found by height, not colour.
+    // VIS r2: copper's nuggets are orange-red (r well above g); the bilinear blend from them to the
+    // grey-green crust runs through yellow, which was taken for metal and smeared a rainbow up close.
+    float orange = smoothstep(1.15, 1.45, tex.r / max(tex.g, 1e-3));
+    float m = isCopper ? smoothstep(0.4, 0.62, sat) * smoothstep(0.06, 0.16, cmx) * orange : smoothstep(0.83, 0.89, tex.a) * (1.0 - smoothstep(0.25, 0.45, sat));
+    // Iron's steel is found by height: a narrow threshold on the 16 t/m layer drew it with stepped
+    // texel edges at arm's length, so its edge is wider (copper's colour mask stays crisp).
+    float crisp = isCopper ? smoothstep(0.45, 0.55, m) : smoothstep(0.3, 0.7, m);
+    // The soft fringe of a nugget (and the yellow of that blend) takes the host rock's grey, so a
+    // nugget at arm's length has a clean edge, not an orange stain around it.
+    float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+    // Copper: a texel blended between the orange metal and the green crust (olive, yellow) is
+    // neither; it takes the host's grey, so up close the vein, its crust and the rock stay three
+    // clean colours.
+    float green = smoothstep(0.98, 1.06, tex.g / max(tex.r, 1e-3)) * smoothstep(0.12, 0.22, sat);
+    float between = isCopper ? (1.0 - max(smoothstep(1.3, 1.5, tex.r / max(tex.g, 1e-3)), green)) * smoothstep(0.18, 0.35, sat) : 0.0;
+    float fringe = max((1.0 - crisp) * smoothstep(0.05, 0.45, m), between);
+    albedo = mix(albedo, vec3(lum) * vec3(1.03, 1.0, 0.96), fringe * 0.75);
     float rim = smoothstep(0.12, 0.4, m) * (1.0 - smoothstep(0.45, 0.6, m));
     // World-space gradient of the mask (1/m) from its screen derivatives: the nugget as a height
     // field about 2 cm tall, so its flanks tilt outward.
     vec3 px = dFdx(vWorldPos);
     vec3 py = dFdy(vWorldPos);
     vec3 gw = px * (dFdx(m) / max(dot(px, px), 1e-10)) + py * (dFdy(m) / max(dot(py, py), 1e-10));
-    nd = normalize(nd - gw * 0.02);
-    albedo = mix(albedo * (1.0 - 0.45 * rim), albedo * 1.25, crisp);
+    // Round 2: the nugget stands proud (about 3.5 cm), so the flame models it as a lump of metal.
+    nd = normalize(nd - gw * 0.035);
+    // Iron's steel reads cool and bright against the warm-lit host rock (it was the rock's own grey).
+    // VIS r2 (arm's length): steel is a dark blue-grey metal (the flame's specular gives its shine),
+    // not a pale plate; iron's rust crust is a deep red-brown, not orange paint.
+    vec3 metalAlb = isCopper ? albedo * 1.3 : max(albedo * 1.25, vec3(0.1, 0.105, 0.12)) * vec3(0.92, 0.97, 1.08) * (0.8 + 0.4 * det.w);
+    if (isIron) {
+      float rust = smoothstep(1.25, 1.6, tex.r / max(tex.g, 1e-3)) * smoothstep(0.35, 0.6, sat);
+      albedo = mix(albedo, mix(vec3(lum), albedo, 0.5) * vec3(1.0, 0.86, 0.8) * 0.82, rust);
+    }
+    albedo = mix(albedo * (1.0 - 0.5 * rim), metalAlb, crisp);
     oreMetal = crisp;
   }
 
@@ -505,15 +586,30 @@ void main() {
     float rough = clamp(max(DETAIL_R[shownLayer] + (0.5 - det.w) * 0.3, length(fwidth(nd)) * 1.5), 0.12, 1.0);
     vec3 f0 = vec3(0.035);
     if (oreMetal > 0.0) {
-      // Copper nuggets: metal, their own colour in the reflection, a soft lobe.
-      f0 = mix(f0, tex.rgb * 0.9, oreMetal);
-      rough = mix(rough, 0.42, oreMetal);
-      color *= 1.0 - 0.45 * oreMetal;
-    } else if (shownLayer == ${MAT.ironVein} || shownLayer == ${MAT.ironTop}) {
+      // Ore nuggets: metal, their own colour in the reflection (copper warm, iron a cool steel), a
+      // tighter lobe so they glint as the flame moves.
+      vec3 metalF0 = isCopper ? tex.rgb * 0.95 : mix(vec3(0.42, 0.45, 0.5), tex.rgb * 1.6, 0.35);
+      f0 = mix(f0, metalF0, oreMetal);
+      rough = mix(rough, isCopper ? 0.36 : 0.32, oreMetal);
+      color *= 1.0 - 0.4 * oreMetal;
+    } else if (isIron) {
       f0 = vec3(0.07);
       rough = min(rough, 0.46);
     }
     vec3 spec = lanternSpec(nd, toEye, rough, f0) * (0.3 + 0.7 * ao);
+    // Round 2: ore sparkle. Each ~4 cm grain of the metal has its own tilted facet; the few turned
+    // to mirror the flame at the eye flash as a pin-point glint, so a vein twinkles as the explorer
+    // moves past it (still when the view is still: calm).
+    if (oreMetal > 0.05) {
+      vec3 gc = floor(vWorldPos * 24.0);
+      float hg = hash13(gc + 17.0);
+      if (hg > 0.72) {
+        vec3 tilt = vec3(hash13(gc + 3.1), hash13(gc + 7.7), hash13(gc + 11.3)) - 0.5;
+        vec3 gn = normalize(nd + tilt * 1.1);
+        float g = pow(max(dot(reflect(-gLanternL, gn), toEye), 0.0), 64.0);
+        spec += gLanternRad * (isCopper ? vec3(1.0, 0.78, 0.5) : vec3(0.85, 0.9, 1.0)) * g * 2.2 * oreMetal;
+      }
+    }
     color += spec;
     litByFlame += spec;
   }
@@ -534,7 +630,8 @@ void main() {
     vec2 fc = floor(uv * 32.0);
     vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
     float flare = pow(max(dot(reflect(-toLamp, normalize(n + tilt)), toEye), 0.0), 12.0);
-    color += vec3(0.28, 0.75, 0.84) * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
+    vec3 glass = shownLayer == ${MAT.gemOre} ? vec3(0.62, 0.42, 1.0) : vec3(0.28, 0.75, 0.84);
+    color += glass * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
   }
 
   // Inscriptions: the builders' script (materials/script.ts) laid in world space along the band,
@@ -569,6 +666,71 @@ void main() {
     emissive += scr.rgb * ink * (0.26 + 0.8 * wake) * (1.0 - 0.72 * low) * (0.85 + 0.15 * sin(uTime * 1.1 - uv.x * MAT_PERIOD * 0.8));
   }
 
+  // Rarity highlights (render/highlight.ts): every minable find within ~14 m wears a crisp thin rim
+  // in its rarity colour along the edges where the find meets other stone (the vein's outline, not a
+  // block grid), a faint inner glow that gathers toward that rim, and a slow breath (one every 3 s).
+  // The selected cell is outlined on its own (every edge it shares with other stone), brighter and
+  // steady. Legendary finds carry a slow shimmer. Derivatives are taken here, in uniform flow.
+  vec3 hiLc = vGrid - vec3(cell);
+  int hiAx = vFace >> 1;
+  ivec3 hiT1 = hiAx == 0 ? ivec3(0, 1, 0) : ivec3(1, 0, 0);
+  ivec3 hiT2 = hiAx == 2 ? ivec3(0, 1, 0) : ivec3(0, 0, 1);
+  vec2 hiL = vec2(dot(hiLc, vec3(hiT1)), dot(hiLc, vec3(hiT2)));
+  vec2 hiW = fwidth(hiL);
+  bool hiSel = uHiSel.w > 1.5 && all(equal(cell, ivec3(uHiSel.xyz)));
+  int hiC = hiCode(cell);
+  if ((hiC >= 2 && vDepth < 14.5) || hiSel) {
+    ivec3 nI = ivec3(n);
+    float sel = hiSel ? uHiFx.y : 0.0;
+    // Line width in pixels (crisp: about 1.4 px ambient, 2.6 px selected), never wider than 9 cm.
+    vec2 w = min(hiW * mix(1.4, 2.6, sel), vec2(0.09));
+    float line = 0.0;
+    float outer = 0.0;
+    float minD = 1.0;
+    for (int k = 0; k < 4; k++) {
+      ivec3 t = k == 0 ? -hiT1 : k == 1 ? hiT1 : k == 2 ? -hiT2 : hiT2;
+      float d = k == 0 ? hiL.x : k == 1 ? 1.0 - hiL.x : k == 2 ? hiL.y : 1.0 - hiL.y;
+      if (d > 0.4) continue;
+      // Who owns the surface across this edge: the cell diagonally in front (a concave corner), the
+      // neighbour in the plane (a flat continuation), or this cell itself (a convex corner).
+      ivec3 diag = cell + t + nI;
+      ivec3 side = cell + t;
+      int cd = hiCode(diag);
+      int cs = hiCode(side);
+      bool other = cd >= 1 || cs >= 1;
+      int oc = cd >= 1 ? cd : cs;
+      bool edgeAmb = other && oc != hiC;
+      bool edge = hiSel ? other : edgeAmb;
+      if (!edge) continue;
+      float ww = k < 2 ? w.x : w.y;
+      minD = min(minD, d);
+      line = max(line, 1.0 - smoothstep(ww * 0.55, ww * 1.15, d));
+      outer = max(outer, smoothstep(ww * 1.0, ww * 1.4, d) * (1.0 - smoothstep(ww * 1.8, ww * 2.6, d)));
+    }
+    int code = hiSel ? int(uHiSel.w + 0.5) : hiC;
+    vec3 hc = uHiCol[clamp(code - 2, 0, 4)];
+    if (hiSel && uHiFx.z > 0.5) hc = mix(vec3(dot(hc, vec3(0.2126, 0.7152, 0.0722))), vec3(1.0, 0.32, 0.26), 0.55); // too hard
+    // Ambient lines fade at arm's length (VIS r2): there they would cut long frames across the
+    // screen; the selection outline carries the block you are about to strike.
+    float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * smoothstep(1.0, 2.6, vDepth) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel);
+    float k = amb + 2.4 * sel;
+    // The inner glow gathers in a band ~12 cm inside the rim; the face itself takes only a breath of
+    // it (the darks here sit at 0.003-0.01 linear: more would read as a tinted box).
+    // Ambient: a soft glowing seam (the band) with a thin, quieter line at its edge, so a long
+    // straight boundary (a seal's foot) reads as light along the stone, not a scratch on the
+    // screen. Selected: the crisp bright line carries it.
+    float gather = exp(-minD * 11.0);
+    vec3 hi = hc * (line * mix(0.2, 0.36, sel) + gather * mix(0.03, 0.02, sel) + 0.0015) * k;
+    if (code == 6) {
+      // Legendary: a slow band of light travels over the find (about one pass every 5 s).
+      float band = smoothstep(0.75, 1.0, sin(dot(vWorldPos, vec3(1.1, 0.7, 0.9)) * 1.4 - uHiFx.x * 1.25));
+      hi += hc * band * (0.35 * line + 0.05) * max(amb, sel);
+    }
+    // A thin dark seat just outside the rim, so the line stays crisp on pale or lantern-lit stone.
+    color *= 1.0 - 0.32 * outer * min(k, 1.0);
+    emissive += hi;
+  }
+
   // Mining feedback on the sculpted surface, not a cube frame: a soft warm light gathers around
   // the point the pick strikes (the ray hit, or where the line of sight to the block enters it),
   // spreading over the block's own faces, and fractures radiate from it as the damage grows
@@ -591,7 +753,7 @@ void main() {
       // block nears breaking), with a lit lip beside it.
       color *= (1.0 - crack * (0.42 + 0.2 * dmg)) * (1.0 + fr.y * 0.18);
     }
-    vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : vec3(1.0, 0.82, 0.58);
+    vec3 spotColor = uTargetFx.z > 0.5 ? vec3(1.0, 0.36, 0.3) : hiSel ? mix(vec3(1.0, 0.82, 0.58), uHiCol[clamp(int(uHiSel.w + 0.5) - 2, 0, 4)], 0.6) : vec3(1.0, 0.82, 0.58);
     color += spotColor * spot * spot * (0.025 + 0.05 * uTargetFx.y) + vec3(1.0, 0.92, 0.8) * uTargetFx.x * 0.2 * spot;
   }
 

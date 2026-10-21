@@ -3,6 +3,7 @@ import { saturate } from '../core/math';
 import type { MusicNote } from './MusicScheduler';
 import { Voice, type NoiseColor, type SynthTarget } from './synth';
 import { midiToHz } from './theory';
+import { MOB_SFX } from './mobSfx';
 
 // Every one-shot sound in the game, synthesized from oscillators, the shared noise buffers
 // and envelopes. Recipes only talk to a Voice, so the same code plays live through the mix
@@ -585,6 +586,8 @@ export const SFX = {
   // Score voices, registered so they render offline like any other sound.
   'music.pad': def('music', 1, 0.5, 1, 9, (v) => buildMusicNote(v, { time: v.t, duration: 5, midi: 50, velocity: 0.7, voice: 'pad', brightness: 1100 }), 0),
   'music.pluck': def('music', 1, 0.55, 1, 2.5, (v) => buildMusicNote(v, { time: v.t, duration: 2.2, midi: 74, velocity: 0.7, voice: 'pluck', brightness: 1100 }), 0),
+  // Round 2 (MOBS): the creatures' voices, their strikes and the weapons (audio/mobSfx).
+  ...MOB_SFX,
 } satisfies Record<string, SfxDef>;
 
 export type SfxName = keyof typeof SFX;

@@ -166,7 +166,7 @@ export const WORLD = {
    * (tests/unit/genVersion.test.ts pins the fingerprint): a save from another version keeps
    * everything but its world edits, and wakes the explorer at camp.
    */
-  genVersion: 5,
+  genVersion: 6,
   /**
    * Older generator versions whose world edits still apply to this one, cell for cell: version 4
    * (finished game, content) only carves the deep beyond the rift into rock nobody could reach and

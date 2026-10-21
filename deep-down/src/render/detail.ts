@@ -130,18 +130,26 @@ void paint(int layer, vec2 uv, out float h, out float tone) {
     h = h * .8 + peb * .08 * sqrt(max(0., 1. - pv.x / pr));
     tone += peb * .06;
   } else if (layer == 2) {
-    // Soil and gravel: clumps, pebbles, root fibres.
+    // Soil and gravel (round 2): packed earth broken into irregular flat-topped cakes by fine dry
+    // crevices (not round domes, which read as hammered metal up close), a coarse grit, a few
+    // half-buried pebbles and root fibres.
+    vec2 w = vec2(fbm(uv + 5., 3., 3), fbm(uv + 9., 3., 3)) * .2;
     vec2 rel;
-    vec4 v = voro(uv * 12., 12., .9, rel);
-    float clump = sqrt(max(0., 1. - v.x * 1.4));
+    vec4 v = voro((uv + w * .6) * 9., 9., .95, rel);
+    float cake = smoothstep(.0, .06 + .04 * h12(v.zw), v.y);
+    // Not every border has opened: along some the earth is still one piece (no giraffe net).
+    float open = .2 + .8 * smoothstep(-.1, .3, gnoise((uv + w) * 4. + 1.7, 4.));
+    cake = 1. - (1. - cake) * open;
+    float tilt = dot(-rel, (h22(v.zw + 2.1) - .5) * .5);
     float n = fbm(uv + 2.2, 4., 5);
+    float grit = fbm(uv + 1.3, 40., 2);
     vec2 rp;
     vec4 pv = voro(uv * 18., 18., .9, rp);
-    float peb = (1. - smoothstep(.12, .2, pv.x)) * step(.7, h12(pv.zw + 1.7));
-    vec2 w = vec2(fbm(uv + 5., 3., 3), fbm(uv + 9., 3., 3)) * .2;
+    float pr = .1 + .08 * h12(pv.zw + 4.1);
+    float peb = (1. - smoothstep(pr * .6, pr, pv.x)) * step(.74, h12(pv.zw + 1.7));
     float fib = (1. - smoothstep(.003, .009, abs(gnoise((uv + w) * 5., 5.)))) * smoothstep(-.1, .2, gnoise(uv * 6. + 3., 6.));
-    h = .45 + clump * .3 + n * .2 + fib * .06 + peb * .18;
-    tone = .5 + n * .2 + clump * .12 - (1. - clump) * .1 + peb * .12 + fib * .1;
+    h = .42 + cake * .2 + tilt * .12 + n * .2 + (grit - .5) * .1 + fib * .05 + peb * .16 * sqrt(max(0., 1. - pv.x / pr));
+    tone = .5 + n * .18 + (h12(v.zw + 6.3) - .5) * .14 - (1. - cake) * .2 + (grit - .5) * .12 + peb * .14 + fib * .08;
   } else if (layer == 3) {
     // Dressed stone: tooled faces (short parallel chisel strokes in patches), pitting, soft swell.
     float lo = fbm(uv + 1.7, 3., 4);
@@ -156,7 +164,9 @@ void paint(int layer, vec2 uv, out float h, out float tone) {
     float tool = gnoise(vec2(dot(uv, dir), dot(uv, vec2(-dir.y, dir.x))) * vec2(18., 4.), 4.) * smoothstep(.0, .06, pat.y);
     float grain = fbm(uv, 48., 2);
     h = .5 + lo * .18 + tool * .06 - pit * .12 + grain * .03 - (1. - smoothstep(0., .03, pat.y)) * .02;
-    tone = .5 + lo * .12 + tool * .025 - pit * .22 + grain * .05 + (h12(pat.zw + 2.) - .5) * .06;
+    // Round 2: a little more tooling, wear and pitting in the tone, so dressed floors and walls at
+    // arm's length read as worked stone, not smooth plaster.
+    tone = .5 + lo * .17 + tool * .05 - pit * .3 + grain * .07 + (h12(pat.zw + 2.) - .5) * .09;
   } else if (layer == 4) {
     // Timber: grain along u, a few checks (splits) and knots.
     float wv = fbm(uv * vec2(1., 6.), 3., 3);
@@ -304,8 +314,12 @@ export function disposeDetail(renderer: THREE.WebGLRenderer): void {
 /** Detail layer, strength (0..~1.2) and roughness of a material layer (by name; unknown names get rock). */
 export function detailOf(name: string): { layer: number; k: number; rough: number } {
   if (/crystal/i.test(name)) return { layer: DETAIL.crystal, k: 0.7, rough: 0.18 };
+  if (name === 'gemOre') return { layer: DETAIL.crystal, k: 0.7, rough: 0.16 };
+  if (name === 'roots') return { layer: DETAIL.timber, k: 0.7, rough: 0.7 };
+  if (name === 'rubble') return { layer: DETAIL.rock, k: 1.1, rough: 0.7 };
   if (/^(plank|beam)/.test(name)) return { layer: DETAIL.timber, k: name === 'beamEnd' ? 0.5 : 0.8, rough: 0.66 };
   if (/^(soil|gravel)/.test(name)) return { layer: DETAIL.earth, k: 1, rough: 0.92 };
+  if (name === 'floorSlab') return { layer: DETAIL.dressed, k: 1.25, rough: 0.6 };
   if (/^(masonry|floorSlab|hearth|script)/.test(name)) return { layer: DETAIL.dressed, k: 1, rough: 0.62 };
   if (/^crumbling/.test(name)) return { layer: DETAIL.dressed, k: 1.1, rough: 0.7 };
   const damp = /^damp/.test(name);

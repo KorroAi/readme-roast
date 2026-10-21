@@ -55,8 +55,12 @@ function rig() {
     },
   });
   const bus = new EventBus<GameEvents>();
+  const tunks: string[] = [];
+  const hits: string[] = [];
+  bus.on('block:tunk', (e) => void tunks.push(`${e.x},${e.y},${e.z}`));
+  bus.on('block:hit', (e) => void hits.push(`${e.x},${e.y},${e.z}`));
   const m = new MiningController(w, bus, new MiningProgress(), hooks, noop as never, noop as never, noop as never, noop as never, camProxy, new Rng(7));
-  return { w, cam, eye, m, broken, swings, shake };
+  return { w, cam, eye, m, broken, swings, shake, tunks, hits };
 }
 
 describe('first-person mining', () => {
@@ -88,5 +92,29 @@ describe('first-person mining', () => {
     // From 3.6 m back the same block is out of reach.
     const far = m.findTarget({ ...input, lock: { kind: 'block', x: 10, y: 6, z: 16 } }, eye.x - (REACH + 0.6 - 1.5), eye.y, eye.z);
     expect(far?.inReach).toBe(false);
+  });
+
+  it('round 2: ordinary rock is a soft tunk, once per press: no damage, no crack, nothing breaks', () => {
+    const { w, cam, eye, m, broken, tunks, hits } = rig();
+    // Aim at the slate above the vein (10, 8, 16).
+    cam.pitch = Math.atan2(8.5 - eye.y, 1.5);
+    cam.snapTo(eye.x, eye.y, eye.z);
+    cam.update(1 / 60, eye.x, eye.y, eye.z, 390 / 844);
+    const input = createInputState();
+    input.lastDevice = 'touch';
+    input.mining = true;
+    input.aimFromPointer = true;
+    for (let i = 0; i < 60 * 4; i++) m.update(1 / 60, input, true, eye.x, eye.y, eye.z);
+    expect(tunks).toEqual(['10,8,16']);
+    expect(hits).toEqual([]);
+    expect(broken).toEqual([]);
+    expect(w.get(10, 8, 16)).toBe(B.SLATE);
+    expect(m.hudTarget()).toBeNull();
+    // A new press strikes once more.
+    input.mining = false;
+    m.update(1 / 60, input, true, eye.x, eye.y, eye.z);
+    input.mining = true;
+    for (let i = 0; i < 60; i++) m.update(1 / 60, input, true, eye.x, eye.y, eye.z);
+    expect(tunks.length).toBe(2);
   });
 });

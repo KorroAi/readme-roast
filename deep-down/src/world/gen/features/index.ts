@@ -4,6 +4,7 @@ import { Noise } from '../../../core/noise';
 import { Rng } from '../../../core/rng';
 import type { VoxelWorld } from '../../VoxelWorld';
 import type { PropSpec, Region, StructureSpec } from '../types';
+import { buildExpanse, untrapFeatures } from './expanse';
 import { buildPlaces } from './places';
 import type { FeatureLayout, MothAnchorDef, V3 } from './types';
 
@@ -26,6 +27,9 @@ export interface FeatureCtx {
   crystalSeam(a: V3, b: V3, r: number, max: number): number;
   /** Top of the ground at (x, z) near height y. */
   groundAt(x: number, z: number, y: number): number;
+  /** Round 2 (WORLD): the spawn and the camp box, for the trap pass (expanse: untrapFeatures). */
+  spawn?: { x: number; y: number; z: number };
+  camp?: Region;
 }
 
 /**
@@ -41,6 +45,10 @@ export interface FeatureCtx {
 export function buildFeatures(ctx: FeatureCtx): FeatureLayout {
   const b = new FeatureBuilder(ctx);
   buildPlaces(b);
+  // Round 2 (WORLD): the vast, non-linear world round the first version's route.
+  buildExpanse(b);
+  // Then no pit may hold a player now that the pick cannot dig a way out (inside its own boxes).
+  untrapFeatures(b);
   return b.layout;
 }
 

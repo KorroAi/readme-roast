@@ -19,7 +19,12 @@ export type NodeId =
   | 'attunedLantern'
   | 'gripBoots'
   | 'minersCoat'
-  | 'glimmerPickaxe';
+  | 'glimmerPickaxe'
+  // Round 2 (WORLD): the Forge's weapons, after the first iron (config/weapons), and Flash Charges.
+  | 'machete'
+  | 'sling'
+  | 'spear'
+  | 'flashCharges';
 
 export type EquipmentSlot = 'pickaxe' | 'lantern' | 'pack';
 
@@ -29,8 +34,15 @@ export type Place = 'workbench' | 'forge' | 'camp' | 'field';
 /** Camp stations: built on a plot, they rise from the ground and stay. */
 export type StationId = 'surveyTable' | 'forge' | 'relicShelf';
 
-/** Gear: worn, changes how the explorer moves or endures. */
-export type GearId = 'gripBoots' | 'minersCoat';
+/**
+ * Gear: worn or carried, changes how the explorer moves, endures or fights. The weapons (round 2)
+ * are gear too: built once at the Forge and kept (config/weapons). 'flashCharges' is a repeatable
+ * craft (NodeDef.repeat), never owned.
+ */
+export type GearId = 'gripBoots' | 'minersCoat' | 'machete' | 'sling' | 'spear' | 'flashCharges';
+
+/** The weapon nodes (round 2). */
+export const WEAPON_NODES = ['machete', 'sling', 'spear'] as const satisfies readonly NodeId[];
 
 /** The tree's columns (the screen lays them out left to right). */
 export type TreeLine = 'pickaxe' | 'lantern' | 'pack' | 'gear' | 'stations';
@@ -65,6 +77,11 @@ export interface NodeDef {
   order: number;
   /** Built for free as soon as its prerequisites are met (the Relic Shelf). */
   auto?: true;
+  /**
+   * A repeatable craft (round 2: Flash Charges): never owned; each craft puts `count` of `item`
+   * into camp storage.
+   */
+  repeat?: { item: ItemId; count: number };
 }
 
 export const NODES: Record<NodeId, NodeDef> = {
@@ -224,6 +241,60 @@ export const NODES: Record<NodeId, NodeDef> = {
     row: 3,
     prio: 'must',
     order: 11,
+  },
+  // Round 2 (WORLD): weapons at the Forge, a bit later in the game (the Forge needs the first iron).
+  machete: {
+    id: 'machete',
+    name: 'recipe.machete',
+    does: 'node.machete.does',
+    place: 'forge',
+    result: { kind: 'gear', gear: 'machete' },
+    inputs: { ironOre: 4, copperOre: 3, rootFibre: 2 },
+    prereqs: ['forge'],
+    line: 'gear',
+    row: 3,
+    prio: 'must',
+    order: 12,
+  },
+  sling: {
+    id: 'sling',
+    name: 'recipe.sling',
+    does: 'node.sling.does',
+    place: 'forge',
+    result: { kind: 'gear', gear: 'sling' },
+    inputs: { rootFibre: 6, copperOre: 4, glimmerShard: 2 },
+    prereqs: ['forge'],
+    line: 'gear',
+    row: 4,
+    prio: 'must',
+    order: 13,
+  },
+  spear: {
+    id: 'spear',
+    name: 'recipe.spear',
+    does: 'node.spear.does',
+    place: 'forge',
+    result: { kind: 'gear', gear: 'spear' },
+    inputs: { ironOre: 6, glimmerShard: 4, gem: 2 },
+    prereqs: ['machete'],
+    line: 'gear',
+    row: 5,
+    prio: 'must',
+    order: 14,
+  },
+  flashCharges: {
+    id: 'flashCharges',
+    name: 'recipe.flashCharges',
+    does: 'node.flashCharges.does',
+    place: 'forge',
+    result: { kind: 'gear', gear: 'flashCharges' },
+    inputs: { glimmerShard: 1, copperOre: 2, stone: 2 },
+    prereqs: ['forge'],
+    line: 'gear',
+    row: 6,
+    prio: 'should',
+    order: 15,
+    repeat: { item: 'flashCharge', count: 2 },
   },
 };
 

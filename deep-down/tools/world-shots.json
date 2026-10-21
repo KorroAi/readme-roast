@@ -1,0 +1,232 @@
+[
+ {
+  "name": "w01-galleries-door",
+  "at": [
+   28.5,
+   101,
+   40.5
+  ],
+  "look": [
+   14,
+   102,
+   41
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "w02-scree-hall",
+  "at": [
+   20.5,
+   99,
+   77.5
+  ],
+  "look": [
+   30,
+   99.5,
+   70
+  ],
+  "pitch": -0.18
+ },
+ {
+  "name": "w03-root-room",
+  "at": [
+   14.5,
+   100,
+   56.5
+  ],
+  "look": [
+   8,
+   102,
+   63
+  ],
+  "pitch": 0.05
+ },
+ {
+  "name": "w04-geode",
+  "at": [
+   8.5,
+   99,
+   97.5
+  ],
+  "look": [
+   4.5,
+   100.5,
+   98.5
+  ],
+  "pitch": -0.1,
+  "eval": "const D=window.__DD__;const w=D.game.session.world;for(let z=86;z<=101;z++)for(let y=98;y<=101;y++)for(let x=3;x<=15;x++)if(w.get(x,y,z)===13)D.setBlock(x,y,z,0);"
+ },
+ {
+  "name": "w05-shaft-top",
+  "at": [
+   41.5,
+   98,
+   82.5
+  ],
+  "look": [
+   44.5,
+   60,
+   80.5
+  ],
+  "pitch": -1.0
+ },
+ {
+  "name": "w06-lake",
+  "at": [
+   46.5,
+   24,
+   84.5
+  ],
+  "look": [
+   30,
+   25.5,
+   89
+  ],
+  "pitch": -0.08
+ },
+ {
+  "name": "w07-lake-window",
+  "at": [
+   21.5,
+   24,
+   88.5
+  ],
+  "look": [
+   9,
+   23.5,
+   88.5
+  ],
+  "pitch": -0.12
+ },
+ {
+  "name": "w08-vault-floor",
+  "at": [
+   136.5,
+   43,
+   33.5
+  ],
+  "look": [
+   116.5,
+   92,
+   27
+  ],
+  "pitch": 0.62
+ },
+ {
+  "name": "w09-vault-top",
+  "at": [
+   117.5,
+   92,
+   31.5
+  ],
+  "look": [
+   134,
+   50,
+   32
+  ],
+  "pitch": -0.55
+ },
+ {
+  "name": "w10-vault-mid",
+  "at": [
+   130.5,
+   65,
+   42.5
+  ],
+  "look": [
+   128,
+   58,
+   22
+  ],
+  "pitch": -0.2
+ },
+ {
+  "name": "w11-underhall",
+  "at": [
+   31.5,
+   21,
+   52.5
+  ],
+  "look": [
+   30.5,
+   22,
+   30
+  ],
+  "pitch": -0.05
+ },
+ {
+  "name": "w12-underhall-chasm",
+  "at": [
+   26.5,
+   21,
+   41.5
+  ],
+  "look": [
+   40,
+   14,
+   37
+  ],
+  "pitch": -0.35
+ },
+ {
+  "name": "e01-tremor",
+  "at": [
+   24.5,
+   99,
+   75.5
+  ],
+  "look": [
+   30,
+   99.5,
+   70
+  ],
+  "eval": "window.__afterTeleport=()=>{const D=window.__DD__;const g=D.game;const p=g.player;window.__ev=g.progression.events.force('tremor',{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});const ev=window.__ev; if(ev){const f=window.__fp; const t=ev.anchor; const dx=t[0]-f.x, dy=t[1]+0.8-f.y, dz=t[2]-f.z; f.yaw=Math.atan2(-dx,-dz); f.pitch=Math.atan2(dy,Math.hypot(dx,dz));}};",
+  "frames": 20
+ },
+ {
+  "name": "e02-rockfall",
+  "at": [
+   27.5,
+   99,
+   73.5
+  ],
+  "look": [
+   28,
+   98,
+   76
+  ],
+  "pitch": -0.75,
+  "eval": "window.__afterTeleport=()=>{const D=window.__DD__;const g=D.game;const p=g.player;window.__ev=g.progression.events.force('rockfall',{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});for(let k=0;k<70;k++)g.progression.events.update(1/30,{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});window.__ev=null;const ev=window.__ev; if(ev){const f=window.__fp; const t=ev.anchor; const dx=t[0]-f.x, dy=t[1]+0.8-f.y, dz=t[2]-f.z; f.yaw=Math.atan2(-dx,-dz); f.pitch=Math.atan2(dy,Math.hypot(dx,dz));}};",
+  "frames": 10
+ },
+ {
+  "name": "e03-bloom",
+  "at": [
+   77.5,
+   96,
+   53.5
+  ],
+  "look": [
+   77,
+   96.5,
+   55.5
+  ],
+  "eval": "window.__afterTeleport=()=>{const D=window.__DD__;const g=D.game;const p=g.player;window.__ev=g.progression.events.force('bloom',{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});const ev=window.__ev; if(ev){const f=window.__fp; const t=ev.anchor; const dx=t[0]-f.x, dy=t[1]+0.8-f.y, dz=t[2]-f.z; f.yaw=Math.atan2(-dx,-dz); f.pitch=Math.atan2(dy,Math.hypot(dx,dz));}};",
+  "frames": 20
+ },
+ {
+  "name": "e04-echo",
+  "at": [
+   72.5,
+   43,
+   100.5
+  ],
+  "look": [
+   62,
+   43,
+   103.5
+  ],
+  "eval": "window.__afterTeleport=()=>{const D=window.__DD__;const g=D.game;const p=g.player;window.__ev=g.progression.events.force('echo',{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});for(let k=0;k<45;k++)g.progression.events.update(1/30,{x:p.x,y:p.y,z:p.z,inCamp:false,busy:false,lit:true,depth:150-p.y});window.__ev=window.__ev&&{anchor:g.progression.events.live.light||window.__ev.anchor};const ev=window.__ev; if(ev){const f=window.__fp; const t=ev.anchor; const dx=t[0]-f.x, dy=t[1]+0.8-f.y, dz=t[2]-f.z; f.yaw=Math.atan2(-dx,-dz); f.pitch=Math.atan2(dy,Math.hypot(dx,dz));}};",
+  "frames": 14
+ }
+]

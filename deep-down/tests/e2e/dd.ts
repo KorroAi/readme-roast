@@ -104,3 +104,19 @@ export async function waitPlay(page: Page, seconds: number, ceilingMs = LOADED_C
   const t0 = await playTime(page);
   await page.waitForFunction(([t, s]) => window.__DD__.game.playTime - t >= s, [t0, seconds] as const, { timeout: ceilingMs, polling: 50 });
 }
+
+/**
+ * Round 2: the creatures of the deep spawn on their own; specs about other systems keep the
+ * spawner off so a crawler's blow never changes what they measure (the mobs have their own spec,
+ * mobs.spec.ts, and place what they need by hand). Runs before the page's scripts on every load.
+ */
+export async function quietDeep(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const id = window.setInterval(() => {
+      const mobs = (window as unknown as { __DD__?: { mobs?: { auto(on: boolean): boolean } } }).__DD__?.mobs;
+      if (!mobs) return;
+      mobs.auto(false);
+      window.clearInterval(id);
+    }, 50);
+  });
+}

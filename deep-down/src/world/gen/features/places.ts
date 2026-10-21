@@ -93,8 +93,9 @@ function mothGrotto(b: FeatureBuilder): void {
   // drop in from the tunnel's upper floor beside it, past the plug.)
   for (const [x, y, z] of squeeze) for (let k = 0; k < (x >= 68 ? 3 : 4); k++) b.carve(x, y + k, z);
   // The plug the pick opens, and the slit over it the cold light leaks through.
-  b.put(70, 94, 61, B.GRAVEL);
-  b.put(70, 95, 61, B.GRAVEL);
+  // Round 2: loose stone (plain gravel no longer yields to the pick).
+  b.put(70, 94, 61, B.RUBBLE);
+  b.put(70, 95, 61, B.RUBBLE);
   b.carve(70, 96, 61);
   b.carve(69, 96, 61);
   // Crystal in the squeeze: one in its roof a few metres in (its cold light reaches the slit) and a

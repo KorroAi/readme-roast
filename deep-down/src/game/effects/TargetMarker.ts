@@ -3,6 +3,7 @@ import { CRACK_STAGES } from '../../config/tiles';
 import { CRACK_LAYER } from '../../render/textures';
 import { damp } from '../../core/math';
 import type { TerrainRig } from '../../render/terrainRig';
+import type { HighlightSystem } from '../../render/highlight';
 
 const crackVert = /* glsl */ `
 out vec3 vLocal;
@@ -48,6 +49,13 @@ void main() {
  */
 export class TargetMarker {
   readonly group = new THREE.Group();
+  /**
+   * Round 2: the rarity selection outline and the world-space progress ring (render/highlight.ts)
+   * follow the block being mined, so every mining path shows them. Set by the game (VIS hook).
+   * A selection someone else made (a prop, a mob) is left alone.
+   */
+  highlight: HighlightSystem | null = null;
+  private selectedCell: { x: number; y: number; z: number } | null = null;
   private readonly crack: THREE.Mesh<THREE.BoxGeometry, THREE.ShaderMaterial>;
   private readonly outline: THREE.LineSegments<THREE.EdgesGeometry, THREE.LineBasicMaterial>;
   private punch = 0;
@@ -92,6 +100,9 @@ export class TargetMarker {
    * `target.point`: where the mining ray strikes the block (optional; centres the highlight).
    */
   set(target: { x: number; y: number; z: number; point?: { x: number; y: number; z: number } | null } | null, progress: number, blocked: boolean, active: boolean): void {
+    // Only a block being worked (struck, or with damage on it) takes the selection; a desktop hover
+    // under the crosshair does not steal it from the focused find.
+    this.syncHighlight(active || progress > 0 ? target : null, progress, blocked);
     if (!target) {
       this.visibleTarget = false;
       this.group.visible = false;
@@ -117,6 +128,32 @@ export class TargetMarker {
     this.crack.material.uniforms.uLayer.value = stage < 0 ? -1 : CRACK_LAYER(stage);
     this.outline.material.color.copy(blocked ? this.blockedColor : this.okColor);
     this.outline.material.opacity = active ? 0.7 : 0.35;
+  }
+
+  private syncHighlight(target: { x: number; y: number; z: number; point?: { x: number; y: number; z: number } | null } | null, progress: number, blocked: boolean): void {
+    const hl = this.highlight;
+    if (!hl) return;
+    const cur = hl.selection;
+    const mine = !!cur && cur.kind === 'block' && !!this.selectedCell && cur.x === this.selectedCell.x && cur.y === this.selectedCell.y && cur.z === this.selectedCell.z;
+    if (!target) {
+      if (mine || !cur) {
+        if (mine) hl.select(null);
+        hl.progress(null, 0);
+      }
+      this.selectedCell = null;
+      return;
+    }
+    // Only finds are outlined; plain rock gets neither the outline nor the ring.
+    const t = { kind: 'block' as const, x: target.x, y: target.y, z: target.z, point: target.point ?? null };
+    if (!hl.rarityOf(t)) {
+      if (mine) hl.select(null);
+      hl.progress(null, 0);
+      this.selectedCell = null;
+      return;
+    }
+    if (!mine || hl.selectionBlocked !== blocked) hl.select(t, { blocked });
+    this.selectedCell = { x: target.x, y: target.y, z: target.z };
+    hl.progress(t, progress);
   }
 
   /** Call on every pickaxe impact. */

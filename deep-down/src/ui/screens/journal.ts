@@ -2,6 +2,7 @@ import './journal.css';
 import { RUNES } from '../../config/runes';
 import { t, type TextKey } from '../../i18n';
 import { h } from '../dom';
+import { rarityLegend } from '../rarityLegend';
 import { depthText } from '../format';
 import type { FeatsView } from '../../gameplay/Feats';
 import type { JournalEntry, JournalTab, JournalView, RunePage } from '../types';
@@ -136,7 +137,9 @@ function discoveriesTab(v: JournalView): HTMLElement {
   if (rest.length) groups.push(group('other', t('ui.journal.elsewhere'), rest.filter((e) => e.found).length, rest.length, rest));
   // The Halden logs, together and in table order.
   if (logs.length) groups.push(group('logs', t('ui.journal.logs'), logs.filter((e) => e.found).length, logs.length, logs));
-  return h('div', { class: 'dd-journal-discoveries' }, h('p', { class: 'dd-journal-total' }, h('b', { text: `${v.found}/${v.total}` }), ' ', t('ui.journal.foundOf')), h('div', { class: 'dd-journal-groups' }, ...groups));
+  // Round 2: what glows can be taken (the rarity colours), at the head of the journal.
+  const legend = h('section', { class: 'dd-journal-legend' }, h('h3', { text: t('rarity.legend.title') }), h('p', { text: t('rarity.legend.body') }), rarityLegend());
+  return h('div', { class: 'dd-journal-discoveries' }, legend, h('p', { class: 'dd-journal-total' }, h('b', { text: `${v.found}/${v.total}` }), ' ', t('ui.journal.foundOf')), h('div', { class: 'dd-journal-groups' }, ...groups));
 }
 
 /** A rune's glyph as SVG strokes on its 16 x 16 grid (config/runes). */

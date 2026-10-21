@@ -1,4 +1,5 @@
 import type { EventBus, GameEvents } from '../core/events';
+import '../game/fp/events';
 
 /**
  * Short vibrations for the moments a thumb should feel: a pick strike, a block giving way, a
@@ -18,12 +19,18 @@ export const HAPTIC_PATTERNS = {
   turnBack: [30, 90, 30],
   /** The cold bit (once per interval): a heartbeat. */
   cold: [16, 110, 26],
+  /** The pick on plain rock: the lightest tick. */
+  tunk: 5,
+  /** A blow lands on a creature: a firm knock (the hit stop's weight). */
+  strike: 16,
+  /** A Flash Charge bursts. */
+  flash: [10, 30, 24],
 } as const;
 
 export type HapticKind = keyof typeof HAPTIC_PATTERNS;
 
 /** Minimum gap between two vibrations of the same kind (ms), so bursts do not blur together. */
-const MIN_GAP_MS: Partial<Record<HapticKind, number>> = { pickup: 90, hit: 60 };
+const MIN_GAP_MS: Partial<Record<HapticKind, number>> = { pickup: 90, hit: 60, tunk: 120, strike: 60 };
 
 export class Haptics {
   private readonly last = new Map<HapticKind, number>();
@@ -46,6 +53,9 @@ export class Haptics {
       bus.on('craft:done', () => this.play('craft')),
       bus.on('lantern:turnBack', () => this.play('turnBack')),
       bus.on('player:cold', () => this.play('cold')),
+      bus.on('block:tunk', () => this.play('tunk')),
+      bus.on('weapon:hit', () => this.play('strike')),
+      bus.on('weapon:flash', () => this.play('flash')),
     );
   }
 

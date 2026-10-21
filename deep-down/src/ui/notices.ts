@@ -3,6 +3,7 @@ import { discoveryDef } from '../gameplay/discoveries';
 import { t } from '../i18n';
 import type { DiscoveryNotice, PickupNotice } from './types';
 import { h, icon } from './dom';
+import { rarityLegend } from './rarityLegend';
 import { iconPx, itemIconDataUrl } from './icons';
 
 // Transient notifications. Each lives in its own layer, never takes pointer input, and
@@ -118,6 +119,7 @@ export class DiscoveryBanner {
   /** "DISCOVERY", or "HALDEN LOG" for a found text (a table entry with `log`). */
   private readonly label: HTMLElement;
   private readonly queue: DiscoveryNotice[] = [];
+  private legendEl: HTMLElement | null = null;
   private showing = false;
   private timer = 0;
 
@@ -158,8 +160,13 @@ export class DiscoveryBanner {
     this.showing = true;
     this.title.textContent = n.title;
     this.body.textContent = n.body;
+    // The rarity legend's first-time card carries the five colours under its line.
+    this.legendEl?.remove();
+    this.legendEl = n.legend ? rarityLegend(true) : null;
+    if (this.legendEl) this.el.appendChild(this.legendEl);
     const log = discoveryDef(n.id)?.log === true;
     this.label.textContent = t(log ? 'ui.banner.haldenLog' : 'discovery.label');
+    this.el.classList.toggle('legend', n.legend === true);
     this.el.classList.toggle('log', log);
     const counted = Number.isFinite(n.index) && Number.isFinite(n.total) && n.total > 0;
     this.count.textContent = counted ? t('brand.discoveryCount', { index: n.index, total: n.total }) : '';

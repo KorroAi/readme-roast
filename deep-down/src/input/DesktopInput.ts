@@ -84,6 +84,7 @@ export class DesktopInput {
         this.input.jumpHeld = true;
         e.preventDefault();
       } else if (k === 'KeyE' && !e.repeat) this.input.interactPressed = true;
+      else if (k === 'KeyF' && !e.repeat) this.input.flashPressed = true;
       else if ((k === 'KeyI' || k === 'Tab') && !e.repeat) {
         this.input.inventoryPressed = true;
         e.preventDefault();

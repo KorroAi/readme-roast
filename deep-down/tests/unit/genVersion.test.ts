@@ -23,6 +23,10 @@ const RECORDED: Record<number, string> = {
   // Polish: focal points (features/focal) in the seal hall, on the black stone's step, at the
   // Glowroot's heart and the Ember hearth; the Choir's dais kerb in dressed stone.
   5: '322dd587',
+  // Round 2 (WORLD): only interesting things are minable (loose stone, roots, gem pockets), the
+  // expanse (the Root Galleries and the Geode, the Sounding Shaft, the Still Lake and the Deep, the
+  // Lantern Vault, the Underhall) and the trap pass.
+  6: '22c27fc5',
 };
 
 let layout: WorldLayout;

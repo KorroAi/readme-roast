@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
+import { quietDeep } from './dd';
 import './dd';
+
+// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+test.beforeEach(async ({ page }) => {
+  await quietDeep(page);
+});
+
 
 // The release shell around the game (src/main.ts): the crash panel, the Android bridge
 // (predictive Back, lifecycle), the context-loss notice and the automatic quality governor.

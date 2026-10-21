@@ -40,6 +40,12 @@ export const DISCOVERIES: readonly DiscoveryDef[] = [
   { id: 'glowroot', major: true },
   { id: 'choir', major: true },
   { id: 'emberDeep', major: true },
+  // Round 2 (WORLD): the expanse round the route.
+  { id: 'galleries', major: false },
+  { id: 'geode', major: false },
+  { id: 'lake', major: true },
+  { id: 'vault', major: true },
+  { id: 'underhall', major: true },
 ];
 
 /** Number of discoveries in the game. */

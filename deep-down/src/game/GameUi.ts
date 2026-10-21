@@ -17,7 +17,7 @@ export interface GameUi {
   showDeath(lost: ItemCounts): void;
   applySettings(s: Settings): void;
   refresh(): void;
-  readonly touch: { setInteractVisible(label: string | null): void };
+  readonly touch: { setInteractVisible(label: string | null): void; setFlash?(count: number): void };
   dispose(): void;
 }
 

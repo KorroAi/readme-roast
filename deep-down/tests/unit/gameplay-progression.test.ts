@@ -28,8 +28,9 @@ describe('materials, packs and lanterns (loop spec 2.1, 2.2)', () => {
     }
   });
 
-  it('cave soil drops root fibre at 45%; iron ore drops 1-2', () => {
-    expect(BLOCKS[B.SOIL].drop).toEqual({ item: 'rootFibre', min: 1, max: 1, chance: 0.45 });
+  it('root tangles drop root fibre 1-2 (round 2: soil holds); iron ore drops 1-2', () => {
+    expect(BLOCKS[B.ROOTS].drop).toEqual({ item: 'rootFibre', min: 1, max: 2, chance: 1 });
+    expect(BLOCKS[B.SOIL].drop).toBeNull();
     expect(BLOCKS[B.IRON_ORE].drop).toMatchObject({ item: 'ironOre', min: 1, max: 2 });
   });
 
@@ -103,7 +104,7 @@ describe('the Next line', () => {
     expect(nextLine(base({ chain: o.step() })).text).toBe('Drag anywhere to look around');
     o.setTotals({ touch: false });
     o.noteControls(90, 6);
-    expect(nextLine(base({ chain: o.step() })).text).toBe('Mine stone (0/12)');
+    expect(nextLine(base({ chain: o.step() })).text).toBe('Gather loose stone (0/12)');
     // Finish the chain.
     o.onEvent('item:picked', { item: 'stone', count: 12 });
     o.onEvent('item:picked', { item: 'copperOre', count: 8 });
@@ -124,7 +125,7 @@ describe('the Next line', () => {
     const forge = nextLine(base({ node: node(ctx({ pickaxe: 3, lantern: 2, pack: 2 }, { stone: 24, copperOre: 6, ironOre: 3 }, ['surveyTable', 'gripBoots'])) }));
     expect(forge.text).toBe('Next: build the Forge at camp');
     // Everything made that can be (the rift not reached yet): the runes.
-    const all = ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf'];
+    const all = ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf', 'machete', 'sling', 'spear'];
     const done = ctx({ pickaxe: 3, lantern: 2, pack: 3 }, {}, all);
     expect(closestNode(done)).toBeNull();
     const runes = nextLine(base({ node: null, runes: 5, bestDepth: 96 }));
@@ -146,7 +147,7 @@ describe('the Next line', () => {
     // Nothing owned: the Forge is locked (Copper Pickaxe first), the shelf is free (it comes with a rune).
     const c = ctx({}, { copperOre: 8, stone: 12 });
     expect(closestNode(c)).toMatchObject({ id: 'copperPickaxe', missing: 0, short: null });
-    const later = ctx({ pickaxe: 4, lantern: 3, pack: 3 }, {}, ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf'], { rift: true, rune: true });
+    const later = ctx({ pickaxe: 4, lantern: 3, pack: 3 }, {}, ['surveyTable', 'forge', 'gripBoots', 'minersCoat', 'relicShelf', 'machete', 'sling', 'spear'], { rift: true, rune: true });
     expect(closestNode(later)).toBeNull();
   });
 

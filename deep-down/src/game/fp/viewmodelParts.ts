@@ -69,6 +69,24 @@ export class PartBuilder {
   }
 
   /**
+   * A turned (lathe) form round the y axis through `c`: `profile` is [radius, y] from top to
+   * bottom (relative to c); smooth round the axis, faceted where the profile turns sharply.
+   */
+  lathe(c: THREE.Vector3, profile: ReadonlyArray<readonly [number, number]>, f: Finish, segments = 20, shade = 1): this {
+    const pts = profile.map(([r, y]) => new THREE.Vector2(Math.max(1e-4, r), y));
+    // LatheGeometry sweeps bottom to top for outward normals.
+    pts.reverse();
+    const g = new THREE.LatheGeometry(pts, segments);
+    return this.add(g, new THREE.Matrix4().makeTranslation(c.x, c.y, c.z), f, shade);
+  }
+
+  /** A sphere (or an ellipsoid with `s`) at c. */
+  ball(c: THREE.Vector3, r: number, f: Finish, s = V(1, 1, 1), seg = 12): this {
+    const g = new THREE.SphereGeometry(r, seg, Math.max(6, Math.round(seg * 0.75)));
+    return this.add(g, new THREE.Matrix4().compose(c, new THREE.Quaternion(), s), f);
+  }
+
+  /**
    * A forged bar: chamfered-rectangle sections (8 facets) swept along a spine, sharp between the
    * facets and smooth along the length, with flat end caps. Each ring: centre `c`, half extents
    * `hw` (along `side`) and `hh` (along the in-plane normal), chamfer `ch` (m). `finish(i)` is the
@@ -309,26 +327,41 @@ export function buildPickaxe(tier: number): THREE.BufferGeometry {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The lantern. Model space: hangs from its bail ring at the origin; the body below (y < 0).
+// The lantern. Model space: hangs from the top of its bail at the origin; the body below (y < 0).
+// A brass storm lantern: wire bail, domed and vented cap, six glass panes in a brass frame, a
+// wire guard (copper and attuned), a turned oil fount with a wick key, the burner and its flame.
 
 interface LanternStyle {
-  frame: Finish;
+  /** The cap, the collars and the fount. */
+  body: Finish;
+  /** Rims, bands, the bail and the wick key. */
   trim: Finish;
-  size: number;
+  /** The frame posts and the guard wires. */
+  frame: Finish;
+  cage: boolean;
   rune: boolean;
+  size: number;
+  flame: number;
 }
 
+const TARNISHED_BRASS: Finish = { color: 0xa07a42, metal: 0.92, rough: 0.48 };
+const DARK_BRONZE: Finish = { color: 0x6b5232, metal: 0.9, rough: 0.55 };
+
 function lanternStyle(tier: number): LanternStyle {
-  if (tier <= 1) return { frame: { color: 0x45454b, metal: 0.8, rough: 0.55 }, trim: { color: 0x6c6c72, metal: 0.9, rough: 0.4 }, size: 0.9, rune: false };
-  if (tier === 2) return { frame: { color: 0xc77a45, metal: 1, rough: 0.35 }, trim: BRASS, size: 1, rune: false };
-  return { frame: { color: 0xc89a55, metal: 1, rough: 0.3 }, trim: { color: 0xe8c27e, metal: 1, rough: 0.22 }, size: 1.06, rune: true };
+  if (tier <= 1) return { body: TARNISHED_BRASS, trim: { color: 0xc09a58, metal: 1, rough: 0.38 }, frame: DARK_BRONZE, cage: false, rune: false, size: 0.94, flame: 0xffc070 };
+  if (tier === 2) return { body: { color: 0xc8764a, metal: 1, rough: 0.3 }, trim: { color: 0xe0b468, metal: 1, rough: 0.26 }, frame: { color: 0xb8864e, metal: 1, rough: 0.34 }, cage: true, rune: false, size: 1, flame: 0xffc878 };
+  return { body: { color: 0xe0b86c, metal: 1, rough: 0.22 }, trim: { color: 0xf2dcae, metal: 1, rough: 0.18 }, frame: { color: 0xc89a55, metal: 1, rough: 0.28 }, cage: true, rune: true, size: 1.06, flame: 0xfff0d0 };
 }
 
 export interface LanternGeometry {
   solid: THREE.BufferGeometry;
   glass: THREE.BufferGeometry;
-  /** The flame's centre in model space. */
-  flame: THREE.Vector3;
+  /** The flame alone (its own material flickers it and shrinks it with the oil). */
+  flame: THREE.BufferGeometry;
+  /** The flame's centre in model space (the key light on the tools). */
+  flameAt: THREE.Vector3;
+  /** Where the flame stands on the wick (its scale origin). */
+  flameBase: THREE.Vector3;
 }
 
 /** The lantern of `tier` (1 oil, 2 copper, 3 attuned). */
@@ -337,45 +370,83 @@ export function buildLantern(tier: number): LanternGeometry {
   const k = st.size;
   const b = new PartBuilder();
   const glass = new PartBuilder();
-  const sides = 6;
-  const rot = new THREE.Matrix4().makeRotationY(Math.PI / sides);
-  const cyl = (rt: number, rb: number, h: number, y: number, f: Finish, into: PartBuilder = b, open = false) => {
-    const g = new THREE.CylinderGeometry(rt * k, rb * k, h * k, sides, 1, open);
-    into.add(g, new THREE.Matrix4().makeTranslation(0, y * k, 0).multiply(rot), f);
-  };
-  // The bail (a half ring) and the top: cap, chimney, vent.
-  b.ring(V(0, -0.012 * k, 0), 0.03 * k, 0.003 * k, V(0, 0, 1), st.frame);
-  cyl(0.012, 0.014, 0.014, -0.045, st.frame);
-  cyl(0.018, 0.018, 0.005, -0.053, st.trim);
-  cyl(0.016, 0.05, 0.032, -0.072, st.frame);
-  cyl(0.05, 0.05, 0.007, -0.09, st.trim);
-  // The glass, lit from inside.
-  cyl(0.04, 0.04, 0.09, -0.139, { color: 0xffffff }, glass, true);
-  // Corner posts on every other corner.
-  for (let i = 0; i < sides; i += 2) {
-    const a = (i / sides) * Math.PI * 2 + Math.PI / sides;
-    b.box(V(Math.cos(a) * 0.043 * k, -0.139 * k, Math.sin(a) * 0.043 * k), V(0.004 * k, 0.047 * k, 0.004 * k), st.frame, new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), -a), 0.0015);
+  const P = (r: number, y: number) => [r * k, y * k] as const;
+  const at = (x: number, y: number, z: number) => V(x * k, y * k, z * k);
+  const SIDES = 6;
+  // The bail: a wire arc over the top from lugs on the cap, a little flattened, with a wooden grip
+  // in the middle where the fist closes.
+  const bail = new THREE.TorusGeometry(0.047 * k, 0.0028 * k, 6, 24, Math.PI);
+  b.add(bail, new THREE.Matrix4().compose(at(0, -0.049, 0), new THREE.Quaternion(), V(1, 1.02, 1)), st.trim);
+  b.rod(at(-0.016, -0.0035, 0), at(0.016, -0.0035, 0), 0.0055 * k, 0.0055 * k, WOOD_DARK, 10);
+  for (const s of [-1, 1]) {
+    b.ring(at(s * 0.047, -0.052, 0), 0.0048 * k, 0.0018 * k, V(0, 0, 1), st.trim);
+    b.box(at(s * 0.047, -0.06, 0), V(0.003 * k, 0.008 * k, 0.003 * k), st.body, undefined, 0.0012);
   }
-  // A cage on the copper and attuned lanterns: two hoops round the glass.
-  if (tier >= 2) for (const y of [-0.118, -0.16]) b.ring(V(0, y * k, 0), 0.044 * k, 0.0022 * k, V(0, 1, 0), st.trim);
-  // The base, the fount and its burner.
-  cyl(0.05, 0.05, 0.007, -0.187, st.trim);
-  cyl(0.048, 0.056, 0.022, -0.202, st.frame);
-  cyl(0.056, 0.05, 0.006, -0.216, st.trim);
-  cyl(0.012, 0.016, 0.012, -0.176, st.trim);
-  if (st.rune) b.ring(V(0, -0.202 * k, 0), 0.057 * k, 0.0025 * k, V(0, 1, 0), { color: 0x8fe3ee, emit: 1.4, rough: 0.2 });
-  // The flame: a teardrop (emission follows the fuel).
-  const fg = new THREE.SphereGeometry(0.0095 * k, 12, 10);
+  // The chimney and its vent: a little hat on a vented collar.
+  b.lathe(at(0, -0.032, 0), [P(0.0, 0), P(0.009, -0.0015), P(0.016, -0.006), P(0.017, -0.0075), P(0.011, -0.009)], st.trim, 18);
+  b.lathe(at(0, -0.041, 0), [P(0.0105, 0), P(0.0105, -0.008), P(0.013, -0.0095)], DARK_BRONZE, 18);
+  // The domed cap: a smooth turned dome to a rolled rim.
+  b.lathe(at(0, -0.05, 0), [P(0.013, 0), P(0.021, -0.004), P(0.033, -0.011), P(0.044, -0.02), P(0.051, -0.027), P(0.0545, -0.031), P(0.0545, -0.034), P(0.05, -0.036)], st.body, 28);
+  b.lathe(at(0, -0.086, 0), [P(0.0535, 0), P(0.0535, -0.006), P(0.049, -0.0068)], st.trim, 28);
+  // The glass: six flat panes in a brass frame.
+  const top = -0.093;
+  const bot = -0.184;
+  const R = 0.0445;
+  const hh = (top - bot) / 2;
+  const cy = (top + bot) / 2;
+  for (let i = 0; i < SIDES; i++) {
+    const a0 = (i / SIDES) * Math.PI * 2;
+    const a1 = ((i + 1) / SIDES) * Math.PI * 2;
+    const am = (a0 + a1) / 2;
+    // The pane (single quad, both sides drawn by the glass material).
+    const w = 2 * R * Math.sin(Math.PI / SIDES) * 0.97;
+    const pane = new THREE.PlaneGeometry(w * k, hh * 2 * k);
+    const apo = R * Math.cos(Math.PI / SIDES);
+    glass.add(pane, new THREE.Matrix4().compose(at(Math.sin(am) * apo, cy, Math.cos(am) * apo), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), am), V(1, 1, 1)), { color: 0xffffff });
+    // The corner post (bevelled).
+    b.box(at(Math.sin(a0) * (R + 0.001), cy, Math.cos(a0) * (R + 0.001)), V(0.0032 * k, hh * k, 0.0032 * k), st.frame, new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), a0 + Math.PI / 4), 0.0012);
+    if (st.cage) {
+      // A guard wire bowed out over the middle of the pane.
+      const pts: THREE.Vector3[] = [];
+      for (let j = 0; j <= 6; j++) {
+        const u = j / 6;
+        const y = top - 0.004 - (top - bot - 0.008) * u;
+        const r = apo + 0.0045 + 0.006 * Math.sin(Math.PI * u);
+        pts.push(at(Math.sin(am) * r, y, Math.cos(am) * r));
+      }
+      for (let j = 0; j < 6; j++) b.rod(pts[j], pts[j + 1], 0.0014 * k, 0.0014 * k, st.frame, 6);
+    }
+  }
+  if (st.cage) for (const y of [top - 0.026, bot + 0.026]) b.ring(at(0, y, 0), (R + 0.0085) * k, 0.0016 * k, V(0, 1, 0), st.trim);
+  // The lower collar, the turned oil fount and its foot.
+  b.lathe(at(0, bot, 0), [P(0.05, 0.0012), P(0.0525, -0.001), P(0.0525, -0.006), P(0.05, -0.0075)], st.trim, 28);
+  b.lathe(at(0, bot - 0.0075, 0), [P(0.05, 0), P(0.0565, -0.006), P(0.0595, -0.014), P(0.0575, -0.024), P(0.051, -0.031), P(0.047, -0.033)], st.body, 28);
+  b.lathe(at(0, bot - 0.04, 0), [P(0.047, 0), P(0.0515, -0.002), P(0.0515, -0.0065), P(0.046, -0.0075), P(0.0, -0.0075)], st.trim, 28);
+  // The wick key on the side of the fount, and the filler cap opposite.
+  b.rod(at(0.055, bot - 0.019, 0.0), at(0.067, bot - 0.019, 0.0), 0.0024 * k, 0.0024 * k, st.trim, 8);
+  b.lathe(at(0.069, bot - 0.019, 0), [P(0.0, 0.0045), P(0.0065, 0.0035), P(0.0065, -0.0035), P(0.0, -0.0045)], st.trim, 12);
+  b.lathe(at(-0.05, bot - 0.012, 0), [P(0.0, 0.004), P(0.0055, 0.0032), P(0.0055, -0.002)], DARK_BRONZE, 10);
+  if (st.rune) {
+    // The attuned lantern's rune band round the fount, and a lens of glimmer crowning the cap.
+    b.ring(at(0, bot - 0.022, 0), 0.0595 * k, 0.0022 * k, V(0, 1, 0), { color: 0x8fe3ee, emit: 1.5, rough: 0.2 });
+    b.add(new THREE.OctahedronGeometry(0.006 * k, 0), new THREE.Matrix4().compose(at(0, -0.0235, 0), new THREE.Quaternion(), V(1, 1.6, 1)), { color: 0x8fe3ee, emit: 1.8, rough: 0.1 });
+  }
+  // The burner inside the glass: a turned brass seat, the wick tube, a dark wick.
+  b.lathe(at(0, bot + 0.001, 0), [P(0.0, 0.012), P(0.008, 0.0115), P(0.0115, 0.006), P(0.0175, 0.0005), P(0.0175, 0)], st.trim, 16);
+  b.box(at(0, bot + 0.0145, 0), V(0.0045 * k, 0.0028 * k, 0.0016 * k), { color: 0x1c140e, rough: 0.9 }, undefined, 0.0008);
+  // The flame: a teardrop standing on the wick (its strength and size follow the oil).
+  const fb = new PartBuilder();
+  const fg = new THREE.SphereGeometry(0.0085 * k, 14, 12);
   const fp = fg.getAttribute('position');
   for (let i = 0; i < fp.count; i++) {
-    const y = fp.getY(i) / (0.0095 * k);
-    const s = y > 0 ? 1 - 0.75 * y * y : 1;
-    fp.setXYZ(i, fp.getX(i) * s, fp.getY(i) * (y > 0 ? 2.4 : 1.1), fp.getZ(i) * s);
+    const y = fp.getY(i) / (0.0085 * k);
+    const s = y > 0 ? 1 - 0.8 * y * y : 1;
+    fp.setXYZ(i, fp.getX(i) * s, fp.getY(i) * (y > 0 ? 2.6 : 1.05), fp.getZ(i) * s);
   }
   fg.computeVertexNormals();
-  const flameY = -0.152 * k;
-  b.add(fg, new THREE.Matrix4().makeTranslation(0, flameY, 0), { color: tier >= 3 ? 0xfff0d0 : 0xffc070, emit: 2 + 1 });
-  return { solid: b.build(), glass: glass.build(), flame: V(0, flameY + 0.008 * k, 0) };
+  const baseY = (bot + 0.017) * k;
+  fb.add(fg, new THREE.Matrix4().makeTranslation(0, baseY + 0.0085 * k, 0), { color: st.flame, emit: 3 });
+  return { solid: b.build(), glass: glass.build(), flame: fb.build(), flameAt: V(0, baseY + 0.016 * k, 0), flameBase: V(0, baseY, 0) };
 }
 
 /**
@@ -405,18 +476,143 @@ export function buildGlove(): THREE.BufferGeometry {
 
 /**
  * A forearm: a unit length along +y (scaled to fit wrist to elbow; x and z in the glove's scale),
- * from the wrist at y = 0. A flared leather gauntlet cuff with a brass band, then the coat sleeve
- * in cool dark wool with a turned-back cuff, so the arm reads as glove, cuff and sleeve.
+ * from the wrist at y = 0. A long flared leather gauntlet with a stitched seam and a brass-buckled
+ * strap takes most of what shows, then the turned-back cuff of a waxed canvas coat with a fold or
+ * two, so the arm reads as clothing, never as a pipe.
  */
 export function buildSleeve(): THREE.BufferGeometry {
   const b = new PartBuilder();
-  const gauntlet: Finish = { color: 0x3e2a1e, rough: 0.8 };
-  const band: Finish = { color: 0xd8a860, metal: 1, rough: 0.32 };
-  const coat: Finish = { color: 0x34404f, rough: 0.92 };
-  const turn: Finish = { color: 0x4a5869, rough: 0.9 };
-  b.rod(V(0, -0.01, 0), V(0, 0.085, 0), 0.025, 0.037, gauntlet, 14);
-  b.rod(V(0, 0.07, 0), V(0, 0.09, 0), 0.0385, 0.0385, band, 14);
-  b.rod(V(0, 0.09, 0), V(0, 0.14, 0), 0.046, 0.047, turn, 14);
-  b.rod(V(0, 0.135, 0), V(0, 1, 0), 0.043, 0.056, coat, 14);
+  const leather: Finish = { color: 0x6a4428, rough: 0.62 };
+  const leatherDark: Finish = { color: 0x4a2e1c, rough: 0.7 };
+  const brass: Finish = { color: 0xd8a860, metal: 1, rough: 0.3 };
+  const coat: Finish = { color: 0x4a4436, rough: 0.9 };
+  const coatLight: Finish = { color: 0x5c5444, rough: 0.88 };
+  // The gauntlet: flaring from the wrist, in two tones of leather with a seam ridge along it.
+  b.lathe(V(0, 0, 0), [[0.026, 0.0], [0.027, -0.03], [0.031, -0.07], [0.036, -0.11], [0.041, -0.15], [0.0435, -0.17]].map(([r, y]) => [r, -y] as const).reverse(), leather, 16);
+  b.rod(V(0.0, 0.004, 0.026), V(0.0, 0.165, 0.042), 0.0028, 0.0034, leatherDark, 6);
+  // The strap and its buckle round the gauntlet.
+  b.rod(V(0, 0.095, 0), V(0, 0.112, 0), 0.0355, 0.0365, leatherDark, 16);
+  b.box(V(0.036, 0.1035, 0), V(0.004, 0.011, 0.009), brass, undefined, 0.002);
+  // The coat's turned-back cuff, then the sleeve with two soft folds.
+  b.lathe(V(0, 0, 0), [[0.05, 0.2], [0.051, 0.185], [0.049, 0.165], [0.045, 0.16]].reverse().map(([r, y]) => [r, y] as const), coatLight, 16);
+  b.rod(V(0, 0.2, 0), V(0, 0.34, 0), 0.047, 0.049, coat, 16);
+  b.rod(V(0, 0.34, 0), V(0, 0.37, 0), 0.051, 0.051, coatLight, 16);
+  b.rod(V(0, 0.37, 0), V(0, 0.6, 0), 0.05, 0.053, coat, 16);
+  b.rod(V(0, 0.6, 0), V(0, 0.63, 0), 0.055, 0.055, coatLight, 16);
+  b.rod(V(0, 0.63, 0), V(0, 1, 0), 0.054, 0.058, coat, 16);
   return b.build();
+}
+
+// ---------------------------------------------------------------------------------------------
+// The weapons (round 2). Model space as the pickaxe's: the grip at the origin, the tool up +y,
+// its edge or point toward -z (away from the eye at rest). Each returns the geometry and the length
+// from the grip to its "head" (where the rest pose places it, like the pick's head at 0.44).
+
+export type WeaponModelId = 'machete' | 'spear' | 'sling' | 'flash';
+
+export interface WeaponGeometry {
+  geo: THREE.BufferGeometry;
+  /** The glowing load a ranged tool releases (the sling's shard, the flash's bulb), hidden on release. */
+  load: THREE.BufferGeometry | null;
+  /** Grip to the head along +y (m, model space). */
+  head: number;
+}
+
+const STEEL: Finish = { color: 0xaab1ba, metal: 0.7, rough: 0.34 };
+const STEEL_DARK: Finish = { color: 0x5d636c, metal: 0.75, rough: 0.45 };
+const STEEL_EDGE: Finish = { color: 0xe4ebf2, metal: 1, rough: 0.12 };
+const BRASS_W: Finish = { color: 0xd2a15a, metal: 1, rough: 0.3 };
+const GLIMMER: Finish = { color: 0x9b7cf0, emit: 1.35, metal: 0.2, rough: 0.12 };
+const GLIMMER_CORE: Finish = { color: 0xd7c8ff, emit: 2.2, rough: 0.1 };
+
+/** The Iron Machete: a wrapped grip, a brass guard and a broad, slightly curved blade with a bright edge. */
+function buildMachete(): WeaponGeometry {
+  const b = new PartBuilder();
+  // The grip: dark wood scales under a leather wrap, a brass pommel.
+  b.rod(V(0, -0.09, 0), V(0, 0.07, 0), 0.0165, 0.0175, WOOD_DARK, 10);
+  for (let i = 0; i < 6; i++) b.rod(V(0, -0.07 + i * 0.024, 0), V(0, -0.058 + i * 0.024, 0), 0.0188, 0.0188, LEATHER, 10, i % 2 ? 0.85 : 1);
+  b.lathe(V(0, -0.09, 0), [[0.017, 0], [0.021, -0.006], [0.016, -0.014], [0.0, -0.016]], BRASS_W, 12);
+  // The guard: a short brass crossbar with rounded ends.
+  b.box(V(0, 0.078, 0), V(0.012, 0.008, 0.034), BRASS_W, undefined, 0.005);
+  // The blade: thin (x), broad (z), sweeping a little toward the edge (-z) and widening to a
+  // clipped point. Body steel, the last band of each section the polished edge.
+  const rings: Array<{ c: THREE.Vector3; hw: number; hh: number; ch: number }> = [];
+  const N = 12;
+  const len = 0.42;
+  for (let i = 0; i <= N; i++) {
+    const u = i / N;
+    const y = 0.086 + len * u;
+    const width = (0.017 + 0.014 * Math.sin(Math.PI * Math.min(1, u * 1.1))) * (u > 0.88 ? Math.max(0.12, 1 - (u - 0.88) / 0.12) : 1);
+    const curve = -0.012 * u * u;
+    rings.push({ c: V(0, y, curve - width * 0.15), hw: 0.0032 * (1 - 0.5 * u), hh: width, ch: 0.0028 });
+  }
+  b.loft(rings, V(1, 0, 0), (i) => (i >= N - 1 ? STEEL_EDGE : STEEL));
+  // The bright edge along the cutting side, and the dark spine on the back.
+  for (let i = 0; i < N - 1; i++) {
+    const a = rings[i];
+    const c = rings[i + 1];
+    b.rod(V(0, a.c.y, a.c.z - a.hh + 0.0012), V(0, c.c.y, c.c.z - c.hh + 0.0012), 0.0016, 0.0016, STEEL_EDGE, 5);
+    b.rod(V(0, a.c.y, a.c.z + a.hh - 0.001), V(0, c.c.y, c.c.z + c.hh - 0.001), 0.0022, 0.0022, STEEL_DARK, 5);
+  }
+  return { geo: b.build(), load: null, head: 0.36 };
+}
+
+/** The Glimmer Spear: a long dark shaft with brass bands and a faceted glimmer head that glows. */
+function buildSpear(): WeaponGeometry {
+  const b = new PartBuilder();
+  const top = 0.62;
+  b.rod(V(0, -0.13, 0), V(0, top, 0), 0.019, 0.016, WOOD_DARK, 12);
+  b.lathe(V(0, -0.13, 0), [[0.019, 0], [0.022, -0.008], [0.0, -0.014]], BRASS_W, 12);
+  for (const y of [0.1, 0.34]) b.rod(V(0, y, 0), V(0, y + 0.012, 0), 0.0205, 0.0205, BRASS_W, 12);
+  for (let i = 0; i < 5; i++) b.rod(V(0, -0.05 + i * 0.026, 0), V(0, -0.038 + i * 0.026, 0), 0.0175, 0.0175, LEATHER, 10, i % 2 ? 0.85 : 1);
+  // The socket and the binding.
+  b.lathe(V(0, top + 0.056, 0), [[0.008, 0], [0.015, -0.014], [0.021, -0.046], [0.019, -0.058]], BRASS_W, 14);
+  // The head: an elongated faceted crystal with a brighter core.
+  const head = new THREE.OctahedronGeometry(0.042, 0);
+  b.add(head, new THREE.Matrix4().compose(V(0, top + 0.152, 0), new THREE.Quaternion().setFromAxisAngle(V(0, 1, 0), Math.PI / 4), V(0.75, 2.6, 0.42)), GLIMMER);
+  b.add(new THREE.OctahedronGeometry(0.017, 0), new THREE.Matrix4().compose(V(0, top + 0.14, 0), new THREE.Quaternion(), V(0.8, 3.2, 0.8)), GLIMMER_CORE);
+  // Two side shards at the socket (a barbed head).
+  for (const s of [-1, 1]) b.add(new THREE.OctahedronGeometry(0.01, 0), new THREE.Matrix4().compose(V(0, top + 0.07, s * 0.022), new THREE.Quaternion().setFromAxisAngle(V(1, 0, 0), s * 0.6), V(0.6, 2.2, 0.7)), GLIMMER);
+  return { geo: b.build(), load: null, head: 0.66 };
+}
+
+/** The Flare Sling: a brass-capped wooden fork, a leather band and a light shard in its pouch. */
+function buildSling(): WeaponGeometry {
+  const b = new PartBuilder();
+  b.rod(V(0, -0.08, 0), V(0, 0.06, 0), 0.0155, 0.0165, WOOD, 10);
+  for (let i = 0; i < 4; i++) b.rod(V(0, -0.06 + i * 0.026, 0), V(0, -0.048 + i * 0.026, 0), 0.0178, 0.0178, LEATHER, 10, i % 2 ? 0.85 : 1);
+  // The fork: two arms up and out (in the x-y plane, across the view).
+  const fork = V(0, 0.07, 0);
+  for (const s of [-1, 1]) {
+    const tip = V(s * 0.045, 0.16, -0.004);
+    const mid = V(s * 0.03, 0.115, -0.002);
+    b.rod(fork, mid, 0.0128, 0.011, WOOD, 9);
+    b.rod(mid, tip, 0.011, 0.0095, WOOD, 9);
+    b.lathe(tip.clone().add(V(0, 0.006, 0)), [[0.0, 0.004], [0.011, 0.0], [0.011, -0.012], [0.0095, -0.014]], BRASS_W, 10);
+    // The band from the tip back toward the eye, to the pouch.
+    b.rod(tip.clone().add(V(0, 0.002, 0)), V(s * 0.012, 0.15, 0.05), 0.0026, 0.0026, { color: 0x6a4a2e, rough: 0.75 }, 6);
+  }
+  b.box(V(0, 0.15, 0.056), V(0.016, 0.009, 0.008), LEATHER, undefined, 0.004);
+  const load = new PartBuilder();
+  load.add(new THREE.OctahedronGeometry(0.009, 0), new THREE.Matrix4().compose(V(0, 0.152, 0.05), new THREE.Quaternion(), V(1, 1.5, 1)), { color: 0xfff1c4, emit: 2.4, rough: 0.1 });
+  return { geo: b.build(), load: load.build(), head: 0.16 };
+}
+
+/** A Flash Charge in the hand: a glass bulb with a brass cap and a bright core (thrown on use). */
+function buildFlash(): WeaponGeometry {
+  const b = new PartBuilder();
+  b.lathe(V(0, 0.07, 0), [[0.0, 0.012], [0.009, 0.01], [0.014, 0.004], [0.014, -0.006], [0.011, -0.01]], BRASS_W, 14);
+  b.ring(V(0, 0.084, 0), 0.006, 0.0018, V(1, 0, 0), BRASS_W);
+  const load = new PartBuilder();
+  load.ball(V(0, 0.035, 0), 0.026, { color: 0xc8a878, emit: 0.18, metal: 0.3, rough: 0.05 }, V(1, 1.15, 1), 16);
+  load.ball(V(0, 0.035, 0), 0.011, { color: 0xfff0c8, emit: 1.5, rough: 0.1 }, V(1, 1.2, 1), 10);
+  return { geo: b.build(), load: load.build(), head: 0.06 };
+}
+
+/** The first-person model of a weapon. */
+export function buildWeapon(id: WeaponModelId): WeaponGeometry {
+  if (id === 'machete') return buildMachete();
+  if (id === 'spear') return buildSpear();
+  if (id === 'sling') return buildSling();
+  return buildFlash();
 }

@@ -41,6 +41,8 @@ export interface PropModel {
   anim: PropAnim;
   /** Base emissive scale of the prop's glow material. */
   glowScale: number;
+  /** Living flames (render/props/flame.ts): base point, width and height (model units). */
+  flames: Array<{ x: number; y: number; z: number; w: number; h: number }>;
 }
 
 export interface PropModelOptions {
@@ -96,6 +98,7 @@ export class ModelBuilder {
   glowScale = 1.8;
   sway: THREE.Vector3 | null = null;
   hitBoxes: THREE.Box3[] | null = null;
+  readonly flames: Array<{ x: number; y: number; z: number; w: number; h: number }> = [];
   private readonly partDefs: Array<{ builder: VoxBuilder; origin: THREE.Vector3; motion: PartMotion; phase: number }> = [];
 
   /** Start a moving glowing part pivoting at (x, y, z); build it relative to that point. */
@@ -124,6 +127,7 @@ export class ModelBuilder {
       sway: this.sway,
       anim: this.anim,
       glowScale: this.glowScale,
+      flames: this.flames.slice(),
     };
   }
 }
@@ -216,19 +220,12 @@ function campfire(m: ModelBuilder, rng: Rng): void {
     const c = heat > 0.65 ? FIRE.orange : heat > 0.3 ? FIRE.ember : FIRE.coal;
     g.cube(Math.cos(a) * r, 0.03 + s * 0.3, Math.sin(a) * r, s, s * 0.7, s, c, 0.5 + heat * 0.45);
   }
-  // Layered flame: three groups of tongues (hot core at the base, red tips) that flicker apart.
-  // Side tongues rise in the gaps between the logs.
-  const center = m.part(0, 0.035, 0, 'flame', 0);
-  flameTongue(center, 0, 0, 0.58, 0.2);
-  const inner = m.part(0, 0.035, 0, 'flame', 2.1);
-  for (let i = 0; i < 3; i++) {
-    const a = base + ((i + 0.5) / 3) * Math.PI * 2;
-    flameTongue(inner, Math.cos(a) * 0.08, Math.sin(a) * 0.08, rng.range(0.36, 0.44), 0.13);
-  }
-  const outer = m.part(0, 0.035, 0, 'flame', 4.2);
-  for (let i = 0; i < 3; i++) {
+  // Round 2: the flame is alive (render/props/flame.ts): one tall licking flame over the logs and
+  // two smaller ones in the gaps, drawn by a shader, not stacked boxes; the coals glow beneath.
+  m.flames.push({ x: 0, y: 0.03, z: 0, w: 0.62, h: 0.9 });
+  for (let i = 0; i < 2; i++) {
     const a = base + ((i + 0.5) / 3) * Math.PI * 2 + rng.range(-0.2, 0.2);
-    flameTongue(outer, Math.cos(a) * 0.16, Math.sin(a) * 0.16, rng.range(0.18, 0.26), 0.09);
+    m.flames.push({ x: Math.cos(a) * 0.13, y: 0.03, z: Math.sin(a) * 0.13, w: 0.34, h: rng.range(0.42, 0.55) });
   }
   const embers = m.part(0, 0.42, 0, 'ember', 0);
   for (let i = 0; i < 6; i++) {
@@ -239,18 +236,6 @@ function campfire(m: ModelBuilder, rng: Rng): void {
   }
   m.anim = 'fire';
   m.glowScale = 1.7;
-}
-
-/** A tongue of fire: a stack of shrinking boxes from a hot pale base to a red tip. */
-function flameTongue(b: VoxBuilder, x: number, z: number, height: number, width: number): void {
-  const levels = Math.max(3, Math.round(height / 0.065));
-  const step = height / levels;
-  for (let j = 0; j < levels; j++) {
-    const t = j / (levels - 1);
-    const w = width * (1 - t * 0.7);
-    const c = t < 0.2 ? FIRE.core : t < 0.5 ? FIRE.yellow : t < 0.8 ? FIRE.orange : FIRE.red;
-    b.cube(x * (1 - t * 0.6), j * step + step / 2, z * (1 - t * 0.6), w, step + 0.004, w, c, 1);
-  }
 }
 
 function workbench(m: ModelBuilder, rng: Rng): void {

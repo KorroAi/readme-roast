@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { SOLID } from '../../config/blocks';
 import type { LightingUniforms } from '../../render/lighting';
 import { createEntityMaterial } from '../../render/entityMaterial';
-import { VoxBuilder } from '../../render/voxModel';
 import type { VoxelWorld } from '../../world/VoxelWorld';
 import type { Rng } from '../../core/rng';
 
@@ -36,6 +35,41 @@ export interface BurstOptions {
   spread?: number;
 }
 
+/**
+ * A chipped stone: an icosahedron with its vertices pushed in and out (deterministic), flat-shaded,
+ * about 1 unit across, with the entity material's attributes (white albedo tinted per instance).
+ */
+function chipGeometry(emissive: number): THREE.BufferGeometry {
+  const ico = new THREE.IcosahedronGeometry(0.5, 0);
+  const src = ico.getAttribute('position') as THREE.BufferAttribute;
+  // Displace each distinct corner once, so facets stay closed.
+  const moved = new Map<string, [number, number, number]>();
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  const pos = new Float32Array(src.count * 3);
+  for (let i = 0; i < src.count; i++) {
+    const x = src.getX(i);
+    const y = src.getY(i);
+    const z = src.getZ(i);
+    const key = `${x.toFixed(3)},${y.toFixed(3)},${z.toFixed(3)}`;
+    let m = moved.get(key);
+    if (!m) {
+      const f = 0.72 + rnd() * 0.5;
+      m = [x * f, y * f * 0.8, z * f];
+      moved.set(key, m);
+    }
+    pos.set(m, i * 3);
+  }
+  ico.dispose();
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  const n = src.count;
+  g.setAttribute('color', new THREE.BufferAttribute(new Uint8Array(n * 3).fill(255), 3, true));
+  g.setAttribute('aEmissive', new THREE.BufferAttribute(new Uint8Array(n).fill(emissive ? 255 : 0), 1, true));
+  return g;
+}
+
 /** Most chunks one burst may throw (a block's break crumbles into a handful, never a fountain). */
 export const CRUMBLE_MAX = 9;
 
@@ -58,8 +92,10 @@ export class DebrisSystem {
   activeCount = 0;
 
   constructor(private readonly world: VoxelWorld, lighting: LightingUniforms, private budget: number) {
-    const geo = new VoxBuilder().cube(0, 0, 0, 1, 1, 1, 0xffffff, 0, true).build();
-    const glowGeo = new VoxBuilder().cube(0, 0, 0, 1, 1, 1, 0xffffff, 1, false).build();
+    // Round 2: broken stone, not cubes: an irregular faceted chip (a knocked-about icosahedron, flat
+    // facets that catch the flame), stretched per chunk so no two read alike.
+    const geo = chipGeometry(0);
+    const glowGeo = chipGeometry(1);
     const max = 400;
     // Lit like the rock (light read on the lantern's side), and gone within 0.6 m of the lens.
     this.lit = new THREE.InstancedMesh(geo, createEntityMaterial(lighting, { debris: true }), max);
@@ -152,7 +188,9 @@ export class DebrisSystem {
       const size = c.size * Math.min(1, t * 3);
       this.e.set(c.rx, c.ry, 0);
       this.q.setFromEuler(this.e);
-      this.s.setScalar(size);
+      // Each chip keeps its own proportions (from its spin seed): flakes, wedges and lumps.
+      const k = Math.abs(c.spin) / 9;
+      this.s.set(size * (0.85 + 0.3 * k), size * (0.55 + 0.35 * (1 - k)), size * (0.75 + 0.4 * ((c.rx * 0.159) % 1)));
       this.p.set(c.x, c.y, c.z);
       this.m.compose(this.p, this.q, this.s);
       const mesh = c.glow ? this.glow : this.lit;
