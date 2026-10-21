@@ -68,30 +68,72 @@ lantern, crafting, discoveries), with these changes. **The "no creatures" rule i
    - a gust that dims the lantern until you light a brazier;
    - a spore geyser;
    - falling rocks to step away from (mild).
-8. **Mobs: special, beautiful, stylish, atypical, with charm.** Procedural models (no external assets), each with an idle
-   animation, a reaction, sounds and a reason to interact:
+8. **Mobs (the director, clarified):**
 
-   | Mob | What it is and does |
-   |---|---|
-   | Lumen moths | ambient; they gather at your lantern; harmless |
-   | Glimmerkin | a small crystal-backed critter that scurries from the light; tap it to catch it for gems |
-   | Shellback | a slow, huge snail with a geode shell that hums; harvest crystals from its shell, which regrows |
-   | Drift jelly | a translucent, glowing jelly floating in big caverns; tap it to make it pulse and drop light spores, which boost the lantern |
-   | Burrower | pops out of a wall to steal a dropped ore; chase it and tap it |
-   | Shade wisp | the one mild danger: it drains lantern oil when close; a tap disperses it in a burst of light |
-   | Stone Sentinel | a dormant Halden automaton by the ruins that wakes when you take its relic; strike its glowing core between its slow sweeps; a charming mini-boss |
+   > "When I talk about charm, it is not warmth: it is visual quality. Take into account the tokens and credits we have left,
+   > and improve the visuals as much as you can. Create unsettling monsters in the caves, and also small endearing beings; vary
+   > the size. Offer weapons a bit later in the game. A real feeling a bit like Minecraft, between survival and wonder."
 
-9. **Charm.** Personality everywhere: mob reactions, warm sounds, small Halden notes with humour, a cozy camp, delightful
-   details. Calm and readable (BRIEF §2 rules), never cluttered.
+   Two families, sizes from tiny to huge. All are procedural, beautiful and atypical, of high visual quality (smooth sculpted or
+   bevelled forms, emissive details, subsurface-like glow, good animation), never cheap boxes.
+
+   **Unsettling monsters** (survival tension; they live where the light is not):
+
+   | Monster | Size | Behaviour |
+   |---|---|---|
+   | Crawlers | small to medium | pale, eyeless, too many legs; they skitter on walls and ceilings at the edge of the lantern light, attack in the dark and recoil from bright light; packs of 2–4 deeper down |
+   | Gnasher | medium | a boulder that is not a boulder: it opens a ring of crystal teeth when you come close; an ambush, telegraphed by a faint breathing |
+   | Shade wisp | medium | a drifting smoke shape; it drains lantern oil and dims the light; dispersed by hits or by bright light |
+   | Hollow Stalker | large, about 3 m | thin and tall; seen standing at the edge of the light; it approaches only when the lantern is dim, and flees a full flame; rare, dreadful |
+   | Stone Sentinel | large mini-boss | a Halden automaton that wakes when you take its relic; strike its glowing core between its slow sweeps |
+   | The Deep Worm | huge | a glimpse only: it passes through a far chasm or the lake; awe and dread; never fightable |
+
+   **Small endearing beings** (wonder):
+
+   | Being | Size | Behaviour |
+   |---|---|---|
+   | Lumen moths | tiny | they gather at your lantern |
+   | Lamplings | tiny | lantern-bodied sprites that follow you for a while and light the way, then return to their nest |
+   | Glimmerkin | small | crystal-backed scurriers; catch one for gems |
+   | Shellback | big but gentle | a geode-shelled snail; harvest its crystals, which regrow |
+   | Drift jelly | medium | a translucent glowing jelly that floats in the big caverns; tap it for light spores that boost the lantern |
+   | Burrower | small | a cheeky ore thief |
+
+9. **Survival and wonder, a bit like Minecraft.**
+   - Danger is real but fair. Health is the hearts the first version already has. Monsters deal damage, darkness breeds
+     monsters beyond the lantern's reach, and the lantern is your safety.
+   - Death is the first version's black-out: your pack stays as a cache, you respawn at the camp, and you recover the pack
+     later.
+   - Telegraph every attack (a sound, a glint, a wind-up). Monsters never spawn in the lantern pool or at the camp.
+   - Monsters appear from the Hollow down, and their density rises with depth.
+   - Wonder comes from the endearing beings, the vistas, the events and the deep.
+
+10. **Weapons, a bit later in the game.**
+    - The pickaxe can always strike a monster, weakly.
+    - After the first iron, the Forge offers weapons:
+      - the **Iron Machete**: melee, fast;
+      - the **Glimmer Spear**: melee, reach 3 m, strong;
+      - the **Flare Sling**: ranged; it throws light shards that also scare crawlers;
+      - **Flash Charges**: a consumable burst of light that clears a group.
+    - Input: tapping a monster attacks it with the best equipped weapon. A tap on ore always uses the pick, so there is never a
+      mode switch. Ranged fire aims at the tapped monster.
+    - Each weapon has its own first-person viewmodel and a satisfying attack: a wind-up, a hit stop of 40 ms on a monster,
+      a hit flash on the monster only, never the screen.
+
+11. **Visual quality is the charm.**
+    - Improve the visuals as much as the budget allows: materials, lighting, atmosphere, the mobs' look and animation, the
+      viewmodels, and the details everywhere.
+    - Every screen should look like a premium game.
+    - The calm and readability rules still apply (BRIEF §2): quality, not clutter.
 
 ## 1. Ownership (disjoint; anyone may read anything)
 
 | Specialist | Port | Owns |
 |---|---|---|
-| **FP** (feel, selection, lantern) | 4174 | as BRIEF §4 FP: `src/game/{CameraRig,PlayerController,TapController,touchCamera,MenuCamera,MiningController,aimAssist,ropeRide,FrameGuard,GameUi}.ts`, `src/game/fp/**` (the lantern model is here), `src/input/**`, `src/ui/**` (except text tables), `src/entities/**`, `src/main.ts`, `index.html`, `tests/e2e/**` except `mobs.spec.ts`, `tools/{apk-sim,ui-check,play}.mjs`; the Game.ts hub |
+| **FP** (feel, selection, lantern, weapons in hand) | 4174 | the weapon viewmodels and attack animations, the tap-a-monster attack input (it calls `MobSystem.hit` with the damage from `config/weapons.ts`); as BRIEF §4 FP: `src/game/{CameraRig,PlayerController,TapController,touchCamera,MenuCamera,MiningController,aimAssist,ropeRide,FrameGuard,GameUi}.ts`, `src/game/fp/**` (the lantern model is here), `src/input/**`, `src/ui/**` (except text tables), `src/entities/**`, `src/main.ts`, `index.html`, `tests/e2e/**` except `mobs.spec.ts`, `tools/{apk-sim,ui-check,play}.mjs`; the Game.ts hub |
 | **VIS** (look, glitches, highlights) | 4175 | as BRIEF §4 VIS: `src/render/**` except `src/render/mobs/**`, `src/world/light.ts`, `src/game/effects/**`, `src/lab/**`, `tools/{capture,png,perf,fp-shots,vis-*}.mjs`. The **rarity highlight** rendering (outline and glow per rarity, and the selection outline API FP calls) and the lantern **light** |
-| **WORLD** (vast world, minability, events) | 4176 | `src/world/**` except `light.ts`, `src/gameplay/**`, `src/config/**`, `src/save/**`, `src/i18n/**` (except `src/i18n/en/mobs.ts`), `src/game/{Progression,WorldFeatures,WorldSession,Guidance,Drops,Stations,Survey,Runes,runeDoor}.ts`, new `src/game/events/**` (the event director and the world events), world tools and their tests. **The minability rules** (which blocks break; rarity tiers as data, in `src/config/rarity.ts`) |
-| **MOBS** (creatures, new) | 4177 | new `src/game/mobs/**` (the system, spawner, AI and behaviours, interactions, drops), new `src/render/mobs/**` (models, animation, materials), `src/game/moths.ts`, `src/audio/**` (mob sounds; keep the existing audio working), new `src/i18n/en/mobs.ts`, new `tests/unit/mobs*.test.ts` and `tests/e2e/mobs.spec.ts` |
+| **WORLD** (vast world, minability, events) | 4176 | `src/world/**` except `light.ts`, `src/gameplay/**`, `src/config/**`, `src/save/**`, `src/i18n/**` (except `src/i18n/en/mobs.ts`), `src/game/{Progression,WorldFeatures,WorldSession,Guidance,Drops,Stations,Survey,Runes,runeDoor}.ts`, new `src/game/events/**` (the event director and the world events), world tools and their tests. **The minability rules** (which blocks break; rarity tiers as data, in `src/config/rarity.ts`), and the **weapons as items and recipes** (`src/config/weapons.ts`: damage, reach, rate, ranged; the Forge recipes after iron; Flash Charges) |
+| **MOBS** (monsters, beings, combat) | 4177 | new `src/game/mobs/**` (the system, spawner, AI and behaviours, combat: mob hp and damage dealt to the player through `gameplay/Health`, drops), new `src/render/mobs/**` (models, animation, materials, high visual quality), `src/game/moths.ts`, `src/audio/**` (mob and weapon sounds; keep the existing audio working), new `src/i18n/en/mobs.ts`, new `tests/unit/mobs*.test.ts` and `tests/e2e/mobs.spec.ts` |
 
 **Shared hub `src/game/Game.ts`:** FP owns it. Others make small, surgical hook edits only, each in a marked block (`// VIS:`,
 `// WORLD:`, `// MOBS:`): re-read the file right before each edit, never rewrite it, and keep tsc green.
@@ -105,6 +147,7 @@ lantern, crafting, discoveries), with these changes. **The "no creatures" rule i
   pick(ray) → Mob | null, hit(mob, dmg), list()}.
   - FP's tap resolution asks `MobSystem.pick` first.
   - `HighlightSystem` can highlight mobs too: a catchable mob gets its rarity colour.
+- `src/config/weapons.ts` (WORLD): `Weapon` = {id, damage, reach, rate, ranged?, projectile?}; `bestWeapon(inventory)`.
 - `src/game/events/types.ts` (WORLD): `GameEvent` = {id, kind, start, end, anchor}. The `EventDirector` emits on the bus;
   MOBS spawns event mobs (the migration, the treasure mob) when asked.
 
@@ -144,8 +187,17 @@ Report the bug list with before and after evidence.
 ## 4. Proof and the gate
 
 - Every specialist: tsc green, unit tests, the full vitest once, their e2e on their own port, and captures opened with Read.
-- MOBS: unit tests for AI and interactions, and `tests/e2e/mobs.spec.ts` with real touches: catch a Glimmerkin, harvest a
-  Shellback, disperse a wisp, defeat the Sentinel.
+- MOBS: unit tests for AI, combat and spawning rules: none in the lantern pool or at the camp, and density rising with depth.
+  `tests/e2e/mobs.spec.ts` with real touches:
+  - catch a Glimmerkin;
+  - harvest a Shellback;
+  - fight off crawlers with the machete;
+  - shoot a wisp with the sling;
+  - defeat the Sentinel;
+  - survive a Stalker by raising the flame;
+  - the black-out and recovery after dying to monsters.
+
+  Captures of every mob, at three sizes in frame.
 - WORLD: the reachability test, `poi-density`, and the events director tested (cadence, no overlap).
 - VIS: the glitch list closed with before and after crops; the rarity highlights shown in captures for all 5 tiers; the
   rubric.
