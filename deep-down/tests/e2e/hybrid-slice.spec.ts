@@ -312,10 +312,13 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     expect((await H(page, () => window.__DD__.hybrid.camera().view)).join(',')).toBe(view0);
   });
 
-  test('E7: the Way Down: the objective line walks to the exit, a tap takes it, the ride is skipped from its plate', async ({ page }) => {
+  test('E7: the Way Down: a real tap on the exit takes it, the ride runs, a tap on Skip ends it, the next drift', async ({ page }) => {
     const touch = await boot(page);
     await intoCellar(page);
-    // Look around for the exit (a drag turns the view); the objective line walks there once the room's goal is the exit.
+    // Set-up: stand at the exit's approach facing it (the room's chores have their own tests).
+    expect(await H(page, () => window.__DD__.hybrid.standAt('exit'))).toBe(true);
+    await settle(page);
+    // Find the exit on screen (a drag turns the view if needed).
     let exit = null as null | { hit: { x: number; y: number; w: number; h: number } };
     const seen: string[] = [];
     for (let k = 0; k < 10 && !exit; k++) {
@@ -357,7 +360,7 @@ test.describe('the W1 slice (hybrid-slice)', () => {
     touch = await Touch.attach(page);
     // From the second launch the camp is the menu (SPEC §5.10); the descent waits where it was.
     await waitPhase(page, 'camp');
-    expect(await H(page, () => window.__DD__.hybrid.mode())).toBe('menu');
+    expect(await H(page, () => (window.__DD__.internals.game as { screen: string }).screen)).toBe('menu');
     const st = await H(page, () => window.__DD__.hybrid.state());
     expect(st.run.node).toBe(a.n.node);
     expect(st.run.phase).toBe('camp');

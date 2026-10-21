@@ -70,6 +70,8 @@ function worldCost(f) {
   }
   // Practicals: in range of ~2.5 of them on average (~55 ALU each with GGX); the loop's tests for the rest.
   alu += 2.5 * 55 + f.practicals * 6;
+  // Light shafts (up to 2): the cylinder test on every pixel, the BRDF where a pixel sits in a beam (~20 %).
+  alu += 2 * 15 + 0.2 * 55;
   // Battery fogs in the material (~40 ALU).
   if (!f.volumetric) alu += 40;
   return { fetches, alu };

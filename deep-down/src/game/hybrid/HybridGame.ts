@@ -1738,6 +1738,36 @@ export class HybridGame {
         g.scene.setPiece('descent');
         g.stageForPhase();
       },
+      standAt: (what: string) => {
+        if (!allowed()) return false;
+        const n = g.state.node;
+        if (n.phase !== 'explore') return false;
+        const p = g.placement(n.node);
+        if (!p) return false;
+        let from: V3 | null = null;
+        let to: V3 | null = null;
+        if (what === 'exit') {
+          const e = p.chamber.exits[0];
+          if (e) {
+            from = e.approach;
+            to = e.plate ?? e.pos;
+          }
+        } else {
+          const so = p.chamber.sockets.find((x) => x.local === what || x.id === what);
+          if (so) {
+            from = so.approach;
+            to = so.pos;
+          }
+        }
+        if (!from || !to) return false;
+        const eyeY = from.y + 1.6;
+        const yaw = Math.atan2(-(to.x - from.x), -(to.z - from.z));
+        const pitch = Math.max(-0.6, Math.min(0.6, Math.atan2(to.y - eyeY, Math.hypot(to.x - from.x, to.z - from.z))));
+        g.cam.exitExplore();
+        g.cam.place(makePose(from.x, eyeY, from.z, yaw, pitch), 'explore');
+        g.cam.enterExplore();
+        return true;
+      },
       give: (p: { gold?: number | string; gems?: number }) => {
         if (!allowed()) return;
         if (p.gold !== undefined) {

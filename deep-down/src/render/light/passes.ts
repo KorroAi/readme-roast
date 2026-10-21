@@ -412,8 +412,9 @@ export const LIGHT_PASS_COST: Record<string, { fetches: number; alu: number }> =
   lightDepth: { fetches: 4, alu: 20 },
   gtao: { fetches: 21, alu: 260 },
   aoBlur: { fetches: 17, alu: 90 },
-  // Per march step: the field (1), the shadow tap on High (1), ~60 ALU with the lantern and 2 practicals in range.
-  volStep: { fetches: 1.3, alu: 70 },
+  // Per march step: the field (1), the shadow tap on High (1), ~70 ALU with the lantern and 2 practicals in range,
+  // ~2 × 15 for the two light-shaft cylinders.
+  volStep: { fetches: 1.3, alu: 100 },
   volBase: { fetches: 3, alu: 80 },
   composite: { fetches: 11, alu: 90 },
   // The shadow cube: per face, per pixel written (the geometry cost is modelled from the draw calls).

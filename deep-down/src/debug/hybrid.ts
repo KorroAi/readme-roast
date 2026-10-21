@@ -211,6 +211,8 @@ export interface HybridDebug {
   advance(seconds: number): void;
   /** Put the player at node `i` (its drift face, or its chamber with `chamber`). */
   setNode(i: number, at?: 'drift' | 'chamber' | 'breach'): void;
+  /** Explore set-up: stand at the approach of the chamber's exit (or a socket's, by local id), facing it. @returns false when there is none. */
+  standAt(what: 'exit' | string): boolean;
   give(p: { gold?: number | string; gems?: number }): void;
   /** Rewind the save by `hours`, save and reload (the offline return). */
   offline(hours: number): void;
