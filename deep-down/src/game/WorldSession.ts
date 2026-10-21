@@ -152,7 +152,11 @@ export class WorldSession {
     const edits = encodeWorldEdits(this.generated, this.world.blocks);
     // WORLD (round 2): the events director's passing lights are never saved (the cell was air).
     const out: number[] = [];
-    for (let k = 0; k + 1 < edits.length; k += 2) if (!EVENT_LIGHT[edits[k + 1]]) out.push(edits[k], edits[k + 1]);
+    for (let k = 0; k + 1 < edits.length; k += 2) {
+      // A passing light saves as the air it stands in (a mined cell stays mined).
+      const id = EVENT_LIGHT[edits[k + 1]] ? B.AIR : edits[k + 1];
+      if (id !== this.generated[edits[k]]) out.push(edits[k], id);
+    }
     return out;
   }
 

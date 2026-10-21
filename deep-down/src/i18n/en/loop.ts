@@ -119,6 +119,7 @@ export const loop = {
 
   // Expedition and records
   'toast.depthRecord': 'New depth record: -{depth} m',
+  'toast.climbedBack': 'No way on from down there. You climb back up to the ledge.',
 
   // Saves
   'save.worldShifted': 'The Hollow has shifted since your last visit. You wake at camp; your finds and gear are safe.',

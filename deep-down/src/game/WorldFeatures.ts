@@ -139,6 +139,13 @@ export class WorldFeatures {
     }));
     const gone = new Set(removed);
     for (const id of removed) if (id.startsWith('bloom_e')) this.game.session.removedProps.add(id);
+    // A regenerated world (save/saveData shiftWorldIfNeeded drops removedProps): relics and the
+    // tablet already in the journal stay taken, like the rune stones (game/Runes attach).
+    const s = this.game.session;
+    for (const spec of [...s.liveProps.values()]) {
+      const item = spec.feature?.kind === 'relic' ? this.relicItems[spec.feature.id] : spec.interact === 'relic' ? 'ancientTablet' : undefined;
+      if (item && item in ITEMS && this.game.journal.hasKeyItem(item as ItemId)) s.removeProp(spec.id);
+    }
     this.bloomId = null;
     this.placeBloom(this.epoch, gone);
     this.flock.setAnchors(this.anchors(this.epoch));

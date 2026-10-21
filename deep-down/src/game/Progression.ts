@@ -7,7 +7,7 @@ import { bestWeapon, type Weapon, type WeaponId } from '../config/weapons';
 import { damp } from '../core/math';
 import { t } from '../i18n';
 import { Cold } from '../gameplay/Cold';
-import { CacheSpot, type SpotFields } from '../gameplay/CacheSpot';
+import { CacheSpot, PitWatch, type SpotFields } from '../gameplay/CacheSpot';
 import { cacheFits, makeCache, recoverCache, replaceCache, type CacheState } from '../gameplay/Expedition';
 import { totalCount } from '../gameplay/counts';
 import { discoveryNumbering, DISCOVERY_TOTAL } from '../gameplay/discoveries';
@@ -29,6 +29,7 @@ import { HomeField, ReachSet, walkSeconds } from '../world/analysis/homeField';
 import type { PropSpec } from '../world/gen/types';
 import type { HaloSource } from './effects/Halos';
 import type { Game } from './Game';
+import { EYE_HEIGHT } from './fp/constants';
 import { Guidance } from './Guidance';
 import { Runes, RUNES_TOTAL } from './Runes';
 import { Stations } from './Stations';
@@ -93,6 +94,8 @@ export class Progression {
 
   /** Last cell the explorer stood on safely (grounded >= CACHE.groundedSeconds, on the reach set). */
   private readonly spot = new CacheSpot();
+  /** A long fall into a pit (no walk home): the explorer climbs back to `spot` (gameplay/CacheSpot). */
+  private readonly pit = new PitWatch();
   private readonly spotFields: SpotFields = {
     cellAt: (x, y, z) => {
       const h = this.home;
@@ -263,6 +266,9 @@ export class Progression {
     this.featQueue.length = 0;
     this.secretsTotalV = -1;
     this.markTripStart();
+    // A save made down a pit (paused or quit before the climb back): look again once loaded.
+    if (atCamp) this.pit.disarm();
+    else this.pit.arm();
     if (!atCamp && !this.records.trip) this.startTrip();
     // A save written at camp with the trip still open (by builds before the camp-save fix) would
     // merge it into the next trip: close it quietly, as returned.
@@ -370,6 +376,7 @@ export class Progression {
     }
 
     this.trackSafeCell(dt);
+    this.liftFromPit(dt, atCamp);
     this.updateGuidance(dt, atCamp);
 
     // Fuel: the turn-back mark and the critical state.
@@ -729,7 +736,9 @@ export class Progression {
     const r = this.records.records;
     let treeBuilt = 0;
     const built = this.built;
-    for (const n of Object.values(NODES)) {
+    // A repeatable craft (Flash Charges) is never owned, so it is not part of "every upgrade".
+    const owned = Object.values(NODES).filter((n) => !n.repeat);
+    for (const n of owned) {
       const res = n.result;
       if (res.kind === 'equip' ? g.equipment.tiers[res.slot] >= res.tier : built.has(n.id)) treeBuilt++;
     }
@@ -748,7 +757,7 @@ export class Progression {
       discoveryIds: DISCOVERIES.map((d) => d.id),
       secretsTotal: this.secretsTotal,
       treeBuilt,
-      treeTotal: Object.keys(NODES).length,
+      treeTotal: owned.length,
       finale: this.extra.finale,
       recovered: this.extra.life.firsts.includes('recovered'),
     };
@@ -847,6 +856,27 @@ export class Progression {
   private trackSafeCell(dt: number): void {
     const p = this.game.player;
     this.spot.update(dt, p.grounded, p.x, p.y, p.z, this.spotFields);
+  }
+
+  /** Game.onLanded: a survivable landing from higher than a walk drops (HOME.maxDrop). */
+  onLongFall(): void {
+    this.pit.arm();
+  }
+
+  /** After a long fall into a pit, climb back to the last safe cell instead of being stranded. */
+  private liftFromPit(dt: number, atCamp: boolean): void {
+    const g = this.game;
+    const p = g.player;
+    if (atCamp) return this.pit.disarm();
+    const h = this.home;
+    const fresh = !!h && !this.fieldsDirty && !this.fieldsScheduled && !g.features.riding;
+    if (!this.pit.update(dt, p.grounded, !!h && h.cellNear(p.x, p.y, p.z) >= 0, fresh)) return;
+    // The last safe cell (the brink the fall began at), else the nearest one with a walk home.
+    const c = this.spot.cell ?? this.spot.place(p.x, p.y, p.z, this.spotFields, 16);
+    if (!c) return;
+    p.teleport(c[0] + 0.5, c[1], c[2] + 0.5);
+    g.cameraRig.snapTo(p.x, p.y + EYE_HEIGHT, p.z);
+    g.ui.toast(t('toast.climbedBack'), 'warn');
   }
 
   private updateGuidance(dt: number, atCamp: boolean): void {

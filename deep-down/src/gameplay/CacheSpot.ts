@@ -60,3 +60,35 @@ export class CacheSpot {
     this.groundedFor = 0;
   }
 }
+
+/**
+ * Round 2: plain rock no longer breaks, and a survivable fall (4-12 m, any height with the Grip
+ * Boots and the Miner's Coat) can end on a ledge or a chasm floor with no walk home, which the
+ * walk model of world/analysis/traps (drops of 3 m) never visits. Armed by a landing from higher
+ * than a walk drops; once the explorer has stood CACHE.pitSeconds off the walk-home field (a fresh
+ * one), update() returns true and the caller lifts them back to the last safe cell.
+ */
+export class PitWatch {
+  private t = -1;
+
+  arm(): void {
+    this.t = 0;
+  }
+
+  disarm(): void {
+    this.t = -1;
+  }
+
+  update(dt: number, grounded: boolean, onHomeField: boolean, fieldFresh: boolean): boolean {
+    if (this.t < 0) return false;
+    if (onHomeField) {
+      this.t = -1;
+      return false;
+    }
+    if (!grounded || !fieldFresh) return false;
+    this.t += dt > 0 ? dt : 0;
+    if (this.t < CACHE.pitSeconds) return false;
+    this.t = -1;
+    return true;
+  }
+}

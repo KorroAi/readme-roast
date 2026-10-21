@@ -166,6 +166,8 @@ describe('save v2', () => {
     d.player = { x: 136, y: 25, z: 127, yaw: 1, health: 40, lanternFuel: 100 };
     d.progression.cache = { x: 120.5, y: 42, z: 100.5, depth: 108, items: { ironOre: 3, stone: 2 } };
     d.progression.records.deepest = 125;
+    d.progression.looted = ['c_chest_0'];
+    d.progression.life.caches = 4;
     const { data, shifted } = shiftWorldIfNeeded(d, SPAWN);
     expect(shifted).toBe(true);
     expect(data.genVersion).toBe(WORLD.genVersion);
@@ -179,6 +181,9 @@ describe('save v2', () => {
     expect(data.discoveries).toEqual(['hollow', 'gate']);
     expect(data.stats).toEqual(d.stats);
     expect(data.progression.records.deepest).toBe(125);
+    // Cache ids follow generation order, so in the new world they name other caches: all closed again, the count kept.
+    expect(data.progression.looted).toEqual([]);
+    expect(data.progression.life.caches).toBe(4);
     // The pack left in the old world is carried to camp storage, nothing lost.
     expect(data.progression.cache).toBeNull();
     expect(data.storage).toEqual({ stone: 42, ironOre: 3 });

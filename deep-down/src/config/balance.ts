@@ -136,6 +136,8 @@ export const CACHE = {
   pickupRadius: 1.6,
   /** The cache lands on the last cell the explorer stood on for at least this long. */
   groundedSeconds: 0.3,
+  /** Grounded this long after a long fall with no walk home (a pit) before the explorer climbs back. */
+  pitSeconds: 2.5,
 } as const;
 
 /** Loose drops nobody collects fade away, dimming over their last seconds. */

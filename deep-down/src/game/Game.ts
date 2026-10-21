@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { B, BLOCKS } from '../config/blocks';
-import { PLAYER, SAVE, WORLD, lanternForTier, packForTier, pickaxeForTier } from '../config/balance';
+import { HOME, PLAYER, SAVE, WORLD, lanternForTier, packForTier, pickaxeForTier } from '../config/balance';
 import { ITEMS, type ItemId } from '../config/items';
 import { NODES, type NodeId, type Place } from '../config/recipes';
 import { EventBus, type GameEvents } from '../core/events';
@@ -908,6 +908,8 @@ export class Game {
       this.renderer.post.params.flashColor.setRGB(0.6, 0.05, 0.02);
       if (this.health.dead) this.die();
     }
+    // A drop deeper than a walk takes (HOME.maxDrop) may end in a pit with no walk home.
+    if (!this.health.dead && speed > Math.sqrt(2 * PLAYER.gravity * (HOME.maxDrop + 0.5))) this.progression.onLongFall();
   }
 
   private readonly vmAmbient = new THREE.Color();

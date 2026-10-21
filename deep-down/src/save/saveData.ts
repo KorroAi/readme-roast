@@ -302,7 +302,8 @@ export function shiftWorldIfNeeded(d: SaveData, spawn: WorldLayout['spawn'], gen
       removedProps: [],
       storage,
       player: { ...d.player, x: spawn.x, y: spawn.y, z: spawn.z, yaw: spawn.yaw },
-      progression: { ...d.progression, cache: null, trip: null, minedDay: [] },
+      // Cache ids are handed out in generation order: in another world the same id is another cache.
+      progression: { ...d.progression, cache: null, trip: null, minedDay: [], looted: [] },
     },
   };
 }
