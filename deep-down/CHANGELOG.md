@@ -40,6 +40,16 @@ Briefs: `docs/final/ROUND2.md` and `POLISH2.md`.
   - Water is new.
   - Drops shrink away as they pass the lens.
 - **Fixes.** FP's bug list B1–B12 is closed, the hoist ride keeps the rope out of the frame, and the machete stripes are gone.
+- **Upgrading from 1.0.0** (from a pre-release risk review; each finding was reproduced, then checked by a second reviewer):
+  - A 1.0.0 save wakes at camp in the new world, and its pack is carried to storage.
+  - Caches it opened no longer mark other caches of the new world as opened.
+  - Relics and the Ancient Tablet already taken do not reappear.
+  - The secret counter and the "every secret" feat count this world's alcoves.
+  - The "every upgrade" feat no longer counts the repeatable Flash Charges.
+- **Climbing back out of a pit.** Plain rock no longer breaks, so a survivable fall onto a ledge with no walk home now ends,
+  after 2.5 s, with a climb back to the last safe spot. Before, the only way out was Pause > Return to Camp. The check waits
+  for the walk-home map to catch up after a seal is opened.
+- **Saving.** A passing event light in a mined cell no longer undoes that cell on reload.
 - **Version.** 1.1.0, versionCode 1010000. It installs over 1.0.0 because the signing key is the same.
 - **Verified:** see TEST_REPORT.md, "1.1.0 gate".
 
