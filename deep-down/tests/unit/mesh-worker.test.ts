@@ -466,7 +466,9 @@ describe('ChunkRenderer with mesh workers', () => {
     MESH_OPTIONS.sculpt = false;
     const w = terrain();
     const cr = new ChunkRenderer(w, new THREE.MeshBasicMaterial(), { workers: 2, spawn: hub.spawn, buildOnWorkers: true });
-    await cr.buildAll();
+    // A 0 ms main-thread slice meshes one chunk per turn, so the workers always get to answer some
+    // jobs (with the default 24 ms slice a fast machine could finish the whole build first).
+    await cr.buildAll(undefined, 0);
     expect(cr.stats.workerMeshes).toBeGreaterThan(0);
     // The first request to each worker carries the options; later ones only when they change.
     for (const f of hub.workers) {

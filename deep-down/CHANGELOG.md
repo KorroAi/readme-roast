@@ -2,6 +2,48 @@
 
 Newest first. Each entry says what changed and how it was verified.
 
+## 1.0.0 candidate — the finished game: first person, the visual upgrade and the deep (2026-10-21)
+
+After two other directions (an idle clicker, then a first-person "node crawl" hybrid, both kept only in git history:
+`04587cc`, `7558572`), the director chose DEEP DOWN's original 3D exploration, now in first person with a big visual
+upgrade. Base: the first version at `9eb4166`, restored in `dc6af06`. Brief: `docs/final/BRIEF.md` and `POLISH.md`.
+
+- **First person** (`src/game/CameraRig.ts` rewritten, `src/game/fp/**`):
+  - The eye is at 1.62 m with a 78° tall lens in portrait. There is no head bob and no roll, pitch is limited to ±75°, and a
+    clearance guard keeps walls from cutting into view.
+  - The viewmodel is a forged pickaxe and a lantern held in gloved hands. Four pick heads and three lanterns follow the
+    upgrades. The pick's strike is timed to the hit.
+- **One-thumb touch.** Tap to mine to the end, tap to walk and act, drag to look, hold to follow a vein. A floating
+  joystick is optional, and ledges are stepped up on their own. Mine and Jump buttons are gone.
+- **The calm first-person HUD.** Octagon plates hold depth, oil and the pack. The objective line is always on. A centre dot
+  shows a crack ring.
+- **The look** (`src/render/**`):
+  - Stone: GPU-painted HD detail layers and lantern GGX specular.
+  - Lantern: a 6–8 m pool that owns its faces, with a near-field roll-off so close walls no longer wash out.
+  - Air and light: clear air for 12 m with zone-hued fog beyond, light beams at three landmarks only, and a PBR Neutral grade
+    with FXAA on Balanced.
+  - Effects: calm, with crumbles of at most 9 chunks, lit debris culled near the lens and hairline cracks. Drips and glow
+    caps animate on the GPU.
+- **The deep** (`src/world/gen/features/{deep,content,focal}.ts`):
+  - Three new caverns below the rift: the Glowroot Cavern, the Crystal Choir (iron pick) and the Ember Deep (glimmer pick,
+    148 m).
+  - Lanternstone gives +30 s of flame.
+  - A density pass leaves no floor more than 10 m from a find. There are 10 secret alcoves, 5 relics, and a focal point in
+    every space.
+  - Discoveries grow from 18 to 22. The moths are now glow spores.
+- **Progression and guidance.**
+  - 29 feats with calm toasts, rewards and lifetime stats, plus a Journal Feats tab.
+  - The trip report has a finds line.
+  - A first-person tutorial teaches by doing, with hints after 75 s stuck and free play after the finale.
+  - The walk speed is an honest 3.3 m/s, and reach is measured from the eye.
+- **Saves.** Save v3 migrates v2 saves. The world generator is at version 5, compatible with 3 and 4.
+- **Verified:**
+  - `tsc` clean; vitest 630/630, four runs in a row after making the worker-mesh test deterministic.
+  - e2e with real touches at 390 × 844 (results in TEST_REPORT.md).
+  - `apk-sim` 14/14, `ui-check` 82/82, and `perf.mjs` on Balanced at 32–131 draw calls and 17k–145k triangles across 19
+    first-person views.
+- **Not verified:** phone frame rate, heat, touch feel and audio on a real device.
+
 ## Unreleased — final pass toward 1.0.0
 
 Plan: `docs/final-pass/MERGE.md` (5 waves of two specialists). Checkpoint before it: local tag

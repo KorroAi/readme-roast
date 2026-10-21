@@ -16,11 +16,13 @@ npm run build          # production build in dist/
 ./android/build-apk.sh # debug APK (see android/README.md)
 ```
 
-Desktop controls: WASD move, mouse look (click to capture), hold left button to mine, Space
-jump, E use, I / Tab bag, Esc pause. Touch (upright; a phone browser goes fullscreen and locks
-portrait on Start): tap a block to mine it to the end, tap ground to walk there, tap an object to
-use it. A floating joystick sits in the lower left, drag elsewhere to look, one press of Mine
-finishes the highlighted block, plus buttons for jump / use / bag / pause.
+**First person everywhere** (the explorer is never drawn; you hold the pickaxe on the right and the lantern on the left).
+Touch, upright phone, one thumb: tap a block within 3.5 m and it is mined to the end; tap farther rock, the floor or an
+object and you walk there (the view turns along the way), then mine or use it; drag anywhere to look; hold on a vein to
+mine it out block after block; a floating joystick appears under the thumb in the lower left third if you want to walk
+freely; 1-block ledges are climbed on their own. The top bar shows depth, lantern oil, the pack (tap: bag) and ≡ (pause);
+the objective line is always on. Desktop: WASD move, mouse look (click to capture), hold left button to mine, Space jump,
+E use, I / Tab bag, Esc pause.
 
 ## Systems
 
