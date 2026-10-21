@@ -3,6 +3,7 @@ import { saturate } from '../core/math';
 import type { MusicNote } from './MusicScheduler';
 import { Voice, type NoiseColor, type SynthTarget } from './synth';
 import { midiToHz } from './theory';
+import { EVENT_SFX } from './eventSfx';
 import { MOB_SFX } from './mobSfx';
 
 // Every one-shot sound in the game, synthesized from oscillators, the shared noise buffers
@@ -588,6 +589,8 @@ export const SFX = {
   'music.pluck': def('music', 1, 0.55, 1, 2.5, (v) => buildMusicNote(v, { time: v.t, duration: 2.2, midi: 74, velocity: 0.7, voice: 'pluck', brightness: 1100 }), 0),
   // Round 2 (MOBS): the creatures' voices, their strikes and the weapons (audio/mobSfx).
   ...MOB_SFX,
+  // Polish 2 (FP): the world events (audio/eventSfx).
+  ...EVENT_SFX,
 } satisfies Record<string, SfxDef>;
 
 export type SfxName = keyof typeof SFX;

@@ -69,6 +69,20 @@ export const EVENT_SOUNDS: EventSounds = {
   'weapon:hit': (p) => (p.weapon === 'machete' || p.weapon === 'spear' ? req('weapon.slice') : null),
   'weapon:flash': () => req('weapon.flash'),
   'block:tunk': () => req('block.tunk'),
+  // Polish 2 (FP): the world events (game/events), one cue as each starts; the falling rocks
+  // creak first and are heard again as they land; a beaten gust ends with the flame catching.
+  'world:event': (p) => (p.phase === 'start' ? (WORLD_EVENT_CUES[p.event.kind] ? req(WORLD_EVENT_CUES[p.event.kind]!) : null) : p.event.kind === 'gust' && p.ok ? req('lantern.refueled', { gain: 0.8 }) : null),
+  'world:rockfall': (p) => req('event.rockland', { intensity: p.hit ? 1 : 0.6 }),
+};
+
+/** Each world event's opening cue (the migration and the treasure mob are heard through their creatures). */
+const WORLD_EVENT_CUES: Partial<Record<GameEvents['world:event']['event']['kind'], SfxName>> = {
+  tremor: 'event.tremor',
+  rockfall: 'event.creak',
+  gust: 'event.gust',
+  geyser: 'event.geyser',
+  bloom: 'event.bloom',
+  echo: 'event.echo',
 };
 
 const MOB_CUES = new Set(['breath', 'chitter', 'whisper', 'drone', 'grind', 'chirp', 'squeak', 'groan', 'chime']);

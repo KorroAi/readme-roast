@@ -209,7 +209,9 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   // (0.42x at 0.2 m, 0.52x at 1 m, 0.78x at 2 m, 1x from 3.4 m), so the light reaching a face is
   // about level from the hand out to 3 m (no hot spot at 1.5-2.5 m) and falls away beyond; with
   // the near-field shoulder (nearShoulder) lit stone peaks at about 0.75 display at 1 m.
-  att *= 0.42 + 0.58 * smoothstep(0.2, 3.4, dist);
+  // Polish 2: a little more (0.38x at 1 m, 0.53x at 1.5 m, 0.68x at 2 m): within 1-2 m every
+  // lit texel sat on the shoulder, which flattened the stone's own contrast into a cream wash.
+  att *= 0.3 + 0.7 * smoothstep(0.3, 3.6, dist);
   // The fuel tank shades the floor almost straight below the flame (out of view in first person);
   // roofs above the hand are lit, so a 2 m tunnel's roof still reads.
   float tank = 1.0 - 0.75 * smoothstep(0.8, 0.97, l.y);
@@ -260,7 +262,7 @@ vec3 lanternSpec(vec3 n, vec3 v, float rough, vec3 f0) {
 // shoulder starts at NEAR_KNEE (about 0.6 display) and never passes NEAR_CEIL (about 0.76 display
 // through the grade).
 const float NEAR_KNEE = 0.24;
-const float NEAR_CEIL = 0.46;
+const float NEAR_CEIL = 0.44; // polish 2: 0.46 -> 0.44 (lit stone peaks ~0.73 display at 1 m)
 vec3 nearShoulder(vec3 c, vec3 lit) {
   float y = max(c.r, max(c.g, c.b));
   if (y <= NEAR_KNEE) return c;
@@ -375,7 +377,9 @@ export interface AtmospherePreset {
   lightGain: number;
 }
 
-export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift' | 'glowroot' | 'ember';
+export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift' | 'glowroot' | 'ember' | 'vault';
+/** Zones that keep their own air around an anchor (setZoneAnchors). */
+export type AnchorZone = 'glowroot' | 'ember' | 'vault';
 
 export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   camp: { fog: 0x1b1a1c, fogLow: 0x101116, density: 0.04, poolLevel: 100, poolThickness: 2.5, poolDensity: 0.02, ambient: 0x101626, ambientGain: 1.6, open: 0x3e4a60, openGain: 1.4, scatter: 0.1, bounce: 0.14, absorb: 0.85, exposure: 1.0, lightGain: 1.8 },
@@ -385,6 +389,10 @@ export const ATMOSPHERES: Record<AtmosphereZone, AtmospherePreset> = {
   // The deep zones beyond the rift (content pass), told apart by the hue of their own light:
   // the Glowroot's moss-green air over green-gold drifts, the Ember Deep's smoky red over its fissures.
   glowroot: { fog: 0x0f2216, fogLow: 0x0c1a0c, density: 0.035, poolLevel: 0, poolThickness: 5, poolDensity: 0.02, ambient: 0x0c1a12, ambientGain: 0.55, open: 0x5f8a56, openGain: 0.75, scatter: 0.16, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 1.98 },
+  // Polish 2: the Lantern Vault's floor. Clearer air than the Hollow (the haze swallowed the balcony
+  // lamps 22 and 49 m up), the same blue-black, and the placed lights a little stronger, so the
+  // lamps' and braziers' light on the balconies and walls far above reads from the floor.
+  vault: { fog: 0x1a2c42, fogLow: 0x121638, density: 0.011, poolLevel: 38, poolThickness: 6, poolDensity: 0.008, ambient: 0x1a2a44, ambientGain: 0.6, open: 0x7a9fb6, openGain: 0.95, scatter: 0.1, bounce: 0.1, absorb: 0.6, exposure: 1.0, lightGain: 2.6 },
   ember: { fog: 0x26100c, fogLow: 0x341208, density: 0.04, poolLevel: -2, poolThickness: 4, poolDensity: 0.03, ambient: 0x160a0a, ambientGain: 0.55, open: 0x7a4a3c, openGain: 0.7, scatter: 0.18, bounce: 0.12, absorb: 0.6, exposure: 1.0, lightGain: 1.98 },
 };
 
@@ -419,7 +427,7 @@ function linearPreset(p: AtmospherePreset): AtmosphereMix {
 /** The placed-light gain at lightGain 1 (the light volume's emitters, uEmitGain). */
 export const EMIT_GAIN = 3.6;
 
-const ZONES: AtmosphereZone[] = ['camp', 'tunnel', 'hollow', 'rift', 'glowroot', 'ember'];
+const ZONES: AtmosphereZone[] = ['camp', 'tunnel', 'hollow', 'rift', 'glowroot', 'ember', 'vault'];
 const LINEAR: Record<AtmosphereZone, AtmosphereMix> = Object.fromEntries(ZONES.map((z) => [z, linearPreset(ATMOSPHERES[z])])) as Record<AtmosphereZone, AtmosphereMix>;
 
 function addScaled(out: THREE.Color, c: THREE.Color, w: number): void {
@@ -443,18 +451,18 @@ export class LightingRig {
   private readonly sz: number;
   private pending: Box3i | null = null;
   /** Anchors of the zones with their own air (the deep zones), see setZoneAnchors. */
-  private anchors: ReadonlyArray<{ zone: 'glowroot' | 'ember'; at: readonly [number, number, number]; radius: number }> = [];
+  private anchors: ReadonlyArray<{ zone: AnchorZone; at: readonly [number, number, number]; radius: number }> = [];
 
   /**
    * Places that keep their own air: within `radius` of `at` (vertical distance counts 1.5x) the
    * zone's preset takes over, easing out over the outer 45 %.
    */
-  setZoneAnchors(anchors: ReadonlyArray<{ zone: 'glowroot' | 'ember'; at: readonly [number, number, number]; radius: number }>): void {
+  setZoneAnchors(anchors: ReadonlyArray<{ zone: AnchorZone; at: readonly [number, number, number]; radius: number }>): void {
     this.anchors = anchors.slice();
   }
 
   /** Current zone weights (camp, tunnel, hollow, rift, glowroot, ember), smoothed over time. */
-  readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0, glowroot: 0, ember: 0 };
+  readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0, glowroot: 0, ember: 0, vault: 0 };
   /** Exposure multiplier of the current atmosphere (the post chain applies it): 1.0-1.15. */
   exposure = 1;
   /** Light gain of the current atmosphere (uAtmos.w; uEmitGain = EMIT_GAIN x this). */
@@ -551,9 +559,11 @@ export class LightingRig {
     // The deep zones beyond the rift carry their own air around their anchors (setZoneAnchors).
     let green = 0;
     let red = 0;
+    let blue = 0;
     for (const an of this.anchors) {
       const w = 1 - smooth(an.radius * 0.55, an.radius, Math.hypot(x - an.at[0], (y - an.at[1]) * 1.5, z - an.at[2]));
       if (an.zone === 'glowroot') green = Math.max(green, w);
+      else if (an.zone === 'vault') blue = Math.max(blue, w);
       else red = Math.max(red, w);
     }
     let campW = 0;
@@ -565,7 +575,8 @@ export class LightingRig {
     }
     const glowW = green * (1 - red) * (1 - campW);
     const emberW = red * (1 - campW);
-    const left = 1 - campW - glowW - emberW;
+    const vaultW = blue * (1 - green) * (1 - red) * (1 - campW);
+    const left = 1 - campW - glowW - emberW - vaultW;
     const riftW = smooth(37.5, 30, y) * left;
     const rest = left - riftW;
     const hollowW = smooth(0.12, 0.42, open) * rest;
@@ -584,6 +595,7 @@ export class LightingRig {
     zw.rift += (riftW - zw.rift) * a;
     zw.glowroot += (glowW - zw.glowroot) * a;
     zw.ember += (emberW - zw.ember) * a;
+    zw.vault += (vaultW - zw.vault) * a;
     this.applyAtmosphere();
   }
 

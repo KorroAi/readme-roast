@@ -455,6 +455,92 @@ export const COAT_ROWS = [
 ];
 export const COAT_PALETTE: Palette = { L: 0x5a6a5a, H: 0x7d8f7d, D: 0x1d2420, P: 0x3a463c, K: 0xdba84a, C: 0x8a7a60 };
 
+// The Forge's weapons (round 2, config/weapons): the tree's nodes and the pack show these.
+
+/** The Iron Machete: a broad steel blade with a bright edge, a brass guard and a wrapped grip. */
+export const MACHETE_ROWS = [
+  '................',
+  '...........sss..',
+  '..........sSSHE.',
+  '.........sSSHHE.',
+  '........sSSHHE..',
+  '.......sSSHHE...',
+  '......sSSHHE....',
+  '.....sSSHHE.....',
+  '....bsSHHE......',
+  '....bBSHE.......',
+  '....lbBE........',
+  '...LLlbb........',
+  '..LlL...........',
+  '.BLL............',
+  '.Bb.............',
+  '................',
+];
+export const MACHETE_PALETTE: Palette = { s: 0x5d636c, S: 0xaab1ba, H: 0xcfd5dc, E: 0xf2f7fb, B: 0xd2a15a, b: 0x8a5a2a, L: 0x6b4a2f, l: 0x3d291a };
+
+/** The Glimmer Spear: a dark shaft with brass bands and a long violet crystal head. */
+export const SPEAR_ROWS = [
+  '................',
+  '............CW..',
+  '..........CCWWD.',
+  '.........CCWWGD.',
+  '........CCWWGD..',
+  '.......bCCWGD...',
+  '.......BBGGD....',
+  '......TBBb......',
+  '.....TTtb.......',
+  '....BTt.........',
+  '...LLl..........',
+  '..LLl...........',
+  '.TBt............',
+  '.Tt.............',
+  '.Bb.............',
+  '................',
+];
+export const SPEAR_PALETTE: Palette = { T: 0x7a5536, t: 0x3d291a, L: 0x8a6440, l: 0x4f3622, B: 0xd2a15a, b: 0x8a5a2a, W: 0xf4eeff, C: 0xc3b0ff, G: 0x9b7cf0, D: 0x5a3fa8 };
+
+/** The Flare Sling: a brass-capped wooden fork, a leather band and a light shard in its pouch. */
+export const SLING_ROWS = [
+  '................',
+  '..BB........BB..',
+  '..Ww........Ww..',
+  '..Wwr......rWw..',
+  '..Ww.r....r.Ww..',
+  '..Ww..rYYr..Ww..',
+  '..Ww..LHYL..Ww..',
+  '..WWw.LLLL.WWw..',
+  '...WWw....WWw...',
+  '....WWw..WWw....',
+  '.....WWWWWw.....',
+  '......lLLl......',
+  '......LllL......',
+  '......lLLl......',
+  '......LllL......',
+  '......BBbb......',
+];
+export const SLING_PALETTE: Palette = { W: 0x9a7048, w: 0x5a3f28, B: 0xd2a15a, b: 0x8a5a2a, r: 0x6a4a2e, L: 0x8a6440, l: 0x4f3622, Y: 0xffd98a, H: 0xfff8e0 };
+
+/** A Flash Charge: an amber glass bulb under a brass cap, a bright core inside. */
+export const FLASH_CHARGE_ROWS = [
+  '................',
+  '.......BB.......',
+  '......BBBb......',
+  '......BBBb......',
+  '......bbbb......',
+  '......gggg......',
+  '....ggGGGGDD....',
+  '....gwGGGGGD....',
+  '...gGGYYYYGGD...',
+  '...gGYYWWYGGD...',
+  '...gGYYWWYGGD...',
+  '...gGGYYYYGGD...',
+  '....DGGYGGGD....',
+  '.....DGGGGD.....',
+  '......DDDD......',
+  '................',
+];
+export const FLASH_CHARGE_PALETTE: Palette = { B: 0xd2a15a, b: 0x8a5a2a, g: 0xe8d6b0, G: 0xc8a878, D: 0x6e5a40, w: 0xfff4dc, Y: 0xffe39a, W: 0xfffbea };
+
 /** The Survey Table: a trestle table under a chart. */
 export const TABLE_ROWS = [
   '................',
@@ -551,6 +637,7 @@ export const SPECIMENS: Record<string, { rows: readonly string[]; palette: Palet
   copperOre: { rows: COPPER_LUMP_ROWS, palette: COPPER_LUMP_PALETTE },
   ironOre: { rows: IRON_LUMP_ROWS, palette: IRON_LUMP_PALETTE },
   echoShard: { rows: ECHO_SHARD_ROWS, palette: ECHO_SHARD_PALETTE },
+  flashCharge: { rows: FLASH_CHARGE_ROWS, palette: FLASH_CHARGE_PALETTE },
   // The rune-door relics (key items of the Reliquary and the Lamp Gallery).
   bearerLens: { rows: LENS_ROWS, palette: LENS_PALETTE },
   firstLamp: { rows: FIRST_LAMP_ROWS, palette: FIRST_LAMP_PALETTE },

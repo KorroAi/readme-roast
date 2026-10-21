@@ -85,7 +85,9 @@ describe('visual pass rules', () => {
 
   it('the lantern near field rolls off, and lit colour eases under a ceiling at arm\'s length', () => {
     // Polish round note 1: no hot spot at 1.5-2.5 m, and a shoulder on the flame-lit colour.
-    expect(LIGHTING_GLSL).toContain('att *= 0.42 + 0.58 * smoothstep(0.2, 3.4, dist);');
+    // Polish 2: a little more roll-off within 1-2 m (the close wall's cream wash).
+    expect(LIGHTING_GLSL).toContain('att *= 0.3 + 0.7 * smoothstep(0.3, 3.6, dist);');
+    expect(LIGHTING_GLSL).toContain('const float NEAR_CEIL = 0.44;');
     expect(LIGHTING_GLSL).toMatch(/vec3 nearShoulder\(vec3 c, vec3 lit\)/);
     // The tank shades the floor below the flame (l points up to it), never the roof above.
     expect(LIGHTING_GLSL).toContain('smoothstep(0.8, 0.97, l.y)');

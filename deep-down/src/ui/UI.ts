@@ -375,6 +375,15 @@ export class UI implements GameUi {
     if (this.confirmSpec) next.inert = true;
     const scroller = next.querySelector('.dd-scroll');
     if (scroller && scroll) scroller.scrollTop = scroll;
+    // Polish 2: the tree opened on a node below the fold (the Forge's Flash Charges) scrolls it into view.
+    if (!keepPlace) {
+      const board = next.querySelector<HTMLElement>('.dd-tree-board');
+      const sel = board?.querySelector<HTMLElement>('.dd-node.selected');
+      if (board && sel) {
+        const below = sel.getBoundingClientRect().bottom - board.getBoundingClientRect().bottom;
+        if (below > 0) board.scrollTop += below + 12;
+      }
+    }
     if (this.confirmSpec) return;
     const keep = focusKey ? next.querySelector<HTMLElement>(`[data-key="${CSS.escape(focusKey)}"]`) : null;
     if (keep && !(keep as HTMLButtonElement).disabled) keep.focus({ preventScroll: true });

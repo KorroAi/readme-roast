@@ -37,6 +37,11 @@ export interface TerrainUniforms {
   uHiFx: THREE.IUniform<THREE.Vector4>;
   /** Linear rarity colours, common..legendary. */
   uHiCol: THREE.IUniform<THREE.Vector3[]>;
+  /**
+   * x: half the lens' vertical focal factor (projection[1][1] / 2): x / depth is the share of the
+   * screen height a 1 m feature spans there, so outlines can stay off cells that fill the view.
+   */
+  uHiView: THREE.IUniform<THREE.Vector4>;
 }
 
 /** Edge of the highlight volume in cells (render/highlight.ts writes it). */
@@ -77,6 +82,7 @@ export class TerrainRig {
       uHiSel: { value: new THREE.Vector4(-9999, -9999, -9999, 0) },
       uHiFx: { value: new THREE.Vector4(0, 0, 0, 1) },
       uHiCol: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
+      uHiView: { value: new THREE.Vector4(0.62, 0, 0, 0) },
     };
   }
 

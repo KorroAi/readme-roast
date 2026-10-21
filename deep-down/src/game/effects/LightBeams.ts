@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { LIGHTING_GLSL, type LightingUniforms } from '../../render/lighting';
+import { LIGHTING_GLSL, type AnchorZone, type LightingUniforms } from '../../render/lighting';
 
 /**
  * Light beams: the only volumetric light in the game, and only where a real beam is (the rift's
@@ -176,8 +176,11 @@ export function beamsFor(lm: Landmarks): BeamSpec[] {
 }
 
 /** The deep zones' own air (LightingRig.setZoneAnchors), from their landmarks. */
-export function zoneAnchorsFor(lm: Landmarks): Array<{ zone: 'glowroot' | 'ember'; at: [number, number, number]; radius: number }> {
-  const out: Array<{ zone: 'glowroot' | 'ember'; at: [number, number, number]; radius: number }> = [];
+export function zoneAnchorsFor(lm: Landmarks): Array<{ zone: AnchorZone; at: [number, number, number]; radius: number }> {
+  const out: Array<{ zone: AnchorZone; at: [number, number, number]; radius: number }> = [];
+  // Polish 2: the Lantern Vault's floor keeps clear air (its balcony lights read from below).
+  const v = lm.vault;
+  if (v) out.push({ zone: 'vault', at: [v[0], v[1], v[2]], radius: 22 });
   const g = lm.glowroot;
   if (g) out.push({ zone: 'glowroot', at: [g[0], g[1], g[2]], radius: 20 });
   const e = lm.emberDeep;

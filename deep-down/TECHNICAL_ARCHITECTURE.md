@@ -402,6 +402,12 @@ panels average the cap). Behind the pause and death overlays the game renders at
   no roll, no head bob. A landing dips the view (`addTrauma`); mining never shakes it.
 - The body faces the view (`player.yaw = cameraRig.yaw + π`). The explorer model is never
   constructed in play (the Visual Lab keeps `ExplorerModel`).
+- Rides (`game/WorldFeatures`, `ropeRide.ts`) move the feet along the link and turn the view to
+  the wall they pass. On the Halden hoist the eye stands off-centre on the cage (`fp/hoistEye.ts`,
+  added to the eye point in `Game.eyeOffset`): 0.48 m from the rope's axis toward the foot stand,
+  blended in by smoothstep over the last 1.4 m onto the cage, so the rope, hook and spreader never
+  fill the top of the frame and the eye stays ≥ 0.45 m off the axis for the whole ride (unit test
+  over the real path at 60 fps, both ways).
 
 **Viewmodel (`game/fp/Viewmodel.ts`, `viewmodelParts.ts`).** The pickaxe (lower right) and the
 lantern (lower left; mirrored left-handed), each in a gloved hand with a sleeve, built from
@@ -431,24 +437,54 @@ at rest; a raise lifts it (and its light) for 1.4 s. The world's lantern light h
     there is still a world tap.
   - The Use chip sits bottom centre. There are no Mine or Jump buttons: the auto-step takes
     1-block ledges. The bag and the menu are the HUD's top-bar plates.
-- `game/TapController.ts` runs at the start of `Game.updatePlaying`. It casts a tap with
-  `MiningController.pick()` and does one of these:
-  - locks a target in reach (≤ 3.5 m from the eye), which is mined until it is gone or too hard;
-  - plans a path (`findPath`, a BFS over standable cells) to ground, to a block out of reach
-    (then mines it) or to an object (then uses it);
-  - when nothing can be done, nudges: the view turns 30 % toward the tap and the lantern is
-    raised, so no tap does nothing.
+  - The **Flash chip** (`dd-flash`, bottom, with the charge count) shows only while Flash Charges
+    are carried and a monster is near (`Combat.threatNear`); it sets `input.flashPressed` (F on a
+    keyboard).
+- **There is no dot on touch.** You tap the thing itself; nothing marks the centre of the screen.
+  The centre crosshair exists only for a desktop player with the pointer locked
+  (`HudState.showCrosshair`).
+- `game/TapController.ts` runs at the start of `Game.updatePlaying`. Each tap resolves in order:
+  1. **A creature** first: `Combat.tap` asks `MobSystem.pick` within 56 px of the finger
+     (`MOB_SNAP_PX`) and attacks a monster or catches, touches or harvests a small being.
+  2. **The thing under the finger**, cast with `MiningController.pick()`: a minable block or prop
+     (`config/rarity.isMinable`) or a usable object (chest, workbench, door, rope, relic, note).
+  3. Else the **snap**: rings at 14, 28, 42 and 56 px round the finger (`SNAP_PX`, 8 samples each)
+     are cast too, and the rarest find wins (legendary > epic > rare > uncommon > common), then
+     the one nearest the finger, then the one nearest the explorer.
+  4. Else **ground**: walk there (`findPath`, a BFS over standable cells).
+  5. Else **plain rock** in reach: one strike and a soft "tunk" (`block:tunk`, a tiny chip and
+     dust mote, no damage, no crack, no ring). Once in a while the hint line says why
+     (`hint.plainRock`, `fp/plainRockHint.ts`: on the first tunk, then only after 40, 80, 160,
+     then every 240 s of play and at least 4 more tunks). A held finger tunks once per press.
+  6. Else **nudge**: the view turns 30 % toward the tap and the lantern is raised, so no tap does
+     nothing.
 
-  While a tapped walk runs and the look is still, `Game.followWalk` turns the view along the
-  path (Camera follow setting). On arrival, a locked block off to the side is turned toward.
-- First person shows only what the dot (or the finger) is on: touch aim assist is off
-  (`MiningController.assist`).
+  A find in reach (≤ 3.5 m from the eye) is locked and mined to the end; one out of reach is
+  walked to, then mined; an object is walked to, then used. While a tapped walk runs and the look
+  is still, `Game.followWalk` turns the view along the path (Camera follow setting). On arrival,
+  a locked block off to the side is turned toward.
+- **Selection** (`render/highlight.ts`, VIS's `HighlightSystem`): every minable or collectable
+  near the explorer wears a thin rim in its rarity colour (`config/rarity.RARITY_COLOR`, within
+  about 14 m, a calm pulse at most every 2.5 s). The selected target (`Game.updateSelection` →
+  `highlight.select`) gets the brighter selection outline, and the mining progress is a small
+  ring anchored on the struck point in the world (`highlight.progress`), not at the screen centre.
+  The crack stages draw on the block itself (`effects/TargetMarker`). Touch aim assist is off:
+  only what the finger is on, or snapped to, is acted on.
+- **Combat** (`game/fp/Combat.ts`, ROUND2 §0.10). A tap on a monster attacks it with the best
+  weapon built that reaches (`config/weapons.bestWeapon`: the Glimmer Spear 3 m, the Iron Machete
+  2.6 m, the pick; the Flare Sling beyond melee reach, 16 m), walking into reach first when none
+  does. A tap on ore always uses the pick, so there is no mode switch. Each blow has its weapon's
+  wind-up, lands at the contact frame through `MobSystem.hit` (the sling fires a light shard), and
+  a hit holds the viewmodel still for the 40 ms hit stop while the monster alone flashes. A tap
+  during a blow queues one more. With a monster within 7 m the right hand keeps the weapon up (a
+  fight stance) and the pick returns 3.5 s after the last one. A Flash Charge (the Flash chip)
+  bursts light round the explorer: it strikes every monster within 6 m and sends crawlers fleeing. The weapon viewmodels
+  (machete, spear, sling, flash bulb) are `fp/viewmodelParts.buildWeapon`.
 - `ui/hud/Hud.ts` + `hud/fp.css`. The top bar holds depth (Lintel numerals), the lantern's oil
   with the turn-back tick, the pack count (a button: the bag) and ≡ (pause). Under it are the
-  compass chip(s) and the objective line, always on. Hearts show only when hurt or cold. The
-  centre dot brightens over a target in reach or something usable, turns red on rock too hard,
-  and a thin ring fills as the block cracks. Nothing covers the centre: the hints and the Use
-  chip sit at the bottom between the tools, and pickups rise on the left above the lantern.
+  compass chip(s) and the objective line, always on. Hearts show only when hurt or cold. Nothing
+  covers the centre: the hints and the Use chip sit at the bottom between the tools, and pickups
+  rise on the left above the lantern.
 - `ui/haptics.ts` maps bus events to short `navigator.vibrate` patterns, rate-limited per kind.
   It is gated on the Vibration setting, the last input device being touch, and play mode.
 - `ui/screenFormat.ts`: `enterGameScreen()` runs synchronously in the Start / Continue tap

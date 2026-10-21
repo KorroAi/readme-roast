@@ -1,17 +1,26 @@
+import type { GearId } from '../../config/recipes';
 import type { NodeResult } from '../types';
 import {
   BOOTS_PALETTE,
   BOOTS_ROWS,
   COAT_PALETTE,
   COAT_ROWS,
+  FLASH_CHARGE_PALETTE,
+  FLASH_CHARGE_ROWS,
   FORGE_PALETTE,
   FORGE_ROWS,
   LANTERN_ROWS,
+  MACHETE_PALETTE,
+  MACHETE_ROWS,
   outline,
   PICKAXE_ROWS,
   scaleNearest,
   SHELF_PALETTE,
   SHELF_ROWS,
+  SLING_PALETTE,
+  SLING_ROWS,
+  SPEAR_PALETTE,
+  SPEAR_ROWS,
   sprite,
   STURDY_PACK_ROWS,
   TABLE_PALETTE,
@@ -41,6 +50,16 @@ const PACK: Palette[] = [
   { D: 0x1d2420, R: 0xc9bfae, r: 0x948b7d, B: 0x4f5e50, L: 0x2e3a30, P: 0x6b4a2f, K: 0x8fe3ee, b: 0x1d2420 }, // expedition: the sealed pouch
 ];
 
+/** Each piece of gear's art: the boots, the coat, and the Forge's weapons (round 2). */
+const GEAR_ART: Record<GearId, { rows: readonly string[]; palette: Palette }> = {
+  gripBoots: { rows: BOOTS_ROWS, palette: BOOTS_PALETTE },
+  minersCoat: { rows: COAT_ROWS, palette: COAT_PALETTE },
+  machete: { rows: MACHETE_ROWS, palette: MACHETE_PALETTE },
+  sling: { rows: SLING_ROWS, palette: SLING_PALETTE },
+  spear: { rows: SPEAR_ROWS, palette: SPEAR_PALETTE },
+  flashCharges: { rows: FLASH_CHARGE_ROWS, palette: FLASH_CHARGE_PALETTE },
+};
+
 const cache = new Map<string, string>();
 
 function dataUrl(r: Raster): string {
@@ -63,7 +82,7 @@ export function nodeArt(result: NodeResult): { rows: readonly string[]; palette:
     if (result.slot === 'lantern') return { rows: LANTERN_ROWS, palette: LANTERN[Math.min(i, LANTERN.length - 1)] };
     return { rows: i === 0 ? TINY_PACK_ROWS : STURDY_PACK_ROWS, palette: PACK[Math.min(i, PACK.length - 1)] };
   }
-  if (result.kind === 'gear') return result.gear === 'gripBoots' ? { rows: BOOTS_ROWS, palette: BOOTS_PALETTE } : { rows: COAT_ROWS, palette: COAT_PALETTE };
+  if (result.kind === 'gear') return GEAR_ART[result.gear];
   if (result.station === 'surveyTable') return { rows: TABLE_ROWS, palette: TABLE_PALETTE };
   if (result.station === 'forge') return { rows: FORGE_ROWS, palette: FORGE_PALETTE };
   return { rows: SHELF_ROWS, palette: SHELF_PALETTE };

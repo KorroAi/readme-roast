@@ -180,6 +180,31 @@ describe('TargetMarker drives the selection and the ring while mining', () => {
     marker.set({ x: 17, y: 10, z: 12 }, 0, false, false);
     expect(hs.selection).toMatchObject({ kind: 'prop', id: 'chest' });
   });
+
+  it('polish 2: a broken block drops its outline at once (no leftover polygons)', () => {
+    const { world, terrain, hs, cam } = setup();
+    hs.select({ kind: 'block', x: 16, y: 10, z: 12 });
+    hs.update(1 / 30, 0, cam);
+    expect(terrain.uniforms.uHiSel.value.w).toBe(2);
+    world.set(16, 10, 12, B.AIR);
+    hs.update(1 / 30, 0.04, cam);
+    expect(terrain.uniforms.uHiSel.value.w).toBe(0);
+    expect(code(terrain, 16, 10, 12)).toBe(0); // the shader skips air cells even if still selected
+  });
+
+  it('polish 2: hands the lens focal factor to the terrain, so outlines stay off cells that fill the view', () => {
+    const { terrain, hs } = setup();
+    const cam = new THREE.PerspectiveCamera(78, 390 / 844, 0.06, 200);
+    cam.position.set(16.5, 11.6, 16.5);
+    cam.updateProjectionMatrix();
+    hs.update(1 / 30, 0, cam);
+    const k = terrain.uniforms.uHiView.value.x;
+    expect(k).toBeCloseTo(0.5 / Math.tan((39 * Math.PI) / 180), 4);
+    // A 1 m cell at 1.2 m spans about half the screen height: far past the line cut-off (18 %).
+    expect(k / 1.2).toBeGreaterThan(0.18);
+    // At 8 m a cell is under 10 %: its outline is drawn in full.
+    expect(k / 8).toBeLessThan(0.1);
+  });
 });
 
 describe('LanternLight (the lantern light, VIS)', () => {

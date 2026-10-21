@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../config/blocks';
 import type { PickaxeDef } from '../config/balance';
 import { REACH } from './fp/constants';
+import { PlainRockHint } from './fp/plainRockHint';
 import { isBreakable } from '../config/rarity';
 import './fp/events';
 import type { EventBus, GameEvents } from '../core/events';
@@ -82,6 +83,8 @@ export class MiningController {
   private impactAt = 0;
   private swingKey: string | null = null;
   private lastBlockedHint = 0;
+  /** Polish 2: the tunk on plain rock says why, once in a while (fp/plainRockHint). */
+  private readonly plainRockHint = new PlainRockHint();
   private time = 0;
   private readonly origin = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
@@ -443,7 +446,8 @@ export class MiningController {
 
   /**
    * The pick meets ordinary rock: a soft "tunk" and one tiny chip off the face, nothing else (no
-   * damage, no crack, no hint). Taps on plain stone are never an error, just stone.
+   * damage, no crack). Taps on plain stone are never an error, just stone; once in a while the
+   * hint line says what can be mined instead (`hint.plainRock`, never spammed).
    */
   private tunk(tgt: MiningTarget): void {
     this.tunkedKey = tgt.key;
@@ -455,6 +459,7 @@ export class MiningController {
     });
     this.particles.dust(p.x, p.y, p.z, def.debris[0], 1, this.rng, 0.06);
     this.bus.emit('block:tunk', { x: tgt.x, y: tgt.y, z: tgt.z, block: tgt.block, px: p.x, py: p.y, pz: p.z });
+    if (this.plainRockHint.onTunk(this.time)) this.hooks.hint(t('hint.plainRock'));
   }
 
   /** HUD summary of the current target (none on ordinary rock). */

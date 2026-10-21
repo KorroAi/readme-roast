@@ -237,6 +237,8 @@ test('round 2: no dot; a tap on ordinary rock is a soft tunk; a tap a little off
   await touch.tap(at);
   const tunked = await untilGame(page, async () => (await page.evaluate(() => (window as unknown as { __fp: string[] }).__fp.includes('block:tunk'))), 6);
   expect(tunked, 'the pick tunked on the slate').toBe(true);
+  // Polish 2: the first tunk says why (hint.plainRock); later ones only once in a while.
+  expect(await page.evaluate(() => document.querySelector('.dd-hud .dd-hint')?.textContent ?? '')).toMatch(/Solid rock/);
   expect(await page.evaluate(() => (window as unknown as { __fp: string[] }).__fp.filter((e) => e === 'block:hit').length)).toBe(0);
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), rock!.block)).toBe(SLATE);
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.input.lock)) === null, 3)).toBe(true);
@@ -323,7 +325,9 @@ test('round 2: a tap on a monster strikes it with the best weapon; a tap on ore 
     dd.look(-2.4, -0.12);
     dd.progression.grantNode('machete');
   }, stand!);
-  await untilGame(page, async () => true, 0.5);
+  // The camp check runs after the creatures each frame: spawn only once the explorer is known to
+  // have left the camp, or the first frame puts the monster away as if it strayed into camp.
+  expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 3)).toBe(true);
   const id = await page.evaluate(() => {
     const dd = window.__DD__ as any;
     const f = dd.mobs.floorAhead(2.2, 3.4);

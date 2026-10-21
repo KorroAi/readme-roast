@@ -110,6 +110,7 @@ uniform vec4 uHiOrigin;
 uniform vec4 uHiSel;
 uniform vec4 uHiFx;
 uniform vec3 uHiCol[5];
+uniform vec4 uHiView;
 int hiCode(ivec3 c) {
   ivec3 l = c - ivec3(uHiOrigin.xyz);
   if (uHiOrigin.w < 0.5 || any(lessThan(l, ivec3(0))) || any(greaterThan(l, ivec3(${HI_SIZE - 1})))) return 0;
@@ -513,6 +514,9 @@ void main() {
   // darkened like a seat in the rock, and the normal bulges out along the mask's screen gradient,
   // so each nugget reads as a rounded lump of metal, not as a blurred orange stain.
   float oreMetal = 0.0;
+  // Polish 2: the rim of the native-copper nuggets up close (the rarity highlight draws on it).
+  float oreRim = 0.0;
+  float oreNear = 0.0;
   bool isCopper = shownLayer == ${MAT.copperVein} || shownLayer == ${MAT.copperTop};
   bool isIron = shownLayer == ${MAT.ironVein} || shownLayer == ${MAT.ironTop};
   if (isCopper || isIron) {
@@ -527,6 +531,44 @@ void main() {
     // Iron's steel is found by height: a narrow threshold on the 16 t/m layer drew it with stepped
     // texel edges at arm's length, so its edge is wider (copper's colour mask stays crisp).
     float crisp = isCopper ? smoothstep(0.45, 0.55, m) : smoothstep(0.3, 0.7, m);
+    // Polish 2: at arm's length a painted copper bead spans 4-6 texels (25-40 cm at 1 m), so the
+    // magnified mask read as flat orange camouflage blobs across the wall. Up close the bead area
+    // becomes what a vein is: a dark oxidised seam in the grey rock, studded with small nuggets of
+    // native copper (about 1.5-4 cm, a world-space cellular field on the rock's own projection,
+    // crisp at any magnification). From ~10 m out the painted texture holds on its own.
+    float seam = 0.0;
+    float hm = m;
+    if (isCopper) {
+      vec2 fwc = (abs(rockGx) + abs(rockGy)) * ${MAT_SIZE}.0;
+      float pptc = 1.0 / max(max(fwc.x, fwc.y), 1e-4);
+      oreNear = smoothstep(4.0, 11.0, pptc);
+      if (oreNear > 0.0) {
+        // Two octaves of world-space value noise (~3 cm and ~1.3 cm features) push the smooth
+        // painted mask over a high threshold in places: irregular nuggets of varied size, packed
+        // where the painted vein is dense, none outside it.
+        float n1 = textureLod(uNoise, vWorldPos * 1.05, 0.0).g;
+        float n2 = textureLod(uNoise, vWorldPos * 2.4 + 7.3, 0.0).b;
+        float field = m * 0.6 + (n1 - 0.5) * 1.2 + (n2 - 0.5) * 0.6;
+        float aa = max(fwidth(field) * 0.8, 1e-3);
+        // (the painted mask only gates presence, softly: its bilinear texel contour would draw
+        // stair-stepped nugget edges at arm's length; the noise field draws the shape)
+        float nug = smoothstep(0.7 - aa, 0.7 + aa, field) * smoothstep(0.0, 0.22, m);
+        // The vein between the nuggets is the host's grey, a little darker (oxidised ore), with a
+        // dark seat hugging each nugget: paint never spreads over the wall. Any warm tint left by
+        // the magnified texels (the bilinear blend from an orange bead into grey) greys too.
+        float warm = smoothstep(0.08, 0.3, sat) * smoothstep(1.04, 1.25, tex.r / max(tex.g, 1e-3));
+        seam = (1.0 - nug) * max(smoothstep(0.02, 0.35, m), warm) * oreNear;
+        albedo *= 1.0 - 0.3 * smoothstep(0.56, 0.68, field) * (1.0 - nug) * oreNear;
+        crisp = mix(crisp, nug, oreNear);
+        // Each nugget is domed (its height rises with the field inside it), so the flame's
+        // specular rolls over it like a lump of metal instead of lighting a flat stain.
+        hm = mix(m, smoothstep(0.62, 0.95, field) * smoothstep(0.0, 0.22, m), oreNear);
+        // Each nugget leans its own way (the two noise octaves as a tilt), so the flame catches a
+        // few of them, not every one at once (a flat nugget facing the lantern was one salmon fill).
+        nd = normalize(nd + (vec3(n1, n2, 1.0 - n1) - 0.5) * 1.4 * nug * oreNear);
+        oreRim = smoothstep(0.62, 0.7, field) * (1.0 - smoothstep(0.7, 0.78, field)) * oreNear;
+      }
+    }
     // The soft fringe of a nugget (and the yellow of that blend) takes the host rock's grey, so a
     // nugget at arm's length has a clean edge, not an orange stain around it.
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
@@ -535,14 +577,16 @@ void main() {
     // clean colours.
     float green = smoothstep(0.98, 1.06, tex.g / max(tex.r, 1e-3)) * smoothstep(0.12, 0.22, sat);
     float between = isCopper ? (1.0 - max(smoothstep(1.3, 1.5, tex.r / max(tex.g, 1e-3)), green)) * smoothstep(0.18, 0.35, sat) : 0.0;
-    float fringe = max(max((1.0 - crisp) * smoothstep(0.05, 0.45, m), between), isCopper ? green * 0.35 : 0.0);
-    albedo = mix(albedo, vec3(lum) * vec3(1.03, 1.0, 0.96), fringe * 0.75);
-    float rim = smoothstep(0.12, 0.4, m) * (1.0 - smoothstep(0.45, 0.6, m));
+    float fringe = max(max((1.0 - crisp) * smoothstep(0.05, 0.45, m), between), isCopper ? green * mix(0.35, 0.8, oreNear) : 0.0);
+    // Up close the whole painted vein outside the nuggets takes the host's grey (slightly dimmed:
+    // its luminance is the bright orange's), so no orange or pink spreads round the metal.
+    albedo = mix(albedo, vec3(lum) * vec3(1.03, 1.0, 0.96) * mix(1.0, 0.82, seam), max(fringe * mix(0.75, 1.0, oreNear), seam));
+    float rim = smoothstep(0.12, 0.4, m) * (1.0 - smoothstep(0.45, 0.6, m)) * (1.0 - oreNear);
     // World-space gradient of the mask (1/m) from its screen derivatives: the nugget as a height
     // field about 2 cm tall, so its flanks tilt outward.
     vec3 px = dFdx(vWorldPos);
     vec3 py = dFdy(vWorldPos);
-    vec3 gw = px * (dFdx(m) / max(dot(px, px), 1e-10)) + py * (dFdy(m) / max(dot(py, py), 1e-10));
+    vec3 gw = px * (dFdx(hm) / max(dot(px, px), 1e-10)) + py * (dFdy(hm) / max(dot(py, py), 1e-10));
     // Round 2: the nugget stands proud (about 3.5 cm), so the flame models it as a lump of metal.
     nd = normalize(nd - gw * 0.035);
     // Iron's steel reads cool and bright against the warm-lit host rock (it was the rock's own grey).
@@ -552,6 +596,9 @@ void main() {
     // saturated than the painted orange (flat orange paint at arm's length), toned by the detail
     // layer so a large nugget has a hammered surface, not one flat fill.
     vec3 copperAlb = mix(albedo, vec3(lum) * vec3(1.25, 0.78, 0.56), 0.35) * 1.18 * (0.78 + 0.44 * det.w);
+    // Up close a nugget may sit where the painted texel was rock: native copper of its own (a
+    // deep coppery metal; the flame's specular gives its shine).
+    copperAlb = mix(copperAlb, vec3(0.2, 0.075, 0.03) * (0.8 + 0.4 * det.w), oreNear);
     vec3 metalAlb = isCopper ? copperAlb : max(albedo * 1.25, vec3(0.1, 0.105, 0.12)) * vec3(0.92, 0.97, 1.08) * (0.8 + 0.4 * det.w);
     if (isIron) {
       float rust = smoothstep(1.25, 1.6, tex.r / max(tex.g, 1e-3)) * smoothstep(0.35, 0.6, sat);
@@ -592,9 +639,10 @@ void main() {
     if (oreMetal > 0.0) {
       // Ore nuggets: metal, their own colour in the reflection (copper warm, iron a cool steel), a
       // tighter lobe so they glint as the flame moves.
-      vec3 metalF0 = isCopper ? tex.rgb * 0.95 : mix(vec3(0.42, 0.45, 0.5), tex.rgb * 1.6, 0.35);
+      vec3 metalF0 = isCopper ? mix(tex.rgb * 0.95, vec3(0.72, 0.44, 0.3), oreNear) : mix(vec3(0.42, 0.45, 0.5), tex.rgb * 1.6, 0.35);
       f0 = mix(f0, metalF0, oreMetal);
-      rough = mix(rough, isCopper ? 0.36 : 0.32, oreMetal);
+      // Up close a tight lobe on tilted nuggets: a few glint at a time, the rest read as dark metal.
+      rough = mix(rough, isCopper ? mix(0.36, 0.3, oreNear) : 0.32, oreMetal);
       color *= 1.0 - 0.4 * oreMetal;
     } else if (isIron) {
       f0 = vec3(0.07);
@@ -683,11 +731,27 @@ void main() {
   vec2 hiW = fwidth(hiL);
   bool hiSel = uHiSel.w > 1.5 && all(equal(cell, ivec3(uHiSel.xyz)));
   int hiC = hiCode(cell);
-  if ((hiC >= 2 && vDepth < 14.5) || hiSel) {
+  // Polish 2: a cell the volume holds as air (a block just broken, its old faces still on screen
+  // until the remesh lands) never draws, selected or not: no leftover outline polygons.
+  if (hiC >= 2 && (vDepth < 14.5 || hiSel)) {
     ivec3 nI = ivec3(n);
     float sel = hiSel ? uHiFx.y : 0.0;
-    // Line width in pixels (crisp: about 1.4 px ambient, 2.6 px selected), never wider than 9 cm.
-    vec2 w = min(hiW * mix(1.4, 2.6, sel), vec2(0.09));
+    // An ore vein is rock with metal in it: its cell edges are arbitrary lines on the wall, so up
+    // close its highlight lives on the nuggets themselves (oreRim), not on the block grid.
+    int faceSide = GEO_SIDE[layer];
+    bool oreCell = faceSide == ${MAT.copperVein} || faceSide == ${MAT.ironVein};
+    // Polish 2: outlines only while a cell is small on screen. hiFrac is the share of the screen
+    // height a 1 m cell spans at this depth: crisp lines are full from ~6 m out (a cell under ~10 %
+    // of the height) and gone by ~3.4 m (18 %), so neither the ambient rims nor the selection ever
+    // draw a long line or a frame across a wall at arm's length.
+    float hiFrac = uHiView.x / max(vDepth, 0.05);
+    float lineVis = 1.0 - smoothstep(0.1, 0.18, hiFrac);
+    // Ambient rims are quieter still: a crisp line only from ~10 m out (a cell under ~6 % of the
+    // height), so a find's outline at 4-8 m never reads as a white frame on the wall; nearer, its
+    // soft inner glow carries it.
+    float lineAmb = 1.0 - smoothstep(0.06, 0.12, hiFrac);
+    // Line width in pixels (crisp: about 1.7 px ambient, 2.6 px selected), never wider than 9 cm.
+    vec2 w = min(hiW * mix(1.7, 2.6, sel), vec2(0.09));
     float line = 0.0;
     float outer = 0.0;
     float minD = 1.0;
@@ -703,28 +767,37 @@ void main() {
       int cs = hiCode(side);
       bool other = cd >= 1 || cs >= 1;
       int oc = cd >= 1 ? cd : cs;
-      bool edgeAmb = other && oc != hiC;
-      bool edge = hiSel ? other : edgeAmb;
-      if (!edge) continue;
+      // The find's own outline (the vein's, the pile's), selected or not: never the grid of cells
+      // inside it. The selected cell draws its share of that outline, brighter. A selected loose
+      // block (a heap, roots, a crystal, a seal) also draws its convex edges, where its surface
+      // turns away into the air: that line hugs the thing itself at any distance, so it stays on
+      // up close (a vein's edges are arbitrary lines on the wall: never).
+      bool rim = other && oc != hiC;
+      bool convex = !other && hiSel && !oreCell;
+      if (!rim && !convex) continue;
+      float ev = rim ? mix(lineAmb, lineVis, sel) : 1.0;
       float ww = k < 2 ? w.x : w.y;
-      minD = min(minD, d);
-      line = max(line, 1.0 - smoothstep(ww * 0.55, ww * 1.15, d));
-      outer = max(outer, smoothstep(ww * 1.0, ww * 1.4, d) * (1.0 - smoothstep(ww * 1.8, ww * 2.6, d)));
+      if (rim) minD = min(minD, d);
+      line = max(line, ev * (1.0 - smoothstep(ww * 0.55, ww * 1.15, d)));
+      outer = max(outer, ev * smoothstep(ww * 1.0, ww * 1.4, d) * (1.0 - smoothstep(ww * 1.8, ww * 2.6, d)));
     }
-    int code = hiSel ? int(uHiSel.w + 0.5) : hiC;
+    int code = hiC;
     vec3 hc = uHiCol[clamp(code - 2, 0, 4)];
     if (hiSel && uHiFx.z > 0.5) hc = mix(vec3(dot(hc, vec3(0.2126, 0.7152, 0.0722))), vec3(1.0, 0.32, 0.26), 0.55); // too hard
-    // Ambient lines fade at arm's length (VIS r2): there they would cut long frames across the
-    // screen; the selection outline carries the block you are about to strike.
-    float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * smoothstep(1.0, 2.6, vDepth) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel);
+    float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel);
     float k = amb + 2.4 * sel;
-    // The inner glow gathers in a band ~12 cm inside the rim; the face itself takes only a breath of
-    // it (the darks here sit at 0.003-0.01 linear: more would read as a tinted box).
-    // Ambient: a soft glowing seam (the band) with a thin, quieter line at its edge, so a long
-    // straight boundary (a seal's foot) reads as light along the stone, not a scratch on the
-    // screen. Selected: the crisp bright line carries it.
-    float gather = exp(-minD * 11.0);
-    vec3 hi = hc * (line * mix(0.2, 0.36, sel) + gather * mix(0.03, 0.02, sel) + 0.0015) * k;
+    // The inner glow gathers in a band ~10 cm inside the rim. Ambient: a soft glowing seam with a
+    // thin, quieter line at its edge; up close only a breath of it (the find is in the lantern's
+    // light by then). Selected: the crisp line from afar; up close the soft band and a faint tint
+    // over the struck block, so a selected rubble pile or crystal reads chosen without a frame.
+    // Ore: the soft band too stays off the cell edges up close (it would draw a soft square).
+    float gather = exp(-minD * 11.0) * (oreCell ? lineVis : mix(mix(0.3, 1.0, lineVis), 1.0, sel));
+    // Ambient: the find glows softly from within and its rim is only a hairline (never a white box
+    // on the wall); selected, the crisp line carries it.
+    vec3 hi = hc * (line * mix(0.04, 0.36, sel) + gather * mix(0.03, 0.02, sel) + mix(0.004, 0.0015, sel) + (oreCell ? 0.0 : 0.006 * sel * (1.0 - lineVis))) * k;
+    // Ore up close: the rarity colour runs round the nuggets (a crisp rim) with a faint glow on
+    // the metal: the vein's outline is its metal, brighter on the struck block.
+    hi += hc * (oreRim * mix(0.0, 0.04, sel) + oreMetal * oreNear * mix(0.004, 0.01, sel)) * k * (1.0 - lineVis * 0.5);
     if (code == 6) {
       // Legendary: a slow band of light travels over the find (about one pass every 5 s).
       float band = smoothstep(0.75, 1.0, sin(dot(vWorldPos, vec3(1.1, 0.7, 0.9)) * 1.4 - uHiFx.x * 1.25));

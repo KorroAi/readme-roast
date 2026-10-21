@@ -32,6 +32,7 @@ import { Viewmodel } from './fp/Viewmodel';
 import { LightBeams, beamsFor, zoneAnchorsFor } from './effects/LightBeams';
 import { Ambience } from './effects/Ambience';
 import { EYE_HEIGHT } from './fp/constants';
+import { hoistEyeOffset, hoistSide, type HoistSide } from './fp/hoistEye';
 import { PlayerController } from './PlayerController';
 import { MiningController } from './MiningController';
 import { DropSystem } from './Drops';
@@ -46,6 +47,8 @@ import { LanternLight } from '../render/lanternLight';
 import { WaterSurfaces } from '../render/water';
 import { lanternFlicker } from './fp/flame';
 import { Waterfall } from './effects/Waterfall';
+// VIS: the world events' visuals (rockfall dust, geyser spores, the bloom's glow, the echo mote).
+import { EventFx } from './effects/EventFx';
 import { HaloSystem, collectWorldLights, type HaloSource } from './effects/Halos';
 import { WorldSession } from './WorldSession';
 import { installDebugApi } from '../debug/DebugApi';
@@ -90,6 +93,9 @@ export class Game {
   private haptics: Haptics | null = null;
   /** Seconds since the look input last moved (touch camera follow waits for it). */
   private lookStill = 0;
+  /** FP polish 2: the side of the hoist's cage the eye stands on while a hoist ride runs (fp/hoistEye). */
+  private hoistSide: HoistSide | null = null;
+  private readonly eyeOff = { x: 0, z: 0 };
   /** Tap to act on touch: tap a block to mine it, ground to walk there, an object to use it. */
   private tap!: TapController;
   /** Tap a creature: attack it with the best weapon, or catch / harvest a being (game/fp/Combat). */
@@ -115,6 +121,8 @@ export class Game {
   // VIS: the lantern's light; lanternLight.flame is the flame size for the lantern model (FP).
   readonly lanternLight = new LanternLight();
   waterfall: Waterfall | null = null;
+  // VIS: the world events' visuals (game/effects/EventFx).
+  eventFx: EventFx | null = null;
   private menuCamera: MenuCamera | null = null;
   halos!: HaloSystem;
   /** World variety: rides, rune doors, Halden logs, the black stone, moths, the living rock. */
@@ -233,7 +241,8 @@ export class Game {
       this.waterfall = new Waterfall(s.rig.uniforms, new THREE.Vector3(...ft), new THREE.Vector3(...fb));
       this.scene.add(this.waterfall.group);
     }
-    this.halos = new HaloSystem(s.rig.uniforms, this.haloSources());
+    // VIS: the world lets far lights (the Vault's balcony lamps) carry a far glow in open air over them.
+    this.halos = new HaloSystem(s.rig.uniforms, this.haloSources(), () => this.session.world);
     this.scene.add(this.halos.mesh);
     // VIS: light beams (the only volumetric light: the rift's rising light, the Spindle, the tablet)
     // and the deep zones' own air.
@@ -244,6 +253,10 @@ export class Game {
     this.scene.add(new Ambience(s.rig.uniforms, s.world, s.layout.content?.ambient ?? [], visLandmarks).group);
     // VIS: still water over WORLD's lakes (layout.features.lakes): the Still Lake, the Deep, the vault pool.
     this.scene.add(new WaterSurfaces(s.rig.uniforms, s.world, s.layout.features?.lakes ?? []).group);
+    // VIS: the world events' visuals (dust, spores, the bloom's glow, the echo mote), read from the director.
+    this.eventFx?.dispose();
+    this.eventFx = new EventFx(s.rig.uniforms, this.bus, () => this.progression?.events ?? null, () => this.session.world);
+    this.scene.add(this.eventFx.group);
     this.features = new WorldFeatures(this);
     this.scene.add(this.features.moths.mesh, this.features.cage);
     // MOBS: the creatures; a monster's last blow blacks the explorer out like a fall.
@@ -351,6 +364,11 @@ export class Game {
     });
     bus.on('block:tooHard', ({ block }) => {
       if (block === B.IRON_ORE) this.discover('ironVein');
+    });
+    // FP polish 2: on the hoist the eye stands off-centre on the cage, clear of the rope.
+    bus.on('world:ride', ({ id, kind, phase }) => {
+      const link = kind === 'hoist' && phase === 'start' ? this.features.layout?.links.find((l) => l.id === id) : undefined;
+      this.hoistSide = link ? hoistSide(link.path[1], link.bottom) : null;
     });
     // The tree, the runes, the rumours (final pass W3).
     this.progression.wire();
@@ -719,7 +737,8 @@ export class Game {
   private updateIdle(dt: number): void {
     // Paused or dead: keep the scene alive but frozen in gameplay terms.
     if (this.mode === 'paused' && this.input.pausePressed && this.ui.screen === 'pause') this.resume();
-    this.cameraRig.update(0, this.player.x, this.player.y + EYE_HEIGHT - this.player.stepOffset, this.player.z, this.renderer.aspect);
+    const off = this.eyeOffset();
+    this.cameraRig.update(0, this.player.x + off.x, this.player.y + EYE_HEIGHT - this.player.stepOffset, this.player.z + off.z, this.renderer.aspect);
     this.updateViewmodel(0);
     this.updateLantern(0, false);
     // MOBS: frozen behind the pause and death screens, still drawn.
@@ -786,7 +805,8 @@ export class Game {
 
     if (!blocked && (Math.abs(mx) > 0.2 || Math.abs(my) > 0.2)) this.tutorial('mine', this.isTouch() ? 'hint.mine' : 'hint.mineDesktop', 6000, 4);
 
-    this.cameraRig.update(dt, p.x, p.y + EYE_HEIGHT - p.stepOffset, p.z, this.renderer.aspect);
+    const off = this.eyeOffset();
+    this.cameraRig.update(dt, p.x + off.x, p.y + EYE_HEIGHT - p.stepOffset, p.z + off.z, this.renderer.aspect);
     this.updateViewmodel(dt);
     this.updateLantern(dt, true);
     // MOBS: the creatures move, strike and touch the light (after the lantern, before the render);
@@ -1426,6 +1446,9 @@ export class Game {
     // VIS: rarity highlights follow the eye (off on the title screen).
     this.highlight.enabled = this.mode !== 'menu';
     this.highlight.update(dt, this.time, cam);
+    // VIS: the world events' visuals.
+    this.eventFx?.update(dt, this.time);
+    this.eventFx?.setPixelScale(this.renderer.canvas.height, cam.fov);
     this.debris.update(dt);
     this.waterfall?.update(dt, this.particles, this.rng, cam.position);
     this.particles.update(dt, this.time, cam.position.x, cam.position.y, cam.position.z);
@@ -1476,6 +1499,15 @@ export class Game {
   }
 
   /** Show a tutorial hint once per game. */
+  /** The eye's horizontal offset from the feet: zero, except on the hoist (fp/hoistEye). */
+  private eyeOffset(): { x: number; z: number } {
+    const o = this.eyeOff;
+    if (this.hoistSide && this.features.riding) return hoistEyeOffset(this.hoistSide, this.player.x, this.player.z, o);
+    this.hoistSide = null;
+    o.x = o.z = 0;
+    return o;
+  }
+
   private tutorial(id: string, key: TextKey, ms = 4000, minPlaySeconds = 0): void {
     if (this.progression.hintsShown.has(id) || this.playTime < minPlaySeconds) return;
     this.progression.hintsShown.add(id);

@@ -422,6 +422,9 @@ export class HighlightSystem {
     if (sel && sel.kind === 'block' && selRarity) u.uHiSel.value.set(sel.x, sel.y, sel.z, RARITY_RANK[selRarity] + 2);
     else u.uHiSel.value.set(-9999, -9999, -9999, 0);
     u.uHiFx.value.set(time % 3600, this.selStrength, this.blocked ? 1 : 0, this.enabled ? 1 : 0);
+    // Polish 2: the lens' focal factor, so the terrain's outlines stay off cells that fill the view.
+    const pm = (camera as THREE.PerspectiveCamera).projectionMatrix;
+    if (pm && Number.isFinite(pm.elements[5]) && pm.elements[5] > 0) u.uHiView.value.x = pm.elements[5] * 0.5;
     // --- props and objects
     this.updateProps(eye, sel, selRarity);
     this.updateObjects(eye, sel);

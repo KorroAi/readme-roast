@@ -6,7 +6,7 @@ import type { NoiseColor, Voice } from './synth';
  * never shrill: dry clicks, breath, whispers and low drones; beings chirp, squeak and chime.
  * Every attack's wind-up has its own cue (the telegraph), heard before the blow.
  */
-interface MobSfxDef {
+export interface MobSfxDef {
   bus: 'sfx' | 'ambience';
   gain: number;
   wet: number;
@@ -16,35 +16,35 @@ interface MobSfxDef {
   build: (v: Voice, p: { gain?: number; pan?: number; pitch?: number; intensity?: number }) => void;
 }
 
-const def = (gain: number, wet: number, priority: number, length: number, build: MobSfxDef['build'], minGap = 0.05, bus: MobSfxDef['bus'] = 'sfx'): MobSfxDef => ({ bus, gain, wet, priority, length, minGap, build });
+export const def = (gain: number, wet: number, priority: number, length: number, build: MobSfxDef['build'], minGap = 0.05, bus: MobSfxDef['bus'] = 'sfx'): MobSfxDef => ({ bus, gain, wet, priority, length, minGap, build });
 
-function noiseBurst(v: Voice, t: number, color: NoiseColor, type: BiquadFilterType, freq: number, q: number, peak: number, decay: number, attack = 0.001): BiquadFilterNode {
+export function noiseBurst(v: Voice, t: number, color: NoiseColor, type: BiquadFilterType, freq: number, q: number, peak: number, decay: number, attack = 0.001): BiquadFilterNode {
   const f = v.filter(type, freq, q);
   v.noise(color, t, t + attack + decay + 0.03).connect(f).connect(v.perc(t, attack, peak, decay)).connect(v.out);
   return f;
 }
 
-function swellNoise(v: Voice, t: number, color: NoiseColor, type: BiquadFilterType, freq: number, q: number, peak: number, attack: number, hold: number, release: number): BiquadFilterNode {
+export function swellNoise(v: Voice, t: number, color: NoiseColor, type: BiquadFilterType, freq: number, q: number, peak: number, attack: number, hold: number, release: number): BiquadFilterNode {
   const f = v.filter(type, freq, q);
   v.noise(color, t, t + attack + hold + release + 0.05).connect(f).connect(v.swell(t, attack, peak, hold, release)).connect(v.out);
   return f;
 }
 
-function glide(v: Voice, t: number, type: OscillatorType, f0: number, f1: number, dur: number, peak: number, attack = 0.005): void {
+export function glide(v: Voice, t: number, type: OscillatorType, f0: number, f1: number, dur: number, peak: number, attack = 0.005): void {
   const o = v.osc(type, f0, t, t + dur + 0.05);
   o.frequency.setValueAtTime(f0, t);
   o.frequency.exponentialRampToValueAtTime(Math.max(20, f1), t + dur);
   o.connect(v.swell(t, attack, peak, dur * 0.3, dur * 0.7)).connect(v.out);
 }
 
-function thud(v: Voice, t: number, f0: number, f1: number, peak: number, decay: number): void {
+export function thud(v: Voice, t: number, f0: number, f1: number, peak: number, decay: number): void {
   const o = v.osc('sine', f0, t, t + decay + 0.05);
   o.frequency.setValueAtTime(f0, t);
   o.frequency.exponentialRampToValueAtTime(f1, t + decay * 0.7);
   o.connect(v.perc(t, 0.002, peak, decay)).connect(v.out);
 }
 
-function bell(v: Voice, t: number, f: number, amp: number, decay: number): void {
+export function bell(v: Voice, t: number, f: number, amp: number, decay: number): void {
   for (const [r, a, d] of [[1, 1, 1], [2.01, 0.4, 0.6], [3.03, 0.18, 0.4], [4.2, 0.08, 0.25]] as const) {
     if (f * r > v.ctx.sampleRate * 0.45) continue;
     v.osc('sine', f * r, t, t + decay * d + 0.05).connect(v.perc(t, 0.002, amp * a, decay * d)).connect(v.out);
