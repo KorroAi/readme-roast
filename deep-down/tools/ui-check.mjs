@@ -429,9 +429,19 @@ if (opt.touch) {
       const detail = document.querySelector('.dd-tree-detail');
       const b = board.getBoundingClientRect();
       const d = detail.getBoundingClientRect();
-      return { scroll: board.scrollHeight - board.clientHeight, boardBottom: Math.round(b.bottom), detailTop: Math.round(d.top), detailH: Math.round(d.height), vh: innerHeight };
+      const nodes = [...document.querySelectorAll('.dd-tree-grid .dd-node')].map((n) => n.getBoundingClientRect());
+      const deep = !!document.querySelector('.dd-tree-grid.deep');
+      return { scroll: board.scrollHeight - board.clientHeight, boardBottom: Math.round(b.bottom), detailTop: Math.round(d.top), detailH: Math.round(d.height), vh: innerHeight, deep, minNode: Math.round(Math.min(...nodes.map((r) => Math.min(r.width, r.height)))) };
     });
-    if (vpName === 'land') check(`tree fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} without scrolling (${scene})`, m.scroll <= 1, m);
+    // Round 2: with the Forge's weapons the tree is 7 rows deep ('deep'); at 412 px tall the rows
+    // close up to the 48 px thumb floor and the board scrolls what is left (never more than a row
+    // and a half). A tree of 5 rows or fewer still fits without scrolling.
+    if (vpName === 'land')
+      check(
+        m.deep ? `tree (7 rows) fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} with nodes >= 48 px and at most 80 px of scroll (${scene})` : `tree fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} without scrolling (${scene})`,
+        m.deep ? m.minNode >= 48 && m.scroll <= 80 : m.scroll <= 1,
+        m,
+      );
     else check('tree: portrait shows the detail as a bottom sheet (~46%)', m.detailTop >= m.boardBottom - 1 && m.detailH > m.vh * 0.36 && m.detailH < m.vh * 0.5, m);
     await c.close();
   }

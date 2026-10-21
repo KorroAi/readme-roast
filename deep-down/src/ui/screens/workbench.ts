@@ -116,7 +116,7 @@ export function buildTree(host: ScreenHost): HTMLElement {
 
 function board(host: ScreenHost, view: CraftTreeView, tab: TreeTab, sel: string | null, crafted: string | null): HTMLElement {
   const span = rowSpan(view.nodes);
-  const grid = h('div', { class: 'dd-tree-grid', style: `--rows: ${span.count}` });
+  const grid = h('div', { class: `dd-tree-grid${span.count > 5 ? ' deep' : ''}`, style: `--rows: ${span.count}` });
   for (const line of TREE_LINES) {
     const nodes = view.nodes.filter((n) => n.line === line).sort((a, b) => a.row - b.row);
     const track = h('div', { class: 'dd-tree-track' });

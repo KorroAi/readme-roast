@@ -323,7 +323,8 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   // the mouse).
   const reported = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', 4);
   if (reported) {
-    await page.locator('[data-key="summary-close"]').click();
+    // (A captured mouse cannot aim at it; the button's own click is dispatched.)
+    await page.locator('[data-key="summary-close"]').dispatchEvent('click');
     await waitScreen(page, 'none');
   }
   await expect(page.locator('.dd-use-prompt.on')).toContainText(/Workbench/i, { timeout: LOADED_CEILING_MS });

@@ -561,3 +561,15 @@
   width: 100%;
   height: 100%;
 }
+
+/* Round 2: the Forge's weapons made the tree 7 rows deep. On short landscape screens the rows
+   close up (nodes keep the 48 px thumb floor) and the board scrolls the little that is left. */
+@media (max-height: 460px) {
+  .dd-tree-grid.deep {
+    --pitch: 52px;
+    --node: 48px;
+  }
+  .dd-tree-board {
+    overflow-y: auto;
+  }
+}
