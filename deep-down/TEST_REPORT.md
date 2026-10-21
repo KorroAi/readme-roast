@@ -9,7 +9,7 @@ Run by the lead on a quiet machine, on the tree that ships:
 | `npx tsc --noEmit` | exit 0 |
 | `npx vitest run` | 69 files, **738/738** |
 | `npx playwright test` (touch specs at 390 × 844 with real CDP touches) | **26 passed, 1 skipped** (28.0 min). desktop 2, mobs 6, progression 3, release 6, slice 1, tap 6, world 2. The skipped test is the opt-in creature capture sheet. |
-| `tools/apk-sim.mjs` on the 1.1.0 APK (shared debug key 47facb26…) | APK_SIM_RESULT |
+| `tools/apk-sim.mjs` on the 1.1.0 APK (shared debug key 47facb26…) | **14/14 PASS** (version 1.1.0, versionCode 1010000), 0 refused requests, 0 page errors |
 | Real-camera captures (VIS, `tools/fp-shots.mjs`, 49 views at 390 × 844 @2) | 0 console errors. At most 143 draw calls and 151k triangles (budget 150 / 250k). |
 
 The mobs e2e covers: catching a Glimmerkin and harvesting a Shellback; fighting crawlers with the machete; shooting a wisp with
