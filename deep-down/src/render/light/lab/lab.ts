@@ -27,6 +27,7 @@ const SHOTS: Record<string, { eye: [number, number, number]; at: [number, number
   grazing: { eye: [2.0, 2.1, 5.0], at: [1.2, 1.7, 9.5] },
   pillar: { eye: [5.6, 2.1, 4.4], at: [4.5, 1.0, 9.5] },
   shaft: { eye: [7.0, 2.1, 6.5], at: [7.0, 3.6, 13] },
+  wet: { eye: [5.0, 1.4, 3.0], at: [6.5, 0.4, 7.5] },
   crystal: { eye: [4.4, 2.3, 10.8], at: [2.1, 1.6, 13.4] },
 };
 let shot = params.get('shot') ?? 'arrival';
@@ -78,10 +79,11 @@ function frame(dt: number): void {
   // The viewmodel lantern: low and left, 0.35 m ahead (Viewmodel.flameWorld).
   flame.set(-0.3, -0.45, -0.35).applyMatrix4(camera.matrixWorld);
   rig.update(camera, { pos: flame, range: 9 }, lab.lamps, time);
-  if (!probeDone) {
+  if (!probeDone && !NO_PROBE) {
     rig.captureProbe(lab.probeCentre, lab.probeBox);
     probeDone = true;
   }
+  if (NO_PROBE) rig.clearProbe();
   renderer.render(lab.scene, camera, time);
 }
 
@@ -89,6 +91,7 @@ resize();
 applyShot();
 window.addEventListener('resize', resize);
 if (params.has('view')) renderer.debug.setLight({ view: Number(params.get('view')) });
+const NO_PROBE = params.get('probe') === '0';
 if (params.has('post')) renderer.debug.setLight({ post: Number(params.get('post')) });
 
 const api = {

@@ -733,7 +733,8 @@ export class HybridGame {
         if (FOCUS_KINDS.has(k)) {
           if (v.focus && localId(tg.id) === v.focus) focus = { id: tg.id, kind: tg.kind as never, rect: tg.hit, resolved: false };
           else focusables.push({ id: tg.id, kind: tg.kind as never, rect: tg.hit, dist: tg.dist, at: at ?? undefined });
-        } else if (STRIKE_KINDS.has(k) && (tg.state ?? 1) > 0 && tg.dist <= 3.5) {
+        } else if (STRIKE_KINDS.has(k) && (tg.state ?? 0) < 1 && tg.dist <= 3.5) {
+          // (state is the harvested fraction: a spent vein is no longer a fat-finger candidate.)
           strikeables.push({ id: tg.id, kind: (tg.kind === 'secret' || tg.kind === 'glint' ? 'vein' : tg.kind) as never, rect: tg.hit, dist: tg.dist, at: at ?? undefined });
         }
       }
@@ -1625,7 +1626,7 @@ export class HybridGame {
       tappables: () =>
         g.targets()
           .filter((x) => (x.type === 'tappable' || x.type === 'lamp') && x.visible)
-          .map((x) => ({ id: x.id, kind: x.type === 'lamp' ? 'lamp' : x.kind, rect: rect(x.drawn), hit: rect(x.hit), rimmed: false, dist: x.dist, left: x.state ?? 1 })),
+          .map((x) => ({ id: x.id, kind: x.type === 'lamp' ? 'lamp' : x.kind, rect: rect(x.drawn), hit: rect(x.hit), rimmed: false, dist: x.dist, left: 1 - (x.state ?? 0) })),
       nav: () => g.targets().filter((x) => x.type === 'nav' && x.visible).map((x) => ({ id: x.id, kind: x.kind as never, rect: rect(x.drawn), hit: rect(x.hit), dist: x.dist })),
       explore: () => {
         const p = g.cam.pose();
@@ -1656,7 +1657,7 @@ export class HybridGame {
           on: !!r,
           kind: r?.kind ?? '',
           progress: g.cam.walkProgress,
-          glints: glints.map((x) => ({ id: x.id, rect: rect(x.drawn), hit: rect(x.hit), left: x.state ?? 1, dist: x.dist })),
+          glints: glints.map((x) => ({ id: x.id, rect: rect(x.drawn), hit: rect(x.hit), left: 1 - (x.state ?? 0), dist: x.dist })),
           skip: g.cam.walkKind === 'ride' && g.cam.skippable ? rect(l.skip) : null,
         };
       },

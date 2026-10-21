@@ -204,6 +204,10 @@ BLOCK_SURFACES[B.GEODE] = flat('crystal', FAMILY.CRYSTAL, 1);
 BLOCK_SURFACES[B.GOLDEN] = rock('goldLeaf', 'goldLeaf');
 BLOCK_SURFACES[B.BOULDER] = rock('deepTop', 'deepSide');
 BLOCK_SURFACES[B.TOPSOIL] = rock('turf', 'turf');
+// The hybrid's blocks (1B, W1): a secret's cracked wall, Halden masonry, timber decks and treads.
+BLOCK_SURFACES[B.CRACK] = { top: 'crumbling', side: 'crumbling', bottom: 'crumbling', family: FAMILY.MASONRY, rigidity: 1 };
+BLOCK_SURFACES[B.MASONRY] = { top: 'masonryTop', side: 'masonry', bottom: 'masonryTop', family: FAMILY.MASONRY, rigidity: 1 };
+BLOCK_SURFACES[B.DECK] = flat('plank', FAMILY.NONE, 0);
 /** W1 kits per biome slot (hostA, hostB, soft, hard, ore, rich, gem, special); biomes 4..13 reuse them. */
 const KIT_SURFACES: ReadonlyArray<ReadonlyArray<BlockSurface>> = [
   [rock('soil', 'soilSide'), rock('gravel', 'gravel'), rock('weatheredTop', 'weatheredSide'), flat('rootWood', FAMILY.NONE, 2), rock('copperOre', 'copperOre'), flat('amberVein', FAMILY.CRYSTAL), flat('gemRose', FAMILY.CRYSTAL), flat('rootWood', FAMILY.NONE, 2)],

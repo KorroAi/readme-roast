@@ -145,8 +145,9 @@ export class Renderer {
       frame: { calls: this.gl.info.render.calls, tris: this.gl.info.render.triangles },
     }),
     /** Toggle the stack (before/after captures) and the flame freeze; a debug view (light/chunk.ts LIGHT_DEBUG). */
-    setLight: (patch: { off?: boolean; frozen?: boolean; view?: number; post?: number; step?: number; tone?: number; look?: [number, number]; soft?: number; gain?: number; ao?: number; veil?: number; refresh?: boolean }): void => {
+    setLight: (patch: { off?: boolean; frozen?: boolean; view?: number; post?: number; step?: number; tone?: number; look?: [number, number]; soft?: number; gain?: number; ao?: number; veil?: number; refresh?: boolean; probes?: boolean }): void => {
       if (patch.refresh) this.light.invalidateShadows();
+      if (patch.probes === false) this.light.clearProbe();
       if (patch.soft !== undefined) this.light.lanternSoft = patch.soft;
       if (patch.gain !== undefined) this.light.lanternGain = patch.gain;
       if (patch.ao !== undefined) this.post.light.ao.strength = patch.ao;
