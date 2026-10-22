@@ -139,6 +139,12 @@ try {
             for (let y = Math.floor(y0); y >= Math.floor(y1); y--) if (!D.isSolid(ix, y, iz) && !D.isSolid(ix, y + 1, iz) && D.isSolid(ix, y - 1, iz)) return [ix + 0.5, y, iz + 0.5];
             return null;
           };
+          // The lowest walkable cell at (x, z) from y0 up to y1 (a bank: just above the water).
+          const standUp = (x, y0, y1, z) => {
+            const ix = Math.floor(x), iz = Math.floor(z);
+            for (let y = Math.floor(y0); y <= Math.floor(y1); y++) if (!D.isSolid(ix, y, iz) && !D.isSolid(ix, y + 1, iz) && D.isSolid(ix, y - 1, iz)) return [ix + 0.5, y, iz + 0.5];
+            return null;
+          };
           if (where === 'vista' && L.vista) {
             // Out to the balcony's lip (the last walkable step towards the deep), looking down into it.
             const b = L.vista.balcony, c = L.vista.centre;
@@ -164,7 +170,7 @@ try {
             let at = null;
             for (const off of [2.2, 3.0, 3.8, 4.6]) {
               for (const side of [1, -1]) {
-                at = standTop(a[0] - (dz / len) * side * off - (dx / len) * 2, a[1] + 2.5, a[1] - 0.4, a[2] + (dx / len) * side * off - (dz / len) * 2);
+                at = standUp(a[0] - (dz / len) * side * off - (dx / len) * 2, a[1] - 0.3, a[1] + 1.8, a[2] + (dx / len) * side * off - (dz / len) * 2);
                 if (at) break;
               }
               if (at) break;
@@ -351,10 +357,15 @@ try {
         continue;
       }
       await page.waitForTimeout(Number(opt.wait));
-      // The chunks meshed since, then the frame the screenshot shows.
-      await page.evaluate(() => {
-        window.__DD__.meshIdle?.();
-        window.__DD__.step(1, 0.02);
+      // Every chunk round the view meshed and applied (the workers' meshes land asynchronously), a
+      // frame for the cull and the light to follow, the meshes it asked for, then the frame the
+      // screenshot shows.
+      await page.evaluate(async () => {
+        const D = window.__DD__;
+        await D.meshIdle?.();
+        D.step(1, 0.05);
+        await D.meshIdle?.();
+        D.step(1, 0.02);
       });
       await page.waitForTimeout(300);
       const file = `${opt.out}/${name}.png`;

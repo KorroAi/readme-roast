@@ -378,7 +378,7 @@ export function lakeOf(id: string, level: number, cells: ReadonlyArray<readonly 
  * chain (spring to the overlook), pools in its flat chambers, its surface 0.25 below the banks. Lava
  * in the fire stratum, with rock bridges every few metres (a lava channel is never stepped in).
  */
-export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolean): { river: RiverSite; lakes: LakeDef[] } | null {
+export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolean): { river: RiverSite; lakes: LakeDef[]; falls: FallSite[] } | null {
   const plan = st.plan;
   const edges = riverEdges(plan);
   if (!edges.length) return null;
@@ -417,6 +417,15 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
     }
   }
   // Pools in the river's chambers (they are flat: the plan keeps them so).
+  const poolCells = new Map<number, Array<[number, number]>>();
+  const sink = (n: PlanNode, x: number, z: number, cells: Array<[number, number]>) => {
+    if (get(st, x, n.y, z) !== B.AIR || !SOLID[get(st, x, n.y - 1, z)]) return;
+    put(st, x, n.y - 1, z, B.AIR);
+    if (lavaRiver) put(st, x, n.y - 2, z, B.LAVA);
+    else if (!SOLID[get(st, x, n.y - 2, z)]) put(st, x, n.y - 2, z, BIOMES[n.biome].hosts[0]);
+    cells.push([x, z]);
+    reserved[x + z * w.sx] = 1;
+  };
   for (const id of plan.river) {
     const n = plan.nodes[id];
     if (!n.river) continue;
@@ -424,20 +433,54 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
     const cells: Array<[number, number]> = [];
     for (let z = Math.floor(n.z - r); z <= Math.ceil(n.z + r); z++) for (let x = Math.floor(n.x - r); x <= Math.ceil(n.x + r); x++) {
       if (Math.hypot(x + 0.5 - n.x, z + 0.5 - n.z) > r) continue;
-      if (get(st, x, n.y, z) !== B.AIR || !SOLID[get(st, x, n.y - 1, z)]) continue;
-      put(st, x, n.y - 1, z, B.AIR);
-      if (lavaRiver) put(st, x, n.y - 2, z, B.LAVA);
-      cells.push([x, z]);
-      reserved[x + z * w.sx] = 1;
+      sink(n, x, z, cells);
     }
-    if (!lavaRiver && cells.length > 4) lakes.push(lakeOf(`river_pool_${n.id}`, n.y - 0.25, cells));
+    poolCells.set(id, cells);
   }
+  // The source: the river pours out of the spring chamber's wall (or its roof's edge), on the side away
+  // from its way out, into a lobe of the pool that reaches under it.
+  const falls: FallSite[] = [];
+  const sp = plan.nodes[plan.river[0]];
+  const nx = plan.nodes[plan.river[1]];
+  if (sp && nx && sp.river) {
+    const al = Math.hypot(sp.x - nx.x, sp.z - nx.z) || 1;
+    const ax = (sp.x - nx.x) / al;
+    const az = (sp.z - nx.z) / al;
+    const topY = sp.y + 4;
+    let wallR = -1;
+    for (let r = 2; r <= Math.max(sp.rx, sp.rz) + 4; r += 0.5) {
+      if (SOLID[get(st, Math.floor(sp.x + ax * r), topY, Math.floor(sp.z + az * r))]) {
+        wallR = r;
+        break;
+      }
+    }
+    if (wallR > 2.5) {
+      const fr = wallR - 0.7;
+      const fx = sp.x + ax * fr;
+      const fz = sp.z + az * fr;
+      const cells = poolCells.get(sp.id) ?? [];
+      for (let s2 = Math.min(sp.rx, sp.rz) * 0.5 - 1; s2 <= fr + 0.6; s2 += 0.5) {
+        const cx = sp.x + ax * s2;
+        const cz = sp.z + az * s2;
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+          const x = Math.floor(cx) + dx;
+          const z = Math.floor(cz) + dz;
+          if (Math.hypot(x + 0.5 - cx, z + 0.5 - cz) > 1.35 || !inZone(st, x, sp.y, z, 3)) continue;
+          sink(sp, x, z, cells);
+        }
+      }
+      poolCells.set(sp.id, cells);
+      falls.push({ id: `spring_${sp.id}`, kind: lavaRiver ? 'lava' : 'water', top: [fx, topY - 0.2, fz], bottom: [fx, sp.y - 0.25, fz], width: 1.6 });
+    }
+  }
+  for (const [id, cells] of poolCells) if (!lavaRiver && cells.length > 4) lakes.push(lakeOf(`river_pool_${id}`, plan.nodes[id].y - 0.25, cells));
   if (points.length < 4) return null;
   const spring = plan.nodes[plan.river[0]];
   const mouth = plan.nodes[plan.river[plan.river.length - 1]];
   return {
     river: { id: `river_${plan.stratum}`, kind: lavaRiver ? 'lava' : 'water', points, width: 2.2, spring: [spring.x, spring.y, spring.z], mouth: [mouth.x, mouth.y, mouth.z] },
     lakes,
+    falls,
   };
 }
 

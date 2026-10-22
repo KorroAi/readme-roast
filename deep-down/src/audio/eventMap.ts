@@ -221,6 +221,8 @@ export const EVENT_SOUNDS: EventSounds = {
   'quest:done': (p) => (p.kind === 'order' || MOMENT_STEPS.test(p.id) ? null : req('quest.done', { gain: p.kind === 'biome' ? 0.8 : 0.9 })),
   'quest:shard': () => req('loop.shard'),
   'quest:heartLit': () => req('loop.heart'),
+  // The Dark Heart fallen: the deep relit (VIS's gold ring); the ending's theme rises after (AudioSystem).
+  'quest:ending': () => req('finale.relight'),
   'guide:arrival': () => req('ui.card'),
   // A hint: a hazard's warning (LOOP's, as its meter passes 40 %) in that hazard's own voice; a
   // hazard zone walked into (once per stratum) a low cue; a creature's first elemental blow nothing
@@ -306,7 +308,6 @@ export const VOICED_ELSEWHERE: Partial<Record<keyof GameEvents, string>> = {
   'mob:guardianOpen': "MOBS' guardian.open ('mob:sfx': an exhale and two rising chimes, the tell to strike)",
   'mob:guardianDefeated': "MOBS' guardian.fall ('mob:sfx', ending on the shard's ring) and the score's victory sting (AudioSystem)",
   'quest:page': "'world:note' (the page read)",
-  'quest:ending': "the ending's theme (AudioSystem)",
   'bestiary:reward': "the bestiary's new page ('mob:bestiary')",
   'world:biome': "the score and the beds crossfade (AudioSystem); a first visit's motif and its arrival card ('guide:arrival')",
   'world:pocket': "the tremor's own crack ('world:event' event.tremor)",

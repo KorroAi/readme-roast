@@ -78,8 +78,9 @@ try {
         // Few rendered frames (each is a full SwiftShader render): the meshes round the spot are
         // built (meshIdle), the cull and the biome look follow in a frame or two.
         D.step(2, 0.1);
-        D.meshIdle?.();
+        await D.meshIdle?.();
         D.step(1, 0.1);
+        await D.meshIdle?.();
         let worst = { calls: 0, tris: 0, yaw: 0 };
         let sumC = 0;
         let sumT = 0;
@@ -87,7 +88,10 @@ try {
           const yaw = (k / HEADINGS) * Math.PI * 2;
           g.player.yaw = yaw + Math.PI;
           D.look(yaw, -0.08);
-          // One game frame (it renders the whole frame: the scene and the post passes).
+          // One game frame to turn (the cull asks for what it now sees), its meshes, then the measured
+          // frame (it renders the whole frame: the scene and the post passes).
+          D.step(1, 0.05);
+          await D.meshIdle?.();
           D.step(1, 0.05);
           const info = g.renderer.gl.info.render;
           sumC += info.calls;

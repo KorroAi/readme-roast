@@ -50,7 +50,7 @@ export function shiftTo(key: number): number {
 export const KEYED: ReadonlySet<string> = new Set([
   // Rewards, quests, guidance.
   'quest.step', 'quest.done', 'feat.fanfare', 'discovery', 'site.found', 'camp.upgrade', 'world.worksOpened', 'place.outpost',
-  'tutorial.step', 'ui.hint', 'guide.way', 'page.read', 'loop.shard', 'loop.unlock', 'loop.order', 'loop.heart', 'loop.gate', 'gem.socket',
+  'tutorial.step', 'ui.hint', 'guide.way', 'page.read', 'loop.shard', 'loop.unlock', 'loop.order', 'loop.heart', 'finale.relight', 'loop.gate', 'gem.socket',
   'bestiary.page', 'bestiary.complete', 'travel.whoosh', 'banked', 'craft', 'camp', 'respawned', 'loop.combo',
   // Crafting per station (their completion chimes).
   'craft.workbench', 'craft.furnace', 'craft.forge', 'craft.alchemy', 'craft.hand', 'craft.trader',

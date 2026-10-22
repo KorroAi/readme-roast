@@ -259,7 +259,7 @@ export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number
 
 /** Where a nest's brood may land: not in a torch's pool, the camp or an outpost, and never right beside the explorer. */
 function nestOk(sim: MobSim, ctx: MobContext, x: number, y: number, z: number): boolean {
-  if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.env.light(x, y, z) > MOBS_RULES.torchFear) return false;
+  if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.submerged(x, y, z) || sim.env.light(x, y, z) > MOBS_RULES.torchFear) return false;
   return Math.hypot(x + 0.5 - ctx.player.x, y - ctx.player.y, z + 0.5 - ctx.player.z) >= MOBS_RULES.nestMinDist;
 }
 
@@ -274,7 +274,7 @@ function shapeOf(kind: MobKind): Shape {
 }
 
 function canSpawnBeingAt(sim: MobSim, x: number, y: number, z: number, ctx: MobContext): boolean {
-  if (sim.unsafe(x + 0.5, y, z + 0.5)) return false;
+  if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.submerged(x, y, z)) return false;
   return Math.hypot(x + 0.5 - ctx.player.x, y + 0.5 - ctx.player.y, z + 0.5 - ctx.player.z) >= 7;
 }
 
@@ -429,7 +429,7 @@ export function spawnFirstFight(sim: MobSim, ctx: MobContext): SimMob | null {
         for (let dy = 0; dy <= 8; dy++) {
           const y = Math.floor(p.y) + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
           if (!standableFor(s, x, y, z, 1)) continue;
-          if (sim.unsafe(x + 0.5, y, z + 0.5)) break;
+          if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.submerged(x, y, z)) break;
           const light = sim.env.light(x, y, z);
           if (light > 0.6) break;
           const eye = { x: x + 0.5, y: y + 0.4, z: z + 0.5 };

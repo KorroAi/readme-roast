@@ -166,9 +166,17 @@ describe('the strata generator (round 3)', () => {
     const l = L(n);
     expect(l.vista).not.toBeNull();
     expect(l.vista!.radius).toBeGreaterThanOrEqual(27);
-    expect(l.falls.length).toBe(1);
+    // The vista's fall first (from the balcony's edge into its plunge pool), then the river's spring.
+    expect(l.falls[0].id).toMatch(/^fall_/);
     expect(l.falls[0].top[1] - l.falls[0].bottom[1]).toBeGreaterThan(12);
     expect(l.falls[0].kind).toBe(l.vista!.lava ? 'lava' : 'water');
+    for (const f of l.falls.slice(1)) {
+      expect(f.id).toMatch(/^spring_/);
+      expect(f.kind).toBe(l.rivers[0].kind);
+      // It lands in its pool (water or lava under its foot).
+      const [x, y, z] = [Math.floor(f.bottom[0]), Math.round(f.bottom[1] + 0.25), Math.floor(f.bottom[2])];
+      expect(SOLID[l.world.get(x, y - 1, z)], `${f.id} pool`).toBe(0);
+    }
     expect(l.rivers.length).toBe(1);
     expect(l.rivers[0].points.length).toBeGreaterThan(20);
     // Downstream, the water never climbs (a step of half a block at most, the channel's rounding).
@@ -206,6 +214,11 @@ describe('the strata generator (round 3)', () => {
       const landing = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => isState(l.world.blocks, SOLID, l.world.sx, l.world.index(tx + dx, ty, tz + dz)) && SOLID[l.world.get(tx + dx, ty - 1, tz + dz)] === 1);
       expect(landing, `${r.id} landing`).toBe(true);
     }
+  });
+
+  it('the river pours out of its spring in most strata (a fall from the spring chamber\'s wall)', () => {
+    const springs = [1, 2, 3, 4, 5, 6].filter((n) => L(n).falls.some((f) => f.id.startsWith('spring_'))).length;
+    expect(springs).toBeGreaterThanOrEqual(4);
   });
 
   it('dresses the Halden Mines\' drifts with mine sets across the passage, and lays its rails along the walls', () => {

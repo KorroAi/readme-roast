@@ -212,7 +212,8 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
 
   const caverns = plan.nodes.filter((n) => n.kind === 'cavern' || n.kind === 'lair' || n.kind === 'heart' || n.kind === 'vista').map((n) => ({ id: `cavern_${n.id}`, biome: n.biome, centre: [n.x, n.y, n.z] as V3, radius: [n.rx, n.ry, n.rz] as V3 }));
   const lakes = [...decor.lakes, ...(vista?.lakes ?? []), ...(river?.lakes ?? []), ...pieces.flatMap((p) => p.lakes)];
-  const falls = vista?.falls ?? [];
+  // The vista's fall first (Game's old-world landmark reads falls[0]), then the river's spring.
+  const falls = [...(vista?.falls ?? []), ...(river?.falls ?? [])];
   const landmarks = content.landmarks;
   if (falls[0]) {
     landmarks.fallTop = falls[0].top;

@@ -25,6 +25,8 @@ export const DUCKS: Partial<Record<SfxName, DuckSpec>> = {
   'loop.gate': { ...STORY, hold: 3.4 },
   // The Heart relit: the score's own 'heartLit' sting carries it, so the music only steps back a little.
   'loop.heart': { music: 0.8, ambience: 0.45, hold: 4.5 },
+  // The deep relit: the beds give way, the Heart's chord keeps its body under the glints.
+  'finale.relight': { music: 0.85, ambience: 0.5, hold: 5 },
   'quest.done': STORY,
   'world.descent': { ...STORY, hold: 3 },
   'world.worksOpened': { ...STORY, hold: 3.2 },

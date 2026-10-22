@@ -62,10 +62,33 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   const block = prep!.block;
   await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 0.5, z + 0.5, 0, 0), block);
   expect(await untilGame(page, async () => (await hud(page)).reticle === 'mine', 4), 'the reticle reads "mine" on the vein').toBe(true);
+  // What the pick is on (the reticle's block), for the record.
+  const aim = () =>
+    page.evaluate(([x, y, z]) => {
+      const g = window.__DD__.game;
+      const tg = g.mining.target;
+      return { b: window.__DD__.block(x, y, z), target: tg ? [tg.x, tg.y, tg.z, tg.block, tg.inReach] : null, action: g.input.action, mining: g.input.mining, broken: window.__DD__.ui.events('block:broken').map((e) => e.payload as { x: number; y: number; z: number; block: number }) };
+    }, block);
+  console.log(`[e2e] vein ${JSON.stringify(block)} before the hold ${JSON.stringify(await aim())}`);
+  await page.evaluate(() => window.__DD__.ui.clear());
   const action = await centreOf(page, 'action');
   await touch.down(action, 8);
-  const broke = await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === AIR, 25);
+  let said = Date.now();
+  // The vein's cell, or the copper cell the pick met first on the way to it, breaks.
+  const broke = await untilGame(
+    page,
+    async () => {
+      const a = await aim();
+      if (Date.now() - said > 20_000) {
+        said = Date.now();
+        console.log(`[e2e] holding ${JSON.stringify(a)}`);
+      }
+      return a.b === AIR || a.broken.some((e: { block: number }) => e.block === COPPER);
+    },
+    25,
+  );
   await touch.up();
+  if (!broke) console.log(`[e2e] not broken ${JSON.stringify(await aim())}`);
   expect(broke, 'the vein broke under a held Action').toBe(true);
 
   await mark(page, 'first5 pickup');

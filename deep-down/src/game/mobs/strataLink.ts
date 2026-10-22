@@ -9,6 +9,16 @@ import type { MobBiome, MobKind } from './types';
  * (MobDirector) and the Node proofs (tools/mob-density.ts) wire a stratum the same way.
  */
 
+type Solid = (x: number, y: number, z: number) => boolean;
+
+/** Still water as WORLD gives it (LakeDef): a surface height over the masked columns of a box. */
+export interface LakeView {
+  level: number;
+  min: readonly number[];
+  max: readonly number[];
+  mask: ArrayLike<number>;
+}
+
 /** The stratum layout fields MOBS reads (structurally: WORLD's StratumLayout). */
 export interface StrataLayout {
   stratum?: number;
@@ -18,6 +28,27 @@ export interface StrataLayout {
   nests?: ReadonlyArray<{ id?: string; biome: string; p: readonly number[]; radius?: number; kind?: string | null }>;
   spawnPoints?: ReadonlyArray<{ p: readonly number[]; biome: string; dark: boolean; open: boolean; ceiling: boolean }>;
   heart?: { centre: readonly number[]; radius: number; spawn: readonly number[] } | null;
+  features?: { lakes?: ReadonlyArray<LakeView> };
+}
+
+/**
+ * Whether a cell's bottom lies more than `deep` m under a lake's surface with open water over it
+ * (rock between them: another cave under the lake, dry). Cells are integers.
+ */
+export function underLake(lakes: readonly LakeView[], solid: Solid, x: number, y: number, z: number, deep = 0.45): boolean {
+  for (const l of lakes) {
+    if (x < l.min[0] || x > l.max[0] || z < l.min[1] || z > l.max[1]) continue;
+    if (!l.mask[(z - l.min[1]) * (l.max[0] - l.min[0] + 1) + (x - l.min[0])]) continue;
+    if (y > l.level - deep || y < l.level - 16) continue;
+    let open = true;
+    for (let yy = y; yy < Math.floor(l.level); yy++)
+      if (solid(x, yy, z)) {
+        open = false;
+        break;
+      }
+    if (open) return true;
+  }
+  return false;
 }
 
 /** The dark tide: with no day cycle in the deep, the creatures stir in waves (an 8-minute cycle, 0..1). */
@@ -53,6 +84,9 @@ export function linkStrata(sim: MobSim, layout: StrataLayout, heartLit: () => bo
     lairs.push({ id: 'heart', biome: 'heart', guardian: 'heartOfDark', x: h.centre[0], y: h.centre[1], z: h.centre[2], radius: h.radius, sx: h.spawn[0], sy: h.spawn[1], sz: h.spawn[2], sealed: () => !heartLit() });
   }
   sim.lairs = lairs;
+  // Still water: nothing spawns where a lake would hide it (the dips of a flooded chamber).
+  const lakes = (layout.features?.lakes ?? []).filter((l) => l && Array.isArray(l.min) && Array.isArray(l.max) && l.mask && Number.isFinite(l.level));
+  sim.env.underwater = lakes.length ? (x, y, z) => underLake(lakes, sim.env.solid, x, y, z) : undefined;
   const nests: Nest[] = [];
   let id = 1;
   for (const n of layout.nests ?? []) {

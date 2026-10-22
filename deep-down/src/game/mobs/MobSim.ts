@@ -38,6 +38,8 @@ export interface MobEnv {
   biomeAt?(x: number, y: number, z: number): MobBiome | null;
   /** No monster may spawn or stay here (outposts, the camp's margin): checked with inCamp. */
   safe?(x: number, y: number, z: number): boolean;
+  /** The cell (its bottom) lies under still water (WORLD's lakes), deep enough to hide a creature. */
+  underwater?(x: number, y: number, z: number): boolean;
 }
 
 export type MobSimEvent =
@@ -592,7 +594,7 @@ export class MobSim {
   /** May a monster spawn in this cell now? (dark, outside the pool and the camp, deep enough). Pure, unit-tested. */
   canSpawnMonster(x: number, y: number, z: number, ctx: MobContext): boolean {
     const env = this.env;
-    if (this.unsafe(x + 0.5, y, z + 0.5)) return false;
+    if (this.unsafe(x + 0.5, y, z + 0.5) || this.submerged(x, y, z)) return false;
     if (!this.strata && env.depthOf(y) < this.monsterDepth) return false;
     if (env.light(x, y, z) > MOBS_RULES.darkLight) return false;
     const l = ctx.lantern;
@@ -603,7 +605,7 @@ export class MobSim {
   }
 
   canSpawnBeing(x: number, y: number, z: number, ctx: MobContext): boolean {
-    if (this.unsafe(x + 0.5, y, z + 0.5)) return false;
+    if (this.unsafe(x + 0.5, y, z + 0.5) || this.submerged(x, y, z)) return false;
     if (!this.strata && this.env.depthOf(y) < MOBS_RULES.beingDepth) return false;
     return Math.hypot(x + 0.5 - ctx.player.x, y + 0.5 - ctx.player.y, z + 0.5 - ctx.player.z) >= 7;
   }
@@ -840,6 +842,11 @@ export class MobSim {
   /** The camp, its margin, an outpost: no monster here. */
   unsafe(x: number, y: number, z: number): boolean {
     return this.env.inCamp(x, y, z) || (this.env.safe?.(x, y, z) ?? false);
+  }
+
+  /** A cell under a lake's water (nothing spawns where the water would hide it: unfair, and unseen). */
+  submerged(x: number, y: number, z: number): boolean {
+    return this.env.underwater?.(Math.floor(x), Math.floor(y), Math.floor(z)) ?? false;
   }
 
   /** The biome at a point: forced, WORLD's map, the explorer's, or by depth in the first world. */
