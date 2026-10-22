@@ -446,16 +446,28 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
     const al = Math.hypot(sp.x - nx.x, sp.z - nx.z) || 1;
     const ax = (sp.x - nx.x) / al;
     const az = (sp.z - nx.z) / al;
-    const topY = sp.y + 4;
-    let wallR = -1;
-    for (let r = 2; r <= Math.max(sp.rx, sp.rz) + 4; r += 0.5) {
-      if (SOLID[get(st, Math.floor(sp.x + ax * r), topY, Math.floor(sp.z + az * r))]) {
-        wallR = r;
+    // Out from the centre along the floor to the wall (or the floor's edge): the fall's foot just
+    // inside it, its top the roof over the foot (water out of the ceiling's edge, 3-12 m up).
+    let footR = -1;
+    for (let r = 2; r <= Math.max(sp.rx, sp.rz) + 3; r += 0.5) {
+      const x = Math.floor(sp.x + ax * r);
+      const z = Math.floor(sp.z + az * r);
+      // (The pool, already sunk round the centre, counts as floor.)
+      if (SOLID[get(st, x, sp.y, z)] || SOLID[get(st, x, sp.y + 1, z)] || (!SOLID[get(st, x, sp.y - 1, z)] && !SOLID[get(st, x, sp.y - 2, z)])) break;
+      footR = r;
+    }
+    let roofY = -1;
+    if (footR > 2.5) {
+      const x = Math.floor(sp.x + ax * (footR - 0.5));
+      const z = Math.floor(sp.z + az * (footR - 0.5));
+      for (let y = sp.y + 2; y <= sp.y + 12; y++) if (SOLID[get(st, x, y, z)]) {
+        roofY = y;
         break;
       }
     }
-    if (wallR > 2.5) {
-      const fr = wallR - 0.7;
+    if (footR > 2.5 && roofY >= sp.y + 3) {
+      const topY = roofY;
+      const fr = footR - 0.5;
       const fx = sp.x + ax * fr;
       const fz = sp.z + az * fr;
       const cells = poolCells.get(sp.id) ?? [];

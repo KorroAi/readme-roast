@@ -41,7 +41,7 @@ export function underLake(lakes: readonly LakeView[], solid: Solid, x: number, y
     if (!l.mask[(z - l.min[1]) * (l.max[0] - l.min[0] + 1) + (x - l.min[0])]) continue;
     if (y > l.level - deep || y < l.level - 16) continue;
     let open = true;
-    for (let yy = y; yy < Math.floor(l.level); yy++)
+    for (let yy = y; yy <= Math.floor(l.level); yy++)
       if (solid(x, yy, z)) {
         open = false;
         break;

@@ -169,7 +169,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'quest.step.return': 'Revenez à la {stratum}',
   'quest.step.heart': 'Apportez les éclats au Cœur',
   'quest.step.boss': 'Vainquez le gardien du Cœur',
-  'quest.step.free': 'Partie libre : les profondeurs sont à vous',
+  'quest.step.free': 'Jeu libre : le gouffre est à vous',
   'quest.chain.guardian': 'Vainquez {guardian} ({biome})',
   'quest.chain.prepare': 'Fabriquez : {pick}. La roche du dessous l’exige',
   'quest.chain.gate': 'Ouvrez la Porte de la {stratum} avec ses 2 Éclats de Cœur',

@@ -56,7 +56,12 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   const touch = await newExpedition(page, { tutorial: false });
   await quiet(page);
 
-  // Craft ×1 and ×5 (by hand): planks from fungal wood, torches from fungal wood and coal.
+  // Craft ×1 and ×5 (by hand): planks from fungal wood, torches from fungal wood and coal; by the
+  // camp's Workbench (the ladders need it).
+  const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite?.stations.find((s: { station: string }) => s.station === 'workbench')?.p ?? null);
+  expect(bench, 'the camp has a Workbench').not.toBeNull();
+  const byBench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench!);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), byBench!);
   await page.evaluate(() => {
     window.__DD__.give('fungalWood', 8);
     window.__DD__.give('coal', 2);

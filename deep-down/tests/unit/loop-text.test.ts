@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { en } from '../../src/i18n/en';
 import { CATALOGUE, ITEMS } from '../../src/config/items';
-import { FEATS3, ORDER_TEMPLATES, TUTORIAL, PAGE_COUNT, STRATUM_BIOMES } from '../../src/config/quests';
+import { FEATS3, NEXT_PICK, ORDER_TEMPLATES, TUTORIAL, PAGE_COUNT, STRATUM_BIOMES } from '../../src/config/quests';
 import { CAMP_UPGRADES, CAMP_UPGRADE_IDS, TRADES } from '../../src/config/camp';
 import { RECIPE_CATEGORIES, RECIPES, recipeInputs } from '../../src/config/recipes';
 import { STATIONS, STATION_IDS } from '../../src/config/stations';
@@ -154,7 +154,26 @@ class World implements StrataLike {
   }
 }
 
-import { setLanguage } from '../../src/i18n';
+import { setLanguage, t, type TextKey } from '../../src/i18n';
+import { inSentence } from '../../src/game/quests/Quests';
+
+describe('the main tracker fits one row of the 390 px HUD', () => {
+  for (const lang of ['en', 'fr'] as const) it(`every step line of the chain, for every stratum, guardian and pick (${lang})`, () => {
+    setLanguage(lang);
+    try {
+      const strata = [1, 2, 3, 4, 5, 6].map((n) => t(`stratum.${n}` as TextKey));
+      const lines = [t('quest.step.tutorial'), t('quest.step.heart'), t('quest.step.boss'), t('quest.step.free')];
+      for (const sn of strata) lines.push(t('quest.step.lairs', { stratum: sn }), t('quest.step.gate', { stratum: sn }), t('quest.step.return', { stratum: sn }));
+      for (const next of strata.slice(1)) lines.push(t('quest.step.descend', { next }));
+      for (const r of Object.values(ROSTERS)) lines.push(t('quest.step.guardian', { guardian: inSentence(t(`mob.${r.guardian}` as TextKey)) }));
+      for (const pick of Object.values(NEXT_PICK)) if (pick) lines.push(t('quest.step.prepare', { pick: t(ITEMS[pick as ItemId].name) }));
+      expect(lines.length).toBeGreaterThan(40);
+      expect(lines.filter((line) => line.length > 34)).toEqual([]);
+    } finally {
+      setLanguage('en');
+    }
+  });
+});
 
 describe('nothing the loop shows is a raw key, an unfilled {placeholder} or "undefined"', () => {
   for (const lang of ['en', 'fr'] as const) it(`a whole expedition, scripted (${lang}): every toast, hint, card, view and line`, () => {
@@ -283,6 +302,11 @@ function expedition(): void {
         if (bad && !/(^|\.)(id|biome|kind|highlight|target|item|rarest|outcome)$/.test(path) && !/\.(biomes|shards|records)\[/.test(path)) problems.push(`${type}.${path}: ${bad}`);
       }
     }
+    // Every main tracker line the expedition showed fits one row of the 390 px HUD (QA 21:01), in
+    // either language: the HUD draws its count apart, so the line itself stays at 34 characters.
+    const steps = said.filter(([t]) => t === 'quest:step').map(([, p]) => (p as { text: string }).text);
+    expect(new Set(steps).size).toBeGreaterThan(10);
+    expect(steps.filter((line) => line.length > 34)).toEqual([]);
     expect(said.filter(([t]) => t === 'toast').length).toBeGreaterThan(40);
     expect(problems.slice(0, 20)).toEqual([]);
     // The checker itself catches what it is for, and it read a lot of text.

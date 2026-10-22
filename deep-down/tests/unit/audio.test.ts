@@ -493,6 +493,8 @@ describe('every event heard once, on purpose', () => {
 
   it('hears a reward through its moment, never twice', () => {
     for (const reason of REWARD_MOMENTS) expect(name('reward:paid', { items: { torch: 2 }, reason }), reason).toBeNull();
+    // The tutorial's pay comes with its own end chime ('quest:done' main:tutorial).
+    expect(REWARD_MOMENTS.has('tutorial')).toBe(true);
     expect(name('reward:paid', { items: { glowcap: 3 }, reason: 'garden' })).toBe('reward.pouch');
     expect(name('order:paid', { id: 'order:3', reward: '+4 Torch' })).toBe('loop.order');
     expect(name('quest:done', { id: 'order:3', kind: 'order', reward: '+4 Torch' })).toBeNull();
@@ -506,6 +508,9 @@ describe('every event heard once, on purpose', () => {
     expect(name('mob:bestiary', { kind: 'gritBoar', page: 'new', found: 2, total: 61 })).toBe('bestiary.page');
     expect(name('mob:bestiary', { kind: 'gritBoar', page: 'complete', found: 2, total: 61 })).toBe('bestiary.complete');
     expect(name('bestiary:reward', SAMPLE_PAYLOADS['bestiary:reward'])).toBeNull();
+    // The Heart's two acts: the shards kindling, then the deep relit (the ending's theme follows).
+    expect(name('quest:heartLit', {})).toBe('loop.heart');
+    expect(name('quest:ending', {})).toBe('finale.relight');
   });
 
   it('plays a sound for every round-3 action', () => {

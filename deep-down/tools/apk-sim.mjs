@@ -61,6 +61,15 @@ const check = (ok, what) => {
   if (!ok) process.exitCode = 1;
 };
 const atMenu = () => page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: WAIT });
+// A tap is one CDP gesture (start and end together): Playwright's tap() awaits each half, and under
+// load the page reads a long-press (no click).
+const cdp = await ctx.newCDPSession(page);
+const tap = async (loc) => {
+  await loc.waitFor({ state: 'visible', timeout: WAIT });
+  const b = await loc.boundingBox();
+  const p = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), id: 1, radiusX: 8, radiusY: 8, force: 1 };
+  await Promise.all([cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] }), cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })]);
+};
 
 try {
   await page.goto(`https://${HOST}/index.html`);
@@ -71,7 +80,7 @@ try {
   check(version?.versionCode === packaged.versionCode && version?.version === packaged.version, `the game reports version ${version?.version} (versionCode ${version?.versionCode}), as packaged`);
   const timings = await page.evaluate(() => window.__DD__.report().timings);
   check(timings.worker === 1, `world generated in the module worker (${JSON.stringify(timings)})`);
-  await page.getByRole('button', { name: /New Expedition/i }).tap();
+  await tap(page.getByRole('button', { name: /New Expedition/i }));
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: WAIT });
   check(true, `New Expedition starts play (${since()})`);
   // Generated icons are data: PNGs (the shell must let them through): decode one for real (round 3:
@@ -121,7 +130,7 @@ try {
   const back = await page.evaluate(() => window.deepDownBack?.());
   check(back === false, 'Back on the crash panel exits (deepDownBack returns false)');
   if (shown) {
-    await page.locator('.dd-crash-restart').tap();
+    await tap(page.locator('.dd-crash-restart'));
     await atMenu();
     expectErrors = false;
     check(await page.getByRole('button', { name: /Continue/i }).count() > 0, `Restart reloads to the menu with Continue (${since()})`);

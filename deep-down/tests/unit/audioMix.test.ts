@@ -335,6 +335,10 @@ describe('the AudioSystem on the emulator: the score follows the explorer', () =
     for (const s of afterFall) expect(['heartBoss', 'ending']).toContain(s.score);
     expect(at(tl, 'ending', 0).score).toBe('ending');
     expect(rig.peaks.music).toBeLessThanOrEqual(MUSIC_VOICES);
+    // The Heart's two acts in sound: the shards kindling as it wakes, the deep relit as the Dark Heart falls.
+    const played = rig.audio.stats().played;
+    expect(played['loop.heart']).toBe(1);
+    expect(played['finale.relight']).toBe(1);
   });
 });
 

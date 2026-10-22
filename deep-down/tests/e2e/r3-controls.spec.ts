@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, aimAtOre, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -16,7 +16,6 @@ test.describe.configure({ timeout: 1_200_000 });
 const COPPER = 7;
 const AIR = 0;
 
-const player = (page: Page) => page.evaluate(() => ({ x: window.__DD__.game.player.x as number, y: window.__DD__.game.player.y as number, z: window.__DD__.game.player.z as number }));
 
 /** Where a world point is on screen (CSS px) under the current camera, or null behind it. */
 async function screenOf(page: Page, p: [number, number, number]): Promise<{ x: number; y: number } | null> {
@@ -42,11 +41,9 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   await quiet(page);
 
   // A tap on a vein mines it until it breaks (nothing held).
-  const p0 = await player(page);
-  const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p0.x, p0.y, p0.z]);
-  expect(prep, 'a copper vein near the camp').not.toBeNull();
-  const block = prep!.block;
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 0.5, z + 0.5, 0, -0.1), block);
+  const vein = await aimAtOre(page, COPPER, [0, -0.1]);
+  expect(vein, 'a copper vein near the camp').not.toBeNull();
+  const block = vein!;
   const at = await screenOf(page, [block[0] + 0.5, block[1] + 0.5, block[2] + 0.5]);
   expect(at, 'the vein is on screen').not.toBeNull();
   await touch.tap({ x: Math.round(at!.x), y: Math.round(at!.y) });

@@ -24,6 +24,11 @@ export interface BedLayerDef {
   tone: number;
   /** Its slow motion (Hz): gusts, breathing, lapping. */
   rate?: number;
+  /**
+   * A drone's harmonics above its third, which a phone speaker plays (its fundamental and octave sit
+   * under a phone's range): ratios of the tone, chosen in the biome score's scale.
+   */
+  upper?: readonly number[];
 }
 
 export interface BedShot {
@@ -53,19 +58,19 @@ export const BEDS: Record<BiomeId, BedRecipe> = {
   amberHollows: {
     space: 1.0,
     room: { level: 0.42, cutoff: 320, air: 0.08, sub: 0.03 },
-    layers: [{ kind: 'wind', level: 0.05, tone: 520, rate: 0.05 }],
+    layers: [{ kind: 'wind', level: 0.2, tone: 520, rate: 0.05 }],
     shots: [drip(4.5, 0.95, 1.2), { name: 'amb.trickle', every: 24, gain: [0.4, 0.7], pan: 0.8 }, rumble(70)],
   },
   mushroomForest: {
     space: 0.8,
     room: { level: 0.36, cutoff: 300, air: 0.06, sub: 0.02 },
-    layers: [{ kind: 'hum', level: 0.07, tone: 196, rate: 0.11 }, { kind: 'shimmer', level: 0.025, tone: 1318, rate: 0.2 }],
+    layers: [{ kind: 'hum', level: 0.1, tone: 196, rate: 0.11 }, { kind: 'shimmer', level: 0.04, tone: 1318, rate: 0.2 }],
     shots: [{ name: 'amb.spore', every: 9, gain: [0.4, 0.8], pitch: [0.85, 1.2], pan: 0.9 }, drip(8, 1, 1.3), { name: 'amb.moth', every: 26, gain: [0.4, 0.7], pan: 0.8 }],
   },
   rootGalleries: {
     space: 0.75,
     room: { level: 0.4, cutoff: 280, air: 0.05, sub: 0.04 },
-    layers: [{ kind: 'wind', level: 0.04, tone: 380, rate: 0.04 }],
+    layers: [{ kind: 'wind', level: 0.19, tone: 380, rate: 0.04 }],
     shots: [{ name: 'amb.root', every: 14, gain: [0.5, 0.9], pitch: [0.85, 1.15], pan: 0.85 }, { name: 'amb.trickle', every: 18, gain: [0.4, 0.8], pan: 0.8 }, drip(10, 0.85, 1)],
   },
   floodedGrottoes: {
@@ -83,49 +88,49 @@ export const BEDS: Record<BiomeId, BedRecipe> = {
   haldenMines: {
     space: 0.85,
     room: { level: 0.4, cutoff: 300, air: 0.06, sub: 0.03 },
-    layers: [{ kind: 'wind', level: 0.035, tone: 450, rate: 0.05 }],
+    layers: [{ kind: 'wind', level: 0.18, tone: 450, rate: 0.05 }],
     shots: [{ name: 'amb.creak', every: 12, gain: [0.5, 0.9], pitch: [0.85, 1.15], pan: 0.85 }, { name: 'amb.pick', every: 30, gain: [0.35, 0.6], pan: 0.9 }, { name: 'amb.rail', every: 45, gain: [0.35, 0.6], pan: 0.9 }, drip(9)],
   },
   frostCaverns: {
     space: 1.2,
     room: { level: 0.3, cutoff: 400, air: 0.14, sub: 0.02 },
-    layers: [{ kind: 'wind', level: 0.12, tone: 760, rate: 0.07 }],
+    layers: [{ kind: 'wind', level: 0.21, tone: 760, rate: 0.07 }],
     shots: [{ name: 'amb.ice', every: 11, gain: [0.45, 0.9], pitch: [0.8, 1.2], pan: 0.9 }, { name: 'amb.iceCrack', every: 26, gain: [0.4, 0.8], pan: 0.9 }, drip(12, 1.2, 1.5)],
   },
   glowrootJungle: {
     space: 0.8,
     room: { level: 0.34, cutoff: 320, air: 0.08, sub: 0.02 },
-    layers: [{ kind: 'insects', level: 0.03, tone: 4200, rate: 0.12 }, { kind: 'hum', level: 0.04, tone: 220, rate: 0.09 }],
+    layers: [{ kind: 'insects', level: 0.04, tone: 4200, rate: 0.12 }, { kind: 'hum', level: 0.07, tone: 220, rate: 0.09 }],
     shots: [{ name: 'amb.bird', every: 13, gain: [0.35, 0.75], pitch: [0.85, 1.2], pan: 0.9 }, { name: 'amb.frog', every: 15, gain: [0.4, 0.8], pitch: [0.85, 1.15], pan: 0.85 }, drip(5)],
   },
   sulphurBog: {
     space: 0.9,
     room: { level: 0.36, cutoff: 260, air: 0.06, sub: 0.04 },
-    layers: [{ kind: 'gloop', level: 0.12, tone: 380, rate: 0.35 }, { kind: 'hiss', level: 0.025, tone: 2600, rate: 0.13 }],
+    layers: [{ kind: 'gloop', level: 0.27, tone: 380, rate: 0.35 }, { kind: 'hiss', level: 0.035, tone: 2600, rate: 0.13 }],
     shots: [{ name: 'amb.bubble', every: 3.2, gain: [0.4, 0.9], pitch: [0.75, 1.3], pan: 0.85 }, { name: 'amb.hiss', every: 20, gain: [0.35, 0.6], pan: 0.8 }],
   },
   sunkenCity: {
     space: 1.35,
     room: { level: 0.36, cutoff: 300, air: 0.11, sub: 0.03 },
-    layers: [{ kind: 'wind', level: 0.06, tone: 620, rate: 0.035 }],
+    layers: [{ kind: 'wind', level: 0.2, tone: 620, rate: 0.035 }],
     shots: [{ name: 'amb.cityEcho', every: 17, gain: [0.4, 0.75], pitch: [0.85, 1.1], pan: 0.9 }, { name: 'amb.farBell', every: 40, gain: [0.35, 0.6], pitch: [0.9, 1.1], pan: 0.9 }, drip(11)],
   },
   magmaVeins: {
     space: 0.95,
     room: { level: 0.4, cutoff: 240, air: 0.05, sub: 0.05 },
-    layers: [{ kind: 'roar', level: 0.1, tone: 260, rate: 0.07 }],
+    layers: [{ kind: 'roar', level: 0.36, tone: 260, rate: 0.07 }],
     shots: [{ name: 'amb.lavaPop', every: 5.5, gain: [0.4, 0.85], pitch: [0.8, 1.2], pan: 0.85 }, { name: 'amb.hiss', every: 14, gain: [0.35, 0.65], pan: 0.8 }, rumble(35)],
   },
   obsidianAbyss: {
     space: 1.3,
     room: { level: 0.32, cutoff: 220, air: 0.1, sub: 0.04 },
-    layers: [{ kind: 'drone', level: 0.06, tone: 110, rate: 0.05 }, { kind: 'wind', level: 0.05, tone: 300, rate: 0.03 }],
+    layers: [{ kind: 'drone', level: 0.1, tone: 110, rate: 0.05, upper: [4, 5] }, { kind: 'wind', level: 0.14, tone: 300, rate: 0.03 }],
     shots: [{ name: 'amb.voidWhisper', every: 19, gain: [0.35, 0.7], pan: 0.95 }, { name: 'amb.voidTone', every: 23, gain: [0.35, 0.7], pitch: [0.8, 1.2], pan: 0.9 }],
   },
   heart: {
     space: 1.35,
     room: { level: 0.34, cutoff: 220, air: 0.06, sub: 0.06 },
-    layers: [{ kind: 'drone', level: 0.07, tone: 73.4, rate: 0.04 }, { kind: 'hum', level: 0.04, tone: 146.8, rate: 0.05 }],
+    layers: [{ kind: 'drone', level: 0.12, tone: 73.4, rate: 0.04, upper: [4, 6] }, { kind: 'hum', level: 0.1, tone: 146.8, rate: 0.05 }],
     shots: [{ name: 'amb.heartbeat', every: 2.6, gain: [0.55, 0.75], pan: 0.1 }, { name: 'amb.voidWhisper', every: 28, gain: [0.3, 0.55], pan: 0.95 }],
   },
 };
@@ -315,7 +320,7 @@ export class InsectLayer extends LazyLayer {
 
 /** A dark drone (the abyss, the Heart): a filtered saw and its octave, beating, barely moving. */
 export class DroneLayer extends LazyLayer {
-  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, private readonly tone: number, private readonly rate: number) {
+  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, private readonly tone: number, private readonly rate: number, private readonly upper: readonly number[] = []) {
     super(ctx, noise, dest, 1.5);
   }
 
@@ -329,6 +334,12 @@ export class DroneLayer extends LazyLayer {
     g.osc('sawtooth', this.tone * 1.006).connect(g.gain(0.35)).connect(lp);
     g.osc('triangle', this.tone * 2.01).connect(g.gain(0.4)).connect(lp);
     g.osc('sine', this.tone * 3).connect(g.gain(0.12)).connect(breath);
+    // The harmonics a phone plays, faint and slowly breathing apart (never a steady whine).
+    this.upper.forEach((r, i) => {
+      const partial = g.gain(0.07 / (i + 1));
+      g.lfo(partial.gain, this.rate * (2.3 + i * 1.1), 0.04 / (i + 1));
+      g.osc('sine', this.tone * r * (1 + 0.0015 * (i + 1))).connect(partial).connect(breath);
+    });
   }
 }
 
@@ -390,7 +401,7 @@ function bedLayer(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, def:
     case 'insects':
       return new InsectLayer(ctx, noise, dest, def.tone, rate);
     case 'drone':
-      return new DroneLayer(ctx, noise, dest, def.tone, rate);
+      return new DroneLayer(ctx, noise, dest, def.tone, rate, def.upper);
     case 'hiss':
       return new HissLayer(ctx, noise, dest, def.tone, rate);
     case 'shimmer':

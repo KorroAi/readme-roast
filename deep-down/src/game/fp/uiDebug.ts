@@ -5,7 +5,9 @@
  * tutorial step) and where each control sits on screen (`[data-ui-target]`). Reading is always
  * safe; nothing here changes the game (tests drive it with real touches).
  */
+import * as THREE from 'three';
 import type { GameEvents } from '../../core/events';
+import { raycastVoxels } from '../../world/raycast';
 import type { Game } from '../Game';
 import './events';
 import '../craft/types';
@@ -31,6 +33,11 @@ export interface UiDebug {
   rect(target: string): { x: number; y: number; w: number; h: number } | null;
   /** The control the tutorial rings now (its data-ui-target), or null. */
   ringed(): string | null;
+  /**
+   * The first solid cell on the camera's ray through a screen point (NDC, the centre by default),
+   * within `max` metres: what a tap there or the reticle meets first ([x, y, z, block]), or null.
+   */
+  ray(ndcX?: number, ndcY?: number, max?: number): [number, number, number, number] | null;
 }
 
 export function installUiDebug(game: Game): UiDebug {
@@ -66,6 +73,14 @@ export function installUiDebug(game: Game): UiDebug {
       const tut = document.querySelector('.dd-tut');
       if (!tut?.classList.contains('on')) return null;
       return document.querySelector('.dd-tut-on')?.getAttribute('data-ui-target') ?? null;
+    },
+    ray: (ndcX = 0, ndcY = 0, max = 12) => {
+      const cam = game.cameraRig.camera;
+      cam.updateMatrixWorld();
+      const o = cam.getWorldPosition(new THREE.Vector3());
+      const d = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(cam).sub(o).normalize();
+      const hit = raycastVoxels(game.session.world, o.x, o.y, o.z, d.x, d.y, d.z, max);
+      return hit ? [hit.x, hit.y, hit.z, hit.block] : null;
     },
   };
   const w = window as unknown as { __DD__?: Record<string, unknown> };

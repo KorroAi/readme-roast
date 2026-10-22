@@ -34,9 +34,10 @@ test('the first Gate: two shards unseal it from its Interact chip, and the desce
   expect(await waitEvent(page, 'world:gateOpened', 8), 'the gate opened').toBe(true);
   expect(await page.evaluate(() => window.__DD__.game.strata.gateOpen())).toBe(true);
 
-  // A second tap descends: stratum II loads (the loading screen), the explorer arrives there.
-  await untilGame(page, async () => (await hud(page)).interact?.icon === 'gate', 6);
-  await tapControl(page, touch, 'interact');
+  // A second tap descends (unless the open shaft already took the explorer, WORLD 21:08): stratum II
+  // loads behind the loading screen, the explorer arrives there.
+  const atGate = await untilGame(page, async () => (await hud(page)).interact?.icon === 'gate', 6);
+  if (atGate && (await page.evaluate(() => window.__DD__.game.strata.current)) === 1) await tapControl(page, touch, 'interact');
   const arrived = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.strata.current)) === 2 && (await page.evaluate(() => window.__DD__.state().mode)) === 'playing', 120);
   expect(arrived, 'the descent reached stratum II').toBe(true);
   const sw = (await uiEvents(page, 'world:stratum')).map((e) => e.payload);

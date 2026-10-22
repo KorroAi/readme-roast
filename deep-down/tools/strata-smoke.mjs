@@ -1,7 +1,7 @@
-// WORLD tool (round 3): boot the game (strata by default) on a running preview (port 4176), New Game, switch to stratum 2, captures and timings.
-// Usage: node tools/strata-smoke.mjs <outDir> [extra query]
+// WORLD tool (round 3): boot the game (strata by default) on a running preview (port DD_E2E_PORT, else 4176), New Game, switch to stratum 2, captures and timings.
+// Usage: DD_E2E_PORT=4176 node tools/strata-smoke.mjs <outDir> [extra query]
 import { chromium } from '@playwright/test';
-const PORT = 4176;
+const PORT = Number(process.env.DD_E2E_PORT ?? 4176);
 const out = process.argv[2];
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
@@ -19,6 +19,7 @@ await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null,
 await page.waitForTimeout(1500);
 const st = await page.evaluate(() => { const s = window.__DD__.state(); return { mode: s.mode, player: s.player, depth: s.hud?.depth ?? s.depth, biome: window.__DD__.biomeHere() }; });
 console.log('playing', JSON.stringify(st));
+console.log('page text', JSON.stringify(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' ').slice(0, 700))));
 await page.screenshot({ path: `${out}/s1-camp.png` });
 const t1 = Date.now();
 await page.evaluate(() => window.__DD__.stratum(2));
@@ -33,5 +34,8 @@ await page.waitForTimeout(1500);
 await page.screenshot({ path: `${out}/s2-flooded.png` });
 const mem = await page.evaluate(() => performance.memory ? { used: performance.memory.usedJSHeapSize, total: performance.memory.totalJSHeapSize } : null);
 console.log('heap', JSON.stringify(mem));
-console.log('logs', logs.slice(0, 20).join('\n'));
+const counts = new Map();
+for (const l of logs) counts.set(l.slice(0, 300), (counts.get(l.slice(0, 300)) ?? 0) + 1);
+console.log('logs', logs.length, 'unique', counts.size);
+for (const [l, n] of [...counts].slice(0, 25)) console.log(`  ${n}x ${l}`);
 await browser.close();

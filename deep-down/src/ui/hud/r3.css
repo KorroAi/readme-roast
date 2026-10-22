@@ -966,8 +966,11 @@
   color: #a9cfc0;
   font: 700 11px / 1 var(--font, system-ui);
   text-decoration: underline;
-  padding: 6px 2px;
-  min-height: 28px;
+  /* A thumb-sized target (48 px) that still reads as a small link: the margins give the height back. */
+  padding: 6px 8px;
+  min-height: 48px;
+  min-width: 48px;
+  margin: -14px -8px -14px 0;
   cursor: pointer;
 }
 .dd-tut .dd-tut-line {

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { EN_SECTIONS, en } from '../../src/i18n/en';
-import { FR_SECTIONS, fr } from '../../src/i18n/fr';
+import { FR_SECTIONS, fr, frenchSpacing } from '../../src/i18n/fr';
 import { FR_SOURCES } from '../../src/i18n/fr/sources';
 import { LANGUAGES, coverage, detectLanguage, language, onLanguage, setLanguage, t } from '../../src/i18n';
 
@@ -45,6 +45,18 @@ describe('languages (English, French)', () => {
       seen.set(k, name);
     }
     expect(dup).toEqual([]);
+  });
+
+  it('French typography: typographic apostrophes, and a no-break space before : ; ! ? % (a phone HUD never wraps them alone)', () => {
+    const straight: string[] = [];
+    const breakable: string[] = [];
+    for (const [k, v] of Object.entries(fr)) {
+      if (/[A-Za-zÀ-ÿ]'[A-Za-zÀ-ÿ]/.test(v as string)) straight.push(k);
+      if (/ [:;!?%»]|« /.test(v as string)) breakable.push(k);
+    }
+    expect(straight, 'use ’ in French text').toEqual([]);
+    expect(breakable).toEqual([]);
+    expect(frenchSpacing('Attention : la lave ! 20 %')).toBe('Attention\u00a0: la lave\u00a0! 20\u00a0%');
   });
 
   it('the device language picks French for any French locale, else English', () => {

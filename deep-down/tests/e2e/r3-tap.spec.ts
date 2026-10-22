@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, newExpedition, quiet } from './r3';
+import { PHONE, aimAtOre, boot, newExpedition, quiet } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): the tap-to-act accelerator in the strata (BRIEF §0.6: "a tap on a target within reach
@@ -64,12 +64,11 @@ async function start(page: Page): Promise<Touch> {
 
 test('one tap mines a vein until it breaks, with nothing held; holding still mines one too', async ({ page }) => {
   const touch = await start(page);
-  const p0 = await player(page);
-  const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p0.x, p0.y, p0.z]);
-  expect(prep, 'a copper vein near the camp').not.toBeNull();
-  const block = prep!.block;
   const at = { x: 195, y: Math.round(844 * 0.45) };
-  await page.evaluate(([x, y, z, ax, ay]) => window.__DD__.aimAt(x, y, z, ax, ay), [...block, 0, 1 - (at.y / 844) * 2]);
+  // A vein the tap's ray really meets (no corner of rock in front of it).
+  const vein = await aimAtOre(page, COPPER, [0, 1 - (at.y / 844) * 2]);
+  expect(vein, 'a copper vein near the camp').not.toBeNull();
+  const block = vein!;
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)).toBe(COPPER);
   await page.evaluate(() => window.__DD__.clearEvents());
   await touch.tap(at);
@@ -81,13 +80,11 @@ test('one tap mines a vein until it breaks, with nothing held; holding still min
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.input.lock)) === null, 3)).toBe(true);
 
   // Holding still on another vein mines it (no button pressed).
-  const p1 = await player(page);
-  const prep2 = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p1.x, p1.y, p1.z]);
-  expect(prep2, 'another copper vein').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), prep2!.block);
+  const vein2 = await aimAtOre(page, COPPER);
+  expect(vein2, 'another copper vein').not.toBeNull();
   await page.evaluate(() => window.__DD__.clearEvents());
   await touch.down({ x: 195, y: 422 });
-  const held = await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), prep2!.block)) === AIR, 25);
+  const held = await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein2!)) === AIR, 25);
   await touch.up();
   expect(held, 'the held vein broke').toBe(true);
   expect(await page.evaluate(() => window.__DD__.events('tool:swing').length)).toBeGreaterThanOrEqual(2);
@@ -331,10 +328,8 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
   await page.evaluate(() => (window.__DD__ as any).mobs.clear());
 
   // Ore: the pick, never the machete (no mode switch).
-  const p = await player(page);
-  const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p.x, p.y, p.z]);
-  expect(prep, 'a copper vein').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), prep!.block);
+  const vein = await aimAtOre(page, COPPER);
+  expect(vein, 'a copper vein').not.toBeNull();
   await page.evaluate(() => {
     (window as unknown as { __fp: unknown[] }).__fp.length = 0;
     window.__DD__.clearEvents();

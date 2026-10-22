@@ -56,18 +56,54 @@ try {
     m.auto(false);
     m.clear();
     m.harmless(true);
+    // The game's own loop all but stopped (a frame every 20 s, as VIS's captures do): every frame is
+    // rendered by a step here, and a screenshot only composites the last one.
+    const g = window.__DD__.game;
+    g.renderer.preset = { ...g.renderer.preset, fpsCap: 0.05 };
   });
   // Skip the tutorial's highlights if the quest system offers it (sheets want a clean view).
   await page.evaluate(() => window.__DD__.game.quests?.skipTutorial?.());
 
-  /** Let the chunks round the explorer mesh in real time (a full flush of a stratum is too long), then a few frames. */
-  const settle = async (frames = 20, wait = Number(opt.wait)) => {
-    await page.evaluate((n) => window.__DD__.step(n, 1 / 30), frames);
-    await page.waitForTimeout(wait);
-    await page.evaluate(() => window.__DD__.meshIdle?.());
-    await page.waitForTimeout(300);
+  /** A few rendered frames (creatures pose, glows follow), the chunks round the view meshed. */
+  const settle = async (frames = 3) => {
+    await page.evaluate(async (n) => {
+      const D = window.__DD__;
+      D.step(n, 1 / 30);
+      await D.meshIdle?.();
+      D.step(1, 1 / 30);
+    }, frames);
   };
-  const shoot = (file) => page.screenshot({ path: file, timeout: 180_000 });
+  /** After a teleport: ~1 s of game time in three frames (the biome's look and air settle), off any lake or cramped spot, meshed. */
+  const arrive = async (dry = true) =>
+    page.evaluate(async (dry) => {
+      const D = window.__DD__;
+      D.step(3, 0.34);
+      await D.meshIdle?.();
+      const moved = dry ? (D.mobs.dryGround?.(24) ?? null) : null;
+      if (moved) {
+        D.step(2, 0.2);
+        await D.meshIdle?.();
+      }
+      D.step(1, 0.05);
+      await D.meshIdle?.();
+      D.step(1, 0.02);
+      return moved;
+    }, dry);
+  /** Game time without drawing (the sim, the poses, the glows): fast. */
+  const simFor = (seconds, dt = 1 / 30) =>
+    page.evaluate(([s, d]) => {
+      const g = window.__DD__.game;
+      for (let t = 0; t < s; t += d) g.step(d, false);
+    }, [seconds, dt]);
+  let shotAt = Date.now();
+  const shoot = async (file) => {
+    // The frame the screenshot shows.
+    await page.evaluate(() => window.__DD__.step(1, 1 / 60));
+    await page.screenshot({ path: file, timeout: 180_000 });
+    const s = ((Date.now() - shotAt) / 1000).toFixed(0);
+    shotAt = Date.now();
+    return s;
+  };
 
   /** Turn until there is open floor 4-9 m ahead; @returns the heading's floor point or null. */
   const openAhead = async (min = 4, max = 9) => {
@@ -94,13 +130,13 @@ try {
           log(biome, 'no spot');
           continue;
         }
-        await settle(30);
+        await arrive();
         await page.evaluate(() => window.__DD__.mobs.clear());
         if (!(await openAhead(3.5, 8))) log(biome, 'cramped');
         const kinds = [...r.monsters, ...r.beings];
         const ids = await page.evaluate(([k]) => window.__DD__.mobs.lineup(k, 4.2, 0.35), [kinds]);
         for (const id of ids) await page.evaluate(([i]) => window.__DD__.mobs.setAnim(i, { face: true, glow: 1, alert: 0.6 }), [id]);
-        await settle(6, 400);
+        await settle(3);
         // Look at the row's middle, a little above the floor.
         const list = await page.evaluate(() => window.__DD__.mobs.list());
         const row = list.filter((m) => ids.includes(m.id));
@@ -112,12 +148,12 @@ try {
           const cy = aim.reduce((a, m) => a + m.y, 0) / aim.length;
           await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.05), [cx, cy, cz]);
         }
-        await settle(4, 300);
+        await settle(2);
         const file = `${opt.out}/roster-${biome}.png`;
-        await shoot(file);
+        const took = await shoot(file);
         const stats = await page.evaluate(() => window.__DD__.mobs.drawStats());
         const here = await page.evaluate(() => window.__DD__.biomeHere());
-        log(`${file}: biome here ${here}, ${row.length}/${kinds.length} placed (${row.map((m) => m.kind).join(', ')}), draw ${JSON.stringify(stats)}`);
+        log(`${file} (${took} s): biome here ${here}, ${row.length}/${kinds.length} placed (${row.map((m) => m.kind).join(', ')}), draw ${JSON.stringify(stats)}`);
         await page.evaluate(() => {
           window.__DD__.mobs.clear();
           window.__DD__.mobs.freeze(false);
@@ -135,10 +171,10 @@ try {
             return window.__DD__.goto(b).then(() => window.__DD__.goto('lair', b));
           }, biome);
           if (at) {
-            await settle(30);
+            await arrive(false);
             await page.evaluate(() => window.__DD__.mobs.clear());
             // The lair's guardian sleeps at its spawn: step until it is there.
-            await page.evaluate((n) => window.__DD__.step(n, 1 / 30), 10);
+            await simFor(0.4);
             let g = (await page.evaluate(() => window.__DD__.mobs.list())).find((m) => m.kind === kind);
             if (g) {
               // Walk the explorer in to a good distance from it (toward the entrance), then look.
@@ -156,7 +192,7 @@ try {
               }, [g.x, g.foot.y, g.z, at[0], at[1], at[2], g.radius]);
               if (stand) {
                 await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
-                await settle(8);
+                await arrive(false);
               }
               g = (await page.evaluate(() => window.__DD__.mobs.list())).find((m) => m.kind === kind);
               if (g) {
@@ -177,7 +213,7 @@ try {
             log(kind, 'no spot');
             continue;
           }
-          await settle(30);
+          await arrive();
           await page.evaluate(() => window.__DD__.mobs.clear());
           await openAhead(6, 12);
           const sp = await page.evaluate((k) => window.__DD__.mobs.species(k), kind);
@@ -194,11 +230,11 @@ try {
           const g = await page.evaluate((i) => window.__DD__.mobs.get(i), id);
           await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.08), [g.x, g.y, g.z]);
         }
-        await settle(4, 300);
+        await settle(2);
         const file = `${opt.out}/guardian-${kind}.png`;
-        await shoot(file);
+        const took = await shoot(file);
         const stats = await page.evaluate(() => window.__DD__.mobs.drawStats());
-        log(`${file}: ${placed ? 'in its lair' : 'in its biome'}, draw ${JSON.stringify(stats)}`);
+        log(`${file} (${took} s): ${placed ? 'in its lair' : 'in its biome'}, draw ${JSON.stringify(stats)}`);
         await page.evaluate(() => {
           window.__DD__.mobs.clear();
           window.__DD__.mobs.freeze(false);
@@ -208,7 +244,7 @@ try {
   if (opt.only === 'extras' || opt.only === 'all') {
     // Elites: one of each affix, side by side (radiant, armoured, swift, splitting).
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
-    await settle(30);
+    await arrive();
     await page.evaluate(() => window.__DD__.mobs.clear());
     await openAhead(4, 9);
     const affixes = ['radiant', 'armoured', 'swift', 'splitting'];
@@ -219,7 +255,7 @@ try {
     }, [eids[i], affixes[i]]);
     const erow = (await page.evaluate(() => window.__DD__.mobs.list())).filter((m) => eids.includes(m.id));
     if (erow.length) await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.05), [erow.reduce((a, m) => a + m.x, 0) / erow.length, erow.reduce((a, m) => a + m.y, 0) / erow.length, erow.reduce((a, m) => a + m.z, 0) / erow.length]);
-    await settle(4, 300);
+    await settle(2);
     await shoot(`${opt.out}/elites.png`);
     log(`elites: ${erow.map((m) => `${m.kind}[${m.affixes.join('+')}]`).join(', ')}`);
     await page.evaluate(() => {
@@ -230,7 +266,7 @@ try {
     // Telegraphs: real wind-ups and their ground markers (a charger's lane, a brute's slam circle, a dive's mark).
     for (const [biome, kinds] of [['rootGalleries', ['thornback', 'rootWeevil']], ['floodedGrottoes', ['clatterclaw', 'mistwing']]]) {
       await page.evaluate((b) => window.__DD__.goto(b), biome);
-      await settle(30);
+      await arrive();
       await page.evaluate(() => {
         window.__DD__.mobs.clear();
         window.__DD__.mobs.harmless(true);
@@ -244,13 +280,13 @@ try {
       // Let them come and wind up: wait for a marker well along, then hold the moment.
       let found = null;
       for (let k = 0; k < 60 && !found; k++) {
-        await page.evaluate(() => window.__DD__.step(3, 1 / 30));
+        await simFor(0.1);
         const mk = await page.evaluate(() => window.__DD__.mobs.markers());
         found = mk.find((x) => x.progress > 0.45 && x.kind !== 'wave') ?? null;
       }
       await page.evaluate(() => window.__DD__.mobs.freeze(true));
       if (found) await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y + 0.6, z, -0.25), [found.x, found.y, found.z]);
-      await settle(2, 300);
+      await settle(2);
       await shoot(`${opt.out}/telegraph-${biome}.png`);
       log(`telegraph-${biome}: ${found ? `${found.kind} marker at progress ${found.progress.toFixed(2)}` : 'no marker caught'}`);
       await page.evaluate(() => {
@@ -261,16 +297,16 @@ try {
 
     // The companion: a tame Lampling at level 3 beside the explorer.
     await page.evaluate(() => window.__DD__.goto('mushroomForest'));
-    await settle(30);
+    await arrive();
     await page.evaluate(() => window.__DD__.mobs.clear());
     await openAhead(3, 7);
     const cid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('lampling', 1.8, 1.5));
     if (cid !== null) {
       await page.evaluate((id) => window.__DD__.mobs.tame(id, 14), cid);
-      await page.evaluate(() => window.__DD__.step(40, 1 / 30));
+      await simFor(1.4);
       const c = await page.evaluate((id) => window.__DD__.mobs.get(id), cid);
       if (c) await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y - 0.4, z, 0), [c.x, c.y, c.z]);
-      await settle(2, 300);
+      await settle(2);
       await shoot(`${opt.out}/companion.png`);
       log(`companion: ${JSON.stringify(await page.evaluate(() => window.__DD__.mobs.companion()))}`);
     }
@@ -279,7 +315,7 @@ try {
     // The moments of a fight, held still: a blow landing (the flinch, the sparks, the pin of light),
     // creatures collapsing as they die (each its own way), a guardian's open guard and its phase ring.
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
-    await settle(30);
+    await arrive();
     await page.evaluate(() => {
       window.__DD__.mobs.clear();
       window.__DD__.mobs.harmless(true);
@@ -294,7 +330,7 @@ try {
       }, hid);
       const h = await page.evaluate((id) => window.__DD__.mobs.get(id), hid);
       await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.05), [h.x, h.y, h.z]);
-      await settle(2, 300);
+      await settle(2);
       await page.evaluate((id) => {
         const m = window.__DD__.mobs;
         m.hit(id, 0.6);
@@ -309,11 +345,12 @@ try {
     if (cids.length) {
       const row = (await page.evaluate(() => window.__DD__.mobs.list())).filter((m) => cids.includes(m.id));
       await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.1), [row.reduce((a, m) => a + m.x, 0) / row.length, row.reduce((a, m) => a + m.y, 0) / row.length, row.reduce((a, m) => a + m.z, 0) / row.length]);
-      await settle(2, 300);
+      await settle(2);
       await page.evaluate((ids) => {
         const m = window.__DD__.mobs;
         for (const id of ids) m.hit(id, 9999);
-        window.__DD__.step(13, 1 / 30);
+        const g = window.__DD__.game;
+        for (let k = 0; k < 13; k++) g.step(1 / 30, false);
       }, cids);
       await shoot(`${opt.out}/fight-collapse.png`);
       log(`fight-collapse: ${row.map((m) => m.kind).join(', ')} struck down 0.43 s ago`);
@@ -329,11 +366,12 @@ try {
         m.setAnim(id, { face: true, glow: 1, alert: 1 });
         m.open(id, 3);
         m.ring(id);
-        window.__DD__.step(9, 1 / 30);
+        const g = window.__DD__.game;
+        for (let k = 0; k < 9; k++) g.step(1 / 30, false);
       }, gid);
       const g = await page.evaluate((id) => window.__DD__.mobs.get(id), gid);
       await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y - 1, z, -0.1), [g.x, g.y, g.z]);
-      await settle(1, 200);
+      await settle(1);
       await shoot(`${opt.out}/fight-open.png`);
       log(`fight-open: the Rime Wyrm's guard open (window ${JSON.stringify(await page.evaluate(() => window.__DD__.mobs.guardian()?.window ?? null))}), its ring rolling out`);
     }
@@ -346,7 +384,7 @@ try {
     // The Dark Heart's three phases: a closed shell, cracked and bleeding light, its last blaze.
     const at = await page.evaluate(() => window.__DD__.goto('heart'));
     if (at) {
-      await settle(30);
+      await arrive();
       await page.evaluate(() => window.__DD__.mobs.clear());
       await openAhead(8, 14);
       const id = await page.evaluate(() => window.__DD__.mobs.spawnAhead('heartOfDark', 11, 0, { asleep: false }));
@@ -361,7 +399,7 @@ try {
           }, [id, ph]);
           const h = await page.evaluate((i) => window.__DD__.mobs.get(i), id);
           await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), [h.x, h.y, h.z]);
-          await settle(1, 200);
+          await settle(1);
           await shoot(`${opt.out}/heart-phase${ph}.png`);
           log(`heart-phase${ph}`);
         }
@@ -375,15 +413,15 @@ try {
       await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 240_000, polling: 250 });
       const at = await page.evaluate(() => window.__DD__.goto('vista'));
       if (!at) continue;
-      await settle(40);
+      await arrive();
       await page.evaluate(() => window.__DD__.mobs.clear());
       const v = await page.evaluate(() => window.__DD__.strata().vista);
       const c = [v.centre[0], v.centre[1] + Math.min(10, v.radius * 0.3), v.centre[2]];
       await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), c);
       const id = await page.evaluate(([x, y, z]) => window.__DD__.mobs.spawn('worm', x, y, z), c);
       // Let it come into the middle of the view.
-      for (let k = 0; k < 40; k++) await page.evaluate(() => window.__DD__.step(3, 1 / 30));
-      await settle(1, 300);
+      await simFor(4);
+      await settle(1);
       await shoot(`${opt.out}/worm-stratum${n}.png`);
       log(`worm-stratum${n}: ${id !== null ? 'passing' : 'not placed'} through the ${v.name} hall (r ${v.radius})`);
       break;

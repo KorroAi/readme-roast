@@ -79,6 +79,7 @@ export type DD = {
     hud(): any;
     rect(target: string): { x: number; y: number; w: number; h: number } | null;
     ringed(): string | null;
+    ray(ndcX?: number, ndcY?: number, max?: number): [number, number, number, number] | null;
   };
 };
 

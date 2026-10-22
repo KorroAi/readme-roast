@@ -17,7 +17,7 @@ import { loadZone } from '../src/world/gen/zoneLoader';
 import { standableAt } from '../src/world/gen/strata/content';
 import { MobSim, type MobEnv, type SimMob } from '../src/game/mobs/MobSim';
 import { MOBS_RULES } from '../src/game/mobs/config';
-import { darkTide, linkStrata, type StrataLayout } from '../src/game/mobs/strataLink';
+import { darkTide, linkStrata, underLake, type StrataLayout } from '../src/game/mobs/strataLink';
 import type { StratumLayout } from '../src/world/gen/strata/types';
 import type { MobContext } from '../src/game/mobs/types';
 
@@ -35,7 +35,7 @@ interface RunStats {
   gaps: number[];
   firstBlowAfterSight: number[];
   spawns: number;
-  violations: { light: number; camp: number; outpost: number; pool: number; nest: number };
+  violations: { light: number; camp: number; outpost: number; pool: number; nest: number; water: number };
   nestBrood: number;
   nestMaxLight: number;
   nestNearest: number;
@@ -198,7 +198,10 @@ async function runStratum(seed: number, n: number, minutes: number, torches: boo
   };
   const sim = new MobSim(env, seed ^ (n * 977));
   linkStrata(sim, l as unknown as StrataLayout, () => false);
-  const st: RunStats = { label: `stratum ${n} ${torches ? 'B (torches + outpost)' : 'A'}`, seconds: 0, encounters: [], gaps: [], firstBlowAfterSight: [], spawns: 0, violations: { light: 0, camp: 0, outpost: 0, pool: 0, nest: 0 }, nestBrood: 0, nestMaxLight: 0, nestNearest: Infinity, untoldKinds: [], biomeTime: new Map(), overdue: new Map(), maxSpawnLight: 0, kinds: new Map(), elites: 0, packs: 0, kills: 0 };
+  // Still water, judged on WORLD's own lakes (independent of the sim's predicate).
+  const lakes = ((l as unknown as StrataLayout).features?.lakes ?? []).slice();
+  const wet = (x: number, y: number, z: number) => underLake(lakes, env.solid, x, y, z);
+  const st: RunStats = { label: `stratum ${n} ${torches ? 'B (torches + outpost)' : 'A'}`, seconds: 0, encounters: [], gaps: [], firstBlowAfterSight: [], spawns: 0, violations: { light: 0, camp: 0, outpost: 0, pool: 0, nest: 0, water: 0 }, nestBrood: 0, nestMaxLight: 0, nestNearest: Infinity, untoldKinds: [], biomeTime: new Map(), overdue: new Map(), maxSpawnLight: 0, kinds: new Map(), elites: 0, packs: 0, kills: 0 };
   const lantern = lanternForTier(Math.min(5, n));
   const seen = new Map<number, number>();
   const struck = new Set<number>();
@@ -243,6 +246,7 @@ async function runStratum(seed: number, n: number, minutes: number, torches: boo
         st.nestMaxLight = Math.max(st.nestMaxLight, li);
         st.nestNearest = Math.min(st.nestNearest, Math.hypot(m.position.x - p.x, m.position.z - p.z));
         if (inBox(m.position.x, m.position.y, m.position.z, 0) || env.safe!(m.position.x, m.position.y, m.position.z) || li > MOBS_RULES.torchFear) st.violations.nest++;
+        if (wet(Math.floor(m.position.x), Math.floor(m.foot.y || m.position.y), Math.floor(m.position.z))) st.violations.water++;
         return;
       }
       st.spawns++;
@@ -261,6 +265,7 @@ async function runStratum(seed: number, n: number, minutes: number, torches: boo
       }
       if (inBox(m.position.x, m.position.y, m.position.z, 0)) st.violations.camp++;
       if (env.safe!(m.position.x, m.position.y, m.position.z)) st.violations.outpost++;
+      if (wet(fx, fy, fz)) st.violations.water++;
       const pool = lantern.radius * MOBS_RULES.poolFactor + MOBS_RULES.poolMargin - 1.5;
       if (Math.hypot(m.position.x - c.lantern.x, m.position.y - c.lantern.y, m.position.z - c.lantern.z) < pool) {
         st.violations.pool++;
@@ -423,7 +428,7 @@ function report(s: RunStats): void {
   const toldOk = fair.filter((x) => x >= 0);
   console.log(`    first blows ${fair.length}: told first (its wind-up's sound, pose, marker) ${toldOk.length}, untold ${fair.length - toldOk.length}; time from tell to blow min ${toldOk.length ? Math.min(...toldOk).toFixed(2) : '-'} s, median ${toldOk.length ? quantile(toldOk, 0.5).toFixed(2) : '-'} s`);
   if (s.untoldKinds.length) console.log(`    blows told under 0.35 s: ${s.untoldKinds.join(', ')}`);
-  console.log(`    roaming monster spawns ${s.spawns} (${s.packs} packs), kills ${s.kills}; violations: in light ${s.violations.light}, camp ${s.violations.camp}, outpost ${s.violations.outpost}, lantern pool ${s.violations.pool}; brightest spawn cell ${s.maxSpawnLight.toFixed(2)} (limit ${MOBS_RULES.darkLight})`);
+  console.log(`    roaming monster spawns ${s.spawns} (${s.packs} packs), kills ${s.kills}; violations: in light ${s.violations.light}, camp ${s.violations.camp}, outpost ${s.violations.outpost}, lantern pool ${s.violations.pool}, under a lake ${s.violations.water}; brightest spawn cell ${s.maxSpawnLight.toFixed(2)} (limit ${MOBS_RULES.darkLight})`);
   console.log(`    nest brood ${s.nestBrood} (stirring first): in a torch's pool, the camp or an outpost ${s.violations.nest}; brightest ${s.nestMaxLight.toFixed(2)} (nest limit ${MOBS_RULES.torchFear}); nearest to the explorer ${Number.isFinite(s.nestNearest) ? s.nestNearest.toFixed(1) : '-'} m`);
   console.log(`    time by biome: ${[...s.biomeTime].map(([b, t]) => `${b} ${t.toFixed(0)} s (a pack overdue ${(s.overdue.get(b) ?? 0).toFixed(0)} s)`).join(', ')}`);
   const byBiome = new Map<string, string[]>();

@@ -39,10 +39,22 @@ try {
     m.clear();
     m.harmless(true);
   });
+  await page.evaluate(() => {
+    const g = window.__DD__.game;
+    g.renderer.preset = { ...g.renderer.preset, fpsCap: 0.05 };
+  });
   await page.evaluate((b) => window.__DD__.goto(b), biome);
-  await page.evaluate(() => window.__DD__.step(30, 1 / 30));
-  await page.waitForTimeout(2500);
-  await page.evaluate(() => window.__DD__.meshIdle?.());
+  const moved = await page.evaluate(async () => {
+    const D = window.__DD__;
+    D.step(3, 0.34);
+    await D.meshIdle?.();
+    const m = D.mobs.dryGround?.(24) ?? null;
+    D.step(2, 0.2);
+    await D.meshIdle?.();
+    D.step(1, 0.05);
+    return m;
+  });
+  log('dry ground', JSON.stringify(moved), 'underwater here', await page.evaluate(() => window.__DD__.mobs.underwater?.(window.__DD__.game.player.x, window.__DD__.game.player.y, window.__DD__.game.player.z)));
   await page.evaluate(() => window.__DD__.mobs.clear());
   // Turn until open floor 3-6 m ahead.
   let f = null;
@@ -59,8 +71,11 @@ try {
   }, id);
   const mob = await page.evaluate((i) => window.__DD__.mobs.get(i), id);
   await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), [mob.x, mob.y, mob.z]);
-  await page.evaluate(() => window.__DD__.step(4, 1 / 30));
-  await page.waitForTimeout(600);
+  await page.evaluate(async () => {
+    window.__DD__.step(3, 1 / 30);
+    await window.__DD__.meshIdle?.();
+    window.__DD__.step(1, 1 / 30);
+  });
   await page.screenshot({ path: `${out}/a-normal.png` });
   // The creatures only: every other root object hidden.
   const info = await page.evaluate((i) => {
@@ -86,7 +101,6 @@ try {
   }, id);
   log('info', JSON.stringify(info));
   await page.evaluate(() => window.__DD__.step(1, 1 / 30));
-  await page.waitForTimeout(400);
   const shot = await page.screenshot({ path: `${out}/b-mobs-only.png` });
   // Where the creature should be on screen (its capsule's box projected) against where pixels are lit.
   const boxes = await page.evaluate(async ([b64, i]) => {
