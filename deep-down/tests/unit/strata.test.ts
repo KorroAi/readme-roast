@@ -207,6 +207,7 @@ describe('the strata generator (round 3)', () => {
       // It lands in its pool (water or lava under its foot).
       const [x, y, z] = [Math.floor(f.bottom[0]), Math.round(f.bottom[1] + 0.25), Math.floor(f.bottom[2])];
       expect(SOLID[l.world.get(x, y - 1, z)], `${f.id} pool`).toBe(0);
+      expect(litNear([f.bottom[0], f.bottom[1] + 1, f.bottom[2]], 3), `${f.id} lit`).toBe(true);
     }
     expect(l.rivers.length).toBe(1);
     expect(l.rivers[0].points.length).toBeGreaterThan(20);

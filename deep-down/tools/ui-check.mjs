@@ -771,6 +771,8 @@ async function gameFlow(page, st, until, shot) {
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite?.stations.find((s) => s.station === 'workbench')?.p ?? null);
   const stand = bench ? await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench) : null;
   if (stand) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+  // Face it: the camp's Workbench is a prop, its chip comes with it in focus (`p` is its base centre).
+  if (bench) await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench);
   await page.evaluate(() => {
     window.__DD__.give('fungalWood', 4);
     window.__DD__.give('coal', 2);

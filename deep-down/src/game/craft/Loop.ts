@@ -75,6 +75,9 @@ interface CompanionHooks {
 /** Metres within which the tutorial's fight step points the compass at a monster. */
 const FOE_RANGE = 40;
 
+/** Metres from a lair at which an unarmed explorer is reminded to make a weapon first. */
+const ARM_NEAR = 30;
+
 /** Is a Lampling following the explorer (MOBS' hasCompanion, else its chip view)? */
 function companionFollows(m: CompanionHooks | null): boolean {
   if (!m) return false;
@@ -282,6 +285,7 @@ export class Loop implements LoopActions {
       orderFactor: () => this.camp.orderFactor(),
       held: () => this.hotbar.held(),
       atCamp: () => this.host.inCamp,
+      atMainCamp: () => this.atMainCamp(),
     });
     this.guide = new Guide(host.bus);
     this.builder = new Builder(host);
@@ -332,7 +336,11 @@ export class Loop implements LoopActions {
     // The trip summary: a trip runs from leaving the camp to coming back (or a black-out); it ends
     // on the next frame, so the orders paid and the bag banked on arrival count for it.
     this.trip.wire();
+    bus.on('inventory:changed', () => {
+      this.gearSweep = true;
+    });
     bus.on('camp:left', () => {
+      this.keptHere.clear();
       if (!this.trip.active) this.trip.start(this.clock, this.host.strata?.current ?? this.stratum, (this.host.strata?.biomeHere ?? null) as never);
     });
     bus.on('camp:entered', () => {
@@ -879,6 +887,7 @@ export class Loop implements LoopActions {
       this.host.bus.emit('toast', { text: t(equipped ? 'craft3.madeGear' : 'craft3.made', { count: 1, item: t(ITEMS[item].name) }), tone: 'good' });
     } else {
       this.learn(item);
+      if (this.host.inCamp) this.keptHere.add(item);
       this.host.bus.emit('toast', { text: t('craft3.made', { count: out.added, item: t(ITEMS[item].name) }), tone: 'good' });
     }
     this.counters.crafted += out.made;
@@ -1159,9 +1168,18 @@ export class Loop implements LoopActions {
       const id = this.hotbar.itemAt(i);
       if (id) keep.add(id);
     }
+    // What was made or taken out of the bank during this camp visit stays in the bag until the
+    // explorer leaves (UI 22:17: a ladder crafted at the bench went straight back to the bank).
+    for (const id of this.keptHere) keep.add(id);
     return keep;
   }
   private readonly keepSet = new Set<ItemId>();
+  /** Items crafted or withdrawn in the camp this visit (kept in the bag by the camp's deposit). */
+  private readonly keptHere = new Set<ItemId>();
+  /** Gear may have reached the bag or the bank (a chest, a drop, an old save): see sweepGear. */
+  private gearSweep = true;
+  /** The unarmed-guardian hints already given (per stratum, and per lair approached). */
+  private readonly armHinted = new Set<string>();
 
   /** The hotbar's loadout (slots 2..5), kept in the bag by a deposit made by hand. */
   private hotbarKeep(): ReadonlySet<ItemId> {
@@ -1204,6 +1222,7 @@ export class Loop implements LoopActions {
     this.host.storage.remove(item, n);
     this.host.backpack.add(item, n);
     this.learn(item);
+    if (this.host.inCamp) this.keptHere.add(item);
     this.host.bus.emit('inventory:changed', {});
     return n;
   }
@@ -1319,9 +1338,66 @@ export class Loop implements LoopActions {
       this.dailyT = 0;
       this.checkDaily();
     }
+    if (this.gearSweep) {
+      this.gearSweep = false;
+      this.sweepGear();
+    }
     const main = this.quests.mainRawStep();
     const mv = this.quests.main();
+    this.armHint(main);
     this.guide.update(dt, { mainId: main.id, mainStep: main.step, mainText: mv.text, flame: h.lanternFuel.fraction, health: h.health.fraction, inCamp: h.inCamp, playing });
+  }
+
+  /** Does the explorer own a weapon (any band)? A pick alone barely scratches a guardian. */
+  armed(): boolean {
+    for (const id of this.gear.owned) if (ITEMS[id].equip === 'weapon') return true;
+    return false;
+  }
+
+  /** The first weapon to make, for the unarmed guardian step: the Machete, at the Forge. */
+  firstWeapon(): { item: string; station: string } {
+    return { item: t(ITEMS.machete.name), station: t(STATIONS.forge.name) };
+  }
+
+  /**
+   * A guardian's step with no weapon owned (QA 22:10: the starter pick deals 1 a hit to a 90-point
+   * guardian): say once per stratum what to make, and once more when the explorer walks up to the lair
+   * still unarmed. The tracker's line says it too (Quests: 'quest.step.arm').
+   */
+  private armHint(main: { id: string; step: string; stratum: number; target: { x: number; z: number } | null }): void {
+    if (main.step !== 'guardian' || this.armed()) return;
+    const p = this.host.player;
+    const near = main.target ? (main.target.x - p.x) ** 2 + (main.target.z - p.z) ** 2 < ARM_NEAR * ARM_NEAR : false;
+    const id = near ? `near:${main.id}` : `s${main.stratum}`;
+    if (this.armHinted.has(id)) return;
+    this.armHinted.add(id);
+    this.host.bus.emit('guide:hint', { id: `arm:${id}`, text: t('hint3.needWeapon', this.firstWeapon()), target: 'craft' });
+  }
+
+  /**
+   * Gear is never carried (it lives in the locker, Gear): a weapon, armour piece, lantern or pack that
+   * reaches the bag or the bank (a chest, a drop, a trade, an old save) goes to the locker, and is worn
+   * when its slot is empty or it is better (QA 22:10: a Machete carried in the bag, never used).
+   */
+  private sweepGear(): void {
+    const h = this.host;
+    let moved = false;
+    const stores = [
+      { counts: h.backpack.totals() as Partial<Record<ItemId, number>>, remove: (id: ItemId, n: number) => h.backpack.remove(id, n) },
+      { counts: h.storage.toJSON() as Partial<Record<ItemId, number>>, remove: (id: ItemId, n: number) => h.storage.remove(id, n) },
+    ];
+    for (const st of stores)
+      for (const [id, n] of Object.entries(st.counts) as Array<[ItemId, number]>) {
+        if (!isItem(id) || !ITEMS[id].equip || !(n > 0)) continue;
+        st.remove(id, n);
+        const worn = this.gear.grant(id);
+        moved = true;
+        if (worn) h.bus.emit('gear:equipped', { item: id, slot: ITEMS[id].equip as EquipSlot });
+        h.bus.emit('toast', { text: t(worn ? 'craft3.madeGear' : 'gear3.kept', { item: t(ITEMS[id].name) }), tone: 'good' });
+      }
+    if (!moved) return;
+    this.syncGear();
+    h.bus.emit('inventory:changed', {});
   }
 
   /**
@@ -1564,6 +1640,8 @@ export class Loop implements LoopActions {
       },
       nearestVein: () => loop.nearestVein(),
       foe: () => loop.nearestFoe(),
+      armed: () => loop.armed(),
+      firstWeapon: () => loop.firstWeapon(),
       advice: () => loop.advice(),
       legacyFeats: () => {
         const f = (loop.host as { progression?: { extra?: { feats?: unknown } } }).progression?.extra?.feats;

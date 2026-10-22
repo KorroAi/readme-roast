@@ -101,7 +101,8 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
   expect(bench, 'the camp has a Workbench').not.toBeNull();
   const stand = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench!);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand!);
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 0.6, z + 0.5, 0, 0), bench!);
+  // (A station's `p` is its prop's base centre.)
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench!);
   expect(await untilGame(page, async () => (await hud(page)).interact?.icon === 'station', 6), 'the chip shows a station').toBe(true);
   await expect(page.locator('.dd-use')).toBeVisible();
   await expect(page.locator('.dd-use-verb')).toHaveText(/Craft/);

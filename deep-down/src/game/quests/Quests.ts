@@ -54,6 +54,10 @@ export interface QuestWorld {
   nearestVein?(): { x: number; y: number; z: number } | null;
   /** The nearest monster in range (the tutorial's fight step points at it), or null. */
   foe?(): { x: number; y: number; z: number } | null;
+  /** Does the explorer own a weapon? (false: the guardian step says to make one first) */
+  armed?(): boolean;
+  /** The first weapon to make and where (the unarmed guardian step's line). */
+  firstWeapon?(): { item: string; station: string };
   /** A craft the descent needs now (Loop's gear advice: a weapon, a ward, a lantern, an outpost), or null. */
   advice?(): Advice | null;
   /** Feats earned in the 1.x deep (kept by the "deep has changed" card): shown earned in the Quests screen. */
@@ -95,6 +99,8 @@ export interface QuestHost {
   held?(): ItemId | null;
   /** At the camp (or a lift's ledger): orders are paid there, including what the arrival just banked. */
   atCamp?(): boolean;
+  /** At the stratum I camp itself (not a lift landing): only there do the camp's orders renew. */
+  atMainCamp?(): boolean;
 }
 
 interface BiomeProgress {
@@ -524,10 +530,14 @@ export class Quests implements QuestSystem {
     this.dirty = true;
   }
 
-  /** On camp entry: pay the done orders, renew them. */
+  /**
+   * On camp entry: pay the done orders, renew them. A lower stratum's lift landing pays them too, but
+   * only the camp itself brings new ones (QA 22:10: "New camp orders" on first reaching stratum II).
+   */
   collectOrders(): void {
-    const paid = this.book.collect(this.host.world().deepest, dayNumber());
-    if (this.book.renewed > 0 || paid.length > 0) this.host.bus.emit('toast', { text: t('order.renewed'), tone: 'info' });
+    const main = this.host.atMainCamp?.() ?? true;
+    const paid = this.book.collect(this.host.world().deepest, dayNumber(), main);
+    if (main && (this.book.renewed > 0 || paid.length > 0)) this.host.bus.emit('toast', { text: t('order.renewed'), tone: 'info' });
     const f = Math.max(1, this.host.orderFactor?.() ?? 1);
     for (const o of paid) {
       const reward: Reward = {};
@@ -699,6 +709,7 @@ export class Quests implements QuestSystem {
     const sn = stratumName(m.stratum);
     let text = '';
     let progress = m.progress;
+    let target = m.target;
     switch (m.step) {
       case 'tutorial': {
         // The bubble by the ringed control gives the step's line: the tracker shows where it stands.
@@ -712,9 +723,16 @@ export class Quests implements QuestSystem {
       case 'lairs':
         text = t('quest.step.lairs', { stratum: sn });
         break;
-      case 'guardian':
-        text = t('quest.step.guardian', { guardian: guardianInLine(m.guardian) });
+      case 'guardian': {
+        // No weapon yet (QA 22:10): the pick barely scratches a guardian, so the line says what to
+        // make first, and the compass waits (the Craft menu's focus and a hint say where).
+        const w = this.host.world();
+        if (w.armed?.() === false) {
+          text = t('quest.step.arm', { item: w.firstWeapon?.().item ?? '' });
+          target = null;
+        } else text = t('quest.step.guardian', { guardian: guardianInLine(m.guardian) });
         break;
+      }
       case 'prepare': {
         const pick = NEXT_PICK[m.stratum];
         text = t('quest.step.prepare', { pick: pick ? t(ITEMS[pick].name) : '' });
@@ -736,7 +754,7 @@ export class Quests implements QuestSystem {
         text = t('quest.step.free');
     }
     const title = m.step === 'tutorial' ? t('quest.main.title') : t('quest.main.stratum', { stratum: ROMAN[m.stratum] ?? '' });
-    return { id: m.id, kind: m.step === 'tutorial' ? 'tutorial' : 'main', title, text, progress, target: m.target, reward: null };
+    return { id: m.id, kind: m.step === 'tutorial' ? 'tutorial' : 'main', title, text, progress, target, reward: null };
   }
 
   main(): QuestStepView {

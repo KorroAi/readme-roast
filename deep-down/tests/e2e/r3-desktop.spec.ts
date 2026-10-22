@@ -301,6 +301,8 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite.stations.find((x: { station: string }) => x.station === 'workbench').p as [number, number, number]);
   const stand = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench);
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand!);
+  // Face it (the camp's Workbench is a prop: its prompt comes with it in focus; `p` is its base centre).
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench);
   const reported = await closeTripCard(page);
   await expect(page.locator('.dd-use')).toBeVisible({ timeout: LOADED_CEILING_MS });
   await expect(page.locator('.dd-use')).toContainText(/Workbench/i);

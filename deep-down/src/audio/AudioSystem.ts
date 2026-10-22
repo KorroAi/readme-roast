@@ -63,7 +63,7 @@ const UI_PAIR = 0.12;
  * shadows: in the same moment they only blur it (the tracker shows the new step anyway). Shadowed for
  * STORY_SHADOW s after the beat, and cut if they began within STORY_PAIR s before it.
  */
-const LESSER: ReadonlySet<string> = new Set(['quest.step', 'tutorial.step', 'loop.unlock', 'ui.hint', 'guide.way', 'bestiary.page', 'bestiary.complete', 'reward.pouch', 'ui.card']);
+const LESSER: ReadonlySet<string> = new Set(['quest.step', 'tutorial.step', 'loop.unlock', 'ui.hint', 'guide.way', 'bestiary.page', 'bestiary.complete', 'reward.pouch', 'ui.card', 'camp', 'lantern.refueled']);
 const STORY_SHADOW = 2.5;
 const STORY_PAIR = 0.2;
 /**
@@ -71,6 +71,12 @@ const STORY_PAIR = 0.2;
  * long after that beat began, so two fanfares never speak over each other.
  */
 const FEAT_WAIT = 1.8;
+/**
+ * A return to camp speaks once, in order: its chime, then the bag's stones spilling into the chest this
+ * long after it; the flame refilled (seen on the HUD) stays quiet within CAMP_PAIR s of the chime.
+ */
+const BANK_AFTER_CAMP = 0.8;
+const CAMP_PAIR = 1.2;
 
 /** Without a biome (the title, the old world): a score per depth mood. */
 const MOOD_SCORE: Record<MoodName, ScoreId> = { camp: 'camp', shallow: 'amberHollows', mid: 'crystalGeode', deep: 'obsidianAbyss' };
@@ -264,6 +270,8 @@ export class AudioSystem {
   private lastScreen = 'none';
   /** The last generic button click (it gives way to a specific UI sound of the same gesture). */
   private lastClick: { e: SfxVoice; at: number } | null = null;
+  /** The flame's refill as it started (a camp chime in the same frame takes its place). */
+  private lastRefuel: { e: SfxVoice; at: number } | null = null;
   private lastSpecificUi = -Infinity;
   /** The Dark Heart's last beat (MOBS' 'guardian.heartbeat'). */
   private darkHeartAt = -Infinity;
@@ -768,8 +776,22 @@ export class AudioSystem {
       this.shadowed++;
       return;
     }
-    // One fanfare at a time: a feat in another story beat's moment comes in once that beat has spoken.
-    if (name === 'feat.fanfare' && at === undefined && this.storyName !== 'feat.fanfare' && now - this.storyAt < FEAT_WAIT) at = this.storyAt + FEAT_WAIT;
+    // One fanfare at a time: a feat (or the bag banked) in another story beat's moment comes in once
+    // that beat has spoken.
+    if ((name === 'feat.fanfare' || name === 'banked') && at === undefined && this.storyName !== name && now - this.storyAt < FEAT_WAIT) at = this.storyAt + FEAT_WAIT;
+    // A return to camp: the chime, then the bag banked; the refilled flame under the chime stays quiet.
+    const campAt = this.startedAt.get('camp') ?? -Infinity;
+    if (name === 'banked' && at === undefined && now - campAt < BANK_AFTER_CAMP) at = campAt + BANK_AFTER_CAMP;
+    if (name === 'lantern.refueled' && now - campAt < CAMP_PAIR) {
+      this.shadowed++;
+      return;
+    }
+    if (name === 'camp' && this.lastRefuel && now - this.lastRefuel.at < STORY_PAIR) {
+      this.lastRefuel.e.v.kill(now, 0.04);
+      this.voices.remove(this.lastRefuel.e);
+      this.lastRefuel = null;
+      this.shadowed++;
+    }
     if (!this.gate.allow(name, now, d.minGap)) return;
     // Too far to matter (a creature at the edge of hearing).
     if ((params.gain ?? 1) < 0.02) return;
@@ -791,6 +813,7 @@ export class AudioSystem {
       this.playedCount.set(name, (this.playedCount.get(name) ?? 0) + 1);
       if (name === 'guardian.heartbeat') this.darkHeartAt = now;
       if (name === 'ui.click') this.lastClick = { e: entry, at: now };
+      if (name === 'lantern.refueled') this.lastRefuel = { e: entry, at: now };
       if (LESSER.has(name)) {
         this.lesser.push({ e: entry, at: now });
         if (this.lesser.length > 4) this.lesser.shift();

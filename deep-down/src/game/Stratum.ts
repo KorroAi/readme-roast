@@ -484,8 +484,3 @@ export class StratumManager {
   }
 }
 
-/** The arrival card's text for a biome, through t() (UI shows it on 'world:biome' with first = true). */
-export function arrivalCard(id: BiomeId): { name: string; desc: string; hazard: string; gear: string; rumour: string; stratum: StratumIndex } {
-  const b = BIOMES[id];
-  return { name: t(b.name), desc: t(b.desc), hazard: t(b.hazardText), gear: t(b.gearText), rumour: t(b.rumour), stratum: b.stratum };
-}

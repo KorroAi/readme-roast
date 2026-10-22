@@ -133,7 +133,7 @@ export const stretch3: Partial<Record<TextKey, string>> = {
   'ending3.title': 'Le Cœur brûle de nouveau',
   'ending3.body': 'Douze éclats, six strates, une lumière. Toutes les lanternes des profondeurs s’allument d’un coup, et l’obscurité recule devant le Cœur.',
   'ending3.free': 'Les profondeurs sont à vous : chaque strate reste ouverte, les commandes et le marchand continuent, et les repaires des gardiens sont silencieux.',
-  'ending3.time': 'Temps dans les profondeurs',
+  'ending3.time': 'Temps de jeu',
   'ending3.hm': '{h} h {m} min',
   'ending3.bestiary': 'Pages du bestiaire',
   'ending3.feats': 'Exploits',

@@ -123,6 +123,8 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
   floors(st);
   if (works) finishDungeon(st, works);
   const decor = dressBiomes(st, s, reserved);
+  // The spring fall's lights count as the cave's (the content's lit places, the stats).
+  for (const l of river?.lights ?? []) decor.lights.push(l);
   const pieces: Array<SetPieceOut & { node: number }> = [];
   for (const n of plan.nodes) if (n.role?.startsWith('set:')) pieces.push({ ...stampSetPiece(st, n, n.role.slice(4), s, reserved), node: n.id });
   phase('dress');

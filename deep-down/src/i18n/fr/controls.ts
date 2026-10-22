@@ -116,7 +116,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'm3.map.zoomIn': 'Zoomer',
   'm3.map.north': 'N',
   'm3.map.zoomOut': 'Dézoomer',
-  'm3.map.exploredAll': '{pct} % de cette strate exploré',
+  'm3.map.exploredAll': '{pct} % de cette strate explorée',
   'm3.map.campName': 'Camp · Strate I',
   'm3.map.inStratum': 'Strate {n}',
   'm3.map.m.camp': 'Camp',

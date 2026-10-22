@@ -367,7 +367,7 @@ export const mobs: Partial<Record<TextKey, string>> = {
   'mob.bestiary.hint.being': 'Pas encore rencontré. Une créature paisible vit ici.',
   'mob.bestiary.hint.guardian': 'Un gardien dort dans le repaire de ce biome.',
   'mob.bestiary.hint.boss': 'Tout au fond des profondeurs.',
-  'mob.bestiary.bonus': '+20 % de dégâts contre cette espèce',
+  'mob.bestiary.bonus': '+20 % de dégâts infligés',
   'mob.bestiary.page': 'Page du bestiaire complète : {name}. Vos coups portent davantage.',
 
   // Retours

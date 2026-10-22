@@ -518,6 +518,40 @@ describe('the AudioSystem on the emulator: one moment, one sound; the sliders', 
     expect(rig.audio.stats().played['feat.fanfare']).toBe(2);
   });
 
+  it('hears a return to camp once, in order: the chime, then the bag banked; the refilled flame stays quiet; at a descent\'s landing the descent leads', () => {
+    rig = systemRig({ sampleRate: 8000 });
+    rig.run(1);
+    const played = (k: string) => rig!.audio.stats().played[k] ?? 0;
+    // The flame refilled in the same frame as the arrival (either order), the bag banked after it.
+    const shadowed = rig.audio.stats().shadowed;
+    rig.emit('lantern:refueled', {});
+    rig.emit('camp:entered', {});
+    rig.emit('items:banked', { total: 9, items: { stone: 6, copperOre: 3 } });
+    rig.run(0.1);
+    expect(played('camp')).toBe(1);
+    expect(rig.audio.stats().shadowed).toBe(shadowed + 1);
+    expect(rig.audio.lastStart('banked')! - rig.audio.lastStart('camp')!).toBeCloseTo(0.8, 1);
+    rig.run(5);
+    rig.emit('camp:entered', {});
+    rig.emit('lantern:refueled', {});
+    rig.run(0.1);
+    expect(played('camp')).toBe(2);
+    expect(played('lantern.refueled')).toBe(1);
+    rig.run(5);
+    // Away from the camp, the refill is heard.
+    rig.emit('lantern:refueled', {});
+    rig.run(0.1);
+    expect(played('lantern.refueled')).toBe(2);
+    rig.run(5);
+    // A descent's landing is a camp region: the descent is the moment, the bag banked after it.
+    rig.emit('world:stratum', { stratum: 2, from: 1, biomes: ['rootGalleries', 'floodedGrottoes'] });
+    rig.emit('camp:entered', {});
+    rig.emit('items:banked', { total: 4, items: { stone: 4 } });
+    rig.run(0.1);
+    expect(played('camp')).toBe(2);
+    expect(rig.audio.lastStart('banked')! - rig.audio.lastStart('world.descent')!).toBeGreaterThan(1.7);
+  });
+
   it("states a biome's motif on its first visit (the starter biome's once the explorer leaves the camp), not on a return", () => {
     rig = systemRig({ sampleRate: 8000 });
     rig.game.strata.biomeHere = 'amberHollows';

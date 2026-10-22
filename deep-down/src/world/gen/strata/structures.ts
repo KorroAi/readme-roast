@@ -437,7 +437,7 @@ export function lakeOf(id: string, level: number, cells: ReadonlyArray<readonly 
  * chain (spring to the overlook), pools in its flat chambers, its surface 0.25 below the banks. Lava
  * in the fire stratum, with rock bridges every few metres (a lava channel is never stepped in).
  */
-export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolean): { river: RiverSite; lakes: LakeDef[]; falls: FallSite[] } | null {
+export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolean): { river: RiverSite; lakes: LakeDef[]; falls: FallSite[]; lights: V3[] } | null {
   const plan = st.plan;
   const edges = riverEdges(plan);
   if (!edges.length) return null;
@@ -499,6 +499,7 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
   // The source: the river pours out of the spring chamber's wall (or its roof's edge), on the side away
   // from its way out, into a lobe of the pool that reaches under it.
   const falls: FallSite[] = [];
+  const lights: V3[] = [];
   const sp = plan.nodes[plan.river[0]];
   const nx = plan.nodes[plan.river[1]];
   if (sp && nx && sp.river) {
@@ -542,6 +543,16 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
       }
       poolCells.set(sp.id, cells);
       falls.push({ id: `spring_${sp.id}`, kind: lavaRiver ? 'lava' : 'water', top: [fx, topY - 0.2, fz], bottom: [fx, sp.y - 0.25, fz], width: 1.6 });
+      // The fall shows by the light round it: a light over its pool and one halfway up, out in the
+      // air before it (the biome's light: its glowing things hang there).
+      const lb = lavaRiver ? B.LIGHT_MAGMA : BIOMES[sp.biome].lightBlock;
+      for (const [out, y] of [[1.6, sp.y + 1], [1.8, Math.round((topY + sp.y) / 2)]] as Array<[number, number]>) {
+        const x = Math.floor(fx - ax * out);
+        const z = Math.floor(fz - az * out);
+        if (get(st, x, y, z) !== B.AIR) continue;
+        put(st, x, y, z, lb);
+        lights.push([x, y, z]);
+      }
     }
   }
   for (const [id, cells] of poolCells) if (!lavaRiver && cells.length > 4) lakes.push(lakeOf(`river_pool_${id}`, plan.nodes[id].y - 0.25, cells));
@@ -552,6 +563,7 @@ export function carveRiver(st: CarveState, reserved: Reserved, lavaRiver: boolea
     river: { id: `river_${plan.stratum}`, kind: lavaRiver ? 'lava' : 'water', points, width: 2.2, spring: [spring.x, spring.y, spring.z], mouth: [mouth.x, mouth.y, mouth.z] },
     lakes,
     falls,
+    lights,
   };
 }
 

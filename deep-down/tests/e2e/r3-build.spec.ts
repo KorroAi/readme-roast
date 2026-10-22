@@ -86,6 +86,14 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   await expect(ladder).toBeEnabled();
   await tapEl(page, touch, ladder);
   expect(await untilGame(page, async () => (await count(page, 'ladder')) > 0, 6), 'a ladder at the Workbench').toBe(true);
+  // Slot 6 took the planks, so the ladders have no slot of their own and the camp's deposit banked
+  // them: put them on slot 6 and take them from the bank (LOOP's assign and withdraw, as the Bag does).
+  await page.evaluate(() => {
+    const loop = window.__DD__.game.loop;
+    loop.assign(5, 'ladder');
+    loop.withdraw('ladder', 3);
+  });
+  expect(await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots[5].item)).toBe('ladder');
   await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 

@@ -2,19 +2,20 @@
 // person camera, the HUD, 390 x 844 @2), on a running server (a vite preview of a build, or dev).
 //
 // Usage: node tools/strata-shots.mjs --url http://localhost:4196/ --out <dir> [--seed 12345]
-//          [--views vista@1,fall@1,ladder@1,ravine@1,spring@2,works@3,mineSet@3] [--dpr 2]
+//          [--views vista@1,island@1,fall@1,ladder@1,ravine@1,spring@2,works@3,mineSet@3] [--dpr 2]
 //
-// Views: `vista` (the balcony's lip, looking down into the hall), `fall` (the hall floor, facing the
-// great fall), `spring` (the river's head, facing the fall out of the spring chamber's wall),
-// `works` (the Halden works' entry, facing its hall), `ladder` (a ladder the trap mending placed,
-// seen from the floor in front of it), `ravine` (a ravine's top, looking down its rope), `mineSet`
-// (a timber set across a Halden drift, from 5 m down the tunnel). The game's own loop is all but
+// Views: `vista` (the balcony's lip, across the hall to the island's spire), `island` (the ramp's
+// foot on the shore, up at the spire), `fall` (the hall floor, facing the great fall), `spring` (the
+// river's head, facing the fall out of the spring chamber's wall), `works` (inside the Halden works'
+// hall, down it to the vault's door), `ladder` (a ladder the trap mending placed, the most open one,
+// from the floor before it), `ravine` (a ravine's top, looking down its rope), `mineSet` (a timber
+// set across a Halden drift, from 5 m down the tunnel, the first seen clear). The game's own loop is all but
 // stopped during the captures (VIS's 21:23 recipe): each frame is rendered by `__DD__.step`.
 import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const opt = { url: 'http://localhost:4176/', out: 'artifacts/r3/world/shots', seed: '12345', views: 'vista@1,fall@1,ladder@1,ravine@1,spring@2,works@3,mineSet@3', dpr: '2', wait: '1200' };
+const opt = { url: 'http://localhost:4176/', out: 'artifacts/r3/world/shots', seed: '12345', views: 'vista@1,island@1,fall@1,ladder@1,spring@2,works@3,mineSet@3', dpr: '2', wait: '1200' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 mkdirSync(opt.out, { recursive: true });
 
@@ -99,8 +100,17 @@ try {
           lip = s;
         }
         at = lip ? (standTop(lip[0] - (dx / len) * 1.2, lip[1] + 1, lip[1] - 1, lip[2] - (dz / len) * 1.2) ?? lip) : b;
-        look = [c[0], c[1] + 2, c[2]];
+        // Across the hall to the island's spire (its lit tip), the lake and the fall below.
+        look = L.vista.island ? [L.vista.island[0], L.vista.island[1] - 3, L.vista.island[2]] : [c[0], c[1] + 2, c[2]];
         note = L.vista.name;
+      } else if (what === 'island' && L.vista) {
+        // From the ramp's foot on the shore, up at the island's spire over the lake.
+        const isl = L.vista.island ?? L.vista.centre;
+        look = [isl[0], isl[1] - 2, isl[2]];
+        const f = L.vista.rampFoot;
+        const v = vantage(f, isl[0] - f[0], isl[2] - f[2], [3, 1.5, 5, 0], look);
+        at = v?.at ?? D.standableNear(f[0], f[1], f[2]);
+        note = `${L.vista.name} spire tip ${(isl[1] - L.vista.centre[1]).toFixed(0)} m up`;
       } else if (what === 'fall') {
         const f = L.falls.find((x) => x.id.startsWith('fall_'));
         if (!f || !L.vista) return { err: 'no great fall' };
@@ -119,10 +129,12 @@ try {
         at = v?.at ?? null;
         note = `${f.id} ${(f.top[1] - f.bottom[1]).toFixed(1)} m`;
       } else if (what === 'works' && L.dungeon) {
-        await D.goto('works');
-        at = [g.player.x, g.player.y, g.player.z];
-        look = [L.dungeon.hall[0], L.dungeon.hall[1] + 1.5, L.dungeon.hall[2]];
-        note = L.dungeon.puzzle;
+        // Inside the main hall, looking down it to the vault's iron door and its sockets.
+        const e = L.dungeon.entry, h = L.dungeon.hall;
+        const ux = h[0] - e[0], uz = h[2] - e[2], ul = Math.hypot(ux, uz) || 1;
+        at = D.standableNear(e[0] + (ux / ul) * 7.5, h[1], e[2] + (uz / ul) * 7.5) ?? D.standableNear(h[0], h[1], h[2]);
+        look = [h[0] + (ux / ul) * 6.5, h[1] + 1.4, h[2] + (uz / ul) * 6.5];
+        note = `${L.dungeon.puzzle}, ${L.dungeon.sockets.length} locks`;
       } else if (what === 'ravine' && L.ravines.length) {
         // The deepest ravine, from its top, looking down along its rope.
         const r = [...L.ravines].sort((a, b) => (b.top[1] - b.bottom[1]) - (a.top[1] - a.bottom[1]))[0];
@@ -142,7 +154,20 @@ try {
             if (c) { c.lo = Math.min(c.lo, y); c.hi = Math.max(c.hi, y); } else cols.set(k, { x, z, lo: y, hi: y });
           }
         }
-        const list = [...cols.values()].sort((a, b) => (b.hi - b.lo) - (a.hi - a.lo));
+        // The one with the most open floor before it (a ladder in a cramped slot shows nothing).
+        const openBefore = (c) => {
+          let best = 0;
+          for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            let n = 0;
+            for (let d = 1; d <= 5; d++) for (let s2 = -2; s2 <= 2; s2++) {
+              const x = c.x + ox * d + oz * s2, z = c.z + oz * d + ox * s2;
+              if (!D.isSolid(x, c.lo, z) && !D.isSolid(x, c.lo + 1, z) && !D.isSolid(x, c.lo + 2, z)) n++;
+            }
+            best = Math.max(best, n);
+          }
+          return best;
+        };
+        const list = [...cols.values()].filter((c) => c.hi - c.lo >= 2).sort((a, b) => openBefore(b) * 2 + (b.hi - b.lo) - (openBefore(a) * 2 + (a.hi - a.lo)));
         const c = list[0];
         if (!c) return { err: 'no ladders' };
         // The cliff it climbs: the side with rock at mid-height; the eye stands on the other side.
@@ -152,15 +177,24 @@ try {
         look = [c.x + 0.5, (c.lo + c.hi) / 2 + 0.5, c.z + 0.5];
         const v = vantage([c.x + 0.5, c.lo, c.z + 0.5], -ox, -oz, [4.5, 3.5, 6, 2.5], look);
         at = v?.at ?? null;
-        note = `${list.length} columns, tallest ${c.hi - c.lo + 1} m at ${c.x},${c.lo},${c.z}`;
+        note = `${cols.size} columns; this one ${c.hi - c.lo + 1} m at ${c.x},${c.lo},${c.z}, clear ${v ? v.c.toFixed(2) : '-'}`;
       } else if (what === 'mineSet') {
         const sets = L.props.filter((p) => p.kind === 'mineSet');
-        const p = sets[Math.floor(sets.length / 2)];
-        if (!p) return { err: 'no mine sets' };
-        const hx = Math.sin(p.rotY ?? 0), hz = Math.cos(p.rotY ?? 0);
-        look = [p.x + 0.5, p.y + 1.4, p.z + 0.5];
-        const v = vantage([p.x + 0.5, p.y, p.z + 0.5], hx, hz, [5, 4, 6.5, 3], look) ?? vantage([p.x + 0.5, p.y, p.z + 0.5], -hx, -hz, [5, 4, 6.5, 3], look);
-        at = v?.at ?? null;
+        if (!sets.length) return { err: 'no mine sets' };
+        // Down the drift to a set (its posts across the passage): the first one seen clear from 5 m.
+        let pick = null;
+        for (const p of sets) {
+          const hx = Math.sin(p.rotY ?? 0), hz = Math.cos(p.rotY ?? 0);
+          const lk = [p.x, p.y + 1.4, p.z];
+          for (const sgn of [1, -1]) {
+            const v = vantage([p.x, p.y, p.z], hx * sgn, hz * sgn, [5, 4, 6.5], lk);
+            if (v && v.c >= 0.97 && (!pick || v.score > pick.v.score)) pick = { v, lk };
+          }
+          if (pick && pick.v.c >= 0.99) break;
+        }
+        if (!pick) return { err: 'no clear view of a mine set' };
+        at = pick.v.at;
+        look = pick.lk;
         note = `${sets.length} sets`;
       } else return { err: `unknown view ${what}` };
       if (!at || !look) return { err: `${what}: no vantage` };

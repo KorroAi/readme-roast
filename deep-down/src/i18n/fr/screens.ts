@@ -114,7 +114,7 @@ export const screens: Partial<Record<TextKey, string>> = {
   'ui.ending.continue': 'Continuer',
 
   // À propos
-  'ui.settings.about': 'À propos',
+  'ui.settings.about': 'Infos',
   'ui.settings.aboutLabel': 'À propos de DEEP DOWN : version, confidentialité et licences',
   'ui.about.title': 'À propos',
   'ui.about.tab.about': 'À propos',

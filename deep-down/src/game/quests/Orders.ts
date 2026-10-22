@@ -93,8 +93,16 @@ export class Orders {
    * down: an order not started yet that was made for a shallower stratum than the deepest reached is
    * replaced too (`renewed`); orders under way stay until they are done.
    */
-  collect(stratum: number, today: number): Order[] {
+  collect(stratum: number, today: number, renew = true): Order[] {
     const paid = this.list.filter((o) => o.have >= o.need);
+    if (!renew) {
+      // A lift landing: the done orders are paid, the new ones wait for the camp.
+      this.renewed = 0;
+      if (paid.length === 0) return [];
+      this.list = this.list.filter((o) => o.have < o.need);
+      this.done += paid.length;
+      return paid;
+    }
     const stale = this.list.filter((o) => !o.daily && o.have === 0 && o.stratum < stratum);
     this.renewed = stale.length;
     if (paid.length === 0 && stale.length === 0 && this.day === today) return [];
