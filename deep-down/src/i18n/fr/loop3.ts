@@ -218,7 +218,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'bestiary.milestone': 'Bestiaire {count} : {bonus}',
 
   // Le tutoriel (on apprend en faisant)
-  'tut.look': 'Faites glisser n’importe où pour regarder autour',
+  'tut.look': 'Faites glisser n’importe où pour regarder autour de vous',
   'tut.move': 'Poussez le joystick pour marcher ; jusqu’au bord pour courir',
   'tut.mine': 'Visez un filon brillant et maintenez Action pour le miner',
   'tut.pickup': 'Passez sur ce que vous avez miné : ça file dans votre sac',

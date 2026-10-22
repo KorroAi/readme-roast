@@ -234,7 +234,8 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
   }
   const spireH = rng.int(8, 12);
   for (let k = 0; k < spireH; k++) {
-    const r0 = 1.35 * (1 - k / (spireH + 1.5));
+    // (Tapering to a 2 x 2 tip that reaches the top: the light sits on it.)
+    const r0 = Math.max(0.42, 1.35 * (1 - k / (spireH + 1.5)));
     for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
       if ((dx + 0.5) ** 2 + (dz + 0.5) ** 2 > r0 * r0 + 0.35) continue;
       putAir(st, Math.floor(n.x) + dx, n.y + k, Math.floor(n.z) + dz, host[1]);

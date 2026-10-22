@@ -1,4 +1,4 @@
-import { t } from '../i18n';
+import { formatNumber, t } from '../i18n';
 
 // Pure formatting helpers for player-facing numbers. No DOM, unit tested in Node.
 
@@ -24,7 +24,8 @@ export function formatRelativeTime(then: number, now: number): string {
 
 export const percent = (v01: number): string => t('settings.percent', { value: Math.round(v01 * 100) });
 
-export const multiplier = (v: number): string => t('settings.multiplier', { value: v.toFixed(2) });
+/** "1.25×" (a decimal comma in French: "1,25×"). */
+export const multiplier = (v: number): string => t('settings.multiplier', { value: formatNumber(Math.round(v * 100) / 100, 2) });
 
 /** Depth readout: always "-N m", the way the HUD and the e2e test expect it. */
 export const depthText = (depth: number): string => t('hud.depthValue', { depth: `-${Math.max(0, Math.round(depth))}` });

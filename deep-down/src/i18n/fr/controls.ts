@@ -94,7 +94,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'm3.craft.allStations': 'Toutes',
   'm3.craft.stationNear': '{name} · ici',
   'm3.craft.new': 'Nouveau',
-  'm3.craft.at': 'à : {station}',
+  'm3.craft.at': 'Où : {station}',
   'm3.craft.focus': 'À fabriquer ensuite',
 
   // La Carte
