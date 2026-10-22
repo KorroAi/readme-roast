@@ -84,6 +84,9 @@ export const RUMOUR_AFTER: number = GUIDE.stuckSeconds;
  */
 export const FIGHT_CAMP_RATE = 45 / 120;
 
+/** Metres within which a monster makes the fight step say "aim and strike" even in the camp's light. */
+export const FOE_NEAR = 15;
+
 export interface QuestHost {
   readonly bus: EventBus<GameEvents>;
   world(): QuestWorld;
@@ -839,8 +842,15 @@ export class Quests implements QuestSystem {
     if (s.id === 'torch' && this.host.held && this.host.held() !== 'torch') return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.torch.pick'), highlight: 'hotbar:3' };
     // The fight step in the camp: creatures keep out of its light, so the line sends the explorer out
     // (the compass points at the nearest monster when one is about) and rings the stick.
-    if (s.id === 'fight' && this.host.atCamp?.()) return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.fightOut'), highlight: 'joystick' };
+    if (s.id === 'fight' && this.host.atCamp?.() && !this.foeNear()) return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.fightOut'), highlight: 'joystick' };
     return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t(s.line), highlight: s.highlight };
+  }
+
+  /** A monster within FOE_NEAR m (the fight step's usual line even at the camp's edge: QA 22:25). */
+  private foeNear(): boolean {
+    const w = this.host.world();
+    const f = w.foe?.() ?? null;
+    return !!f && (f.x - w.at.x) ** 2 + (f.z - w.at.z) ** 2 < FOE_NEAR * FOE_NEAR;
   }
 
   /** UI's name for tutorial(): the step to show ({ id, highlight, line, index, total }), null when done or skipped. */

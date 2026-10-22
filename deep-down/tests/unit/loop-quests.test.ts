@@ -816,6 +816,10 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     expect(q.tutorialStep()).toMatchObject({ id: 'fight', line: en['tut.fight'], highlight: 'action' });
     loop.update(0.5);
     expect(q.main().target).toMatchObject({ x: 6, y: 10, z: -8, kind: 'point' });
+    // Back in the camp's light with the creature close by (QA 22:25): still "aim and strike".
+    h.inCamp = true;
+    expect(q.tutorialStep()).toMatchObject({ id: 'fight', line: en['tut.fight'], highlight: 'action' });
+    h.inCamp = false;
     for (let i = 0; i < 10; i++) loop.update(1);
     expect(q.tutorialStep()?.id).toBe('sonar');
   });

@@ -62,12 +62,13 @@ void main() {
   float f = abs(dot(normalize(vNormal), v));
   float core = f * f * f;
   float ends = smoothstep(0.0, 0.18, vT) * (1.0 - smoothstep(0.65, 1.0, vT));
-  // Dust drifting up through the light: two slow octaves of the world noise.
-  vec3 q = vWorldPos * vec3(0.55, 0.22, 0.55) + vec3(0.0, -uTime * 0.12, 0.0);
-  float dust = textureLod(uNoise, q, 0.0).r * 0.65 + textureLod(uNoise, q * 2.3 + 0.37, 0.0).g * 0.35;
+  // Dust drifting up through the light: two slow, broad octaves of the world noise, kept faint (a
+  // finer, stronger dust read as a marbled slab at 390 x 844 @2 in the Crystal Geode).
+  vec3 q = vWorldPos * vec3(0.26, 0.1, 0.26) + vec3(0.0, -uTime * 0.06, 0.0);
+  float dust = textureLod(uNoise, q, 0.0).r * 0.7 + textureLod(uNoise, q * 2.1 + 0.37, 0.0).g * 0.3;
   float near = smoothstep(1.5, 5.0, vDepth);
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
-  vec3 col = vColor * core * ends * (0.55 + 0.9 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
+  vec3 col = vColor * core * ends * (0.8 + 0.4 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
   // Additive over the scene: on the 8-bit fallback the target holds sqrt(x / (1 + x)), where a
   // faint glow added as sceneOut(col) would be strongly amplified; its slope at a dark scene (~1.4)
   // keeps the beam as faint there as on HDR targets.
