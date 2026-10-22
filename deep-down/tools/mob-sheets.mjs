@@ -2,7 +2,7 @@
 // in its own lair, in the real game (WebGL 2 through SwiftShader, the real camera and lighting).
 //
 // Usage: node tools/mob-sheets.mjs [--out artifacts/r3/mobs] [--size 1280x720]
-//          [--only rosters|guardians|extras|fight|heart|worm|all] [--biomes amberHollows,mushroomForest]
+//          [--only rosters,guardians,extras,fight,heart,worm (a list) | all] [--biomes amberHollows,mushroomForest]
 //          [--seed 12345] [--port 4177]
 // Writes roster-<biome>.png and guardian-<kind>.png (no --only: both), and with --only: extras (elites,
 // telegraphs, the companion), fight (a blow landing, deaths collapsing, a guardian's open guard and its
