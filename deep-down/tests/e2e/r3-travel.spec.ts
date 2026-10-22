@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, closeTripCard, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, boot, centreOf, closeTripCard, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): outposts and fast travel with real touches at 390 x 844 (BRIEF §0.4, §0.6). A hotbar
 // slot is filled by a long-press (the Bag opens on "choose for slot N"), the Outpost Kit is set down
@@ -18,6 +18,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   await quiet(page);
   await page.evaluate(() => window.__DD__.give('outpostKit', 1));
 
+  await mark(page, 'travel long-press');
   // A long-press on the free slot (6) opens the Bag to fill it; a tap on the kit puts it there.
   const slot = await centreOf(page, 'hotbar:5');
   // Held until the Bag opens (a long-press is timed on the page, which may draw slowly).
@@ -30,6 +31,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   expect(await waitScreen(page, 'none'), 'choosing the kit closed the Bag').toBe(true);
   expect(await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots[5].item)).toBe('outpostKit');
 
+  await mark(page, 'travel place');
   // Away from the camp, on open floor: pick the kit and set it down with Place.
   const site = await page.evaluate(() => {
     const dd = window.__DD__;
@@ -68,6 +70,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   expect(outposts.length, 'the outpost is registered for fast travel').toBe(1);
   const outpost = outposts[0];
 
+  await mark(page, 'travel rest');
   // Its Interact chip rests there (the bed becomes the respawn point, the bag is banked).
   expect(await untilGame(page, async () => (await hud(page)).interact?.icon === 'outpost', 6), 'the outpost chip').toBe(true);
   await tapControl(page, touch, 'interact');
@@ -75,6 +78,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   // A rest ends the trip there (LOOP): its card may come up first.
   await closeTripCard(page, touch);
 
+  await mark(page, 'travel to camp');
   // The Map: from the outpost, travel to the camp.
   await tapControl(page, touch, 'map');
   expect(await waitScreen(page, 'map')).toBe(true);
@@ -86,6 +90,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   // Back at the camp, the trip's card may come up (a trip with an outpost set down): close it.
   await closeTripCard(page, touch);
 
+  await mark(page, 'travel back');
   // And back: the outpost's row, from the camp.
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'map');

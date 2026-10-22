@@ -247,7 +247,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'hint3.bagFull': 'Sac plein : mettez en réserve au camp ou à un avant-poste, ou jetez quelque chose.',
   'hint3.noFuel': 'Le Fourneau n’a plus de combustible : apportez du charbon ou du bois.',
   'hint3.tooHard': 'Trop dur pour votre pioche : il faut le rang {tier}.',
-  'hint3.tooHardPick': 'Trop dur pour votre pioche : il faut {pick} (rang {tier}). Voyez l’Atelier.',
+  'hint3.tooHardPick': 'Trop dur pour votre pioche : il faut la {pick} (rang {tier}). Voyez l’Atelier.',
   'hint3.outpost': 'Fabriquez un Kit d’avant-poste : réserve, lit et voyage rapide ici-bas.',
   'hint3.firstBiome': 'Nouveau biome : lisez la carte d’arrivée, elle dit son danger.',
   'tip.sonar': 'Sonar : une impulsion qui montre les trouvailles à travers la roche. Il se recharge.',

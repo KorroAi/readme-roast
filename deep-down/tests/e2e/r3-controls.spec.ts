@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, aimAtOre, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, aimAtOre, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -49,6 +49,7 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   await touch.tap({ x: Math.round(at!.x), y: Math.round(at!.y) });
   expect(await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === AIR, 20), 'the tapped vein broke').toBe(true);
 
+  await mark(page, 'controls look');
   // A drag on the view turns it.
   const yaw0 = await page.evaluate(() => window.__DD__.game.cameraRig.yaw as number);
   await touch.drag({ x: 300, y: 380 }, { x: 180, y: 380 }, 80, 4);
@@ -67,6 +68,7 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   await touch.up();
   expect(fast, 'sprinting is faster than walking (about 6.5 m/s)').toBe(true);
 
+  await mark(page, 'controls pads');
   // Jump.
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'jump');
@@ -108,6 +110,7 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
   await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 
+  await mark(page, 'controls bomb');
   // A bomb: on the hotbar's bomb slot, Action throws it; it bursts (MOBS's blast) where the ray lands.
   await page.evaluate(() => window.__DD__.give('blastBomb', 2));
   const slot = await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots.findIndex((s: { item: string | null }) => s.item === 'blastBomb'));

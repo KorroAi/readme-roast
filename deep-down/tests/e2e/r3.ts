@@ -27,7 +27,14 @@ export async function tapEl(page: Page, touch: Touch, target: string | Locator):
     if (still) break;
   }
   expect(b, `${String(target)} has a box`).not.toBeNull();
-  await touch.tap({ x: Math.round(b!.x + b!.width / 2), y: Math.round(b!.y + b!.height / 2) });
+  const at = { x: Math.round(b!.x + b!.width / 2), y: Math.round(b!.y + b!.height / 2) };
+  // Something drawn over the element would take the tap: say what (a run that fails then says why).
+  const over = await loc.evaluate((el, p) => {
+    const top = document.elementFromPoint(p.x, p.y);
+    return !top || el.contains(top) ? null : `${top.tagName.toLowerCase()}.${String(top.className).split(' ').join('.')}`;
+  }, at).catch(() => null);
+  if (over) console.log(`[e2e] tap on ${String(target)} lands on ${over}`);
+  await touch.tap(at);
 }
 
 /** Press on a point (sliding to `to`) and hold until `done` holds (game time), then lift. */

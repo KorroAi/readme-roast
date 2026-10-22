@@ -882,8 +882,11 @@ export class SimOscillator extends SimScheduledSource {
         s = ((ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep((ph + 0.5) % 1, dt)) * GIBBS;
       } else if (type === 'triangle') {
         // Naive triangle (its harmonics fall at 12 dB/octave, so aliasing stays far below the
-        // fundamental): -1 at phase 0, +1 at half a cycle.
-        s = 1 - 4 * Math.abs(ph - 0.5);
+        // fundamental), in the spec's phase (its sine series): 0 at phase 0, +1 at a quarter cycle,
+        // -1 at three quarters. A saw and a triangle on one note then add as they do in Chromium.
+        let u = ph + 0.25;
+        if (u >= 1) u -= 1;
+        s = 1 - 4 * Math.abs(u - 0.5);
       } else if (table) {
         const x = ph * 2048;
         const j = x | 0;

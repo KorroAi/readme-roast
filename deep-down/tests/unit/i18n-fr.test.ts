@@ -34,7 +34,10 @@ describe('languages (English, French)', () => {
 
   it('no French line is stale: its English source is the one it was translated from (tools/loop-fr-sync.ts)', () => {
     const stale = Object.keys(fr).filter((k) => FR_SOURCES[k] !== (en as Record<string, string>)[k]);
-    expect(stale.map((k) => `${k}: was "${FR_SOURCES[k]}", now "${(en as Record<string, string>)[k]}"`)).toEqual([]);
+    expect(
+      stale.map((k) => `${k}: was "${FR_SOURCES[k]}", now "${(en as Record<string, string>)[k]}"`),
+      'update these French lines, then run tools/loop-fr-sync.ts --accept <their keys> (a new line: no flag)',
+    ).toEqual([]);
   });
 
   it('no key is defined twice across the French sections', () => {

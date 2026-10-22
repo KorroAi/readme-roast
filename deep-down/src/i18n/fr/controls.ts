@@ -54,7 +54,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'hud3.companion': '{name}, niveau {level}',
   'hud3.arrival.kicker': 'Strate {stratum}',
   'hud3.arrival.hazard': 'Danger :',
-  'hud3.arrival.gear': 'parade : {gear}',
+  'hud3.arrival.gear': 'remède : {gear}',
 
   // Le cadre des menus
   'm3.rail': 'Menus',

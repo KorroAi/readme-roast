@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, holdUntil, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, boot, centreOf, holdUntil, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): crafting and building with real touches at 390 x 844 (BRIEF §0.4, §0.6): the Craft
@@ -89,6 +89,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 
+  await mark(page, 'build torch');
   // A torch on a wall: stand facing it, pick the torches, aim at the wall, tap Place.
   const spot = await faceAWall(page);
   expect(spot, 'a wall near the camp').not.toBeNull();
@@ -107,6 +108,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   // VIS draws it (TorchLights reads the voxels); it lights its cell.
   expect(Math.hypot(t.x + 0.5 - (wall[0] + 0.5), t.z + 0.5 - (wall[2] + 0.5)), 'on the face of the wall').toBeLessThan(1.6);
 
+  await mark(page, 'build ladder');
   // A ladder on the wall at the feet: one ladder item climbs four cells up.
   const ladders0 = await count(page, 'ladder');
   await selectItem(page, touch, 'ladder');
@@ -120,6 +122,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   expect(column.filter((id) => id === LADDER).length, 'the ladder climbs the wall').toBeGreaterThanOrEqual(3);
   expect(await count(page, 'ladder')).toBe(ladders0 - 1);
 
+  await mark(page, 'build climb');
   // Climb it: step into the ladder and push the stick forward; the explorer goes up.
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), [l.x, l.y, l.z]);
   const y0 = await page.evaluate(() => window.__DD__.game.player.y);

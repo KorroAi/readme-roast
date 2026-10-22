@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { seedFromText } from '../../src/ui/seed';
 import { untilGame } from './dd';
 import type { Touch } from './touch';
-import { PHONE, boot, centreOf, newExpedition, quiet, screen, tapControl, waitScreen, tapEl } from './r3';
+import { PHONE, mark, boot, centreOf, newExpedition, quiet, screen, tapControl, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): every menu end to end with real touches at 390 x 844 (BRIEF §0.6), the Settings
 // additions, the seed field of New Game, and the desktop keys for the menus:
@@ -47,6 +47,7 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
     await closeMenu(page, touch);
   }
 
+  await mark(page, 'menus rail');
   // The rail goes round all five; each has its "?" help card.
   await tapControl(page, touch, 'bag');
   expect(await waitScreen(page, 'inventory')).toBe(true);
@@ -66,6 +67,7 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
   expect(await waitScreen(page, 'map')).toBe(true);
   await expect(page.locator('.dd-menu3[data-menu="map"]')).toHaveAttribute('data-enter', 'right');
 
+  await mark(page, 'menus map');
   // The Map: its view pans with a drag and zooms with its buttons; the seed is shown.
   await expect(page.locator('.dd-m3-seed')).toContainText(String(seed));
   const cam0 = await page.evaluate(() => (window.__DD__.game.ui as { state: { mapCamera: { cx: number; cz: number; zoom: number } } }).state.mapCamera);
@@ -78,6 +80,7 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
   expect(cam2.cx, 'the drag panned the map').toBeLessThan(cam1.cx);
   await closeMenu(page, touch);
 
+  await mark(page, 'menus settings');
   // ≡ pauses; Settings has the round 3 additions.
   await tapControl(page, touch, 'menu');
   expect(await waitScreen(page, 'pause')).toBe(true);

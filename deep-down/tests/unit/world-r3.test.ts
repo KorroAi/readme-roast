@@ -125,6 +125,10 @@ describe('the open gate\'s shaft is the way down (stratum I)', () => {
       const strata = { layout, current: 1, enter: async () => {} } as unknown as StratumManager;
       installStratumDebug({ session, strata, player, teleport: (x, y, z) => Object.assign(player, { x, y, z }) });
       const goto = g.window.__DD__!.goto as (b: BiomeId) => Promise<[number, number, number] | null>;
+      // The lairs' own caverns first (MOBS saw the lair come first on seed 7): the pick must pass them by.
+      const inLair = (c: { centre: readonly number[] }) => layout.lairs.some((a) => Math.hypot(c.centre[0] - a.centre[0], c.centre[2] - a.centre[2]) < a.radius + 6);
+      expect(layout.caverns.some(inLair)).toBe(true);
+      layout.caverns.sort((a, b) => Number(inLair(b)) - Number(inLair(a)));
       for (const b of STRATA[0].biomes) {
         const p = await goto(b);
         expect(p, b).not.toBeNull();
