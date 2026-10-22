@@ -112,6 +112,8 @@ try {
           }
           if (at) D.teleport(at[0], at[1], at[2]);
         } else if (kind === 'lair') {
+          // The lair's stratum first (the lair goto looks in the loaded one only).
+          if (!g.strata.layout.lairs.some((a) => a.biome === arg)) await D.goto(arg);
           const p = await D.goto('lair', arg);
           if (!p) return { err: `no lair ${arg}` };
           const l = g.strata.layout.lairs.find((a) => a.biome === arg);
@@ -227,7 +229,7 @@ try {
           if (st && g.strata.current !== Number(st)) await D.stratum(Number(st));
           const L = g.strata.layout;
           fx = rest;
-          if (rest === 'heartWake' || rest === 'heartRelight') {
+          if (rest === 'heartWake' || rest === 'heartRelight' || rest === 'heartLit') {
             if (!L.heart) return { err: 'no heart' };
             const h = L.heart;
             // From the chamber's rim, looking up at the Heart.
@@ -346,11 +348,14 @@ try {
           let ok = true;
           if (fx === 'heartWake') v.heart.awaken();
           else if (fx === 'heartRelight') v.heart.start();
+          // After the ending (free play): the deep relit, as a save past the ending loads it.
+          else if (fx === 'heartLit') v.heart.setHeart(g.strata.layout.heart, 'lit', g.session.world);
           else if (fx === 'geyser') ok = v.geysers.erupt(P.x, P.y, P.z, 40);
           else if (fx.startsWith('weather:')) ok = v.weather.start(g.session.world, P.x, P.y, P.z);
           if (!ok) return { err: `fx ${fx} did not start here` };
           // Into the moment: the Heart's acts at ~3 s, a geyser at ~1.3 s, the weather at ~6 s.
           if (fx === 'geyser') D.step(4, 0.33);
+          else if (fx === 'heartLit') D.step(2, 0.5);
           else D.step(fx.startsWith('weather') ? 12 : 6, 0.5);
         }
         return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), pitch: +pitch.toFixed(3), feet: [px, py, pz], biome: D.biomeHere(), stratum: g.strata.current, ...(fx ? { fx, report: g.vis.report().weather ?? null } : {}) };
@@ -367,6 +372,8 @@ try {
         const D = window.__DD__;
         const g = D.game;
         await D.meshIdle?.();
+        // The baked decor round the view (in play two cells bake a frame).
+        g.session.props.flushDecor?.(g.cameraRig.camera.position, 96);
         D.step(1, 0.05);
         await D.meshIdle?.();
         // Back on the chosen spot and heading, the lens snapped to it (look, then the teleport's

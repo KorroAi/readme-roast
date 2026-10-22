@@ -190,7 +190,8 @@ function charge(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       m.speedNow = moved / Math.max(1e-4, dt);
       m.gait += moved * 1.5;
       m.yaw = Math.atan2(m.dir.x, m.dir.z);
-      if (!m.landed && sim.flatDist(m, ctx) <= m.bounds.radius + 0.9 && Math.abs(ctx.player.y - m.foot.y) < 2) {
+      // (Contact within its drawn lane only: step off it and the charge misses.)
+      if (!m.landed && sim.chargeContact(m, ctx, 0.9) && Math.abs(ctx.player.y - m.foot.y) < 2) {
         m.landed = true;
         sim.strikePlayer(m, d.damage);
       }
@@ -245,7 +246,7 @@ function charge(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
         const l = Math.max(0.01, Math.hypot(dx, dz));
         m.dir.x = dx / l;
         m.dir.z = dz / l;
-        sim.addMarker(m, 'line', m.foot.x, m.foot.y, m.foot.z, m.bounds.radius + 0.5, { dx: m.dir.x, dz: m.dir.z, len: Math.min(dp + 4, 15) });
+        sim.addMarker(m, 'line', m.foot.x, m.foot.y, m.foot.z, sim.laneHalf(m), { dx: m.dir.x, dz: m.dir.z, len: Math.min(dp + 4, 15) });
         sim.telegraph(m);
       }
     }

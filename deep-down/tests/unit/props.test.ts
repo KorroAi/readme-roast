@@ -262,6 +262,19 @@ describe('prop models', () => {
 });
 
 describe('PropRenderer', () => {
+  it('bakes the decor round a point at once on demand (a stratum\'s arrival, captures)', () => {
+    const r = new PropRenderer(lighting());
+    // Ambient props (nothing to do) in three 32 m cells along x.
+    for (let i = 0; i < 3; i++) r.add(spec('stalagmite', { id: `s${i}`, x: 5 + i * 40, z: 5 }));
+    expect(r.decor.dirtyCells).toBe(3);
+    // In play two cells bake a frame; flushDecor bakes those near the eye now, or all.
+    expect(r.flushDecor(new THREE.Vector3(0, 0, 0), 10)).toBe(1);
+    expect(r.decor.dirtyCells).toBe(2);
+    expect(r.flushDecor()).toBe(2);
+    expect(r.decor.dirtyCells).toBe(0);
+    r.dispose();
+  });
+
   it('adds, finds and removes props, sharing geometry per kind and variant', () => {
     const r = new PropRenderer(lighting(), { bakeDecor: false });
     const a = spec('crate', { id: 'a', seed: 1 });

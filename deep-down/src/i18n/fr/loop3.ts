@@ -226,12 +226,12 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'tut.move': 'Poussez le joystick pour marcher ; jusqu’au bord pour courir',
   'tut.mine': 'Visez un filon brillant et maintenez Action pour le miner',
   'tut.pickup': 'Passez sur ce que vous avez miné : ça file dans votre sac',
-  'tut.craft': 'Ouvrez l’Atelier et fabriquez des Torches (à la main : Bois fongique + Charbon)',
+  'tut.craft': 'Ouvrez l’Atelier : fabriquez des Torches (Bois fongique + Charbon)',
   'tut.torch': 'Posez la torche sur un mur ou au sol',
   'tut.torch.pick': 'Touchez l’emplacement des torches pour en tenir une',
   'tut.fight': 'Une créature ! Visez et appuyez sur Action pour frapper',
   'tut.fightOut': 'Les créatures fuient la lumière du camp : sortez en trouver une',
-  'tut.sonar': 'Appuyez sur Sonar : minerais, coffres et repaires apparaissent à travers la roche',
+  'tut.sonar': 'Appuyez sur Sonar : il révèle minerais, coffres et repaires',
   'tut.bag': 'Ouvrez le Sac : vos trouvailles, votre équipement et vos potions',
   'tut.map': 'Ouvrez la Carte : les grottes que vous avez vues, et vos repères',
   'tut.quest': 'Ouvrez les Quêtes : le Cœur, vos commandes et vos tâches',
@@ -267,7 +267,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'tip.item': 'Nouveau : {name}. {desc}',
 
   // Cartes d'arrivée
-  'arrival.counter': 'Parade : {counter}',
+  'arrival.counter': 'Remède : {counter}',
   'arrival.rumour': 'Rumeur : {rumour}',
   'arrival.welcome': 'Bienvenue — {biome}',
 

@@ -31,6 +31,15 @@ import { Rng } from '../../core/rng';
 import { LightBeams } from './LightBeams';
 import { strataBeams } from './strataBeams';
 import { GeyserFx } from './GeyserFx';
+import { HEART_BEAT } from '../mobs/guardian';
+
+/** MOBS' activeGuardian() as the Heart's pulse reads it (by shape). */
+interface GuardianBeatView {
+  kind: string;
+  phase: number;
+  status: string;
+  beat?: { period: number; phase: number };
+}
 
 /**
  * Round 3 (VIS): one place that runs the round's visuals, so the hub (Game.ts) needs a few one-line
@@ -179,6 +188,8 @@ export class VisDirector {
   private look: BiomeLook | null = null;
   private attachedLayout: WorldLayout | null = null;
   private layoutChanged = false;
+  /** A new layout's decor round the explorer is baked on the next frame (no pop-in on arrival). */
+  private bakeDecor = false;
   private sonarPulse: SonarPulse | null = null;
   private attachedWorld: VoxelWorld | null = null;
   private attachedChunks: ChunkRenderer | null = null;
@@ -235,6 +246,10 @@ export class VisDirector {
         this.sonarPulse?.cancel();
         this.heart.start();
       }),
+      // The Dark Heart's lub, heard (in its chamber): the Heart's halo swells on it.
+      o.bus.on('mob:sfx', (e) => {
+        if (e.name === 'guardian.heartbeat') this.heart.lub();
+      }),
       // A lever of the Halden works thrown: it stays down (its socket lamp lit), with a few sparks.
       o.bus.on('world:lever', (e) => this.syncLevers(e.id)),
       // The works' iron door grinds open: the dust of a century falls from its frame.
@@ -272,11 +287,22 @@ export class VisDirector {
     if (s.world !== this.attachedWorld) this.attach(s);
     else if (s.layout !== this.attachedLayout) this.onLayout(s);
     const strata = s.layout as unknown as StrataView;
+    if (this.bakeDecor) {
+      // The decor bakes two 32 m cells a frame, nearest first: on arrival the ring round the
+      // explorer is baked at once (a few cells), so nothing pops in where the eye is.
+      this.bakeDecor = false;
+      s.props.flushDecor?.(camera.position, 36);
+    }
     this.look?.update(dt, x, y, z, typeof strata.biomeAt === 'function' ? strata.biomeAt.bind(strata) : null);
     if (!this.heart.playing) this.sonarPulse?.update(dt);
-    // The Heart beats with the Dark Heart (MOBS' guardian: its phase sets the tempo), slowly asleep.
-    const g = (this.o.mobs?.() as { activeGuardian?: () => { kind: string; phase: number; status: string } | null } | undefined)?.activeGuardian?.() ?? null;
-    this.heart.tempo = g && g.kind === 'heartOfDark' && g.status === 'awake' ? [1.25, 0.95, 0.68][Math.max(0, Math.min(2, g.phase - 1))] : this.heart.state === 'awake' ? 1.25 : 2.2;
+    // The Heart beats with the Dark Heart (MOBS' sim on AUDIO's grid): its own beat while it fights
+    // (`beat`: period and phase), else HEART_BEAT by its phase, asleep 2 s (a heard lub locks it).
+    const g = (this.o.mobs?.() as { activeGuardian?: () => GuardianBeatView | null } | undefined)?.activeGuardian?.() ?? null;
+    const dark = g && g.kind === 'heartOfDark' ? g : null;
+    if (dark?.beat && dark.beat.period > 0) {
+      this.heart.tempo = dark.beat.period;
+      this.heart.syncBeat(dark.beat.phase);
+    } else this.heart.tempo = dark && dark.status === 'awake' ? HEART_BEAT[Math.max(1, Math.min(3, dark.phase))] : HEART_BEAT[0];
     this.heart.update(dt, time, s.terrain, this.o.grade as unknown as { flash: number; flashColor: THREE.Color } | null);
     this.motes.intensity = this.heart.moteBoost;
     this.weather.update(dt, s.world, camera);
@@ -374,6 +400,7 @@ export class VisDirector {
   private onLayout(s: VisSession): void {
     this.attachedLayout = s.layout;
     this.layoutChanged = true;
+    this.bakeDecor = true;
     const lakes = (s.layout.features as { lakes?: readonly LakeDef[] } | undefined)?.lakes ?? [];
     this.water.set(s.world, lakes);
     // Ambient wonder: the old world lists its anchors; a stratum's drips are read from its roofs in

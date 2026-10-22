@@ -116,6 +116,30 @@ export class DecorBatch {
     return it?.model ?? null;
   }
 
+  /**
+   * Build every dirty cell now, or those within `radius` of `cameraPos` (in play the update builds
+   * two a frame, nearest first): a stratum's arrival bakes its surroundings at once (no decor popping
+   * in round the explorer), and a capture that renders only a few frames sees all of it. Returns how
+   * many it built; the next update shows them.
+   */
+  flush(cameraPos: THREE.Vector3 | null = null, radius = Infinity): number {
+    let n = 0;
+    for (const c of this.cells.values()) {
+      if (!c.dirty) continue;
+      if (cameraPos && cameraPos.distanceTo(c.center) - c.radius > radius) continue;
+      this.build(c);
+      n++;
+    }
+    return n;
+  }
+
+  /** Cells waiting to be (re)built. */
+  get dirtyCells(): number {
+    let n = 0;
+    for (const c of this.cells.values()) if (c.dirty) n++;
+    return n;
+  }
+
   update(cameraPos: THREE.Vector3, viewDistance: number): void {
     const far = Math.min(viewDistance, FOG_CULL.value, FAR);
     let rebuilt = 0;

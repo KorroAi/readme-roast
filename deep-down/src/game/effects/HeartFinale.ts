@@ -31,6 +31,9 @@ import type { VoxelWorld } from '../../world/VoxelWorld';
  * Calm, like everything: no shake, one slow ring per act, the flash at the edge only.
  */
 
+/** The halo's swell crests at a beat phase of 0.25: a lub sets it 0.2, so the crest follows the sound by a twentieth of a beat. */
+const LUB_LEAD = 0.2;
+
 export type HeartState = 'dark' | 'awake' | 'lit';
 
 const CORE_LIFT = 7;
@@ -97,11 +100,11 @@ export class HeartFinale {
   moteBoost = 1;
   private orbitSpeed = 0.12;
   /**
-   * Seconds per beat (VisDirector keeps it in step with the Dark Heart's own heartbeat, MOBS' sim:
-   * 2.2 s asleep, 1.25 / 0.95 / 0.68 s by phase), and the beat's phase (accumulated, so a change of
-   * tempo never jumps the pulse).
+   * Seconds per beat (VisDirector keeps it in step with the Dark Heart's own heartbeat, MOBS' sim on
+   * AUDIO's 120 bpm grid: HEART_BEAT, 2.0 s asleep, 1.5 / 1.0 / 0.75 s by phase), and the beat's phase
+   * (accumulated, so a change of tempo never jumps the pulse; lub() and syncBeat() lock it).
    */
-  tempo = 1.2;
+  tempo = 2;
   private beatPhase = 0;
   private readonly tmpM = new THREE.Matrix4();
   private readonly tmpC = new THREE.Color();
@@ -180,6 +183,16 @@ export class HeartFinale {
 
   get playing(): boolean {
     return this.act !== null;
+  }
+
+  /** The Dark Heart's lub was heard ('guardian.heartbeat'): the halo's swell crests just after it. */
+  lub(): void {
+    this.beatPhase = LUB_LEAD;
+  }
+
+  /** The Dark Heart's own beat (MOBS: 0..1, 0 at the lub) while it fights: the pulse follows it. */
+  syncBeat(phase: number): void {
+    if (Number.isFinite(phase)) this.beatPhase = (((phase + LUB_LEAD) % 1) + 1) % 1;
   }
 
   /** Act I: the twelve shards are in, the Heart wakes ('quest:heartLit'). */

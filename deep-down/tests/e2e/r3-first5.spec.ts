@@ -189,9 +189,9 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
       for (let k = 0; k < 8; k++) {
         const yaw = yaw0 + (k * Math.PI) / 4;
         dd.aimAt(p.x - Math.sin(yaw) * 2.2, p.y + 0.4, p.z - Math.cos(yaw) * 2.2, 0, 0);
-        if (!dd.ui.ray(0, 0, 2.6)) return dd.mobs.spawnAhead('amberTick', 2.2);
+        if (!dd.ui.ray(0, 0, 2.6)) return dd.mobs.spawnAhead('amberTick', 2.2, 0, { asleep: false });
       }
-      return dd.mobs.spawnAhead('amberTick', 2.2);
+      return dd.mobs.spawnAhead('amberTick', 2.2, 0, { asleep: false });
     });
   let came = await untilGame(page, async () => (await foe()) !== null, 5);
   if (!came) {
@@ -205,8 +205,11 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
     const hits0 = (await uiEvents(page, 'mob:hit')).length;
     const struck = async () => (await uiEvents(page, 'mob:hit')).length > hits0;
     // The one that came first; if it keeps out of sight, the explorer is brought beside it; then a tick
-    // placed in sight. Each round aims at it and holds Action while the reticle reads "attack".
+    // placed in sight. Each round aims at it and holds Action while the reticle reads "attack". From
+    // the second round the creatures hold still (a quick Amber Tick outruns an aim taken a slow
+    // SwiftShader frame earlier).
     for (let round = 0; round < 3 && !(await struck()); round++) {
+      if (round === 1) await page.evaluate(() => window.__DD__.mobs.freeze(true));
       const t = await foe();
       if (round === 1 && t) await besideFoe(t);
       if (round === 2 || !t) console.log(`[e2e] the fight: a tick placed in sight (${await tickInSight()})`);
@@ -225,6 +228,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
       const f = await foe();
       console.log(`[e2e] the fight, round ${round}: ${(await struck()) ? 'struck' : 'not struck'} (${f ? `${f.kind} ${f.d.toFixed(1)} m` : 'none left'}, reticle ${(await hud(page)).reticle})`);
     }
+    await page.evaluate(() => window.__DD__.mobs.freeze(false));
     expect(await struck(), 'the creature was struck').toBe(true);
     expect((await uiEvents(page, 'weapon:swing')).length, 'Action swung at it').toBeGreaterThan(0);
   } else console.log('[e2e] no creature came for the fight step: it moved on by its timeout (MOBS/LOOP, QA 21:29)');

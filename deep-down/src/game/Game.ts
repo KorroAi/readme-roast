@@ -884,7 +884,8 @@ export class Game {
         return;
       }
       if (input.inventoryPressed) {
-        this.openInventory();
+        // Through openMenu like every other menu: 'ui:opened' (the tutorial's Bag step, its sound).
+        this.openMenu('inventory');
         return;
       }
       if (input.interactPressed && this.focusedProp) this.interact(this.focusedProp);

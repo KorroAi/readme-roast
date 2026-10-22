@@ -363,8 +363,8 @@ export const mobs: Partial<Record<TextKey, string>> = {
 
   // L’écran du bestiaire
   'mob.bestiary.unknown': '???',
-  'mob.bestiary.hint.monster': 'Pas encore rencontré. Quelque chose vit dans ce biome.',
-  'mob.bestiary.hint.being': 'Pas encore rencontré. Une créature paisible vit ici.',
+  'mob.bestiary.hint.monster': 'Pas encore rencontrée. Quelque chose vit dans ce biome.',
+  'mob.bestiary.hint.being': 'Pas encore rencontrée. Une créature paisible vit ici.',
   'mob.bestiary.hint.guardian': 'Un gardien dort dans le repaire de ce biome.',
   'mob.bestiary.hint.boss': 'Tout au fond des profondeurs.',
   'mob.bestiary.bonus': '+20 % de dégâts infligés',

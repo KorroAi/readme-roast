@@ -251,7 +251,7 @@ function begin(sim: MobSim, m: SimMob, ctx: MobContext, def: GuardianDef, p: Gua
       sim.addMarker(m, 'disc', foot.x, foot.y, foot.z, m.bounds.radius + 1.2);
       break;
     case 'charge':
-      sim.addMarker(m, 'line', foot.x, foot.y, foot.z, m.bounds.radius + 0.6, { dx: m.dir.x, dz: m.dir.z, len: Math.min(l + 5, arenaRadius(m) * 1.6) });
+      sim.addMarker(m, 'line', foot.x, foot.y, foot.z, sim.laneHalf(m), { dx: m.dir.x, dz: m.dir.z, len: Math.min(l + 5, arenaRadius(m) * 1.6) });
       break;
     case 'line':
       sim.addMarker(m, 'line', foot.x, foot.y, foot.z, 1.1, { dx: m.dir.x, dz: m.dir.z, len: Math.min(l + 6, 20) });
@@ -409,8 +409,9 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
         }
       }
       m.yaw = Math.atan2(m.dir.x, m.dir.z);
-      // (Contact at its front: a long body keeps the explorer farther off than its capsule.)
-      if (!m.landed && sim.flatDist(m, ctx) <= Math.max(m.bounds.radius, m.bulk) + 1.1 && Math.abs(ctx.player.y - foot.y) < 2.5) {
+      // (Contact along its body, as wide as its drawn lane: a long or wide body keeps the explorer
+      // farther off than its capsule, and one standing off the lane is never struck.)
+      if (!m.landed && sim.chargeContact(m, ctx, 1.1) && Math.abs(ctx.player.y - foot.y) < 2.5) {
         m.landed = true;
         sim.strikePlayer(m, def.damage);
       }

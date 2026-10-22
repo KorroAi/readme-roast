@@ -79,6 +79,8 @@ try {
         // built (meshIdle), the cull and the biome look follow in a frame or two.
         D.step(2, 0.1);
         await D.meshIdle?.();
+        // The decor round the spot baked as in steady play (two cells a frame there).
+        g.session.props.flushDecor?.(g.cameraRig.camera.position, 120);
         D.step(1, 0.1);
         await D.meshIdle?.();
         let worst = { calls: 0, tris: 0, yaw: 0 };

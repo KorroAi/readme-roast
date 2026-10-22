@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MobSim, collapseOf, type MobEnv, type MobSimEvent } from '../../src/game/mobs/MobSim';
+import { MobSim, collapseOf, type MobEnv, type MobSimEvent, type SimMob } from '../../src/game/mobs/MobSim';
 import { SPECIES } from '../../src/game/mobs/species';
 import { HEART_BEAT, beatNudge, guardianState } from '../../src/game/mobs/guardian';
 import type { Lair } from '../../src/game/mobs/spawner';
@@ -502,7 +502,7 @@ describe("a long guardian's charge lands at its front (the explorer is kept out 
         g ??= sim.mobs.find((m) => m.kind === 'magmaBehemoth');
         if (!g || g.dying) continue;
         // What the director does each frame (MobDirector.keepExplorerOut).
-        g.bulk = useBulk ? e.front * g.scale : 0;
+        g.body = useBulk ? { front: e.front * g.scale, back: e.back * g.scale, side: e.side * g.scale } : null;
         const p = bodyPush(c.player.x, c.player.z, g.position.x, g.position.z, g.yaw, { front: e.front * g.scale, back: e.back * g.scale, side: e.side * g.scale }, 0.43);
         if (p) {
           c.player.x += p.x;
@@ -515,7 +515,54 @@ describe("a long guardian's charge lands at its front (the explorer is kept out 
     };
     const withBulk = charges(true);
     const capsuleOnly = charges(false);
+    console.log(`[mobs] Magma Behemoth charges landed in 120 s on a shoved explorer: ${withBulk} (contact at its capsule only: ${capsuleOnly})`);
     expect(withBulk, 'charges that land').toBeGreaterThan(0);
     expect(capsuleOnly, 'charges landing with the capsule-only contact').toBeLessThan(withBulk);
   }, 60_000);
+});
+
+describe('a charge is fair: its contact is its drawn lane', () => {
+  // The Thornback winds up toward the explorer 8 m off, its lane marked (it tracks the explorer for two
+  // thirds of the wind-up, then the lane is locked); the explorer then stands still on the lane, or
+  // steps sideways off it (the lane's half-width + 0.35 m from its line).
+  const run1 = (offLane: boolean): { landed: number; half: number } => {
+    const sim = new MobSim(env(), 23);
+    sim.spawning = false;
+    const c = ctx({ x: 20, z: 30 });
+    const m = sim.spawn('thornback', 20.5, FLOOR, 22.5, { asleep: false })!;
+    let landed = 0;
+    let half = 0;
+    sim.on((e) => {
+      if (e.type === 'attack' && e.mob === m && e.landed) landed++;
+    });
+    let stepped = false;
+    for (let t = 0; t < 12; t += 1 / 30) {
+      sim.update(1 / 30, c);
+      const mk = sim.markers.find((k) => k.owner === m.id && k.kind === 'line');
+      if (mk && !stepped && mk.progress >= 0.7) {
+        half = mk.r;
+        stepped = true;
+        if (offLane) {
+          // Sideways off its line, beyond the drawn edge.
+          const sx = -mk.dz;
+          const sz = mk.dx;
+          const along = (c.player.x - mk.x) * mk.dx + (c.player.z - mk.z) * mk.dz;
+          c.player.x = mk.x + mk.dx * along + sx * (mk.r + 0.35);
+          c.player.z = mk.z + mk.dz * along + sz * (mk.r + 0.35);
+          c.eye.x = c.player.x;
+          c.eye.z = c.player.z;
+        }
+      }
+      if (stepped && !sim.markers.some((k) => k.owner === m.id && k.kind === 'line') && m.state !== 'attack' && m.state !== 'windup') break;
+    }
+    return { landed, half };
+  };
+
+  it('standing on the lane it is struck; one step off the drawn edge it misses', () => {
+    const on = run1(false);
+    const off = run1(true);
+    expect(on.half).toBeGreaterThan(0.5);
+    expect(on.landed, 'on the lane').toBeGreaterThan(0);
+    expect(off.landed, 'off the lane').toBe(0);
+  });
 });

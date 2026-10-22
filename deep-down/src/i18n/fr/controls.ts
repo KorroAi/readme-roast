@@ -171,7 +171,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'm3.best.unmet': 'Pas encore rencontrée.',
   'm3.best.scanned': 'Scannée',
   'm3.best.notScanned': 'Pas scannée',
-  'm3.best.defeated': 'Vaincues : {n}',
+  'm3.best.defeated': 'Victoires : {n}',
   'm3.best.role.monster': 'Monstre',
   'm3.best.role.being': 'Créature paisible',
   'm3.best.role.guardian': 'Gardien',

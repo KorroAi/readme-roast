@@ -22,10 +22,13 @@ try {
   const logs = [];
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   page.on('console', (m) => { if (m.type() === 'error') logs.push(`[error] ${m.text().slice(0, 300)}`); });
-  for (const bay of opt.bays.split(',').map(Number)) {
-    await page.goto(`${url}visuallab.html?view=biomes&bay=${bay}&chrome=0&labels=0${opt.light === 'game' ? '&light=game' : ''}`);
-    await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 300000, polling: 500 });
-    await page.waitForTimeout(1500);
+  // One page load; each bay is switched in place (__DD__.setBay), a few frames to settle.
+  const list = opt.bays.split(',').map(Number);
+  await page.goto(`${url}visuallab.html?view=biomes&bay=${list[0]}&chrome=0&labels=0${opt.light === 'game' ? '&light=game' : ''}`);
+  await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 300000, polling: 500 });
+  for (const bay of list) {
+    await page.evaluate((n) => window.__DD__.setBay(n), bay);
+    await page.waitForTimeout(2500);
     const file = `${opt.out}/bay-${String(bay).padStart(2, '0')}.png`;
     try {
       await page.screenshot({ path: file, timeout: 240000 });

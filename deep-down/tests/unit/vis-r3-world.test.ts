@@ -259,10 +259,24 @@ describe('VisDirector on a stratum layout (VIS round 3, smoke)', () => {
     const session = { world: w, layout, rig, terrain, chunks: { chunkListeners: [], rebuildListeners: [], chunkDrawnAt: () => true }, liveProps, props };
     const bus = new EventBus();
     const highlight = { reveal: () => undefined, marks: { count: 0, clear: () => undefined } };
-    const vis = new VisDirector({ bus: bus as never, session: () => session as never, highlight: () => highlight as never, grade: null, particles: () => ({ sparkle: () => undefined, dust: () => undefined }) as never });
+    let guardian: unknown = null;
+    const vis = new VisDirector({ bus: bus as never, session: () => session as never, highlight: () => highlight as never, grade: null, particles: () => ({ sparkle: () => undefined, dust: () => undefined }) as never, mobs: () => ({ activeGuardian: () => guardian }) });
     const cam = new THREE.PerspectiveCamera();
     cam.position.set(14, 4.6, 14);
     for (let i = 0; i < 5; i++) vis.update(1 / 30, i / 30, cam, 14, 3, 14);
+    // The Heart's pulse follows the Dark Heart (MOBS' 21:42): asleep 2 s; its own beat while it
+    // fights; HEART_BEAT by its phase without one; a heard lub sets the swell going.
+    expect(vis.heart.tempo).toBe(2);
+    guardian = { kind: 'heartOfDark', phase: 3, status: 'awake', beat: { period: 0.75, phase: 0.5 } };
+    vis.update(1 / 30, 1, cam, 14, 3, 14);
+    expect(vis.heart.tempo).toBe(0.75);
+    expect((vis.heart as unknown as { beatPhase: number }).beatPhase).toBeCloseTo(0.7 + 1 / 30 / 0.75, 5);
+    guardian = { kind: 'heartOfDark', phase: 2, status: 'awake' };
+    vis.update(1 / 30, 1.1, cam, 14, 3, 14);
+    expect(vis.heart.tempo).toBe(1);
+    bus.emit('mob:sfx' as never, { name: 'guardian.heartbeat', pan: 0, gain: 1 } as never);
+    expect((vis.heart as unknown as { beatPhase: number }).beatPhase).toBeCloseTo(0.2, 5);
+    guardian = null;
     const r = vis.report();
     expect(r.riverQuads).toBe(19);
     expect(r.falls).toEqual(['water']);

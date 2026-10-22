@@ -316,6 +316,11 @@ export class PropRenderer {
   }
   private drawnAt: ((x: number, y: number, z: number) => boolean) | null = null;
 
+  /** Bake the decor round a point now (see DecorBatch.flush): a stratum's arrival, captures. */
+  flushDecor(cameraPos: THREE.Vector3 | null = null, radius = Infinity): number {
+    return this.decor.flush(cameraPos, radius);
+  }
+
   update(dt: number, time: number, cameraPos: THREE.Vector3): void {
     this.settleSome();
     this.decor.update(cameraPos, this.viewDistance);

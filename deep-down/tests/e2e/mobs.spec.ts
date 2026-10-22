@@ -239,7 +239,24 @@ test('a guardian beaten end to end with real taps: asleep in its lair, its bar, 
     const m = await mob(page, id);
     return !!m && (m.state === 'recoil' || m.state === 'stunned');
   };
+  // Through the fight, how near the explorer ever stands to its centre (QA 22:10: the lens ended up
+  // inside its body; now the explorer is kept out of its bulk, ~2.1 m round the Matriarch).
+  await page.evaluate((i) => {
+    const w = window as any;
+    w.__mobMinD = 99;
+    w.__mobIv = setInterval(() => {
+      const m = w.__DD__.mobs.get(i);
+      const p = w.__DD__.game.player;
+      if (m && m.state !== 'dying') w.__mobMinD = Math.min(w.__mobMinD, Math.hypot(m.x - p.x, m.z - p.z));
+    }, 40);
+  }, id);
   const taps = await tapUntilDead(page, touch, id, 90, 2.6, open, 420);
+  const nearest = await page.evaluate(() => {
+    const w = window as any;
+    clearInterval(w.__mobIv);
+    return w.__mobMinD as number;
+  });
+  expect(nearest, 'the explorer never inside its body').toBeGreaterThan(1.4);
   await page.waitForFunction(() => (window.__DD__ as any).mobs.events('mob:guardianDefeated').length > 0, null, { timeout: 60_000, polling: 250 });
   const log = await events(page);
   const phases = log.filter((e) => e.type === 'mob:guardianPhase');
@@ -256,7 +273,7 @@ test('a guardian beaten end to end with real taps: asleep in its lair, its bar, 
   const shard = await page
     .waitForFunction(() => (window.__DD__ as any).game.quests.shards.has('amberHollows'), null, { timeout: 15_000, polling: 250 })
     .then(() => true, () => false);
-  console.log(`[mobs] the Amber Matriarch beaten: ${taps} taps, ${phases.length} phase change(s), shard ${shard}`);
+  console.log(`[mobs] the Amber Matriarch beaten: ${taps} taps, ${phases.length} phase change(s), shard ${shard}, nearest the explorer stood ${nearest.toFixed(2)} m`);
   expect(shard, "LOOP's quest holds the Amber Hollows shard").toBe(true);
   // The bar goes.
   await expect(page.locator('.dd-guardian.on')).toHaveCount(0, { timeout: 15_000 });

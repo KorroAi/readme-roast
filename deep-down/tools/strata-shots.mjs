@@ -15,7 +15,7 @@ import { chromium } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const opt = { url: 'http://localhost:4176/', out: 'artifacts/r3/world/shots', seed: '12345', views: 'vista@1,island@1,fall@1,ladder@1,spring@2,works@3,mineSet@3', dpr: '2', wait: '1200' };
+const opt = { url: 'http://localhost:4176/', out: 'artifacts/r3/world/shots', seed: '12345', views: 'vista@1,island@1,fall@1,ladder@1,spring@2,works@3,mineSet@3', dpr: '2', wait: '1200', real: '0', settle: '9000' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 mkdirSync(opt.out, { recursive: true });
 
@@ -28,23 +28,24 @@ try {
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
   await page.goto(`${opt.url}index.html?gen=strata`);
   await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: 420000, polling: 500 });
-  await page.evaluate(async ({ seed }) => {
+  await page.evaluate(async ({ seed, real }) => {
     const st = document.createElement('style');
-    st.textContent = '.dd-discovery,.dd-hint,.dd-toasts,.dd-toast,.dd-tutorial,.dd-tut,.dd-arrival{display:none!important}';
+    st.textContent = '.dd-discovery,.dd-hint,.dd-hint3,.dd-milestone,.dd-toasts,.dd-toast,.dd-tutorial,.dd-tut,.dd-arrival{display:none!important}';
     document.head.appendChild(st);
     const g = window.__DD__.game;
     await g.newGame(Number(seed));
     (g.quests ?? g.loop?.quests)?.skipTutorial?.();
     window.__DD__.mobs?.auto?.(false);
     window.__DD__.mobs?.clear?.();
-    g.renderer.preset = { ...g.renderer.preset, fpsCap: 0.05 };
-  }, { seed: opt.seed });
+    // (--real 1: the game's own loop runs, as a player sees it; else VIS's 21:23 recipe, frames by D.step.)
+    if (!real) g.renderer.preset = { ...g.renderer.preset, fpsCap: 0.05 };
+  }, { seed: opt.seed, real: opt.real === '1' });
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 
   for (const spec of opt.views.split(',').filter(Boolean)) {
     const name = spec.replace(/[:@]/g, '-');
-    const res = await page.evaluate(async (spec) => {
+    const res = await page.evaluate(async ({ spec, real }) => {
       const D = window.__DD__;
       const g = D.game;
       const [what, st] = spec.split('@');
@@ -198,28 +199,47 @@ try {
         note = `${sets.length} sets`;
       } else return { err: `unknown view ${what}` };
       if (!at || !look) return { err: `${what}: no vantage` };
-      D.teleport(at[0], at[1], at[2]);
       D.mobs?.clear?.();
-      const eye = [g.player.x, g.player.y + 1.62, g.player.z];
+      const eye = [at[0], at[1] + 1.62, at[2]];
       const yaw = Math.atan2(-(look[0] - eye[0]), -(look[2] - eye[2]));
       const pitch = Math.max(-0.95, Math.min(0.6, Math.atan2(look[1] - eye[1], Math.hypot(look[0] - eye[0], look[2] - eye[2]))));
-      g.player.yaw = yaw + Math.PI;
-      D.look(yaw, pitch);
-      D.step(3, 0.34);
+      // VIS 22:50: look first, then teleport (its snap copies the look into the lens: the rig eases
+      // toward a look only in small frames), and again before the last frame.
+      const place = () => {
+        g.player.yaw = yaw + Math.PI;
+        D.look(yaw, pitch);
+        D.teleport(at[0], at[1], at[2]);
+      };
+      place();
+      if (!real) D.step(3, 0.34);
+      window.__WORLD_SHOT__ = place;
       return { at: at.map((n) => +n.toFixed(1)), look: look.map((n) => +n.toFixed(1)), pitch: +pitch.toFixed(2), biome: D.biomeHere(), stratum: g.strata.current, note };
-    }, spec);
+    }, { spec, real: opt.real === '1' });
     if (res.err) {
       console.log(`[${name}] ${res.err}`);
       continue;
     }
-    await page.waitForTimeout(Number(opt.wait));
-    await page.evaluate(async () => {
-      const D = window.__DD__;
-      await D.meshIdle?.();
-      D.step(1, 0.05);
-      await D.meshIdle?.();
-      D.step(1, 0.02);
-    });
+    if (opt.real === '1') {
+      // The real loop: the meshes land, the decor cells build, the falls run, as in play.
+      await page.evaluate(async () => { await window.__DD__.meshIdle?.(); });
+      await page.waitForTimeout(Number(opt.settle));
+    } else {
+      await page.waitForTimeout(Number(opt.wait));
+      await page.evaluate(async () => {
+        const D = window.__DD__;
+        const g = D.game;
+        await D.meshIdle?.();
+        // The decor cells round the eye baked now (two a frame otherwise), the frame, the meshes.
+        const cam = g.cameraRig?.camera?.position ?? null;
+        g.session?.props?.flushDecor?.(cam, 48);
+        D.step(1, 0.05);
+        await D.meshIdle?.();
+        // Placed again (the lens on the look), the lantern's pendulum at rest, the frame shown.
+        window.__WORLD_SHOT__?.();
+        g.viewmodel?.resetMotion?.();
+        D.step(1, 0.02);
+      });
+    }
     await page.waitForTimeout(300);
     const file = `${opt.out}/${name}.png`;
     const ts = Date.now();
@@ -229,7 +249,13 @@ try {
       console.log(`[${name}] screenshot failed after ${((Date.now() - ts) / 1000).toFixed(0)} s: ${String(e.message).split('\n')[0]}`);
       continue;
     }
-    console.log(`[${name}] ${file} in ${((Date.now() - ts) / 1000).toFixed(1)} s (${((Date.now() - t0) / 1000).toFixed(0)} s in) ${JSON.stringify(res)}`);
+    const vr = await page.evaluate(() => {
+      const g = window.__DD__.game;
+      const r = g.vis?.report?.() ?? {};
+      const R = window.__DD__.report?.()?.render ?? {};
+      return { falls: r.falls, pockets: r.pockets, climbables: r.climbables, calls: R.calls, tris: R.triangles ? Math.round(R.triangles / 1000) + 'k' : undefined, decorCells: g.session?.props?.decor?.drawnCells };
+    });
+    console.log(`[${name}] ${file} in ${((Date.now() - ts) / 1000).toFixed(1)} s (${((Date.now() - t0) / 1000).toFixed(0)} s in) ${JSON.stringify(res)} vis ${JSON.stringify(vr)}`);
   }
   console.log(`errors ${logs.length}`);
   for (const l of [...new Set(logs)].slice(0, 12)) console.log('  ' + l.slice(0, 400));

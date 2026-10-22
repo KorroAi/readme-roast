@@ -256,10 +256,11 @@ export class SimMob implements Mob {
    */
   tutorial = false;
   /**
-   * How far its drawn body reaches ahead of its centre (m; 0 until the director reads its model): the
-   * explorer is kept out of that bulk, so a guardian's charge makes contact at its front, not its capsule.
+   * Its drawn bulk (m, scaled: ahead of its centre, behind it, to each side), set by the director from
+   * its model for the guardians and the big ones (null until then): the explorer is kept out of it, so
+   * a charge makes contact at its front and its lane is drawn as wide as its body.
    */
-  bulk = 0;
+  body: { front: number; back: number; side: number } | null = null;
   // ---- Round 3: the feel of a fight (hit reactions and deaths read on the body)
   /** A blow's flinch 0..1 (it decays in a quarter second), and the way the blow pushed it (unit, world xz). */
   hurt = 0;
@@ -1055,6 +1056,28 @@ export class MobSim {
 
   flatDist(m: SimMob, ctx: MobContext): number {
     return Math.hypot(m.position.x - ctx.player.x, m.position.z - ctx.player.z);
+  }
+
+  /** A charge's lane half-width (m): as drawn on the ground, and as its contact (a charger, a guardian's charge). */
+  laneHalf(m: SimMob): number {
+    return m.body ? m.body.side + 0.45 : m.bounds.radius + (m.guardian ? 0.6 : 0.5);
+  }
+
+  /**
+   * A charging body touches the explorer: within its lane's half-width (+ a hand for the explorer's
+   * own width) to either side of its course, from its back to its front plus `reach` ahead. Fair by
+   * construction: one standing off the drawn lane is never struck.
+   */
+  chargeContact(m: SimMob, ctx: MobContext, reach: number): boolean {
+    const s = Math.sin(m.yaw);
+    const c = Math.cos(m.yaw);
+    const dx = ctx.player.x - m.position.x;
+    const dz = ctx.player.z - m.position.z;
+    const lz = dx * s + dz * c;
+    const lx = dx * c - dz * s;
+    const front = m.body ? Math.max(m.body.front, m.bounds.radius) : m.bounds.radius;
+    const back = m.body ? Math.max(m.body.back, m.bounds.radius) : m.bounds.radius;
+    return Math.abs(lx) <= this.laneHalf(m) + 0.15 && lz >= -back && lz <= front + reach;
   }
 
   seesPlayer(m: SimMob, ctx: MobContext): boolean {
