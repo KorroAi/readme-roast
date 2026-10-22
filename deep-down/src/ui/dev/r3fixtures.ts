@@ -66,8 +66,9 @@ export interface FixtureLoop extends LoopActions {
 export function fixtureLoop(bus: EventBus<GameEvents>): FixtureLoop {
   const bag = new Store(24);
   const bank = new Store();
-  const owned = new Set<ItemId>(['crudePick', 'copperPick', 'machete', 'brassLantern'] as ItemId[]);
-  const equipped: Partial<Record<string, ItemId>> = { pick: 'copperPick' as ItemId, weapon: 'machete' as ItemId, lantern: 'brassLantern' as ItemId };
+  // (Only ids LOOP still has: the fixture must never name an item the game dropped.)
+  const owned = new Set<ItemId>((['rustyPick', 'copperPick', 'machete', 'oilLantern'] as ItemId[]).filter((id) => id in ITEMS));
+  const equipped: Partial<Record<string, ItemId>> = { pick: 'copperPick' as ItemId, weapon: 'machete' as ItemId, lantern: 'oilLantern' as ItemId };
   const fill: Array<[string, number]> = [
     ['stone', 46], ['copperOre', 11], ['copperIngot', 6], ['coal', 7], ['fungalWood', 9], ['amber', 3], ['sporeQuartz', 2], ['glowcap', 5],
     ['hide', 2], ['chitin', 3], ['fang', 1], ['gel', 2], ['torch', 12], ['ladder', 2], ['rope', 1], ['plank', 8], ['bandage', 3],
@@ -80,7 +81,7 @@ export function fixtureLoop(bus: EventBus<GameEvents>): FixtureLoop {
   const state = { bankNear: true };
   const hotbar = new Hotbar({
     count: (i) => bag.count(i),
-    pick: () => (equipped.pick ?? 'crudePick') as ItemId,
+    pick: () => (equipped.pick ?? 'rustyPick') as ItemId,
     weapon: () => (equipped.weapon ?? null) as ItemId | null,
   });
   for (const id of ['blastBomb', 'torch', 'bandage', 'ladder'] as ItemId[]) if (id in ITEMS) hotbar.offer(id);

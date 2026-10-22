@@ -383,11 +383,73 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
             const y = py + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
             if (fine(x, y, z)) {
               game.player.teleport(x + 0.5, y, z + 0.5, game.cameraRig.yaw);
+              game.cameraRig.snapTo(x + 0.5, y + EYE_HEIGHT, z + 0.5);
               return [x + 0.5, y, z + 0.5] as [number, number, number];
             }
           }
         }
       return null;
     }, null as [number, number, number] | null),
+    /**
+     * For captures: a stage for a line-up. The nearest spot (within `radius` m, same biome, out of every
+     * lair) with a heading (8 tried) whose floor is dry, open and nearly flat over a band `width` m
+     * wide from `near` to `far` m ahead; the explorer moves there facing along it.
+     * @returns [x, y, z, yaw] or null (none found: the explorer stays).
+     */
+    stage: gate((width = 7, near = 3, far = 9, radius = 40) => {
+      const world = game.session.world;
+      const sim = mobs.sim;
+      const solid = (x: number, y: number, z: number) => SOLID[world.get(x, y, z)] === 1;
+      const px = Math.floor(game.player.x);
+      const py = Math.floor(game.player.y);
+      const pz = Math.floor(game.player.z);
+      const biome = sim.env.biomeAt?.(px + 0.5, py + 0.5, pz + 0.5) ?? null;
+      const inLair = (x: number, y: number, z: number) => sim.lairs.some((l) => Math.hypot(x + 0.5 - l.x, z + 0.5 - l.z) < l.radius + 6 && Math.abs(y - l.y) < 12);
+      /** The feet height of a dry standing cell in column (x, z) near y0, or null. */
+      const floorAt = (x: number, z: number, y0: number): number | null => {
+        for (const dy of [0, 1, -1]) {
+          const y = y0 + dy;
+          if (!solid(x, y, z) && !solid(x, y + 1, z) && !solid(x, y + 2, z) && solid(x, y - 1, z)) return sim.submerged(x, y, z) ? null : y;
+        }
+        return null;
+      };
+      const band = (x: number, y: number, z: number, yaw: number): boolean => {
+        const fx = -Math.sin(yaw);
+        const fz = -Math.cos(yaw);
+        const rx = Math.cos(yaw);
+        const rz = -Math.sin(yaw);
+        for (let d = near; d <= far; d += 1)
+          for (let w = -width / 2; w <= width / 2; w += 1) {
+            const cx = Math.floor(x + 0.5 + fx * d + rx * w);
+            const cz = Math.floor(z + 0.5 + fz * d + rz * w);
+            const cy = floorAt(cx, cz, y);
+            if (cy === null || inLair(cx, cy, cz)) return false;
+          }
+        return true;
+      };
+      for (let r = 0; r <= radius; r += 2)
+        for (let k = 0; k < Math.max(1, r * 4); k++) {
+          const a = (k / Math.max(1, r * 4)) * Math.PI * 2;
+          const x = px + Math.round(Math.sin(a) * r);
+          const z = pz + Math.round(Math.cos(a) * r);
+          for (let dy = 0; dy <= 8; dy++) {
+            const y0 = py + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
+            const y = floorAt(x, z, y0);
+            if (y === null || y !== y0 || inLair(x, y, z)) continue;
+            if (biome && sim.env.biomeAt?.(x + 0.5, y + 0.5, z + 0.5) !== biome) continue;
+            for (let h = 0; h < 8; h++) {
+              const yaw = game.cameraRig.yaw + (h * Math.PI) / 4;
+              if (!band(x, y, z, yaw)) continue;
+              game.player.teleport(x + 0.5, y, z + 0.5, yaw);
+              game.cameraRig.snapTo(x + 0.5, y + EYE_HEIGHT, z + 0.5);
+              game.cameraRig.yaw = yaw;
+              game.cameraRig.pitch = -0.1;
+              return [x + 0.5, y, z + 0.5, yaw] as [number, number, number, number];
+            }
+            break;
+          }
+        }
+      return null;
+    }, null as [number, number, number, number] | null),
   };
 }

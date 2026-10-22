@@ -124,6 +124,20 @@ try {
     return null;
   };
 
+  /**
+   * A stage for the shot: the nearest dry, open, nearly flat band `min`..`max` m ahead (MOBS' stage
+   * hook moves the explorer there, facing along it), else turning on the spot (openAhead).
+   * @returns whether the view ahead is open.
+   */
+  const stageOr = async (min, max, width = 7.5) => {
+    const st = await page.evaluate(([a, b, w]) => window.__DD__.mobs.stage?.(w, a, b, 44) ?? null, [min, max, width]);
+    if (st) {
+      await arrive(false);
+      return true;
+    }
+    return (await openAhead(min, max)) !== null;
+  };
+
   // Each biome once: its roster lined up, then its guardian in its lair (one stratum load per pair).
   for (const biome of wanted) {
     if (want('rosters')) {
@@ -136,9 +150,10 @@ try {
         }
         await arrive();
         await page.evaluate(() => window.__DD__.mobs.clear());
-        if (!(await openAhead(3.5, 8))) log(biome, 'cramped');
+        if (!(await stageOr(3, 9))) log(biome, 'cramped');
         const kinds = [...r.monsters, ...r.beings];
-        const ids = await page.evaluate(([k]) => window.__DD__.mobs.lineup(k, 4.2, 0.35), [kinds]);
+        // (A long row a little farther off, so its ends stay in the frame.)
+        const ids = await page.evaluate(([k, d]) => window.__DD__.mobs.lineup(k, d, 0.35), [kinds, 4.2 + Math.max(0, kinds.length - 5) * 0.5]);
         for (const id of ids) await page.evaluate(([i]) => window.__DD__.mobs.setAnim(i, { face: true, glow: 1, alert: 0.6 }), [id]);
         await settle(3);
         // Look at the row's middle, a little above the floor.
@@ -186,7 +201,7 @@ try {
                 const dx = ex - gx;
                 const dz = ez - gz;
                 const l = Math.max(0.01, Math.hypot(dx, dz));
-                const d = 5 + rad * 2.6;
+                const d = 3 + rad * 2.2;
                 for (let k = 0; k < 8; k++) {
                   const dd = d + k * 0.8;
                   const s = window.__DD__.standableNear(Math.floor(gx + (dx / l) * dd), Math.floor(Math.max(gy, ey)), Math.floor(gz + (dz / l) * dd));
@@ -219,7 +234,7 @@ try {
           }
           await arrive();
           await page.evaluate(() => window.__DD__.mobs.clear());
-          await openAhead(6, 12);
+          await stageOr(5, 13, 9);
           const sp = await page.evaluate((k) => window.__DD__.mobs.species(k), kind);
           const dist = 4.5 + sp.radius * 2.6;
           const id = await page.evaluate(([k, d]) => window.__DD__.mobs.spawnAhead(k, d, 0, { asleep: false }), [kind, dist]);
@@ -250,7 +265,7 @@ try {
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
     await arrive();
     await page.evaluate(() => window.__DD__.mobs.clear());
-    await openAhead(4, 9);
+    await stageOr(3, 9);
     const affixes = ['radiant', 'armoured', 'swift', 'splitting'];
     const eids = await page.evaluate(() => window.__DD__.mobs.lineup(['icefang', 'icefang', 'icefang', 'icefang'], 4.4, 0.7));
     for (let i = 0; i < eids.length; i++) await page.evaluate(([id, a]) => {
@@ -275,7 +290,7 @@ try {
         window.__DD__.mobs.clear();
         window.__DD__.mobs.harmless(true);
       });
-      await openAhead(4, 9);
+      await stageOr(3, 10);
       const tids = [];
       for (let i = 0; i < kinds.length; i++) {
         const id = await page.evaluate(([k, d]) => window.__DD__.mobs.spawnAhead(k, d, k === 'mistwing' ? 2.5 : 0, { asleep: false }), [kinds[i], 4.5 + i * 2]);
@@ -303,7 +318,7 @@ try {
     await page.evaluate(() => window.__DD__.goto('mushroomForest'));
     await arrive();
     await page.evaluate(() => window.__DD__.mobs.clear());
-    await openAhead(3, 7);
+    await stageOr(2, 7, 5);
     const cid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('lampling', 1.8, 1.5));
     if (cid !== null) {
       await page.evaluate((id) => window.__DD__.mobs.tame(id, 14), cid);
@@ -324,7 +339,7 @@ try {
       window.__DD__.mobs.clear();
       window.__DD__.mobs.harmless(true);
     });
-    await openAhead(4, 9);
+    await stageOr(2, 9);
     const hid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('icefang', 3.2, 0, { asleep: false }));
     if (hid !== null) {
       await page.evaluate((id) => {
@@ -361,7 +376,7 @@ try {
     }
     // A guardian's open guard (it sags, its core blazes) and its phase ring of light.
     await page.evaluate(() => window.__DD__.mobs.clear());
-    await openAhead(6, 12);
+    await stageOr(5, 13, 9);
     const gid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('rimeWyrm', 9, 0, { asleep: false }));
     if (gid !== null) {
       await page.evaluate((id) => {
@@ -390,7 +405,7 @@ try {
     if (at) {
       await arrive();
       await page.evaluate(() => window.__DD__.mobs.clear());
-      await openAhead(8, 14);
+      await stageOr(6, 15, 9);
       const id = await page.evaluate(() => window.__DD__.mobs.spawnAhead('heartOfDark', 11, 0, { asleep: false }));
       if (id !== null) {
         for (const ph of [1, 2, 3]) {
