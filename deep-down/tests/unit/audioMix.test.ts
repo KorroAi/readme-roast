@@ -499,6 +499,25 @@ describe('the AudioSystem on the emulator: one moment, one sound; the sliders', 
     expect(rig.audio.stats().shadowed).toBe(before + 1);
   });
 
+  it("lets a feat earned in a descent's moment wait for the descent to speak; a feat alone rings at once", () => {
+    rig = systemRig({ sampleRate: 8000 });
+    rig.run(1);
+    // Alone: at once.
+    let asked = rig.ctx.currentTime;
+    rig.emit('feat:earned', { id: 'firstCopper' });
+    expect(rig.audio.lastStart('feat.fanfare')! - asked).toBeLessThan(0.05);
+    rig.run(6);
+    // The first descent's feat in the descent's own frame: one fanfare after the other.
+    asked = rig.ctx.currentTime;
+    rig.emit('world:stratum', { stratum: 2, from: 1, biomes: ['rootGalleries', 'floodedGrottoes'] });
+    rig.emit('feat:earned', { id: 'firstDescent' });
+    const descent = rig.audio.lastStart('world.descent')!;
+    expect(descent - asked).toBeLessThan(0.05);
+    expect(rig.audio.lastStart('feat.fanfare')! - descent).toBeGreaterThan(1.7);
+    rig.run(4);
+    expect(rig.audio.stats().played['feat.fanfare']).toBe(2);
+  });
+
   it("states a biome's motif on its first visit (the starter biome's once the explorer leaves the camp), not on a return", () => {
     rig = systemRig({ sampleRate: 8000 });
     rig.game.strata.biomeHere = 'amberHollows';

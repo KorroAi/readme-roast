@@ -7,10 +7,11 @@ import { ROSTERS } from '../../src/game/mobs/rosters';
 import { StratumManager, type StratumHost } from '../../src/game/Stratum';
 import { installStratumDebug } from '../../src/game/StratumDebug';
 import type { WorldSession } from '../../src/game/WorldSession';
-import { t, type TextKey } from '../../src/i18n';
+import { hasText, t, type TextKey } from '../../src/i18n';
 import { ExploredMap } from '../../src/world/gen/strata/explored';
 import { nestKind } from '../../src/world/gen/strata/content';
 import { generateStratum } from '../../src/world/gen/strata/generateStratum';
+import { VISTA_NAMES } from '../../src/world/gen/strata/structures';
 import type { StratumLayout } from '../../src/world/gen/strata/types';
 import { VoxelWorld } from '../../src/world/VoxelWorld';
 
@@ -36,6 +37,18 @@ describe('the guardian rumours (arrival cards)', () => {
       expect(BIOMES[b].mobs.beings).toEqual(ROSTERS[b].beings.map((e) => e.kind));
       expect(BIOMES[b].mobs.guardian).toBe(ROSTERS[b].guardian);
     }
+  });
+});
+
+describe('the landmark vista is named for the biome it opens in', () => {
+  it('every biome has its vista name, with a title and a body', () => {
+    for (const b of BIOME_IDS) {
+      const name = VISTA_NAMES[b];
+      expect(hasText(`site.${name}.title`), `${b}: ${name}`).toBe(true);
+      expect(hasText(`site.${name}.body`), `${b}: ${name}`).toBe(true);
+    }
+    // One name per biome of the twelve (the Heart's deep shares the Fire Throat).
+    expect(new Set(BIOME_IDS.filter((b) => b !== 'heart').map((b) => VISTA_NAMES[b])).size).toBe(12);
   });
 });
 

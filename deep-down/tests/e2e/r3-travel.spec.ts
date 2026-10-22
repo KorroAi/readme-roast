@@ -57,12 +57,19 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 4);
   await tapControl(page, touch, 'hotbar:5');
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.loop.hotbarView().held)) === 'outpostKit', 4)).toBe(true);
-  // Aim at the floor two metres ahead.
-  await page.evaluate(() => {
-    const g = window.__DD__.game;
-    const p = g.player;
-    window.__DD__.aimAt(p.x - Math.sin(g.cameraRig.yaw) * 2.2, p.y - 0.5, p.z - Math.cos(g.cameraRig.yaw) * 2.2, 0, 0);
-  });
+  // Aim at the floor two metres ahead, turning until that floor takes the kit (open floor with room
+  // above it, not under the explorer: ActionLayer.placeCells, what Place itself asks).
+  const yaw0 = await page.evaluate(() => window.__DD__.game.cameraRig.yaw as number);
+  let floor = false;
+  for (let k = 0; k < 8 && !floor; k++) {
+    floor = await page.evaluate(([yaw, d]) => {
+      const g = window.__DD__.game;
+      const p = g.player;
+      window.__DD__.aimAt(p.x - Math.sin(yaw) * d, p.y - 0.5, p.z - Math.cos(yaw) * d, 0, 0);
+      return g.act.placeCells('outpost') !== null;
+    }, [yaw0 + (k * Math.PI) / 4, k % 2 ? 1.8 : 2.2] as const);
+  }
+  expect(floor, 'open floor in reach for the kit').toBe(true);
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'place');
   expect(await waitEvent(page, 'player:placed', 6), 'the kit was set down').toBe(true);

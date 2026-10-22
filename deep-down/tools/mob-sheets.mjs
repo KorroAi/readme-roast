@@ -18,6 +18,10 @@ for (let i = 0; i < args.length; i++) if (args[i].startsWith('--')) opt[args[i].
 const [width, height] = opt.size.split('x').map(Number);
 mkdirSync(opt.out, { recursive: true });
 
+// --only takes a list (`extras,fight,heart,worm`); none: the rosters and the guardians.
+const only = new Set(opt.only.split(',').filter(Boolean));
+const want = (part) => (only.size === 0 ? part === 'rosters' || part === 'guardians' : only.has(part) || only.has('all'));
+
 const BIOMES = ['amberHollows', 'mushroomForest', 'rootGalleries', 'floodedGrottoes', 'crystalGeode', 'haldenMines', 'frostCaverns', 'glowrootJungle', 'sulphurBog', 'sunkenCity', 'magmaVeins', 'obsidianAbyss', 'heart'];
 const wanted = opt.biomes ? opt.biomes.split(',') : BIOMES;
 
@@ -122,7 +126,7 @@ try {
 
   // Each biome once: its roster lined up, then its guardian in its lair (one stratum load per pair).
   for (const biome of wanted) {
-    if (opt.only !== 'guardians' && opt.only !== 'extras') {
+    if (want('rosters')) {
         const r = await page.evaluate((b) => window.__DD__.mobs.roster(b), biome);
         if (!r) continue;
         const at = await page.evaluate((b) => window.__DD__.goto(b), biome);
@@ -159,7 +163,7 @@ try {
           window.__DD__.mobs.freeze(false);
         });
     }
-    if (opt.only !== 'rosters' && opt.only !== 'extras') {
+    if (want('guardians')) {
         const r = await page.evaluate((b) => window.__DD__.mobs.roster(b), biome);
         if (!r) continue;
         const kind = r.guardian;
@@ -241,7 +245,7 @@ try {
         });
     }
   }
-  if (opt.only === 'extras' || opt.only === 'all') {
+  if (want('extras')) {
     // Elites: one of each affix, side by side (radiant, armoured, swift, splitting).
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
     await arrive();
@@ -311,7 +315,7 @@ try {
       log(`companion: ${JSON.stringify(await page.evaluate(() => window.__DD__.mobs.companion()))}`);
     }
   }
-  if (opt.only === 'fight' || opt.only === 'all') {
+  if (want('fight')) {
     // The moments of a fight, held still: a blow landing (the flinch, the sparks, the pin of light),
     // creatures collapsing as they die (each its own way), a guardian's open guard and its phase ring.
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
@@ -380,7 +384,7 @@ try {
       window.__DD__.mobs.freeze(false);
     });
   }
-  if (opt.only === 'heart' || opt.only === 'all') {
+  if (want('heart')) {
     // The Dark Heart's three phases: a closed shell, cracked and bleeding light, its last blaze.
     const at = await page.evaluate(() => window.__DD__.goto('heart'));
     if (at) {
@@ -406,7 +410,7 @@ try {
       } else log('the Heart: could not place it');
     } else log('the Heart: no chamber');
   }
-  if (opt.only === 'worm' || opt.only === 'all') {
+  if (want('worm')) {
     // The Deep Worm passing through a vista hall (WORLD §6), seen from its balcony (strata IV-VI).
     for (const n of [6, 4]) {
       await page.evaluate((s) => window.__DD__.stratum(s), n);

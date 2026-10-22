@@ -127,7 +127,11 @@ export async function centreOf(page: Page, target: string, gameSeconds = 6): Pro
  */
 export async function tapControl(page: Page, touch: Touch, target: string): Promise<void> {
   await closeTripCard(page, touch, 0);
-  await touch.tap(await centreOf(page, target));
+  const at = await centreOf(page, target);
+  // The control is what a finger meets there (not the world behind a HUD still coming back).
+  const reachable = () => page.evaluate(([t, x, y]) => !!document.elementFromPoint(Number(x), Number(y))?.closest(`[data-ui-target="${t}"]`), [target, at.x, at.y] as const);
+  if (!(await untilGame(page, reachable, 3))) console.log(`[e2e] ${target} is covered at ${at.x},${at.y}`);
+  await touch.tap(at);
 }
 
 /** A real touch press held on a control for `ms`. */

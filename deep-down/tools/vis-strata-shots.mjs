@@ -46,7 +46,7 @@ try {
   }
   await page.evaluate(async ({ q, hud, seed }) => {
     const st = document.createElement('style');
-    st.textContent = '.dd-discovery,.dd-hint,.dd-toasts,.dd-toast,.dd-tutorial,.dd-tut,.dd-arrival{display:none!important}' + (hud === '1' ? '' : '.dd-ui{display:none!important}');
+    st.textContent = '.dd-discovery,.dd-hint,.dd-hint3,.dd-milestone,.dd-toasts,.dd-toast,.dd-tutorial,.dd-tut,.dd-arrival{display:none!important}' + (hud === '1' ? '' : '.dd-ui{display:none!important}');
     document.head.appendChild(st);
     const g = window.__DD__.game;
     g.updateSettings({ quality: q });
@@ -334,6 +334,9 @@ try {
         }
         g.player.yaw = yaw + Math.PI;
         D.look(yaw, pitch);
+        // The lens jumps to the look now (a teleport snaps it): it eases only in small frames, and
+        // the long settle steps below left it where it pointed before (straight up, after a switch).
+        D.teleport(px, py, pz);
         // ~1 s of game time (the biome look, the air and the light settle; both snap on a teleport)
         // in three rendered frames: each is a full SwiftShader render at the capture size.
         D.step(3, 0.34);
@@ -366,13 +369,12 @@ try {
         await D.meshIdle?.();
         D.step(1, 0.05);
         await D.meshIdle?.();
-        if (!fx) {
-          // Back on the chosen spot and heading (the long settle steps can carry the explorer off
-          // it), the lantern's pendulum at rest (the turn to the view kicked it).
-          D.teleport(feet[0], feet[1], feet[2]);
-          g.player.yaw = yaw + Math.PI;
-          D.look(yaw, pitch);
-        }
+        // Back on the chosen spot and heading, the lens snapped to it (look, then the teleport's
+        // snap), the lantern's pendulum at rest (the turn to the view kicked it).
+        g.player.yaw = yaw + Math.PI;
+        D.look(yaw, pitch);
+        if (!fx) D.teleport(feet[0], feet[1], feet[2]);
+        else g.cameraRig.snapTo(g.player.x, g.player.y + 1.62, g.player.z);
         const vm = g.viewmodel;
         if (vm) {
           vm.swayX = vm.swayZ = vm.swayVX = vm.swayVZ = 0;

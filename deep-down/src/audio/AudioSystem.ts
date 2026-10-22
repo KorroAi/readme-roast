@@ -66,6 +66,11 @@ const UI_PAIR = 0.12;
 const LESSER: ReadonlySet<string> = new Set(['quest.step', 'tutorial.step', 'loop.unlock', 'ui.hint', 'guide.way', 'bestiary.page', 'bestiary.complete', 'reward.pouch', 'ui.card']);
 const STORY_SHADOW = 2.5;
 const STORY_PAIR = 0.2;
+/**
+ * A feat earned in a bigger beat's moment (the first descent, a guardian's fall, a gate) waits this
+ * long after that beat began, so two fanfares never speak over each other.
+ */
+const FEAT_WAIT = 1.8;
 
 /** Without a biome (the title, the old world): a score per depth mood. */
 const MOOD_SCORE: Record<MoodName, ScoreId> = { camp: 'camp', shallow: 'amberHollows', mid: 'crystalGeode', deep: 'obsidianAbyss' };
@@ -264,6 +269,10 @@ export class AudioSystem {
   private darkHeartAt = -Infinity;
   /** The last story beat, the lesser cues just played, and how many were shadowed (debug). */
   private storyAt = -Infinity;
+  /** The story beat that began at `storyAt`. */
+  private storyName = '';
+  /** When each sound last started (audio clock; a delayed one at its delayed start). */
+  private readonly startedAt = new Map<string, number>();
   private readonly lesser: Array<{ e: SfxVoice; at: number }> = [];
   private shadowed = 0;
   /** How many times each sound has started (debug, tests). */
@@ -463,6 +472,11 @@ export class AudioSystem {
       notes: live ? Object.values(live.music.played).reduce((a, b) => a + b, 0) : 0,
       lookahead: live?.music.lookahead ?? 0,
     };
+  }
+
+  /** When `name` last started (the audio clock; a sound held back starts later than it was asked), or null. */
+  lastStart(name: SfxName): number | null {
+    return this.startedAt.get(name) ?? null;
   }
 
   /**
@@ -754,6 +768,8 @@ export class AudioSystem {
       this.shadowed++;
       return;
     }
+    // One fanfare at a time: a feat in another story beat's moment comes in once that beat has spoken.
+    if (name === 'feat.fanfare' && at === undefined && this.storyName !== 'feat.fanfare' && now - this.storyAt < FEAT_WAIT) at = this.storyAt + FEAT_WAIT;
     if (!this.gate.allow(name, now, d.minGap)) return;
     // Too far to matter (a creature at the edge of hearing).
     if ((params.gain ?? 1) < 0.02) return;
@@ -767,7 +783,9 @@ export class AudioSystem {
     }
     if (!this.voices.admit(now, d.priority)) return;
     try {
-      const v = playSfx(live.targets[d.bus], name, params, Math.max(now + 0.005, at ?? 0));
+      const start = Math.max(now + 0.005, at ?? 0);
+      const v = playSfx(live.targets[d.bus], name, params, start);
+      this.startedAt.set(name, start);
       const entry: SfxVoice = { v, cat };
       this.voices.add(entry, now, v.end, d.priority);
       this.playedCount.set(name, (this.playedCount.get(name) ?? 0) + 1);
@@ -780,6 +798,7 @@ export class AudioSystem {
       if (d.priority >= 4 && d.bus === 'sfx') {
         // A story beat: the lesser cues of the same moment step aside.
         this.storyAt = now;
+        this.storyName = name;
         for (const l of this.lesser) {
           if (now - l.at > STORY_PAIR) continue;
           l.e.v.kill(now, 0.04);

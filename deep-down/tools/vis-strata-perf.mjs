@@ -88,6 +88,8 @@ try {
           const yaw = (k / HEADINGS) * Math.PI * 2;
           g.player.yaw = yaw + Math.PI;
           D.look(yaw, -0.08);
+          // The lens jumps to the heading (a teleport snaps it; it only eases in small frames).
+          D.teleport(at[0], at[1], at[2]);
           // One game frame to turn (the cull asks for what it now sees), its meshes, then the measured
           // frame (it renders the whole frame: the scene and the post passes).
           D.step(1, 0.05);

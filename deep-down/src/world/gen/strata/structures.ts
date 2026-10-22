@@ -75,7 +75,16 @@ export interface VistaOut {
 }
 
 /** The vista's name per stratum (WORLD_TEXT_EN `site.vista<n>.*`). */
-const VISTA_NAMES = ['honeyCathedral', 'drownedHall', 'singingVault', 'iceCathedral', 'sunkenForum', 'fireThroat'];
+/** The vista's name by the biome it opens in (its title and body say what that hall holds). */
+export const VISTA_NAMES: Record<BiomeId, string> = {
+  amberHollows: 'honeyCathedral', mushroomForest: 'sporeCathedral',
+  rootGalleries: 'rootHall', floodedGrottoes: 'drownedHall',
+  crystalGeode: 'singingVault', haldenMines: 'greatDig',
+  frostCaverns: 'iceCathedral', glowrootJungle: 'greenVault',
+  sulphurBog: 'sulphurDome', sunkenCity: 'sunkenForum',
+  magmaVeins: 'fireThroat', obsidianAbyss: 'glassAbyss',
+  heart: 'fireThroat',
+};
 
 /**
  * The landmark vista: a tall dome (a flat-topped roof profile, so the walls stand high) with a lake at
@@ -382,7 +391,7 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
   void rng;
   return {
     id: `vista_${plan.stratum}`,
-    name: VISTA_NAMES[plan.stratum - 1],
+    name: VISTA_NAMES[n.biome],
     biome: n.biome,
     centre: [n.x, n.y, n.z],
     radius: R,

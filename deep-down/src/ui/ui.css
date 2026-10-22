@@ -266,6 +266,9 @@
 .dd-hud.on {
   opacity: 1;
   visibility: visible;
+  /* Shown: it takes taps at once (only the fade is gradual). A delayed visibility would let a tap
+     right after a menu closes fall through to the world. Hidden, it fades out before it stops. */
+  transition: opacity var(--dur-medium), visibility 0s;
 }
 .dd-hud-tl {
   position: absolute;
@@ -907,6 +910,8 @@
 .dd-touch.dd-on {
   opacity: 1;
   visibility: visible;
+  /* Shown: the pads take touches at once (see .dd-hud.on). */
+  transition: opacity 0.2s, visibility 0s;
 }
 /* The joystick base stays a ring (a brass bezel): listed exception to the octagon rule. */
 .dd-stick {

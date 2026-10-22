@@ -32,7 +32,8 @@ async function boot(page: Page): Promise<void> {
     if (m.type() === 'error') errs.push(m.text());
   });
   page.on('pageerror', (e) => errs.push(e.message));
-  await page.goto('/index.html?gen=strata');
+  // (catchup: game time keeps pace with the wall clock under SwiftShader's ~1 frame/s, UI's 21:29.)
+  await page.goto('/index.html?gen=strata&catchup=6');
   await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: LOADED_CEILING_MS, polling: 250 });
   await page.evaluate(async (seed) => {
     await window.__DD__.game.newGame(seed);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MobSim, collapseOf, type MobEnv, type MobSimEvent } from '../../src/game/mobs/MobSim';
 import { SPECIES } from '../../src/game/mobs/species';
-import { HEART_BEAT, guardianState } from '../../src/game/mobs/guardian';
+import { HEART_BEAT, beatNudge, guardianState } from '../../src/game/mobs/guardian';
 import type { Lair } from '../../src/game/mobs/spawner';
 import { WEAPONS } from '../../src/config/weapons';
 import { isSfxName } from '../../src/audio/sfx';
@@ -287,6 +287,36 @@ describe("the Dark Heart's beat", () => {
     const b3 = beats(3);
     expect(b1).toBeGreaterThanOrEqual(6);
     expect(b3).toBeGreaterThan(b1 * 1.5);
+  });
+
+  it("the Heart's beat settles on the score's grid (120 bpm): on the beats for 1.5 / 1.0 s, every other lub on the beat for 0.75 s", () => {
+    const beatLen = 0.5;
+    for (const [period, grid] of [[1.5, 0.5], [1.0, 0.5], [0.75, 0.25]] as const) {
+      // 0.2 s late to start with (nearer the off-beat than the beat).
+      let beat = 0.5 - 0.2 / period;
+      const lubs: number[] = [];
+      const dt = 1 / 30;
+      for (let t = 0; t < 12; t += dt) {
+        beat += dt / period;
+        if (beat >= 1) {
+          beat -= 1;
+          lubs.push(t - beat * period);
+        }
+        beat = beatNudge(beat, period, beatLen - (t % beatLen), beatLen, dt);
+      }
+      // The last lubs sit on the grid (within 25 ms).
+      for (const at of lubs.slice(-4)) {
+        const off = Math.abs(((at % grid) + grid) % grid);
+        expect(Math.min(off, grid - off), `period ${period}: lub at ${at.toFixed(3)} s`).toBeLessThan(0.025);
+      }
+      if (period === 0.75) {
+        const onBeat = lubs.slice(-4).map((at) => {
+          const off = ((at % beatLen) + beatLen) % beatLen;
+          return Math.min(off, beatLen - off) < 0.03;
+        });
+        expect(onBeat.filter(Boolean).length, 'every other lub on a whole beat').toBe(2);
+      }
+    }
   });
 
   it("the Heart's beat is in its guardian state (period and phase: the relit Heart can pulse with it); a guardian has none", () => {
