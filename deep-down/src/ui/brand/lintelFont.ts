@@ -23,7 +23,9 @@ function codepoints(): Array<[code: number, ch: string]> {
   const out: Array<[number, string]> = [];
   for (const ch of LINTEL_CHARS) {
     out.push([ch.codePointAt(0)!, ch]);
-    if (/[A-Z]/.test(ch)) out.push([ch.toLowerCase().codePointAt(0)!, ch]);
+    // Letters (A-Z and the accented capitals) also map from lower case.
+    const lower = ch.toLowerCase();
+    if (lower !== ch && lower.length === 1) out.push([lower.codePointAt(0)!, ch]);
   }
   return out.sort((a, b) => a[0] - b[0]);
 }
@@ -266,7 +268,7 @@ export function buildLintelFont(): Uint8Array {
   for (const v of [650, 600, 0, 75, 650, 600, 0, 350, 50, 300]) os2.i16(v); // sub/superscript, strikeout
   os2.i16(0);
   os2.bytes([2, 11, 6, 9, 3, 0, 0, 0, 0, 0]); // PANOSE: sans, monoline
-  os2.u32(0x80000003);
+  os2.u32(0x80000007); // Basic Latin, Latin-1, Latin Extended-A (Œ), General Punctuation
   os2.u32(1 << 6);
   os2.u32(0);
   os2.u32(0);

@@ -25,7 +25,7 @@
 .dd-hud.dd-r3 .dd-row1 {
   display: flex;
   gap: 6px;
-  height: 46px;
+  height: 48px;
 }
 .dd-hud.dd-r3 .dd-row2,
 .dd-hud.dd-r3 .dd-row3 {
@@ -35,10 +35,32 @@
   /* the minimap sits on the right under row 1 */
   margin-right: 100px;
 }
-/* Toasts under the whole top HUD (rows, tracker) in portrait. */
+/* Toasts in one column under the whole top HUD in portrait: under the rows and the tracker, the
+   guardian's bar in a fight, a tutorial bubble standing up there (UI sets --toast-top: noticeGate).
+   The discovery band stands there too (the cards take turns), clear of the centre. */
 @media (orientation: portrait) {
   .dd-ui .dd-toasts {
-    top: calc(176px + var(--safe-top));
+    top: var(--toast-top, calc(176px + var(--safe-top)));
+    transition: top 0.2s ease-out;
+  }
+  .dd-ui .dd-discovery {
+    top: calc(172px + var(--safe-top));
+  }
+}
+/* Landscape: the top block holds the left of the top edge, so the toasts take the strip to its right
+   (over the minimap's corner, never over the vitals, the menu buttons or the tracker), and the
+   pickups stand under the block on the left, above the stick (--toast-top: under a guardian's bar). */
+@media (orientation: landscape) {
+  .dd-ui .dd-toasts {
+    top: calc(8px + var(--safe-top));
+    left: calc(min(560px, 58vw) + 20px + var(--safe-left));
+    right: calc(10px + var(--safe-right));
+    width: auto;
+    transform: none;
+    align-items: flex-start;
+  }
+  .dd-ui .dd-pickups {
+    top: var(--toast-top, calc(168px + var(--safe-top)));
   }
 }
 .dd-r3 :is(.dd-vitals, .dd-where, .dd-hbtn, .dd-tracker, .dd-guardian, .dd-hslot, .dd-arrival) {
@@ -196,13 +218,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* The top-bar buttons (≡, Bag, Craft, Map, Quests): 46 px plates. */
+/* The top-bar buttons (≡, Bag, Craft, Map, Quests): 48 px plates (the brand's smallest target). */
 .dd-hud.dd-r3 .dd-hbtn {
   pointer-events: auto;
   position: relative;
   flex: none;
-  width: 46px;
-  height: 46px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -250,7 +272,7 @@
   pointer-events: auto;
   flex: 1 1 auto;
   min-width: 0;
-  min-height: 46px;
+  min-height: 48px;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -343,7 +365,7 @@
 /* The minimap: a round window on the right, under the menu button. */
 .dd-hud.dd-r3 .dd-minimap {
   position: absolute;
-  top: calc(8px + 46px + 6px + var(--safe-top));
+  top: calc(8px + 48px + 6px + var(--safe-top));
   right: calc(10px + var(--safe-right));
   width: 92px;
   height: 92px;

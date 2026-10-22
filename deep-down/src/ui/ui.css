@@ -228,6 +228,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  /* A long value wraps under itself instead of squeezing its label to dots (LOOP 22:47). */
+  flex-shrink: 0;
+  max-width: 60%;
 }
 .dd-ledger-leader {
   flex: 1 1 12px;
@@ -240,7 +243,9 @@
   font-variant-numeric: tabular-nums;
   font-weight: 800;
   color: var(--amber-300);
-  white-space: nowrap;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
 }
 .dd-ledger-row.uncommon .dd-ledger-label {
   color: var(--rarity-uncommon);
@@ -756,6 +761,13 @@
 .dd-toast.leaving {
   opacity: 0;
   transform: translateY(-6px);
+}
+/* Standing aside while a notice card is up (it comes back after: ui/hud/noticeGate). */
+.dd-toast.held {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-6px);
+  transition: opacity 0.2s, transform 0.2s, visibility 0s 0.2s;
 }
 @keyframes dd-drop-in {
   from {
@@ -2156,8 +2168,29 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+.dd-death-panel {
+  max-height: 100%;
+}
+.dd-death-story {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  flex: 0 1 auto;
+}
 .dd-death-panel .dd-section-title {
   margin: 8px 0 0;
+}
+/* A short landscape screen: the card tightens so the story shows with its wake-up. */
+@media (orientation: landscape) and (max-height: 520px) {
+  .dd-death-panel {
+    padding: 14px 20px 16px;
+    gap: 6px;
+  }
+  .dd-death-story {
+    gap: 6px;
+  }
 }
 .dd-death-panel .dd-ledger {
   max-width: 340px;
@@ -2399,5 +2432,49 @@
 @media (orientation: landscape) and (max-height: 500px) {
   .dd-touch-ui .dd-rotate-hint {
     display: block;
+  }
+}
+/* The title column never overflows the screen: its buttons scroll inside it when they must. */
+.dd-menu-col {
+  max-height: 100%;
+}
+.dd-menu-buttons.dd-scroll {
+  flex: 0 1 auto;
+  /* Room for the focus ring inside the scroll box. */
+  padding: 4px;
+  margin: -4px;
+}
+/* A landscape phone: the wordmark and its line on the left, the buttons on the right. */
+@media (orientation: landscape) and (max-height: 500px) {
+  .dd-menu-col {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 1fr auto auto 1fr;
+    grid-template-areas: '. buttons' 'logo buttons' 'tag buttons' 'hint buttons';
+    align-items: center;
+    column-gap: 32px;
+    width: min(820px, 100%);
+    height: 100%;
+  }
+  .dd-menu-col > .dd-logo {
+    grid-area: logo;
+  }
+  .dd-menu-col > .dd-tagline {
+    grid-area: tag;
+    margin: 8px 0 0;
+  }
+  .dd-menu-col > .dd-menu-buttons {
+    grid-area: buttons;
+    align-self: center;
+    max-height: 100%;
+    gap: 7px;
+  }
+  .dd-menu-col > .dd-rotate-hint {
+    grid-area: hint;
+    align-self: start;
+  }
+  .dd-logo-menu .dd-wordmark-line {
+    width: min(380px, 40vw);
+    min-width: 0;
   }
 }

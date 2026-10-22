@@ -1678,6 +1678,16 @@ export class Loop implements LoopActions {
         if (next) return { why: 'weapon', item: next, station: station(next) };
       }
     }
+    // (1b) Armed but wearing nothing before the first strata's guardians (MOBS' duels, 23:00: a
+    // half-reader with the Machete loses 80-100 of 100 hp to them): the Miner set's next piece, once
+    // its materials have been seen (120 hp and 15 % armour with the three).
+    if (step === 'guardian' && deep <= 3 && !this.gear.equipped.head && !this.gear.equipped.chest && !this.gear.equipped.feet) {
+      const pieces = ARMOUR_SETS.miner.pieces;
+      for (const slot of ['chest', 'head', 'feet'] as const) {
+        const id = pieces[slot];
+        if (!this.gear.owned.has(id) && met(id)) return { why: 'guard', item: id, station: station(id) };
+      }
+    }
     // (2) The ward of the deepest stratum's hazard.
     const SET: Partial<Record<number, { set: keyof typeof ARMOUR_SETS; hazard: HazardKind }>> = { 4: { set: 'fur', hazard: 'cold' }, 5: { set: 'bog', hazard: 'gas' }, 6: { set: 'ember', hazard: 'heat' } };
     const need = SET[deep];

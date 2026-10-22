@@ -944,6 +944,22 @@ describe('camp orders (2): paid on the arrival\'s own deposit; the needs follow 
 });
 
 describe('the side tracker\'s suggested craft (what the descent needs next)', () => {
+  it('armed but wearing nothing at a first-strata guardian: the Miner set\'s next piece, once its materials are seen (MOBS 23:00)', () => {
+    const { h, loop } = game();
+    h.inCamp = false;
+    loop.gear.grant('machete');
+    h.strata.reveal('lair_amberHollows');
+    loop.update(0.5);
+    expect(loop.quests.mainRawStep().step).toBe('guardian');
+    expect(loop.advice()).toBeNull();
+    for (const id of ['hide', 'chitin', 'copperIngot'] as ItemId[]) loop.learn(id);
+    expect(loop.advice()).toMatchObject({ why: 'guard', item: 'minerVest' });
+    loop.update(0.3);
+    expect(loop.quests.side()?.text).toBe(en['advice.guard'].replace('{item}', en['item.minerVest' as keyof typeof en]));
+    loop.gear.grant('minerVest');
+    expect(loop.advice()).toBeNull();
+  });
+
   it('a weapon before the guardians, the ward of a hazard stratum, a brighter lantern, an outpost', () => {
     const { h, loop } = game();
     // Stratum I, the lairs step, no weapon: nothing visible yet (no copper bar or hide known).

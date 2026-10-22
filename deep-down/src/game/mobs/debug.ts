@@ -423,7 +423,8 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
             const cx = Math.floor(x + 0.5 + fx * d + rx * w);
             const cz = Math.floor(z + 0.5 + fz * d + rz * w);
             const cy = floorAt(cx, cz, y);
-            if (cy === null || inLair(cx, cy, cz)) return false;
+            // (Never in a lair, the camp or an outpost: a monster there would be put away.)
+            if (cy === null || inLair(cx, cy, cz) || sim.unsafe(cx + 0.5, cy, cz + 0.5)) return false;
           }
         return true;
       };

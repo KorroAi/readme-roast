@@ -152,7 +152,8 @@ export async function aimAtOre(page: Page, id: number, ndc: [number, number] = [
     const prep = await page.evaluate(([i, x, y, z]) => window.__DD__.prepareMining(i, x, y, z, 48), [id, p.x + ox, p.y, p.z + oz]);
     if (!prep) continue;
     const b = prep.block;
-    await page.evaluate(([x, y, z, nx, ny]) => window.__DD__.aimAt(x + 0.5, y + 0.5, z + 0.5, nx, ny), [...b, ...ndc]);
+    // (aimAt takes the block: it aims at the face of it the eye sees.)
+    await page.evaluate(([x, y, z, nx, ny]) => window.__DD__.aimAt(x, y, z, nx, ny), [...b, ...ndc]);
     const hit = await page.evaluate(([nx, ny]) => window.__DD__.ui.ray(nx, ny, 6), ndc);
     // The vein itself, or another cell of the same ore in front of it (what the pick meets first).
     if (hit && hit[3] === id) return [hit[0], hit[1], hit[2]];

@@ -89,6 +89,9 @@
 }
 .dd-menu3 .dd-m3-tabs .dd-tab {
   flex: none;
+  /* A short label ("All") still makes a 48 px target. */
+  min-width: 48px;
+  justify-content: center;
   padding: 0 10px !important;
   letter-spacing: 0.08em;
   white-space: nowrap !important;
@@ -766,7 +769,7 @@
 }
 .dd-menu3 .dd-m3-trackbtn {
   margin-top: 8px;
-  min-height: 44px;
+  min-height: 48px;
 }
 .dd-menu3 .dd-m3-shards {
   display: flex;

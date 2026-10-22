@@ -2129,7 +2129,17 @@ export class MobSim {
       if (!m.tappable || m.dying || m.fade < 0.3) continue;
       const r = m.bounds.radius + slack;
       const h = m.bounds.halfHeight;
-      const t = rayCapsule(ray.ox, ray.oy, ray.oz, dx, dy, dz, m.position.x, m.position.y - h, m.position.z, m.position.y + h, r);
+      let t = rayCapsule(ray.ox, ray.oy, ray.oz, dx, dy, dz, m.position.x, m.position.y - h, m.position.z, m.position.y + h, r);
+      if (m.body) {
+        // Its drawn bulk too (a guardian's legs, a long body's head and tail): a tap on what is drawn counts.
+        const sn = Math.sin(m.yaw);
+        const cs = Math.cos(m.yaw);
+        const side = m.body.side;
+        const fa = Math.max(0, m.body.front - side);
+        const ba = Math.max(0, m.body.back - side);
+        const tb = raySegment(ray.ox, ray.oy, ray.oz, dx, dy, dz, m.position.x - sn * ba, m.position.y, m.position.z - cs * ba, m.position.x + sn * fa, m.position.y, m.position.z + cs * fa, side * 0.9 + slack);
+        if (tb !== null && (t === null || tb < t)) t = tb;
+      }
       if (t === null || t > maxD || t >= (m.tame ? petT : bestT)) continue;
       const hit = { x: ray.ox + dx * t, y: ray.oy + dy * t, z: ray.oz + dz * t };
       if (!clearLine(this.env.solid, { x: ray.ox, y: ray.oy, z: ray.oz }, hit)) continue;
@@ -2856,6 +2866,30 @@ function dampAngle(a: number, b: number, rate: number, dt: number): number {
   while (d > Math.PI) d -= Math.PI * 2;
   while (d < -Math.PI) d += Math.PI * 2;
   return a + d * (1 - Math.exp(-rate * dt));
+}
+
+/**
+ * Distance along a unit ray to a capsule round any segment p0..p1 (radius r), or null: spheres along
+ * the segment no farther apart than 0.7 r (a tap's test, not a physics one).
+ */
+export function raySegment(ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, r: number): number | null {
+  const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+  const n = Math.max(1, Math.ceil(len / Math.max(0.05, r * 0.7)));
+  let best: number | null = null;
+  for (let i = 0; i <= n; i++) {
+    const f = i / n;
+    const lx = ox - (x0 + (x1 - x0) * f);
+    const ly = oy - (y0 + (y1 - y0) * f);
+    const lz = oz - (z0 + (z1 - z0) * f);
+    const b = lx * dx + ly * dy + lz * dz;
+    const c = lx * lx + ly * ly + lz * lz - r * r;
+    const disc = b * b - c;
+    if (disc < 0) continue;
+    const t = -b - Math.sqrt(disc);
+    const tt = t >= 0 ? t : c <= 0 ? 0 : null;
+    if (tt !== null && (best === null || tt < best)) best = tt;
+  }
+  return best;
 }
 
 /**

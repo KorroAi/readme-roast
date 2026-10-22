@@ -99,11 +99,24 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
   // At the camp's Workbench: the chip shows its icon and verb; a tap opens Craft.
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite.stations.find((s: { station: string }) => s.station === 'workbench')?.p ?? null);
   expect(bench, 'the camp has a Workbench').not.toBeNull();
-  const stand = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench!);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand!);
-  // (A station's `p` is its prop's base centre.)
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench!);
-  expect(await untilGame(page, async () => (await hud(page)).interact?.icon === 'station', 6), 'the chip shows a station').toBe(true);
+  // Stand a step from it, facing it (a station's `p` is its prop's base centre), from the side that
+  // is open floor and where no other prop (the fire, the board, a chest) takes the focus first.
+  let chip = false;
+  for (const [dx, dz] of [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) {
+    const stand = await page.evaluate(([x, y, z, ox, oz]) => {
+      const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
+      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+    }, [...bench!, dx, dz] as const);
+    if (!stand) continue;
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    // (aimAt takes a block and aims at its centre: a point target is passed half a cell back.)
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench!);
+    chip = await untilGame(page, async () => (await hud(page)).interact?.icon === 'station', 3);
+    if (chip) break;
+    const seen = await page.evaluate(() => ({ chip: window.__DD__.ui.hud().interact, focus: (window.__DD__.game.focusTarget()?.kind as string | undefined) ?? null }));
+    console.log(`[e2e] the Workbench from ${stand}: ${JSON.stringify(seen)}`);
+  }
+  expect(chip, 'the chip shows a station').toBe(true);
   await expect(page.locator('.dd-use')).toBeVisible();
   await expect(page.locator('.dd-use-verb')).toHaveText(/Craft/);
   await tapControl(page, touch, 'interact');

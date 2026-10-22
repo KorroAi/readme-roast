@@ -566,3 +566,22 @@ describe('a charge is fair: its contact is its drawn lane', () => {
     expect(off.landed, 'off the lane').toBe(0);
   });
 });
+
+describe('a tap on what is drawn picks it', () => {
+  it("a ray at the Magma Behemoth's head (3 m ahead of its centre, outside its capsule) picks it once its body is known", async () => {
+    const { bodyExtent, mobModel } = await import('../../src/render/mobs/models');
+    const e = bodyExtent(mobModel('magmaBehemoth'));
+    const sim = new MobSim(env(), 3);
+    sim.spawning = false;
+    const g = sim.spawn('magmaBehemoth', 40.5, FLOOR, 20.5, { asleep: false })!;
+    g.fade = 1;
+    g.yaw = 0;
+    // From the side, level with its body, aimed 2.9 m ahead of its centre (its head).
+    const ray = { ox: 30, oy: g.position.y, oz: g.position.z + 2.9, dx: 1, dy: 0, dz: 0, maxDist: 30 };
+    expect(sim.pick(ray), 'capsule only').toBeNull();
+    g.body = { front: e.front * g.scale, back: e.back * g.scale, side: e.side * g.scale };
+    expect(sim.pick(ray)?.id, 'with its drawn body').toBe(g.id);
+    // A ray well clear of it still misses.
+    expect(sim.pick({ ...ray, oz: g.position.z + 6 })).toBeNull();
+  });
+});

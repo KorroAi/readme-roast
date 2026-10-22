@@ -31,6 +31,7 @@ import { buildQuests } from './screens/r3/quests';
 import { buildBestiary } from './screens/r3/bestiary';
 import { buildTrip } from './screens/r3/trip';
 import { MilestoneBanner } from './hud/Milestones';
+import { noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
 import { languageOf, type ControlPrefs } from './controlPrefs';
 import { setReducedMotion } from './brand/motion';
 import { rewardLine } from '../game/quests/Quests';
@@ -105,7 +106,13 @@ export class UI implements GameUi {
   private lastMap: MapSource | null = null;
   private readonly toasts = new Toasts();
   private readonly pickups = new PickupFeed();
-  private readonly discovery = new DiscoveryBanner();
+  /** A discovery waits while another notice card has the turn (ui/hud/noticeGate). */
+  private readonly discovery = new DiscoveryBanner(() => !this.noticeTurns().discovery);
+  /** A biome arrival card waiting for its turn (one notice card at a time, QA 22:10). */
+  private arrivalWaiting: ArrivalCard | null = null;
+  /** The toast column's top (portrait: under the HUD, the guardian's bar, a bubble up there). */
+  private toastTopV = '';
+  private toastTopAt = 0;
   /** Round 3: feats, Heart Shards and completed bestiary pages (one calm card at a time). */
   private readonly milestones: MilestoneBanner;
   /** The last reward paid for a feat (its card says what it gave). */
@@ -271,7 +278,9 @@ export class UI implements GameUi {
         // While the tutorial teaches (its first minutes), a trip card would only interrupt it.
         if (!p?.summary || !this.actions.strata?.() || this.hud.tutorial.active) return;
         this.state.trip = p.summary;
-        this.reportWaiting = p.summary.outcome === 'blackout' ? 'respawn' : 'free';
+        // A black-out's card waits for the wake-up; LOOP may end that trip a frame after it (the
+        // death screen already gone), and then it opens at once.
+        this.reportWaiting = p.summary.outcome === 'blackout' && this.current === 'death' ? 'respawn' : 'free';
         this.openWaiting();
       }),
       // Round 3: the Heart relit (its guardian fell): after the world's own relighting, the end card.
@@ -463,7 +472,51 @@ export class UI implements GameUi {
   }
 
   setHud(state: HudState): void {
-    if (this.gameplay) this.hud.update(state, this.showFps, performance.now());
+    if (!this.gameplay) return;
+    this.hud.update(state, this.showFps, performance.now());
+    this.pumpNotices();
+  }
+
+  /** What the notice cards may do now (ui/hud/noticeGate: one at a time, in turns). */
+  private noticeTurns(): NoticeTurns {
+    return noticeTurns({
+      live: this.gameplay && this.current === 'none' && !this.ceremony,
+      cardScreen: this.gameplay && (this.current === 'summary' || this.current === 'death' || this.current === 'ending'),
+      fight: this.hud.fighting,
+      bubbleUp: this.hud.tutorial.bandBottom() > 0,
+      arrivalUp: this.hud.arrivalUp,
+      arrivalWaiting: this.arrivalWaiting !== null,
+      discoveryUp: this.discovery.up,
+      discoveryWaiting: this.discovery.waiting,
+      milestoneUp: this.milestones.up,
+    });
+  }
+
+  /**
+   * The notices take turns (QA 22:10): a waiting arrival card first (a milestone card up goes back
+   * to its queue), then a discovery, then the milestones; toasts wait while a card is up and stand
+   * under the HUD, the guardian's bar and a bubble up there. Each HUD frame and on a screen change.
+   */
+  private pumpNotices(): void {
+    let turns = this.noticeTurns();
+    if (turns.arrival && this.arrivalWaiting) {
+      const card = this.arrivalWaiting;
+      this.arrivalWaiting = null;
+      this.milestones.setLive(false);
+      this.hud.arrival(card);
+      turns = this.noticeTurns();
+    }
+    this.milestones.setLive(turns.milestones);
+    if (turns.discovery) this.discovery.pump();
+    this.toasts.hold(this.noticeTurns().holdToasts);
+    const now = performance.now();
+    if (now - this.toastTopAt < 250) return;
+    this.toastTopAt = now;
+    const top = `${toastTop(this.hud.topBottom(), this.hud.tutorial.bandBottom())}px`;
+    if (top !== this.toastTopV) {
+      this.toastTopV = top;
+      this.el.style.setProperty('--toast-top', top);
+    }
   }
 
   setLoading(progress01: number, label: string): void {
@@ -490,7 +543,10 @@ export class UI implements GameUi {
 
   /** Round 3: a biome arrival card (LOOP's 'guide:arrival', or WORLD's arrivalCard). */
   arrival(card: ArrivalCard): void {
-    if (this.gameplay) this.hud.arrival(card);
+    if (!this.gameplay) return;
+    // It shows now unless a discovery is up or a menu is open (then when its turn comes).
+    this.arrivalWaiting = card;
+    this.pumpNotices();
   }
 
   /** Round 3: the explored stratum for the minimap (null before WORLD's strata are in). */
@@ -765,7 +821,7 @@ export class UI implements GameUi {
     const live = this.gameplay && this.current === 'none' && !this.ceremony;
     this.touch.setEnabled(live);
     this.hud.setVisible(live);
-    this.milestones.setLive(live);
+    this.pumpNotices();
   }
 
   private patchSettings(p: Partial<Settings>, coalesce: boolean): void {

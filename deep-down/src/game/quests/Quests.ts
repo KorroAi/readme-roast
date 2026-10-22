@@ -66,7 +66,7 @@ export interface QuestWorld {
 
 /** A suggested craft (the side tracker's line when nothing else is tracked). */
 export interface Advice {
-  why: 'weapon' | 'armour' | 'lantern' | 'outpost';
+  why: 'weapon' | 'guard' | 'armour' | 'lantern' | 'outpost';
   item: ItemId;
   station: string;
   hazard?: string;
@@ -795,6 +795,7 @@ export class Quests implements QuestSystem {
     const item = t(ITEMS[a.item].name);
     const text =
       a.why === 'weapon' ? t('advice.weapon', { item, station: a.station })
+      : a.why === 'guard' ? t('advice.guard', { item })
       : a.why === 'armour' ? t('advice.armour', { item, hazard: a.hazard ?? '' })
       : a.why === 'lantern' ? t('advice.lantern', { item })
       : t('advice.outpost', { item });

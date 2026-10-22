@@ -197,6 +197,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'task.places': 'Lieux cachés — {biome}',
   'advice.title': 'Suggestion',
   'advice.weapon': 'Une arme : {item} ({station})',
+  'advice.guard': 'Une armure pour les gardiens : {item}',
   'advice.armour': 'À fabriquer : {item}, contre {hazard}',
   'advice.lantern': 'À fabriquer : {item}, plus de lumière',
   'advice.outpost': 'Fabriquez un {item} pour ici-bas',

@@ -101,8 +101,19 @@ try {
     }, [seconds, dt]);
   let shotAt = Date.now();
   const shoot = async (file) => {
-    // The frame the screenshot shows.
-    await page.evaluate(() => window.__DD__.step(1, 1 / 60));
+    // The frame the screenshot shows: the decor round the eye baked, the lantern's pendulum at rest
+    // (VIS's 22:50 recipe), one frame.
+    await page.evaluate(() => {
+      const D = window.__DD__;
+      const g = D.game;
+      g.session.props?.flushDecor?.(g.cameraRig.camera.position, 40);
+      const vm = g.viewmodel;
+      if (vm) {
+        vm.swayX = vm.swayZ = vm.swayVX = vm.swayVZ = 0;
+        vm.lastYaw = NaN;
+      }
+      D.step(1, 1 / 60);
+    });
     await page.screenshot({ path: file, timeout: 180_000 });
     const s = ((Date.now() - shotAt) / 1000).toFixed(0);
     shotAt = Date.now();

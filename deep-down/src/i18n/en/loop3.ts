@@ -196,6 +196,7 @@ export const loop3 = {
   // The side tracker's suggested craft (what the descent needs next).
   'advice.title': 'Suggested',
   'advice.weapon': 'Make a weapon: the {item} ({station})',
+  'advice.guard': 'Armour for the guardians: the {item}',
   'advice.armour': 'Make the {item} against {hazard}',
   // A hazard inside a sentence.
   'hazard.noun.cold': 'the cold',

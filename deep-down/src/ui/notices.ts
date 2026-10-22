@@ -25,21 +25,80 @@ function leave(el: HTMLElement): void {
   window.setTimeout(() => el.remove(), LEAVE_MS);
 }
 
+interface LiveToast {
+  el: HTMLElement;
+  timer: number;
+  /** performance.now() when its time started. */
+  at: number;
+  /** ms it still has while it stands aside for a notice card (0: not held). */
+  held: number;
+}
+
 export class Toasts {
   readonly el = h('div', { class: 'dd-toasts', 'aria-live': 'polite' });
-  private readonly live = new Map<string, { el: HTMLElement; timer: number }>();
+  private readonly live = new Map<string, LiveToast>();
+  /** Toasts waiting for a notice card to go (one notice at a time: ui/hud/noticeGate). */
+  private waiting: Array<{ text: string; tone: ToastTone }> = [];
+  private holding = false;
+
+  /**
+   * A notice card is up: new toasts wait, and the ones shown a moment ago step aside (hidden in
+   * place, their time paused) to come back after; an older one simply goes. Off again: the held
+   * ones come back with the time they had left, then the waiting ones show, in order.
+   */
+  hold(on: boolean): void {
+    if (on === this.holding) return;
+    this.holding = on;
+    const now = performance.now();
+    if (on) {
+      for (const [text, e] of [...this.live]) {
+        const left = TOAST_MS - (now - e.at);
+        if (left > TOAST_MS / 2) {
+          window.clearTimeout(e.timer);
+          e.held = left;
+          e.el.classList.add('held');
+        } else this.dismiss(text);
+      }
+      return;
+    }
+    for (const [text, e] of this.live) {
+      if (!e.held) continue;
+      e.el.classList.remove('held');
+      e.at = now - (TOAST_MS - e.held);
+      e.timer = window.setTimeout(() => this.dismiss(text), e.held);
+      e.held = 0;
+    }
+    const waiting = this.waiting;
+    this.waiting = [];
+    for (const w of waiting) this.show(w.text, w.tone);
+  }
+
+  private wait(text: string, tone: ToastTone): void {
+    if (this.waiting.some((w) => w.text === text)) return;
+    this.waiting.push({ text, tone });
+    if (this.waiting.length > TOAST_MAX) this.waiting.shift();
+  }
 
   show(text: string, tone: ToastTone = 'info'): void {
     // The same message again (e.g. "Backpack full") refreshes instead of stacking.
     const existing = this.live.get(text);
     if (existing) {
+      if (existing.held) {
+        existing.held = TOAST_MS;
+        return;
+      }
       window.clearTimeout(existing.timer);
+      existing.at = performance.now();
       existing.timer = window.setTimeout(() => this.dismiss(text), TOAST_MS);
+      return;
+    }
+    if (this.holding) {
+      this.wait(text, tone);
       return;
     }
     const el = h('div', { class: `dd-toast ${tone}`, role: tone === 'warn' ? 'alert' : 'status' }, h('span', { class: 'dd-toast-dot', 'aria-hidden': 'true' }), text);
     this.el.appendChild(el);
-    this.live.set(text, { el, timer: window.setTimeout(() => this.dismiss(text), TOAST_MS) });
+    this.live.set(text, { el, timer: window.setTimeout(() => this.dismiss(text), TOAST_MS), at: performance.now(), held: 0 });
     while (this.live.size > TOAST_MAX) this.dismiss(this.live.keys().next().value!);
   }
 
@@ -54,6 +113,7 @@ export class Toasts {
   dispose(): void {
     for (const e of this.live.values()) window.clearTimeout(e.timer);
     this.live.clear();
+    this.waiting = [];
   }
 }
 
@@ -123,7 +183,8 @@ export class DiscoveryBanner {
   private showing = false;
   private timer = 0;
 
-  constructor() {
+  /** `waits`: another notice card has the turn (ui/hud/noticeGate); the next discovery waits for it. */
+  constructor(private readonly waits: () => boolean = () => false) {
     this.title = h('h2', { class: 'dd-discovery-title' });
     this.body = h('p', { class: 'dd-discovery-body' });
     this.count = h('span', { class: 'dd-discovery-count' });
@@ -151,12 +212,27 @@ export class DiscoveryBanner {
     if (!this.showing) this.next();
   }
 
+  /** A discovery is on screen. */
+  get up(): boolean {
+    return this.showing;
+  }
+
+  /** One waits for its turn. */
+  get waiting(): boolean {
+    return !this.showing && this.queue.length > 0;
+  }
+
+  /** Start a waiting discovery once its turn has come (UI calls this as the scene changes). */
+  pump(): void {
+    if (!this.showing && this.queue.length) this.next();
+  }
+
   private next(): void {
-    const n = this.queue.shift();
-    if (!n) {
+    if (!this.queue.length || this.waits()) {
       this.showing = false;
       return;
     }
+    const n = this.queue.shift()!;
     this.showing = true;
     this.title.textContent = n.title;
     this.body.textContent = n.body;

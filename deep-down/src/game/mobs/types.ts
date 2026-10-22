@@ -342,6 +342,12 @@ export interface Mob {
   rarity?: MobRarity;
   /** An elite's affixes (empty for most). */
   readonly affixes?: readonly MobAffix[];
+  /**
+   * Round 3: its drawn bulk (m: ahead of its centre, behind it, to each side), for the guardians and
+   * the large and huge kinds once seen (null otherwise): the explorer is kept out of it, a tap on it
+   * picks the creature, and a screen snap may be sized by it (its model can be wider than `bounds`).
+   */
+  readonly body?: { readonly front: number; readonly back: number; readonly side: number } | null;
   /** The render root (set by render/mobs), for outlines and screen-space picking. */
   object?: THREE.Object3D;
 }

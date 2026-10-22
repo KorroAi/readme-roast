@@ -91,6 +91,8 @@ export class Hud {
   private readonly arrowDial: HTMLElement;
   private readonly arrowText: HTMLElement;
   private readonly guardian: HTMLElement;
+  /** The top block (rows, tracker, the guardian's bar): notices stand under it. */
+  private readonly topEl: HTMLElement;
   private readonly guardianName: HTMLElement;
   private readonly guardianFill: HTMLElement;
   private readonly guardianPhase: HTMLElement;
@@ -239,17 +241,18 @@ export class Hud {
     this.petEl.addEventListener('click', () => this.actions.open('bestiary'));
     this.petEl.addEventListener('mousedown', (e) => e.preventDefault());
 
+    this.topEl = h(
+      'div',
+      { class: 'dd-top' },
+      h('div', { class: 'dd-row1' }, h('div', { class: 'dd-vitals' }, this.hpEl, this.oilEl, this.hazardEl), where, menu),
+      h('div', { class: 'dd-row2' }, h('div', { class: 'dd-hbtns' }, this.bagBtn, craft, map, quests), this.petEl),
+      h('div', { class: 'dd-row3' }, tracker),
+      this.guardian,
+    );
     this.el = h(
       'div',
       { class: 'dd-hud dd-fp dd-r3' },
-      h(
-        'div',
-        { class: 'dd-top' },
-        h('div', { class: 'dd-row1' }, h('div', { class: 'dd-vitals' }, this.hpEl, this.oilEl, this.hazardEl), where, menu),
-        h('div', { class: 'dd-row2' }, h('div', { class: 'dd-hbtns' }, this.bagBtn, craft, map, quests), this.petEl),
-        h('div', { class: 'dd-row3' }, tracker),
-        this.guardian,
-      ),
+      this.topEl,
       this.minimap.el,
       this.perf,
       this.reticle,
@@ -320,6 +323,21 @@ export class Hud {
         this.perf.textContent = text;
       }
     }
+  }
+
+  /** The arrival card is up (notice cards take turns: ui/hud/noticeGate). */
+  get arrivalUp(): boolean {
+    return this.arrivalUntil > 0;
+  }
+
+  /** A guardian's bar is up (a fight). */
+  get fighting(): boolean {
+    return this.guardian.classList.contains('on');
+  }
+
+  /** The bottom edge of the top block (rows, tracker, the guardian's bar), CSS px. */
+  topBottom(): number {
+    return this.topEl.getBoundingClientRect().bottom;
   }
 
   /** One contextual hint line; a newer hint replaces the old one. */

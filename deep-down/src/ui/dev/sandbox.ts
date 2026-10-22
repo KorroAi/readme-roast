@@ -14,7 +14,7 @@ import { Equipment } from '../../gameplay/Equipment';
 import { Backpack } from '../../gameplay/Inventory';
 import { CampStorage } from '../../gameplay/Storage';
 import { buildTreeView, closestNode } from '../../gameplay/Tree';
-import { hasText, t, type TextKey } from '../../i18n';
+import { hasText, onLanguage, t, type TextKey } from '../../i18n';
 import { consumeEdges, createInputState } from '../../input/types';
 import { DEFAULT_SETTINGS, type ItemCounts, type Settings } from '../../save/types';
 import type { ExpeditionReport, HudState, InventoryView, JournalTab, JournalView, SaveSummary, ScreenId, SurveyView, UiActions } from '../types';
@@ -393,8 +393,14 @@ const actions: UiActions = {
   endingView: () => fixtureEnding(),
 };
 const loop3 = fixtureLoop(bus);
-const map3 = fixtureMap();
-const quests3 = fixtureQuests();
+// Built again on a language switch (they hold text: the map's header, the tracker's lines).
+let map3 = fixtureMap();
+let quests3 = fixtureQuests();
+onLanguage(() => {
+  map3 = fixtureMap();
+  quests3 = fixtureQuests();
+  r3Hud();
+});
 let tracked3: string | null = 'order.1';
 let legacyScene = false;
 let prefs3: ControlPrefs = { ...DEFAULT_CONTROL_PREFS };

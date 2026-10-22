@@ -3,7 +3,7 @@ import { t } from '../../src/i18n';
 import { area, bootMarkSvg, emblemBounds, emblemLayers, emblemSvg, lanternLayers } from '../../src/ui/brand/emblem.mjs';
 import { buildLintelFont, FU } from '../../src/ui/brand/lintelFont';
 import { DURATION, playDuration, REDUCED_MAX_MS } from '../../src/ui/brand/motion';
-import { LINTEL_CHARS, LINTEL_H, LINTEL_REQUIRED, layoutLintel, lintelGlyph, signedArea } from '../../src/ui/brand/strokeFont';
+import { LINTEL_ACCENT, LINTEL_CHARS, LINTEL_H, LINTEL_REQUIRED, layoutLintel, lintelGlyph, signedArea } from '../../src/ui/brand/strokeFont';
 import { COLOR, contrast, cssVar, RARITY, resolve, TEXT_PAIRS, type ColorToken } from '../../src/ui/brand/tokens';
 import { lanternPosition, wordmarkLayout, wordmarkSvg } from '../../src/ui/brand/wordmark';
 
@@ -92,6 +92,22 @@ describe('Lintel stroke face', () => {
     }
   });
 
+  it('carves French: the accented capitals (lower case maps to them), accents half a unit clear of the cap', () => {
+    for (const ch of 'ÉÈÊËÀÂÇÎÏÔÛÙÜŒ’') {
+      expect(lintelGlyph(ch), ch).not.toBeNull();
+      expect(lintelGlyph(ch.toLowerCase()), ch.toLowerCase()).toBe(lintelGlyph(ch));
+    }
+    expect(layoutLintel('Forêt des champignons').missing).toEqual([]);
+    const ys = (ch: string) => lintelGlyph(ch)!.polygons.flatMap((p) => p.map(([, y]) => y));
+    expect(Math.min(...ys('É'))).toBeCloseTo(-LINTEL_ACCENT);
+    // Between the accent and the E's top stroke (0..1) there is a clear band.
+    const accent = lintelGlyph('É')!.polygons.filter((p) => Math.max(...p.map(([, y]) => y)) < 0);
+    expect(accent.length).toBeGreaterThan(0);
+    for (const p of accent) expect(Math.max(...p.map(([, y]) => y))).toBeLessThanOrEqual(-0.5 + 1e-9);
+    // The cedilla stays inside the descent (2.4 units under the baseline).
+    expect(Math.max(...ys('Ç'))).toBeLessThanOrEqual(LINTEL_H + 2.4);
+  });
+
   it('keeps the 1-unit stroke: a vertical stem is exactly one unit wide', () => {
     const l = lintelGlyph('L')!;
     const xs = l.polygons.flatMap((p) => p.map(([x]) => x)).filter((x) => x < 1.01);
@@ -136,7 +152,10 @@ describe('runtime Lintel font', () => {
     expect(new Set(digits).size).toBe(1);
     expect(digits[0]).toBe(5 * FU);
     const headT = tables.get('head')!;
-    expect(view.getInt16(headT.offset + 42)).toBe(LINTEL_H * FU); // yMax
+    // yMax: the accents over the capitals; the cap height itself stays 700 (OS/2 sCapHeight).
+    expect(view.getInt16(headT.offset + 42)).toBe((LINTEL_H + LINTEL_ACCENT) * FU);
+    const os2 = tables.get('OS/2')!;
+    expect(view.getInt16(os2.offset + 88)).toBe(LINTEL_H * FU);
   });
 });
 

@@ -18,6 +18,7 @@ import { BestiaryLog } from '../../game/mobs/bestiary';
 import { ROSTERS, bestiary } from '../../game/mobs/rosters';
 import type { MobKind } from '../../game/mobs/types';
 import type { QuestsScreenView } from '../../game/quests/types';
+import { inSentence } from '../../game/quests/Quests';
 import type { TripSummary } from '../../game/quests/Trip';
 import { hasText, t, type TextKey } from '../../i18n';
 import type { BestiaryView, DailyCard, HudSlot, MapMarker, MapSource, MapView } from '../types';
@@ -324,7 +325,7 @@ export function fixtureQuests(): QuestsScreenView {
   const s1 = t('stratum.1' as TextKey);
   const a = t(BIOMES.amberHollows.name);
   const m = t(BIOMES.mushroomForest.name);
-  const second = t('quest.step.guardian', { guardian: guardianName('mushroomForest'), biome: m });
+  const second = t('quest.step.guardian', { guardian: inSentence(guardianName('mushroomForest')), biome: m });
   const reward = t('quest.reward', { items: `3 ${t(ITEMS.copperIngot.name)}` });
   const reward2 = t('quest.reward', { items: `8 ${t(ITEMS.torch.name)}` });
   return {
@@ -335,7 +336,7 @@ export function fixtureQuests(): QuestsScreenView {
         steps: [
           step(t('quest.step.tutorial'), true),
           step(t('quest.step.lairs', { stratum: s1, have: 2, need: 2 }), true),
-          step(t('quest.step.guardian', { guardian: guardianName('amberHollows'), biome: a }), true),
+          step(t('quest.step.guardian', { guardian: inSentence(guardianName('amberHollows')), biome: a }), true),
           step(second, false, true),
           step(t('quest.step.gate', { stratum: s1 }), false),
         ],
@@ -398,7 +399,7 @@ export function fixtureTrip(outcome: 'returned' | 'blackout' = 'returned'): Trip
     bestiary: 2,
     banked: 41,
     records: outcome === 'returned' ? ['depth', 'finds'] : [],
-    next: t('quest.step.guardian', { guardian: guardianName('mushroomForest'), biome: t(BIOMES.mushroomForest.name) }),
+    next: t('quest.step.guardian', { guardian: inSentence(guardianName('mushroomForest')), biome: t(BIOMES.mushroomForest.name) }),
     lines: lines.map(([label, value]) => ({ label, value })),
     title: t(outcome === 'returned' ? 'trip3.title' : 'trip3.blackout'),
   };

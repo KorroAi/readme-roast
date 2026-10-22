@@ -74,7 +74,12 @@ export class MilestoneBanner {
     this.next();
   }
 
-  /** Play is on screen (no menu): cards may show. */
+  /** A card is on screen. */
+  get up(): boolean {
+    return this.current !== null;
+  }
+
+  /** Play is on screen (no menu) and no other notice has the turn: cards may show. */
   setLive(b: boolean): void {
     if (b === this.live) return;
     this.live = b;

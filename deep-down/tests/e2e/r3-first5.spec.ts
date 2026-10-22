@@ -218,7 +218,8 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
         async () => {
           const f = await foe();
           if (!f) return struck();
-          await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), [f.x, f.y, f.z] as const);
+          // (aimAt takes a block and aims at its centre: the creature's body is passed half a cell back.)
+          await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y - 0.5, z - 0.5, 0, 0), [f.x, f.y, f.z] as const);
           if (!(await untilGame(page, async () => (await hud(page)).reticle === 'attack', 1))) return false;
           await holdControl(page, touch, 'action', 900);
           return struck();

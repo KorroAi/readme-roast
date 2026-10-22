@@ -516,6 +516,29 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(playTimeText(3 * 3600 + 5 * 60)).toBe('3 h 05');
   });
 
+  it('lets the notice cards take turns, holds toasts under a card and keeps cards out of a fight (QA 22:10)', async () => {
+    const { noticeTurns, toastTop } = await import('../../src/ui/hud/noticeGate');
+    const quiet = { live: true, fight: false, bubbleUp: false, arrivalUp: false, arrivalWaiting: false, discoveryUp: false, discoveryWaiting: false, milestoneUp: false };
+    // Nothing up: an arrival shows at once (a milestone card waits), and the toasts wait under it.
+    expect(noticeTurns({ ...quiet, arrivalWaiting: true })).toEqual({ arrival: true, discovery: false, milestones: false, holdToasts: true });
+    // A discovery already up: the arrival waits for it, so does a milestone.
+    expect(noticeTurns({ ...quiet, arrivalWaiting: true, discoveryUp: true })).toMatchObject({ arrival: false, milestones: false, holdToasts: true });
+    // Behind a menu nothing shows and the toasts are not held (they show over the menu)...
+    expect(noticeTurns({ ...quiet, live: false, arrivalWaiting: true, discoveryWaiting: true })).toEqual({ arrival: false, discovery: false, milestones: false, holdToasts: false });
+    // ...but they wait for a card screen (the trip's card: LOOP 22:47, they sat over its title).
+    expect(noticeTurns({ ...quiet, live: false, cardScreen: true }).holdToasts).toBe(true);
+    // A milestone card up keeps its turn: a discovery waits for it.
+    expect(noticeTurns({ ...quiet, milestoneUp: true, discoveryWaiting: true })).toMatchObject({ discovery: false, milestones: true, holdToasts: true });
+    // A waiting discovery goes before the next milestone card.
+    expect(noticeTurns({ ...quiet, discoveryWaiting: true })).toMatchObject({ discovery: true, milestones: false, holdToasts: false });
+    // A guardian fight, a tutorial bubble under the HUD: the cards wait; toasts flow under them.
+    for (const busy of [{ fight: true }, { bubbleUp: true }]) expect(noticeTurns({ ...quiet, ...busy, discoveryWaiting: true })).toEqual({ arrival: false, discovery: false, milestones: false, holdToasts: false });
+    // The toast column starts under the lowest of the HUD block (or the guardian's bar) and a bubble up there.
+    expect(toastTop(157, 0)).toBe(167);
+    expect(toastTop(236.4, 0)).toBe(246);
+    expect(toastTop(157, 270)).toBe(280);
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');

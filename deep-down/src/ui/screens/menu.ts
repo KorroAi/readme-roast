@@ -86,9 +86,10 @@ export function buildMenu(host: ScreenHost): HTMLElement {
       { class: 'dd-menu-col' },
       logo('menu'),
       h('p', { class: 'dd-tagline', text: t('game.tagline') }),
+      // The buttons scroll inside the column when a short screen cannot hold them all.
       h(
         'div',
-        { class: 'dd-menu-buttons' },
+        { class: 'dd-menu-buttons dd-scroll' },
         hasSave
           ? btn(t('menu.continue'), () => a.continueGame(), {
               variant: 'primary',
@@ -207,18 +208,23 @@ export function buildDeath(host: ScreenHost): HTMLElement {
       'div',
       { class: 'dd-panel dd-death-panel', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': info ? t('bo3.title') : t('death.title') },
       h('h2', { class: 'dd-death-title', text: info ? t('bo3.title') : t('death.title') }),
-      info ? h('p', { class: 'dd-bo-cause', text: info.cause }) : null,
-      info && info.biome ? h('p', { class: 'dd-bo-where', text: t('bo3.where', { depth: info.depth, biome: info.biome, stratum: ROMAN[info.stratum] ?? String(info.stratum) }) }) : null,
-      info ? null : h('p', { class: 'dd-death-body', text: t('death.body') }),
-      h('h3', { class: 'dd-section-title', text: t('death.cached') }),
-      left.length ? chips(left) : h('p', { class: 'dd-muted', text: t('death.nothingLost') }),
-      left.length && report?.cacheDepth !== null && report?.cacheDepth !== undefined
-        ? h('p', { class: 'dd-death-cache', text: t('death.cacheAt', { depth: report.cacheDepth, count }) })
-        : null,
-      left.length && info ? h('p', { class: 'dd-muted', text: t('bo3.mapMarks') }) : null,
-      report && report.lostCount > 0 ? h('p', { class: 'dd-muted', text: t('death.cacheReplaced', { count: report.lostCount }) }) : null,
-      kept.length ? h('h3', { class: 'dd-section-title', text: t('death.pouchKept') }) : null,
-      kept.length ? chips(kept.map((s) => [s.item, s.count] as [ItemId, number])) : null,
+      // The story scrolls on a short screen (a landscape phone); the wake-up stays in view under it.
+      h(
+        'div',
+        { class: 'dd-scroll dd-death-story' },
+        info ? h('p', { class: 'dd-bo-cause', text: info.cause }) : null,
+        info && info.biome ? h('p', { class: 'dd-bo-where', text: t('bo3.where', { depth: info.depth, biome: info.biome, stratum: ROMAN[info.stratum] ?? String(info.stratum) }) }) : null,
+        info ? null : h('p', { class: 'dd-death-body', text: t('death.body') }),
+        h('h3', { class: 'dd-section-title', text: t('death.cached') }),
+        left.length ? chips(left) : h('p', { class: 'dd-muted', text: t('death.nothingLost') }),
+        left.length && report?.cacheDepth !== null && report?.cacheDepth !== undefined
+          ? h('p', { class: 'dd-death-cache', text: t('death.cacheAt', { depth: report.cacheDepth, count }) })
+          : null,
+        left.length && info ? h('p', { class: 'dd-muted', text: t('bo3.mapMarks') }) : null,
+        report && report.lostCount > 0 ? h('p', { class: 'dd-muted', text: t('death.cacheReplaced', { count: report.lostCount }) }) : null,
+        kept.length ? h('h3', { class: 'dd-section-title', text: t('death.pouchKept') }) : null,
+        kept.length ? chips(kept.map((s) => [s.item, s.count] as [ItemId, number])) : null,
+      ),
       info ? h('p', { class: 'dd-bo-wake', text: info.wake }) : null,
       btn(info ? t('bo3.wake') : t('death.respawn'), () => host.actions.respawn(), { variant: 'primary', key: 'respawn', autofocus: true }),
     ),

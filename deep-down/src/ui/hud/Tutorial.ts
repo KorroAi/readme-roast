@@ -103,6 +103,9 @@ export class TutorialOverlay implements UiHighlighter {
   private held = false;
   /** The step shown last (a higher one next means a step was done). */
   private lastStep = 0;
+  /** Where the bubble was placed last (CSS px, its top and bottom edges). */
+  private bubbleTop = 0;
+  private bubbleBottom = 0;
   private passTimer = 0;
 
   constructor(private readonly scope: HTMLElement, onSkip: () => void) {
@@ -211,14 +214,28 @@ export class TutorialOverlay implements UiHighlighter {
       // A pad or a hotbar slot (the pads stand over the hotbar): the bubble clears the pad cluster.
       const cluster = el && (el.classList.contains('dd-pad-btn') || el.classList.contains('dd-hslot')) ? padCluster(this.scope) ?? undefined : undefined;
       const p = bubblePlacement(r!, { width: bw, height: bh }, view, 10, cluster);
+      this.bubbleTop = p.y;
+      this.bubbleBottom = p.y + bh;
       this.bubble.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
       this.bubble.style.setProperty('--tip', `${Math.round(p.tip)}px`);
       this.bubble.dataset.side = p.side;
     } else {
       // No control to point at (a "walk there" step): the bubble sits under the top HUD.
-      this.bubble.style.transform = `translate3d(${(view.width - bw) / 2}px, ${Math.round(view.height * 0.24)}px, 0)`;
+      this.bubbleTop = Math.round(view.height * 0.24);
+      this.bubbleBottom = this.bubbleTop + bh;
+      this.bubble.style.transform = `translate3d(${(view.width - bw) / 2}px, ${this.bubbleTop}px, 0)`;
       this.bubble.dataset.side = 'free';
     }
+  }
+
+  /**
+   * The bubble's bottom edge (CSS px) while it is shown in the top part of the view, under the HUD
+   * where the notice cards and the toasts stand (they wait or go under it: ui/hud/noticeGate), else 0.
+   * A bubble stepped aside for a moment (an arrival card) still counts: it comes back there.
+   */
+  bandBottom(viewHeight = window.innerHeight): number {
+    if (!this.el.classList.contains('on') || this.el.classList.contains('hud-off')) return 0;
+    return this.bubbleTop < viewHeight * 0.45 ? this.bubbleBottom : 0;
   }
 
   /**

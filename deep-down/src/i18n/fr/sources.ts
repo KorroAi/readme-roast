@@ -2,6 +2,7 @@
 // A test compares them with today's English (a changed line needs its French updated).
 export const FR_SOURCES: Record<string, string> = {
   "advice.armour": "Make the {item} against {hazard}",
+  "advice.guard": "Armour for the guardians: the {item}",
   "advice.lantern": "Make the {item}: more light",
   "advice.outpost": "Make an {item} for down here",
   "advice.title": "Suggested",

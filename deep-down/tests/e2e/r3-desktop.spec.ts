@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LOADED_CEILING_MS, untilGame, quietDeep } from './dd';
-import { CATCH_UP } from './r3';
+import { CATCH_UP, mark } from './r3';
 
 // Round 3 (UI): desktop play through real keyboard and mouse input on the production build, in the
 // strata (the first version's desktop.spec walked the hand-made world's landmarks): WASD moves, Space
@@ -97,6 +97,9 @@ async function startExpedition(page: Page): Promise<void> {
   await page.evaluate(() => {
     window.__DD__.game.quests.skipTutorial();
     window.__DD__.mobs.clear();
+    // The keys and the mouse are what this spec measures, not the picture: the lightest quality
+    // keeps a 1280 x 720 SwiftShader frame affordable.
+    window.__DD__.game.updateSettings({ quality: 'battery' });
   });
 }
 
@@ -240,6 +243,7 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   await startExpedition(page);
   const vp = page.viewportSize()!;
 
+  await mark(page, 'desktop walk');
   // 1. Hold W: the explorer walks forward (about 4.2 m/s).
   let s = await state(page);
   const start = s.player;
@@ -253,6 +257,7 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   expect(walked, 'metres walked holding W for 1.2 s').toBeGreaterThan(1.5);
   expect(await page.evaluate(() => window.__DD__.game.input.moveY)).toBe(0);
 
+  await mark(page, 'desktop jump');
   // 2. Space: the explorer leaves the ground and lands again.
   await page.waitForFunction(() => window.__DD__.game.player.grounded && window.__DD__.game.player.speed < 0.05, null, { timeout: LOADED_CEILING_MS });
   const groundY = (await state(page)).player.y;
@@ -273,6 +278,7 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   expect(jump.some((p) => !p.grounded), 'airborne after Space').toBe(true);
   expect(Math.max(...jump.map((p) => p.y)) - groundY, 'jump height in metres').toBeGreaterThan(0.5);
 
+  await mark(page, 'desktop look');
   // 3. Right-button drag turns the camera; dragging back turns it back. It never mines.
   await page.evaluate(() => window.__DD__.clearEvents());
   const drag = async (fromX: number, toX: number) => {
@@ -294,15 +300,29 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   expect(await page.evaluate(() => window.__DD__.events('tool:swing').length + window.__DD__.events('block:hit').length)).toBe(0);
   expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
 
+  await mark(page, 'desktop mine');
   // 4. Hold the left button on a vein until it is mined out.
   const mined = await mineWithMouse(page);
 
+  await mark(page, 'desktop bench');
   // 5. At the camp's Workbench, E opens Craft (and frees the mouse); Esc closes it and play goes on.
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite.stations.find((x: { station: string }) => x.station === 'workbench').p as [number, number, number]);
-  const stand = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand!);
-  // Face it (the camp's Workbench is a prop: its prompt comes with it in focus; `p` is its base centre).
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench);
+  // Face it from a step away (the camp's Workbench is a prop: its prompt comes with it in focus; `p`
+  // is its base centre), from the side where no other prop takes the focus first. (aimAt takes a
+  // block and aims at its centre: the bench's middle is passed half a cell back.)
+  let focused = false;
+  for (const [dx, dz] of [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) {
+    const stand = await page.evaluate(([x, y, z, ox, oz]) => {
+      const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
+      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+    }, [...bench, dx, dz] as const);
+    if (!stand) continue;
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench);
+    focused = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.ui.hud().interact?.icon)) === 'station', 3);
+    if (focused) break;
+  }
+  expect(focused, 'the Workbench in focus').toBe(true);
   const reported = await closeTripCard(page);
   await expect(page.locator('.dd-use')).toBeVisible({ timeout: LOADED_CEILING_MS });
   await expect(page.locator('.dd-use')).toContainText(/Workbench/i);
@@ -316,6 +336,7 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   await settle(page);
   expect((await state(page)).mode).toBe('playing');
 
+  await mark(page, 'desktop bag');
   // 6. I and Tab open the Bag (and close it again).
   await page.keyboard.press('KeyI');
   await waitScreen(page, 'inventory');
@@ -328,12 +349,14 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   await settle(page);
   expect((await state(page)).mode).toBe('playing');
 
+  await mark(page, 'desktop pause');
   // 7. Esc during play pauses.
   await page.keyboard.press('Escape');
   await waitMode(page, 'paused');
   expect((await state(page)).screen).toBe('pause');
   await expect(page.getByRole('button', { name: /Resume/i })).toBeVisible();
 
+  await mark(page, 'desktop capture');
   // 8. With the mouse captured, losing the capture pauses, and a stray Esc right after must not resume.
   if (mined.locked) {
     const capture = async () => {

@@ -73,6 +73,39 @@ const STROKES: Record<string, readonly string[]> = {
   '×': ['0,2 2,4', '2,2 0,4'],
 };
 
+/**
+ * How far the accents rise above the cap (units): a 45-degree stroke two nodes high, half a unit
+ * clear of the letter (the dots of a diaeresis sit a unit clear). The cedilla hangs two units
+ * below the baseline, inside the descent.
+ */
+export const LINTEL_ACCENT = 2.5;
+const ACCENTS = {
+  /** Over a 4-column letter, centred on 1.5. */
+  4: { acute: ['1.5,-1.5 2.5,-2.5'], grave: ['0.5,-2.5 1.5,-1.5'], circ: ['0.5,-1.5 1.5,-2.5 2.5,-1.5'], uml: ['0.5,-2', '2.5,-2'] },
+  /** Over the 3-column I, centred on 1. */
+  3: { acute: ['1,-1.5 2,-2.5'], grave: ['0,-2.5 1,-1.5'], circ: ['0,-1.5 1,-2.5 2,-1.5'], uml: ['0,-2', '2,-2'] },
+} as const;
+// French in the face (LOOP 22:18): the capitals of the accented letters (lower case maps to them,
+// as for A-Z), so "Forêt des champignons" is carved whole instead of falling back per letter.
+const A4 = ACCENTS[4];
+Object.assign(STROKES, {
+  É: [...STROKES.E, ...A4.acute],
+  È: [...STROKES.E, ...A4.grave],
+  Ê: [...STROKES.E, ...A4.circ],
+  Ë: [...STROKES.E, ...A4.uml],
+  À: [...STROKES.A, ...A4.grave],
+  Â: [...STROKES.A, ...A4.circ],
+  Î: [...STROKES.I, ...ACCENTS[3].circ],
+  Ï: [...STROKES.I, ...ACCENTS[3].uml],
+  Ô: [...STROKES.O, ...A4.circ],
+  Û: [...STROKES.U, ...A4.circ],
+  Ù: [...STROKES.U, ...A4.grave],
+  Ü: [...STROKES.U, ...A4.uml],
+  Ç: [...STROKES.C, '1.5,6 1.5,7 0.5,8'],
+  // The O and the E share a stem (five columns, as M and W).
+  Œ: ['2,0 1,0 0,1 0,5 1,6 2,6', '2,0 2,6', '2,0 4,0', '2,3 3.5,3', '2,6 4,6'],
+});
+
 export type Point = readonly [number, number];
 export type Polygon = Point[];
 

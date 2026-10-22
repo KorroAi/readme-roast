@@ -24,6 +24,19 @@ function gdef(m: SimMob): GuardianDef {
 }
 
 /** Quicker in the later phases. */
+/**
+ * The share of a guardian's wind-up through which a charge's lane, an eruption line or a dive's mark
+ * follows the explorer; after it they are locked, and the rest of the wind-up is the time to get off
+ * them. 0.4 (it was 0.65): a guardian's lane is as wide as its body, and with 0.35 s left only a dash
+ * got off it; with 0.6 s a walk does too (tools/mob-duel.ts, the Matriarch with a Machete, a walking
+ * player reading 80 % of the tells: 32 → 17 hp lost to charges a fight, 5/10 → 9/10 won).
+ */
+export let LANE_LOCK = 0.4;
+/** (Tools only: to measure another lock.) */
+export function setLaneLock(k: number): void {
+  LANE_LOCK = k;
+}
+
 function quick(m: SimMob): number {
   return 1 - 0.12 * (m.phase - 1);
 }
@@ -294,8 +307,8 @@ function windup(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
   m.glow = 0.75 + k * 0.5;
   const mk = sim.marker(m);
   if (mk) mk.progress = k;
-  // Lanes and targets follow the explorer for most of the wind-up, then lock.
-  if (k < 0.65 && (p === 'charge' || p === 'line' || p === 'dive')) {
+  // Lanes and targets follow the explorer for part of the wind-up, then lock.
+  if (k < LANE_LOCK && (p === 'charge' || p === 'line' || p === 'dive')) {
     const foot = fly(m) ? m.position : m.foot;
     const dx = ctx.player.x - foot.x;
     const dz = ctx.player.z - foot.z;

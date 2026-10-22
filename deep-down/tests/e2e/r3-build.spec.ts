@@ -105,7 +105,8 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
   await selectItem(page, touch, 'torch');
   await expect(page.locator('.dd-pad-place')).toBeVisible();
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 1.5, z + 0.5, 0, 0), wall);
+  // (aimAt takes a block: the wall's cell above the foot one, on the face the eye sees.)
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 1, z, 0, 0), wall);
   expect(await untilGame(page, async () => (await hud(page)).reticle === 'place', 4), 'the reticle reads "place" on the wall').toBe(true);
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'place');
@@ -120,7 +121,17 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   // A ladder on the wall at the feet: one ladder item climbs four cells up.
   const ladders0 = await count(page, 'ladder');
   await selectItem(page, touch, 'ladder');
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 0.5, z + 0.5, 0, 0), wall);
+  // At the foot of the wall, a cell to the side of the torch (its column holds the torch now),
+  // turning until the reticle reads "place".
+  let ladderAim = false;
+  let ladderWall: [number, number, number] = [wall[0], wall[1], wall[2]];
+  for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]) {
+    ladderWall = [wall[0] + ox, wall[1], wall[2] + oz];
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), ladderWall);
+    ladderAim = await untilGame(page, async () => (await hud(page)).reticle === 'place', 2);
+    if (ladderAim) break;
+  }
+  expect(ladderAim, 'the reticle reads "place" for the ladder').toBe(true);
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'place');
   expect(await waitEvent(page, 'player:placed', 6), 'the ladder was placed').toBe(true);
@@ -134,7 +145,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   // Climb it: step into the ladder and push the stick forward; the explorer goes up.
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), [l.x, l.y, l.z]);
   const y0 = await page.evaluate(() => window.__DD__.game.player.y);
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 2.5, z + 0.5, 0, 0), wall);
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 2, z, 0, 0), ladderWall);
   const stick = { x: 70, y: 690 };
   const climbed = await holdUntil(page, touch, stick, { x: stick.x, y: stick.y - 50 }, async () => (await page.evaluate(() => window.__DD__.game.player.y)) - y0 > 1.2, 8);
   expect(climbed, 'the explorer climbed the ladder').toBe(true);

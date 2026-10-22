@@ -140,10 +140,11 @@ test('a drag looks (pitch held, no roll); a tap into the dark raises the lantern
   await dragNow(page, { x: 280, y: 300 }, { x: 160, y: 300 });
   const turned = await untilGame(page, async () => (await cam()).yaw - a0.yaw > 0.3, 3);
   expect(turned, `yaw turned by a 120 px drag to the left (${((await cam()).yaw - a0.yaw).toFixed(3)} rad)`).toBe(true);
-  // A long drag down cannot tip the view past 75 degrees.
-  await dragNow(page, { x: 200, y: 150 }, { x: 200, y: 800 });
+  // A long drag down cannot tip the view past 75 degrees. (From under the top HUD: a finger that
+  // lands on the tracker presses it instead of looking.)
+  await dragNow(page, { x: 200, y: 300 }, { x: 200, y: 840 });
   await untilGame(page, async () => (await cam()).pitch < -1.0, 3);
-  await dragNow(page, { x: 200, y: 150 }, { x: 200, y: 800 });
+  await dragNow(page, { x: 200, y: 300 }, { x: 200, y: 840 });
   await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.input.lookDY)) === 0, 3);
   const down = (await cam()).pitch;
   expect(down).toBeLessThan(-1.2);
@@ -170,33 +171,42 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
   const touch = await start(page);
   const p0 = await player(page);
   // Plain rock in reach: the host rock round the camp, or slate set on a wall cell for the test.
-  const face = await page.evaluate(([x, y, z]) => {
-    const dd = window.__DD__;
-    const g = dd.game;
-    for (let r = 2; r < 12; r++)
-      for (let a = 0; a < 16; a++) {
-        const wx = Math.floor(x + Math.sin((a / 16) * Math.PI * 2) * r);
-        const wz = Math.floor(z + Math.cos((a / 16) * Math.PI * 2) * r);
-        const wy = Math.floor(y) + 1;
-        if (!dd.isSolid(wx, wy, wz)) continue;
-        dd.setBlock(wx, wy, wz, 1);
-        const stand = dd.standableNear(wx + Math.sign(x - wx) * 1.5, y, wz + Math.sign(z - wz) * 1.5);
-        if (!stand) continue;
-        void g;
-        return { block: [wx, wy, wz] as [number, number, number], stand };
-      }
-    return null;
-  }, [p0.x, p0.y, p0.z]);
-  expect(face, 'a rock face near the camp').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), face!.stand);
   const at = { x: 195, y: 400 };
-  await page.evaluate(([x, y, z, ay]) => window.__DD__.aimAt(x, y, z, 0, ay), [...face!.block, 1 - (at.y / 844) * 2] as [number, number, number, number]);
-  const plain = await page.evaluate(([ay]) => {
-    const g = window.__DD__.game;
-    const e = g.cameraRig.eye;
-    const r = g.mining.pick(0, ay, e.x, e.y, e.z, 48);
-    return !!r.target && r.target.kind === 'block' && r.target.inReach && r.target.block === 1;
-  }, [1 - (at.y / 844) * 2]);
+  const ay = 1 - (at.y / 844) * 2;
+  // The n-th wall cell round the explorer with a stand in front of it that sees one of its faces.
+  const faceAt = (skip: number) =>
+    page.evaluate(([x, y, z, n, ny]) => {
+      const dd = window.__DD__;
+      let k = 0;
+      for (let r = 2; r < 12; r++)
+        for (let a = 0; a < 16; a++) {
+          const wx = Math.floor(x + Math.sin((a / 16) * Math.PI * 2) * r);
+          const wz = Math.floor(z + Math.cos((a / 16) * Math.PI * 2) * r);
+          const wy = Math.floor(y) + 1;
+          if (!dd.isSolid(wx, wy, wz)) continue;
+          const stand = dd.standableNear(wx + Math.sign(x - wx) * 1.5, y, wz + Math.sign(z - wz) * 1.5);
+          if (!stand || k++ < n) continue;
+          dd.setBlock(wx, wy, wz, 1);
+          dd.teleport(stand[0] + 0.5, stand[1], stand[2] + 0.5);
+          if (!dd.aimAt(wx, wy, wz, 0, ny)) continue;
+          return { block: [wx, wy, wz] as [number, number, number], stand };
+        }
+      return null;
+    }, [p0.x, p0.y, p0.z, skip, ay] as const);
+  let face: Awaited<ReturnType<typeof faceAt>> = null;
+  let plain = false;
+  for (let n = 0; n < 6 && !plain; n++) {
+    face = await faceAt(n);
+    if (!face) break;
+    await untilGame(page, async () => true, 0.3);
+    plain = await page.evaluate(([ny]) => {
+      const g = window.__DD__.game;
+      const e = g.cameraRig.eye;
+      const r = g.mining.pick(0, ny, e.x, e.y, e.z, 48);
+      return !!r.target && r.target.kind === 'block' && r.target.inReach && r.target.block === 1;
+    }, [ay] as const);
+  }
+  expect(face, 'a rock face near the camp').not.toBeNull();
   expect(plain, 'slate in reach under the finger').toBe(true);
   await page.evaluate(() => {
     const w = window as unknown as { __fp: string[] };
@@ -296,11 +306,11 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
     window.__DD__.game.loop.equip('machete');
   });
   let id: number | null = null;
-  for (const yaw of [0, 1.6, 3.2, 4.7]) {
-    await page.evaluate((y) => window.__DD__.look(y, -0.12), yaw);
+  for (let k = 0; k < 16 && id === null; k++) {
+    await page.evaluate((y) => window.__DD__.look(y, -0.12), (k * Math.PI) / 8);
     id = await page.evaluate(() => {
       const dd = window.__DD__ as any;
-      const fl = dd.mobs.floorAhead(2.2, 3.4);
+      const fl = dd.mobs.floorAhead(2, 3.6);
       if (!fl) return null;
       const id = dd.mobs.spawn('crawler', fl[0], fl[1], fl[2]);
       dd.mobs.freeze(true);
