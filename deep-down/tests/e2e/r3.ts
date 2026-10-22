@@ -15,16 +15,27 @@ import './dd';
  * long-press (no click). Waits until the element is shown and has stopped moving (a menu rises in).
  */
 export async function tapEl(page: Page, touch: Touch, target: string | Locator): Promise<void> {
-  const loc = typeof target === 'string' ? page.locator(target).first() : target;
-  await loc.waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
-  await loc.scrollIntoViewIfNeeded({ timeout: LOADED_CEILING_MS });
-  let b = await loc.boundingBox();
-  for (let i = 0; i < 40; i++) {
-    await page.waitForTimeout(120);
-    const n = await loc.boundingBox();
-    const still = !!b && !!n && Math.abs(n.x - b.x) < 0.5 && Math.abs(n.y - b.y) < 0.5 && Math.abs(n.width - b.width) < 0.5;
-    b = n;
-    if (still) break;
+  // The live screen's (an old one may still be fading out in the exit layer, later in the DOM).
+  const loc = (typeof target === 'string' ? page.locator(target) : target).first();
+  // A screen may be rebuilt meanwhile (a craft, a deposit): the element is found again then.
+  let b: { x: number; y: number; width: number; height: number } | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await loc.waitFor({ state: 'visible', timeout: LOADED_CEILING_MS });
+      await loc.scrollIntoViewIfNeeded({ timeout: LOADED_CEILING_MS });
+      b = await loc.boundingBox();
+      for (let i = 0; i < 40; i++) {
+        await page.waitForTimeout(120);
+        const n = await loc.boundingBox();
+        const still = !!b && !!n && Math.abs(n.x - b.x) < 0.5 && Math.abs(n.y - b.y) < 0.5 && Math.abs(n.width - b.width) < 0.5;
+        b = n;
+        if (still) break;
+      }
+      break;
+    } catch (e) {
+      if (attempt >= 4 || !/not attached|detached/i.test(String(e))) throw e;
+      await page.waitForTimeout(300);
+    }
   }
   expect(b, `${String(target)} has a box`).not.toBeNull();
   const at = { x: Math.round(b!.x + b!.width / 2), y: Math.round(b!.y + b!.height / 2) };

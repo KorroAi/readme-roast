@@ -97,6 +97,16 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
   expect(await page.evaluate(() => document.querySelector('.dd-ui')?.classList.contains('dd-cb'))).toBe(true);
   await tapEl(page, touch, page.locator('[data-key="motion:reduce"]'));
   expect(await page.evaluate(() => document.documentElement.classList.contains('dd-reduce-motion'))).toBe(true);
+  // The language (a per-device preference): French rebuilds every word at once (the open screen,
+  // the HUD and the pads behind it), and back to English.
+  const title = () => page.locator('.dd-settings .dd-panel-title').first().innerText();
+  const english = await title();
+  await tapEl(page, touch, page.locator('[data-key="language:fr"]'));
+  expect(await untilGame(page, async () => (await page.evaluate(() => document.documentElement.lang)) === 'fr', 3), 'the page speaks French').toBe(true);
+  expect(await untilGame(page, async () => (await title()) !== english, 3), 'Settings is in French').toBe(true);
+  expect(await page.evaluate(() => document.querySelectorAll('.dd-hud').length), 'one HUD, rebuilt in place').toBe(1);
+  await tapEl(page, touch, page.locator('[data-key="language:en"]'));
+  expect(await untilGame(page, async () => (await title()) === english, 3), 'back in English').toBe(true);
   // Button size: the slider's value reaches the pads (a CSS variable on the UI root).
   // (A range input takes its value from a drag; set it as one would end, with its input event.)
   await page.locator('input[data-key="btnScale"]').evaluate((el: HTMLInputElement) => {

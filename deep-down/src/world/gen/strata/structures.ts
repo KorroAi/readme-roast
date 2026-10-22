@@ -70,6 +70,8 @@ export interface VistaOut {
   rampLamps: V3[];
   /** The island at the lake's heart and the top of its spire (a light burns there). */
   island: V3;
+  /** Stalactites hung from the dome. */
+  stalactites: number;
 }
 
 /** The vista's name per stratum (WORLD_TEXT_EN `site.vista<n>.*`). */
@@ -245,7 +247,8 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
   const dripStone = n.biome === 'frostCaverns' ? B.FROST_ICE : n.biome === 'obsidianAbyss' ? B.OBSIDIAN : host[1];
   const tipLight = lava ? B.LIGHT_MAGMA : BIOMES[n.biome].lightBlock;
   const stalactiteTips: V3[] = [];
-  for (let k = 0, made = 0; k < 60 && made < 14; k++) {
+  let made = 0;
+  for (let k = 0; k < 60 && made < 14; k++) {
     const a = rng.range(0, Math.PI * 2);
     // Inside the ramp's ring (it winds along the wall), never over the balcony's view line or the fall.
     const r = rng.range(0.15, 1) * (rr - 4);
@@ -345,6 +348,7 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
     lava,
     rampLamps,
     island,
+    stalactites: made,
   };
 }
 

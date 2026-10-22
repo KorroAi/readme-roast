@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LOADED_CEILING_MS, untilGame, quietDeep } from './dd';
+import { CATCH_UP } from './r3';
 
 // Round 3 (UI): desktop play through real keyboard and mouse input on the production build, in the
 // strata (the first version's desktop.spec walked the hand-made world's landmarks): WASD moves, Space
@@ -85,7 +86,8 @@ function watchErrors(page: Page): string[] {
 }
 
 async function startExpedition(page: Page): Promise<void> {
-  await page.goto('/index.html');
+  // Game time keeps pace with the wall clock on a loaded machine (r3.ts CATCH_UP).
+  await page.goto(`/index.html?${CATCH_UP}`);
   await waitMode(page, 'menu');
   // Desktop: no touch controls layer.
   expect(await page.evaluate(() => !!document.querySelector('.dd-touch-ui'))).toBe(false);

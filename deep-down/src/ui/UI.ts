@@ -327,6 +327,7 @@ export class UI implements GameUi {
     this.disposers.push(() => window.removeEventListener('keydown', onKey, true));
     // A language switch (Settings): every word on screen comes again in the new language.
     this.disposers.push(onLanguage(() => this.relanguage()));
+    this.watchPresses();
   }
 
   /** The HUD with its buttons wired to the one action API. */
@@ -377,6 +378,9 @@ export class UI implements GameUi {
 
   showScreen(id: ScreenId, opts?: { confirm?: ConfirmSpec }): void {
     const first = this.retireBootMark();
+    // A new screen is built now anyway: no press is waited on any more.
+    this.refreshAfterPress = false;
+    if (id !== this.current) this.pressesOnScreen = 0;
     if (id === 'confirm') {
       if (opts?.confirm) this.openConfirm(opts.confirm);
       return;
@@ -542,7 +546,46 @@ export class UI implements GameUi {
 
   refresh(): void {
     if (this.current === 'none' || this.current === 'loading') return;
+    // A finger (or the mouse) is down on the open screen: rebuilding it now would take the button
+    // from under it and the tap would be lost (an item flying into the bag, a bank deposit...). The
+    // rebuild waits until the press is over and its click has landed.
+    if (this.pressesOnScreen > 0) {
+      this.refreshAfterPress = true;
+      return;
+    }
     this.rerender();
+  }
+
+  /** Presses (pointers down) on the screens now; a refresh asked meanwhile waits for them. */
+  private pressesOnScreen = 0;
+  private refreshAfterPress = false;
+  private pressTimer = 0;
+
+  private watchPresses(): void {
+    const down = () => {
+      this.pressesOnScreen++;
+      window.clearTimeout(this.pressTimer);
+    };
+    const up = () => {
+      if (this.pressesOnScreen > 0) this.pressesOnScreen--;
+      if (this.pressesOnScreen > 0 || !this.refreshAfterPress) return;
+      // After the click that follows the lift (it comes a moment later on touch).
+      window.clearTimeout(this.pressTimer);
+      this.pressTimer = window.setTimeout(() => {
+        if (this.pressesOnScreen > 0 || !this.refreshAfterPress) return;
+        this.refreshAfterPress = false;
+        this.refresh();
+      }, 160);
+    };
+    this.screensEl.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    this.disposers.push(
+      () => this.screensEl.removeEventListener('pointerdown', down, true),
+      () => window.removeEventListener('pointerup', up, true),
+      () => window.removeEventListener('pointercancel', up, true),
+      () => window.clearTimeout(this.pressTimer),
+    );
   }
 
   /**

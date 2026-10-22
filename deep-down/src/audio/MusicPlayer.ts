@@ -37,7 +37,14 @@ export function musicPriority(note: MusicNote, lead: string): number {
  * The layers' balance (stem gain at a mix weight of 1), set from the offline renders through a phone
  * speaker: the lead a few LU over the bed, the tension a little under the lead, a fight on a par.
  */
-export const LAYER_GAIN: Record<MusicLayer, number> = { bed: 1, motif: 1, tension: 1.3, combat: 1.05, sting: 1.1 };
+/**
+ * Each layer's share of the score. Round 3 (22:00): tension 1.3 -> 1.12 (-1.3 dB) and combat 1.05 -> 0.8 (-2.4 dB)
+ * once the emulator matched Chromium (its saws, triangles and noise now read as a browser's, and the
+ * instruments were re-calibrated): the saw pads, brass and basses the tension and the fights are made
+ * of had been playing 1-2.7 dB under their targets in a browser, and at their targets the fights' score
+ * stood level with the blows on a phone; it stays ~2 dB under them.
+ */
+export const LAYER_GAIN: Record<MusicLayer, number> = { bed: 1, motif: 1, tension: 1.12, combat: 0.8, sting: 1.1 };
 /**
  * The score's overall level against the effects and the beds (deck gain). Round 3: +1.5 dB (1.35 ->
  * 1.6) so the calm music is present on a phone at the default volumes (the walk measured -30.5 LUFS

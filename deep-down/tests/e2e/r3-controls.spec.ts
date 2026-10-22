@@ -112,7 +112,8 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
 
   await mark(page, 'controls bomb');
   // A bomb: on the hotbar's bomb slot, Action throws it; it bursts (MOBS's blast) where the ray lands.
-  await page.evaluate(() => window.__DD__.give('blastBomb', 2));
+  // Granted as a find (it takes its hotbar slot, so the camp's deposit leaves it in the bag).
+  await page.evaluate(() => window.__DD__.game.grant('blastBomb', 2));
   const slot = await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots.findIndex((s: { item: string | null }) => s.item === 'blastBomb'));
   expect(slot, 'bombs went to the hotbar').toBeGreaterThanOrEqual(0);
   await tapControl(page, touch, `hotbar:${slot}`);

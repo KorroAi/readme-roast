@@ -76,6 +76,10 @@ export interface VistaSite {
   balcony: V3;
   rampFoot: V3;
   lava: boolean;
+  /** The top of the island's spire in the lake (a light burns there), the lamp posts' feet down the ramp, the dome's stalactites. */
+  island?: V3;
+  lamps?: V3[];
+  stalactites?: number;
 }
 
 export interface DungeonSite {

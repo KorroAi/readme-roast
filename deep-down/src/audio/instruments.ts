@@ -567,7 +567,7 @@ export const TIMBRES: Record<Timbre, TimbreDef> = {
   subBass: bass(BASS.subBass, 0.419, 0.1, 0.3),
   bowed: bass(BASS.bowed, 0.219, 0.3, 0.5),
   sawBass: bass(BASS.sawBass, 0.421, 0.15, 1.2),
-  taiko: drum(DRUMS.taiko, 0.812, 0.35, 0.6),
+  taiko: drum(DRUMS.taiko, 0.78, 0.35, 0.6),
   tom: drum(DRUMS.tom, 0.665, 0.3, 0.35),
   frame: drum(DRUMS.frame, 0.415, 0.3, 0.2),
   shaker: drum(DRUMS.shaker, 0.0525, 0.2, 0.1),

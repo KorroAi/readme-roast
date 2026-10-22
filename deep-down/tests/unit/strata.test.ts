@@ -6,7 +6,7 @@ import { reachNear, walkBfs } from '../../src/world/gen/strata/content';
 import { generateStratum } from '../../src/world/gen/strata/generateStratum';
 import { SET_PIECES } from '../../src/world/gen/strata/structures';
 import { withBiomeAt, type StratumLayout, type V3 } from '../../src/world/gen/strata/types';
-import { SOLID } from '../../src/config/blocks';
+import { BLOCKS, SOLID } from '../../src/config/blocks';
 import { TrapScratch, WORST_SOLID, homewardStates, isState, walkStates } from '../../src/world/gen/strata/traps';
 
 /**
@@ -170,6 +170,16 @@ describe('the strata generator (round 3)', () => {
     expect(l.falls[0].id).toMatch(/^fall_/);
     expect(l.falls[0].top[1] - l.falls[0].bottom[1]).toBeGreaterThan(12);
     expect(l.falls[0].kind).toBe(l.vista!.lava ? 'lava' : 'water');
+    // The hall's dressing: the island's rock spire in the lake, lit at its tip; lamp posts down the
+    // ramp; stalactites from the dome.
+    const V = l.vista!;
+    const [ix, iy, iz] = [Math.floor(V.island![0]), V.island![1], Math.floor(V.island![2])];
+    expect(iy - V.centre[1], 'spire height').toBeGreaterThanOrEqual(8);
+    expect(SOLID[l.world.get(ix, iy - 1, iz)], 'spire rock').toBe(1);
+    expect(BLOCKS[l.world.get(ix, iy, iz)].emission, 'the spire\'s light').not.toBeNull();
+    const lamps = V.lamps!.filter((lp) => l.props.some((p) => p.kind === 'lanternPost' && Math.hypot(p.x - lp[0], p.z - lp[2]) < 1 && Math.abs(p.y - lp[1]) < 1));
+    expect(lamps.length, 'ramp lamps').toBeGreaterThanOrEqual(3);
+    expect(V.stalactites!, 'stalactites').toBeGreaterThanOrEqual(6);
     for (const f of l.falls.slice(1)) {
       expect(f.id).toMatch(/^spring_/);
       expect(f.kind).toBe(l.rivers[0].kind);

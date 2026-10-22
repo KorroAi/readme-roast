@@ -16,7 +16,8 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   await boot(page);
   const touch = await newExpedition(page, { tutorial: false });
   await quiet(page);
-  await page.evaluate(() => window.__DD__.give('outpostKit', 1));
+  // Granted as a find (it takes its hotbar slot, so the camp's deposit leaves it in the bag).
+  await page.evaluate(() => window.__DD__.game.grant('outpostKit', 1));
 
   await mark(page, 'travel long-press');
   // A long-press on the free slot (6) opens the Bag to fill it; a tap on the kit puts it there.

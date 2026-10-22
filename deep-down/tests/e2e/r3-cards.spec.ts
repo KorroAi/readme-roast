@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, newExpedition, quiet, screen, tapControl, waitMode, waitScreen, tapEl } from './r3';
+import { PHONE, mark, boot, newExpedition, quiet, screen, tapControl, waitMode, waitScreen, tapEl } from './r3';
 import { Touch } from './touch';
 
 // Round 3 (UI): the cards of an expedition with real touches at 390 x 844 (BRIEF §6: the trip summary,
@@ -53,6 +53,7 @@ test('a trip ends at camp with its card; a black-out tells its story, then the t
   await tapEl(page, touch, page.locator('[data-key="trip:close"]'));
   expect(await waitScreen(page, 'none')).toBe(true);
 
+  await mark(page, 'cards blackout');
   // A black-out out there: the card names what did it and where; the pack waits on the Map.
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away);
   expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 6)).toBe(true);
@@ -73,6 +74,7 @@ test('a trip ends at camp with its card; a black-out tells its story, then the t
   await expect(page.locator('.dd-trip3-card.blackout')).toBeVisible();
   await tapEl(page, touch, page.locator('[data-key="trip:close"]'));
   expect(await waitScreen(page, 'none')).toBe(true);
+  await mark(page, 'cards map');
   // The Map marks the pack left behind (in this stratum).
   const cache = await page.evaluate(() => window.__DD__.game.progression.cache);
   if (cache) {
