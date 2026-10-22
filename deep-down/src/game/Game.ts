@@ -81,6 +81,7 @@ import { ActionLayer } from './fp/ActionLayer';
 import type { MenuScreen } from '../ui/hud/actions';
 import type { PropSpec as Prop } from '../world/gen/types';
 import { loadControlPrefs, saveControlPrefs, type ControlPrefs } from '../ui/controlPrefs';
+import { seedFromText } from '../ui/seed';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
 export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead' | 'crashed';
@@ -1651,8 +1652,9 @@ export class Game {
       },
       newGame: (seed?: string) => {
         enterGameScreen();
+        // UI (round 3): the seed typed on New Game (digits, or any word hashed); none: WORLD rolls one.
         this.pendingSeed = seed && seed.trim() ? seed.trim() : null;
-        void this.newGame();
+        void this.newGame(seedFromText(this.pendingSeed));
       },
       openVisualLab: () => {
         location.href = './visuallab.html';
