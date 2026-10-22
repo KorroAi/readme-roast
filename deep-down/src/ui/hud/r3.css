@@ -725,7 +725,9 @@
 .dd-touch.dd-r3 .dd-stick.idle {
   left: calc(26px + var(--safe-left));
   bottom: calc(var(--pad-bottom) + 34px);
-  opacity: 0.34;
+  /* The stick shows under the thumb only (it rises where the thumb lands, lead 23:55); at rest it is
+     drawn when the tutorial's move step points at it (.dd-tut-on below). */
+  opacity: 0;
 }
 .dd-touch.dd-r3.dd-lefty .dd-stick.idle {
   left: auto;

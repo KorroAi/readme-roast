@@ -288,7 +288,10 @@ export class EmitterIndex {
     for (const f of layout.falls ?? []) {
       if (f.top.length < 3 || f.bottom.length < 3) continue;
       const lava = f.kind === 'lava';
-      add({ kind: lava ? 'lavaFall' : 'waterfall', x: f.top[0], y: f.top[1], z: f.top[2], x2: f.bottom[0], y2: f.bottom[1], z2: f.bottom[2], range: lava ? 40 : 46, strength: 1 });
+      // A fall carries as far as it is tall: the vista's great fall (about 14 m) fills the hall, a 4-7 m
+      // spring fall at a river's head (layout.falls ids spring_*) only its stretch of tunnel.
+      const tall = Math.min(1, Math.max(0, f.top[1] - f.bottom[1]) / 14);
+      add({ kind: lava ? 'lavaFall' : 'waterfall', x: f.top[0], y: f.top[1], z: f.top[2], x2: f.bottom[0], y2: f.bottom[1], z2: f.bottom[2], range: (lava ? 40 : 46) * (0.45 + 0.55 * tall), strength: 0.55 + 0.45 * tall });
     }
     for (const r of layout.rivers ?? []) {
       const lava = r.kind === 'lava';

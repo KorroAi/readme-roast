@@ -446,7 +446,7 @@ if (opt.touch) {
         }, 800);
       }),
   );
-  const assignView = { screen: await screen(), banner: await page.locator('.dd-screens .dd-m3-banner').count(), rebuilt };
+  const assignView = { screen: await screen(), banner: await page.locator('.dd-screens .dd-m3-banner').count(), rebuilt, inventoryPresses: (await seen()).inventory, assignSlot: await page.evaluate(() => window.__UI__.ui.state.assignSlot), at: free, hit: await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.className ?? null, [free.x, free.y]) };
   check('long-press a slot -> the Bag in "choose for slot 6" mode', assignView.screen === 'inventory' && assignView.banner === 1, assignView);
   // (Without the Bag up there is no item to tap: the rest of the checks still run.)
   if (assignView.screen === 'inventory') {
@@ -474,6 +474,22 @@ if (opt.touch) {
   check('Map: a drag pans', cam2.cx < cam1.cx - 1, { cam1, cam2 });
   await page.locator('[data-key="map:centre"]').tap();
   const pin = page.locator('.dd-m3-pin.k-vista');
+  // A marker under the map's zoom buttons is panned out from under them first (a drag, as a player would).
+  {
+    const pb = await box('.dd-m3-pin.k-vista');
+    const cb = await box('.dd-m3-mapctls');
+    if (pb && cb && pb.x > cb.x - cb.w / 2 - 24) {
+      const v = await box('.dd-m3-mapview');
+      const dx = Math.round(pb.x - (cb.x - cb.w / 2 - 60));
+      await touch('touchStart', [{ x: v.x, y: v.y, id: 8 }]);
+      for (let i = 1; i <= 8; i++) {
+        await touch('touchMove', [{ x: v.x - (dx * i) / 8, y: v.y, id: 8 }]);
+        await wait(16);
+      }
+      await touch('touchEnd', []);
+      await wait(120);
+    }
+  }
   if (await pin.isVisible().catch(() => false)) {
     await pin.tap();
     check('Map: a tapped marker names itself', /Vista/.test(await page.locator('.dd-m3-mapcaption').innerText()));
