@@ -8,7 +8,7 @@ import { MOB_DROPS, MOBS_RULES, TREASURE_DROPS } from './config';
 import { MobSim, type MobEnv, type MobSimEvent, type SentinelSite, type SimMob } from './MobSim';
 import { standableFor } from './nav';
 import { BestiaryLog, type BestiarySave } from './bestiary';
-import { guardianState } from './guardian';
+import { HEART_BEAT, guardianState } from './guardian';
 import { ROSTERS } from './rosters';
 import { spawnFirstFight, type Lair } from './spawner';
 import { darkTide, linkStrata, type StrataLayout } from './strataLink';
@@ -87,7 +87,7 @@ export class MobDirector implements MobSystem {
   private fightWanted = false;
   private fightTry = 0;
   private fightMob = 0;
-  /** Open-guard hints shown this game (the first two only). */
+  /** Open-guard hints shown this game (the first one only). */
   private openHints = 0;
 
   constructor(private readonly game: Game, private readonly hooks: MobDirectorHooks) {
@@ -319,8 +319,27 @@ export class MobDirector implements MobSystem {
       this.renderer.step(dt, ctx.lantern.x, ctx.lantern.y, ctx.lantern.z);
     }
     if (this.fighting && (this.fighting.dying || this.fighting.state === 'sleep' || !this.sim.mobs.includes(this.fighting))) this.fighting = null;
+    if (active) this.lockHeartbeat(dt);
     if (active && this.fightWanted) this.tutorialFight(dt, ctx);
     if (active && this.companionState) this.keepCompanion(ctx);
+  }
+
+  /**
+   * The Dark Heart beats on the boss theme's grid (AUDIO's `nextBeat`, its periods 4 / 3 / 2 / 1.5
+   * beats): each frame its phase is nudged a little toward the score's nearest half beat (never a jump).
+   */
+  private lockHeartbeat(dt: number): void {
+    const h = this.sim.mobs.find((m) => m.brain === 'heart' && !m.dying);
+    if (!h) return;
+    const nb = (this.game as unknown as { audio?: { nextBeat?: () => { in: number; beat: number } | null } }).audio?.nextBeat?.();
+    if (!nb || !(nb.beat > 0) || !Number.isFinite(nb.in)) return;
+    const period = HEART_BEAT[h.state === 'sleep' ? 0 : Math.min(3, h.phase)];
+    const half = nb.beat / 2;
+    let e = ((1 - h.beat) * period - nb.in) % half;
+    if (e > half / 2) e -= half;
+    if (e < -half / 2) e += half;
+    // Late against the score (e > 0): it hurries; early: it waits.
+    h.beat += (e / period) * Math.min(1, dt * 1.5);
   }
 
   // ------------------------------------------------------------------------------------
@@ -880,10 +899,10 @@ export class MobDirector implements MobSystem {
           g.cameraRig.addTrauma(0.16);
         } else if (e.phase === 'open') {
           bus.emit('mob:guardianOpen', { id: m.id, kind: m.kind as GuardianState['kind'], biome, seconds: m.openFor });
-          // The first open guards of a game get a word (then the sound and the body tell it alone).
-          if (this.openHints < 2 && !g.progression.hintsShown.has('mob.guardianOpen')) {
+          // The first open guard of a game gets a word (then its sound, its body and the bar's chip tell it).
+          if (this.openHints < 1 && !g.progression.hintsShown.has('mob.guardianOpen')) {
             this.openHints++;
-            if (this.openHints >= 2) g.progression.hintsShown.add('mob.guardianOpen');
+            g.progression.hintsShown.add('mob.guardianOpen');
             g.ui.hint(t('mob.guardianOpen'), 1800);
           }
         } else {

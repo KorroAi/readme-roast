@@ -164,6 +164,33 @@ export const AMBIENCE_SFX = {
     const f = swell(v, t, 'white', 'bandpass', 3000, 1.3, 0.2, 0.12, 0.4, 0.7);
     v.lfo(f.frequency, 6, 500, t, t + 1.2);
   }, 2),
+  /**
+   * A sulphur vent's geyser (VIS's column, game.vis.geysers): a deep gulp under the mud, then the steam
+   * chuffs out (the column's puffs leave over 1.6 s), sizzles high as it rises and thins over ~4 s.
+   */
+  'amb.geyser': sound('ambience', 0.8, 0.6, 1, 4.4, (v, p) => {
+    const t = v.t;
+    const k = p.pitch ?? 1;
+    // The gulp: the vent clears its throat.
+    thump(v, t, 78 * k, 42 * k, 0.55, 0.32);
+    for (let i = 0; i < 3; i++) {
+      const at = t + 0.03 + i * v.rand(0.05, 0.09);
+      glide(v, at, 'sine', v.rand(170, 230) * k, v.rand(420, 560) * k, 0.09, 0.16, 0.004);
+    }
+    // The chuffs: pressured steam, rising in pitch as the column leaves, pulsing with its puffs.
+    const chuff = v.gain(0.65);
+    chuff.connect(v.out);
+    v.lfo(chuff.gain, 15 * k, 0.35, t + 0.1, t + 1.8);
+    const huff = swell(v, t + 0.08, 'pink', 'bandpass', 900 * k, 0.8, 0.62, 0.12, 1.3, 2.4, chuff);
+    huff.frequency.setValueAtTime(700 * k, t + 0.08);
+    huff.frequency.exponentialRampToValueAtTime(1700 * k, t + 1.5);
+    huff.frequency.exponentialRampToValueAtTime(1000 * k, t + 3.8);
+    // The sizzle high in the column, slower to fade.
+    const fizz = swell(v, t + 0.15, 'white', 'highpass', 3400, 0.7, 0.16, 0.3, 1.1, 2.6);
+    v.lfo(fizz.frequency, 3, 600, t + 0.15, t + 4.1);
+    // The last puffs leave in sputters.
+    for (let i = 0; i < 4; i++) burst(v, t + 1.55 + i * v.rand(0.14, 0.26), 'pink', 'bandpass', v.rand(900, 1500) * k, 1.4, v.rand(0.12, 0.2), 0.08, 0.01);
+  }, 3),
   /** The drowned city's distance: a stone knock and its echoes down empty halls. */
   'amb.cityEcho': sound('ambience', 0.7, 0.85, 0, 3.0, (v, p) => {
     const t = v.t;

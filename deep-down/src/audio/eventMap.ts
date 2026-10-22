@@ -258,7 +258,7 @@ const ZONE_PITCH: Record<string, number> = { falls: 1.12, rockfall: 0.94, chill:
 export const MOMENT_STEPS = /^main:(guardian\.|heart$|s\d+\.gate$)/;
 
 /** Reasons whose reward is heard through its own moment (eventMap 'reward:paid'). */
-export const REWARD_MOMENTS: ReadonlySet<string> = new Set(['starter', 'order', 'feat', 'task', 'guardian', 'bestiary', 'daily']);
+export const REWARD_MOMENTS: ReadonlySet<string> = new Set(['starter', 'order', 'feat', 'task', 'guardian', 'bestiary', 'daily', 'tutorial']);
 
 /** Each world event's opening cue (the migration and the treasure mob are heard through their creatures). */
 const WORLD_EVENT_CUES: Partial<Record<GameEvents['world:event']['event']['kind'], SfxName>> = {

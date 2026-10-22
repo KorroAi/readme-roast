@@ -110,7 +110,7 @@ export function buildMap(host: ScreenHost): HTMLElement {
   const scaleBar = h('span', { class: 'dd-m3-scalebar' });
   const scaleText = h('span', { class: 'dd-m3-scaletext' });
   const caption = h('p', { class: 'dd-m3-mapcaption', role: 'status', 'aria-live': 'polite' });
-  const view = h('div', { class: 'dd-m3-mapview', 'data-key': 'mapview' }, canvas, layer, me, h('span', { class: 'dd-m3-north', 'aria-hidden': 'true', text: 'N' }), h('div', { class: 'dd-m3-scale', 'aria-hidden': 'true' }, scaleBar, scaleText));
+  const view = h('div', { class: 'dd-m3-mapview', 'data-key': 'mapview' }, canvas, layer, me, h('span', { class: 'dd-m3-north', 'aria-hidden': 'true', text: t('m3.map.north') }), h('div', { class: 'dd-m3-scale', 'aria-hidden': 'true' }, scaleBar, scaleText));
 
   let size = 320;
   let cam: MapCamera = st.mapCamera && !host.opening ? { ...st.mapCamera } : homeCamera(src, size);

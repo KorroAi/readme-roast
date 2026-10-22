@@ -112,6 +112,7 @@ export const controls = {
   'm3.map.pinInfo': '{name} · {m} m away',
   'm3.map.centre': 'Back to me',
   'm3.map.zoomIn': 'Zoom in',
+  'm3.map.north': 'N',
   'm3.map.zoomOut': 'Zoom out',
   'm3.map.exploredAll': '{pct}% of this stratum explored',
   'm3.map.campName': 'Camp · Stratum I',

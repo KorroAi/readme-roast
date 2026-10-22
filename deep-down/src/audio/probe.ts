@@ -114,6 +114,9 @@ export interface AudioScene {
   /** Sonar pings sent so far and what the last one revealed. */
   sonarPings: number;
   sonar: readonly SonarReveal[];
+  /** VIS's sulphur geysers: the columns so far, and the one standing now (with how much rock is between). */
+  geysers: number;
+  geyser: { x: number; y: number; z: number; occlusion: number } | null;
 }
 
 export type AudioProbe = () => AudioScene | null;
@@ -123,6 +126,7 @@ export function emptyScene(): AudioScene {
   return {
     mode: 'menu', screen: 'none', biome: null, stratum: 1, strata: false, loading: false, lx: 0, ly: 0, lz: 0, rx: 1, rz: 0,
     danger: 0, engaged: 0, guardian: null, hazard: null, hazardLevel: 0, emitters: [], health: 1, climbing: null, climbSpeed: 0, sonarPings: 0, sonar: [],
+    geysers: 0, geyser: null,
   };
 }
 
@@ -414,7 +418,10 @@ interface GameShape {
   strata?: { current?: number; biomeHere?: BiomeId | null; busy?: boolean; layout?: SoundingLayout | null };
   mobs?: { list?: () => readonly MobLike[]; activeGuardian?: () => { kind?: string; phase?: number; phases?: number; hp?: number; max?: number } | null };
   loop?: { hazards?: { active?: HazardName | null; meter?: number } };
-  vis?: { sonarState?: { pings?: number; last?: ReadonlyArray<{ x: number; y: number; z: number; kind?: string; rarity?: string | null; delay?: number }> } | null };
+  vis?: {
+    sonarState?: { pings?: number; last?: ReadonlyArray<{ x: number; y: number; z: number; kind?: string; rarity?: string | null; delay?: number }> } | null;
+    geysers?: { active?: readonly number[] | null; eruptions?: number } | null;
+  };
   cameraRig?: { camera?: { position?: { x: number; y: number; z: number }; matrixWorld?: { elements?: ArrayLike<number> } } };
   player?: { x: number; y: number; z: number; climbing?: boolean; vy?: number };
   health?: { fraction?: number };
@@ -432,6 +439,7 @@ export function gameAudioProbe(gameRef: unknown): AudioProbe {
   const heard: HeardEmitter[] = [];
   /** Each kind's occlusion, measured a few times a second (it changes as slowly as the explorer walks). */
   const occluded = new Map<EmitterKind, number>();
+  let geyserCount = -1;
   return () => {
     const g = gameRef as GameShape;
     tick++;
@@ -509,6 +517,18 @@ export function gameAudioProbe(gameRef: unknown): AudioProbe {
     const sonar = g.vis?.sonarState;
     scene.sonarPings = sonar?.pings ?? 0;
     scene.sonar = (sonar?.last ?? []) as readonly SonarReveal[];
+    // VIS's geysers (the Sulphur Bog's vents): the column standing now, the rock before it measured once.
+    const gy = g.vis?.geysers;
+    const erupted = Number.isFinite(gy?.eruptions) ? gy!.eruptions! : 0;
+    const vent = gy?.active;
+    if (vent && vent.length >= 3 && Number.isFinite(vent[0]) && Number.isFinite(vent[1]) && Number.isFinite(vent[2])) {
+      if (erupted !== geyserCount || !scene.geyser) {
+        const [vx, vy, vz] = [vent[0], vent[1] + 0.5, vent[2]];
+        scene.geyser = { x: vx, y: vy, z: vz, occlusion: world ? occlusionOf((x, y, z) => world.get(x, y, z), scene.lx, scene.ly, scene.lz, vx, vy, vz) : 0 };
+      }
+    } else scene.geyser = null;
+    geyserCount = erupted;
+    scene.geysers = erupted;
     return scene;
   };
 }

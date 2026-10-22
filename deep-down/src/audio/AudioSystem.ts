@@ -111,6 +111,10 @@ const GUARDIAN_CALL_MIX: Readonly<LayerMix> = { bed: 0.85, motif: 1, tension: 1,
 const GUARDIAN_FIGHT_MIX: Readonly<LayerMix> = { bed: 0.7, motif: 0.85, tension: 0.75, combat: 1 };
 /** After a biome change, another one within this many seconds must hold longer (a border walk never ping-pongs the score). */
 const BIOME_RECENT = 15;
+/** A geyser's huff is heard this far (m); VIS erupts vents within 28 m of the eye. */
+const GEYSER_RANGE = 34;
+/** The control rate runs on the audio clock; a stall longer than this counts as this. */
+const MAX_CONTROL_STEP = 1;
 const BIOME_SETTLE_RECENT = 6;
 /** The Heart relit, then the Dark Heart: the major sting holds the score at most this long before the fight's theme. */
 const HEART_LIT_HOLD = 5;
@@ -231,6 +235,10 @@ export class AudioSystem {
   private holdScoreUntil = 0;
   private quietAfterVictory = 0;
   private guardianEvent: { kind: string; heart: boolean; phase: number } | null = null;
+  /** The audio clock at the last control tick (-1 before the first). */
+  private controlAt = -1;
+  /** VIS's geyser columns heard so far (the probe's count). */
+  private geysersSeen = -1;
   /** When the current guardian theme began (its call, then the fight). */
   private guardianSince = -Infinity;
   /** When the score last followed the explorer into another biome. */
@@ -345,8 +353,13 @@ export class AudioSystem {
       this.sputter(live, dt, now, s);
       this.control += dt;
       if (this.control >= CONTROL_PERIOD) {
-        this.controlTick(live, now, this.control, s);
+        // The control rate counts the audio clock's seconds (what the ear hears), not the frames': on a
+        // slow device or a stalled frame a biome's settle, the danger's smoothing and the features'
+        // clocks keep real time (the frame step is clamped; the music never is).
+        const real = this.controlAt >= 0 ? now - this.controlAt : 0;
+        this.controlTick(live, now, Math.min(MAX_CONTROL_STEP, Math.max(this.control, real)), s);
         this.control = 0;
+        this.controlAt = now;
       }
       live.music.update(now);
       this.playEchoes(now);
@@ -821,6 +834,7 @@ export class AudioSystem {
     this.features(live, now, dt, scene);
     this.hazards(live, now, dt, scene);
     this.sonar(now, scene);
+    this.geyser(scene);
     this.climb(dt, scene);
     this.heartbeat(dt, now, s, scene);
     this.menus(scene);
@@ -1070,6 +1084,25 @@ export class AudioSystem {
       this.echoes.push({ at, name, params: { pan, gain, pitch } });
       n++;
     }
+  }
+
+  /**
+   * VIS's vents (the Sulphur Bog's geysers): each new column huffs from its vent, panned, by distance,
+   * quieter behind rock. Columns seen before the AudioSystem attached are not replayed.
+   */
+  private geyser(scene: AudioScene | null): void {
+    if (!scene) return;
+    const count = scene.geysers;
+    const fresh = this.geysersSeen >= 0 && count > this.geysersSeen;
+    this.geysersSeen = count;
+    const g = scene.geyser;
+    if (!fresh || !g || this.paused || scene.loading) return;
+    const dx = g.x - scene.lx;
+    const dz = g.z - scene.lz;
+    const near = 1 - Math.hypot(dx, g.y - scene.ly, dz) / GEYSER_RANGE;
+    if (near <= 0.04) return;
+    const gain = Math.min(1, Math.pow(near, 1.2)) * (1 - 0.5 * saturate(g.occlusion));
+    this.play('amb.geyser', { pan: panOf(dx, dz, scene.rx, scene.rz, 0.85), gain, pitch: this.rng.range(0.92, 1.08) });
   }
 
   private playEchoes(now: number): void {

@@ -498,7 +498,7 @@ export const MOB_SFX = {
     r.frequency.setValueAtTime(90, t);
     r.frequency.exponentialRampToValueAtTime(320, t + 0.95);
     // The grinding of the floor about to split (the mids carry it on a phone).
-    const m = swellNoise(v, t + 0.1, 'pink', 'bandpass', 300, 1.4, 0.3, 0.6, 0.15, 0.2);
+    const m = swellNoise(v, t + 0.1, 'pink', 'bandpass', 300, 1.4, 0.55, 0.6, 0.15, 0.2);
     m.frequency.setValueAtTime(240, t + 0.1);
     m.frequency.exponentialRampToValueAtTime(520, t + 0.95);
     for (let i = 0; i < 7; i++) noiseBurst(v, t + 0.15 + i * 0.12 + v.rand(0, 0.04), 'white', 'bandpass', v.rand(1600, 2600), 4, 0.12 + i * 0.015, 0.035);
@@ -538,8 +538,8 @@ export const MOB_SFX = {
     // The deep body of each thump (felt on headphones) and its knock in the mids (heard on a phone).
     for (const [at, f, a] of [[0, 62, 0.75], [0.19, 54, 0.55]] as const) {
       thud(v, t + at, f, f * 0.55, a, 0.34);
-      thud(v, t + at, 170, 95, a * 0.55, 0.12);
-      noiseBurst(v, t + at, 'pink', 'bandpass', 420, 1.1, a * 0.28, 0.07);
+      thud(v, t + at, 170, 95, a * 0.95, 0.13);
+      noiseBurst(v, t + at, 'pink', 'bandpass', 380, 1.1, a * 0.45, 0.08);
     }
     swellNoise(v, t, 'brown', 'lowpass', 160, 0.7, 0.3, 0.02, 0.05, 0.3);
     const o = v.osc('sine', 41, t, t + 0.8);

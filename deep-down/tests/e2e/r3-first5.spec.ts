@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, dismissArrival, holdControl, holdUntil, hud, newExpedition, tapControl, tapEl, uiEvents, waitEvent, waitScreen } from './r3';
+import { PHONE, boot, centreOf, mark, dismissArrival, holdControl, holdUntil, hud, newExpedition, tapControl, tapEl, uiEvents, waitEvent, waitScreen } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): the first five minutes of a new expedition on an upright phone, with real touches
@@ -36,12 +36,14 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   await page.evaluate(() => window.__DD__.mobs.harmless(true));
   await dismissArrival(page, touch);
 
+  await mark(page, 'first5 look');
   // 1. Look: no button (a ghost finger drags across the view); a few drags take it.
   expect(await step(page)).toBe('look');
   await expect(page.locator('.dd-tut-swipe.on')).toHaveCount(1);
   for (let i = 0; i < 6 && (await step(page)) === 'look'; i++) await look(touch, i % 2 ? 90 : -90);
   expect(await waitStep(page, 'move'), 'looking around took the first step').toBe(true);
 
+  await mark(page, 'first5 move');
   // 2. Move: the ring is on the stick; a push walks (and the step goes on).
   expect(await untilGame(page, async () => (await ringed(page)) === 'joystick', 4)).toBe(true);
   const p0 = await page.evaluate(() => ({ x: window.__DD__.game.player.x, z: window.__DD__.game.player.z }));
@@ -51,6 +53,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   const p1 = await page.evaluate(() => ({ x: window.__DD__.game.player.x, z: window.__DD__.game.player.z }));
   expect(Math.hypot(p1.x - p0.x, p1.z - p0.z), 'the stick walked the explorer').toBeGreaterThan(1);
 
+  await mark(page, 'first5 mine');
   // 3. Mine: the ring is on Action; a copper vein under the reticle, Action held until it breaks.
   expect(await untilGame(page, async () => (await ringed(page)) === 'action', 4)).toBe(true);
   const py = (await page.evaluate(() => window.__DD__.game.player.y)) as number;
@@ -65,10 +68,12 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   await touch.up();
   expect(broke, 'the vein broke under a held Action').toBe(true);
 
+  await mark(page, 'first5 pickup');
   // 4. Pick up: the drops fly into the bag (auto-pickup); the step goes on by itself.
   expect(await waitEvent(page, 'item:picked', 15), 'the drops were picked up').toBe(true);
   expect(await waitStep(page, 'craft'), 'picking up took the fourth step').toBe(true);
 
+  await mark(page, 'first5 craft');
   // 5. Craft: the ring is on Craft; the menu opens on a tap; four torches by hand.
   expect(await untilGame(page, async () => (await ringed(page)) === 'craft', 4)).toBe(true);
   await page.evaluate(() => {
@@ -92,6 +97,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   await tapEl(page, touch, '.dd-menu3 [data-key="close"]');
   expect(await waitScreen(page, 'none')).toBe(true);
 
+  await mark(page, 'first5 torch');
   // 6. Torch: the ring is on the torch's slot (Place shows once a torch is in hand), then on Place.
   const slot = await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots.findIndex((s: { item: string | null }) => s.item === 'torch'));
   expect(slot, 'the torches went to a hotbar slot').toBeGreaterThanOrEqual(0);
@@ -113,6 +119,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   expect(await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), [placed.x, placed.y, placed.z])).toBe(TORCH);
   expect(await waitStep(page, 'fight'), 'the torch took the sixth step').toBe(true);
 
+  await mark(page, 'first5 fight');
   // 7. Fight: one gentle Amber Tick comes; aim at it and strike with Action until it falls.
   let tick: { id: number; x: number; y: number; z: number } | null = null;
   expect(
@@ -137,6 +144,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   expect(await waitStep(page, 'sonar'), 'the fight took the seventh step').toBe(true);
   expect((await uiEvents(page, 'weapon:swing')).length).toBeGreaterThan(0);
 
+  await mark(page, 'first5 sonar');
   // 8. Sonar: the ring is on Sonar; a tap sends the pulse (VIS draws it, MOBS scans, WORLD reveals).
   expect(await untilGame(page, async () => (await ringed(page)) === 'sonar', 4)).toBe(true);
   await tapControl(page, touch, 'sonar');
@@ -148,6 +156,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   // The pulse cools down (its ring sweeps on the button).
   await expect(page.locator('.dd-pad-sonar.cooling')).toHaveCount(1);
 
+  await mark(page, 'first5 menus');
   // 9-11. The Bag, the Map and the Quests: each opened from its HUD button and closed again.
   for (const [target, screenId, next] of [
     ['bag', 'inventory', 'map'],

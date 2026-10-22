@@ -196,8 +196,11 @@ describe('the main quest: Relight the Heart', () => {
     const m = q.main();
     expect(m.id).toBe('main:s1.guardian.amberHollows');
     expect(m.target).toEqual({ x: 52, y: 20, z: 60, stratum: 1, kind: 'lair' });
-    // "Defeat the Amber Matriarch in the Amber Hollows": the guardian's name inside the line.
-    expect(m.text).toBe(`Defeat ${en[`mob.${ROSTERS.amberHollows.guardian}` as keyof typeof en].replace(/^The /, 'the ')} in the ${en['biome.amberHollows.name' as keyof typeof en]}`);
+    // "Defeat the Amber Matriarch": the guardian's name inside the line, short for the 390 px tracker
+    // (QA 21:01); the Quests screen's chain line adds its biome.
+    expect(m.text).toBe(`Defeat ${en[`mob.${ROSTERS.amberHollows.guardian}` as keyof typeof en].replace(/^The /, 'the ')}`);
+    expect(m.text.length).toBeLessThanOrEqual(34);
+    expect(q.view().main[0].steps[0].text).toBe(`${m.text} (${en['biome.amberHollows.name' as keyof typeof en]})`);
     expect(of(h, 'quest:step').some((e) => e.id === 'main:s1.guardian.amberHollows')).toBe(true);
     // The compass points at it.
     h.player = { x: 52, y: 20, z: 80 };

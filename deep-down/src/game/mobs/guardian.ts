@@ -60,8 +60,11 @@ export function openGuard(sim: MobSim, m: SimMob, seconds: number, state: 'recoi
   sim.sfx(m, 'guardian.open');
 }
 
-/** Seconds of each Dark Heart beat by phase (and asleep): it quickens as it weakens. */
-const HEART_BEAT = [2.2, 1.25, 0.95, 0.68];
+/**
+ * Seconds of each Dark Heart beat, asleep and by phase: it quickens as it weakens. On the boss theme's
+ * grid (AUDIO: 120 bpm, 4 / 3 / 2 / 1.5 beats), and MobDirector locks its phase to the score's beat.
+ */
+export const HEART_BEAT: readonly number[] = [2.0, 1.5, 1.0, 0.75];
 
 /** The Dark Heart's beat: its shell swells twice (lub-dub) and the chamber hears it. */
 function heartbeat(sim: MobSim, m: SimMob, dt: number): void {

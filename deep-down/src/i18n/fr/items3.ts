@@ -199,7 +199,7 @@ export const items3: Partial<Record<TextKey, string>> = {
   'item.rope': 'Corde',
   'item.rope.desc': 'Posez-la sur un rebord : elle se déroule jusqu’au sol en contrebas.',
   'item.door': 'Porte',
-  'item.door.desc': 'Posez-la dans un passage ; Interagir l’ouvre et la ferme.',
+  'item.door.desc': 'Posez-la dans un passage ; Utiliser l’ouvre et la ferme.',
   'item.furnace': 'Fourneau',
   'item.furnace.desc': 'Posez-le : il fond le minerai en lingots et cuit la nourriture. Il lui faut du combustible.',
   'item.forge': 'Forge',

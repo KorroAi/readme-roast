@@ -19,13 +19,19 @@ const SEED = 12345;
 const layouts = new Map<number, StratumLayout & { timings: { totalMs: number } }>();
 /** CPU milliseconds each stratum took (the machine is shared: wall time under load is not the budget's measure). */
 const cpuMs = new Map<number, number>();
+/** Node's CPU clock (the project has no Node types: reached through globalThis); wall time where absent. */
+type CpuUsage = { user: number; system: number };
+const proc = (globalThis as { process?: { cpuUsage?: (prev?: CpuUsage) => CpuUsage } }).process;
+const cpuNow = (): number => {
+  const c = proc?.cpuUsage?.();
+  return c ? (c.user + c.system) / 1000 : performance.now();
+};
 
 beforeAll(() => {
   for (let n = 1; n <= 6; n++) {
-    const c0 = process.cpuUsage();
+    const c0 = cpuNow();
     layouts.set(n, generateStratum(SEED, n));
-    const c = process.cpuUsage(c0);
-    cpuMs.set(n, (c.user + c.system) / 1000);
+    cpuMs.set(n, cpuNow() - c0);
   }
 }, 240_000);
 

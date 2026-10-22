@@ -199,7 +199,7 @@ export const items3 = {
   'item.rope': 'Rope',
   'item.rope.desc': 'Place it on a ledge: it unrolls to the floor below.',
   'item.door': 'Door',
-  'item.door.desc': 'Place it in a gap; Interact opens and closes it.',
+  'item.door.desc': 'Place it in a gap; Use opens and closes it.',
   'item.furnace': 'Furnace',
   'item.furnace.desc': 'Place it: smelts ore into bars and cooks food. Needs fuel.',
   'item.forge': 'Forge',

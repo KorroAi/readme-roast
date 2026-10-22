@@ -49,6 +49,13 @@ export async function closeTripCard(page: Page, touch: Touch, gameSeconds = 4): 
 
 export const PHONE = { width: 390, height: 844 };
 
+const started = Date.now();
+/** A progress line on the reporter's output (wall and game seconds): a run cut short still says how far it got. */
+export async function mark(page: Page, label: string): Promise<void> {
+  const g = await page.evaluate(() => window.__DD__?.game?.session?.rig?.uniforms?.uTime?.value ?? 0).catch(() => 0);
+  console.log(`[e2e] ${label} wall=${((Date.now() - started) / 1000).toFixed(0)}s game=${Number(g).toFixed(0)}s`);
+}
+
 export async function waitMode(page: Page, mode: string, timeout = LOADED_CEILING_MS): Promise<void> {
   await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout, polling: 200 });
 }
@@ -57,6 +64,7 @@ export async function waitMode(page: Page, mode: string, timeout = LOADED_CEILIN
 export async function boot(page: Page, query = ''): Promise<void> {
   await page.goto(`/index.html${query ? `?${query}` : ''}`);
   await waitMode(page, 'menu');
+  await mark(page, 'title');
 }
 
 /**
@@ -74,6 +82,7 @@ export async function newExpedition(page: Page, opts: { seed?: string; tutorial?
   const yes = page.locator('[data-key="yes"]');
   if (await yes.isVisible().catch(() => false)) await tapEl(page, touch, yes);
   await waitMode(page, 'playing');
+  await mark(page, 'playing');
   if (opts.tutorial === false) await page.evaluate(() => window.__DD__.game.quests.skipTutorial());
   return touch;
 }

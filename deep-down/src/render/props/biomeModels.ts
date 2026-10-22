@@ -356,15 +356,16 @@ const shells: Build = (m, rng) => {
 
 const driftwood: Build = (m, rng) => {
   const b = m.body;
-  // Round 3: shorter (0.8-1.4 m): on the narrow banks of the strata's rivers a 2 m log ran into the rock.
-  const len = rng.range(0.8, 1.4);
+  // Round 3: shorter (0.7-1.05 m, inside its own cell at any turn): on the narrow banks of the
+  // strata's rivers a 2 m log ran into the rock, and a 1.4 m one still did one time in twenty.
+  const len = rng.range(0.7, 1.05);
   const silver = 0x6e675e;
   b.push().rotateY(rng.range(0, Math.PI)).translate(0, 0.08, 0);
   beam(b, -len / 2, 0, 0, len / 2, 0.04, 0, 0.16, 0.14, silver);
   beam(b, -len / 2, 0.06, 0, len / 2, 0.1, 0, 0.12, 0.04, shade(silver, 1.12));
   for (let k = 0; k < 3; k++) {
     const x = rng.range(-len / 2, len / 2);
-    beam(b, x, 0.04, 0, x + rng.range(-0.2, 0.2), rng.range(0.25, 0.5), rng.range(-0.3, 0.3), 0.05, 0.05, shade(silver, 0.95));
+    beam(b, x, 0.04, 0, x + rng.range(-0.15, 0.15), rng.range(0.25, 0.45), rng.range(-0.25, 0.25), 0.05, 0.05, shade(silver, 0.95));
   }
   b.pop();
 };
@@ -431,35 +432,39 @@ const rail: Build = (m, rng) => {
 const timberProp: Build = (m, rng) => {
   // Round 3: the miners' timber stack (WORLD sets ambient props down by any wall, unturned: a 2.3 m
   // mine set ran into the rock one time in three): cribbing, cut timbers crossed in square courses,
-  // a post leaning on it, wedges and a mallet; it reads as the old mine's stores from any side.
+  // a post leaning on it, wedges and a mallet; it reads as the old mine's stores from any side. Its
+  // footprint stays inside its own cell at any turn (0.8 m square: the probe found the 1.1 m one's
+  // corners in the wall one time in thirteen).
   const b = m.body;
   const courses = rng.int(3, 4);
+  const H = 0.4;
+  const O = 0.26;
   for (let c = 0; c < courses; c++) {
     const along = c % 2 === 0;
     const y = c * 0.17;
     for (const s of [-1, 1]) {
-      const off = s * 0.36;
+      const off = s * O;
       const col = vary(c % 2 ? WOOD.mid : WOOD.dark, rng, 0.1);
-      if (along) b.box(-0.55, y, off - 0.08, 0.55, y + 0.16, off + 0.08, col);
-      else b.box(off - 0.08, y + 0.004, -0.55, off + 0.08, y + 0.164, 0.55, col);
+      if (along) b.box(-H, y, off - 0.08, H, y + 0.16, off + 0.08, col);
+      else b.box(off - 0.08, y + 0.004, -H, off + 0.08, y + 0.164, H, col);
     }
     // Cut ends a shade lighter (a hair proud of the timber: no shared plane).
     for (const s of [-1, 1]) for (const e of [-1, 1]) {
-      const off = s * 0.36;
-      const e0 = e > 0 ? 0.55 : -0.556;
-      const e1 = e > 0 ? 0.556 : -0.55;
+      const off = s * O;
+      const e0 = e > 0 ? H : -H - 0.006;
+      const e1 = e > 0 ? H + 0.006 : -H;
       if (along) b.box(e0, y + 0.01, off - 0.07, e1, y + 0.15, off + 0.07, WOOD.end);
       else b.box(off - 0.07, y + 0.014, e0, off + 0.07, y + 0.154, e1, WOOD.end);
     }
   }
   // A post leaning on the stack, and two wedges and a mallet on top.
   const top = courses * 0.17;
-  beam(b, 0.75, 0.0, 0.2, 0.42, top + 0.9, 0.12, 0.13, 0.13, vary(WOOD.mid, rng, 0.08));
+  beam(b, 0.5, 0.0, 0.14, 0.3, top + 0.85, 0.08, 0.12, 0.12, vary(WOOD.mid, rng, 0.08));
   b.box(-0.2, top, -0.12, 0.0, top + 0.06, 0.02, WOOD.light);
-  b.box(0.05, top, 0.05, 0.22, top + 0.05, 0.16, WOOD.light);
-  b.push().translate(-0.1, top + 0.06, 0.25).rotateY(0.4);
-  b.box(-0.18, 0, -0.02, 0.12, 0.035, 0.02, WOOD.pale);
-  b.box(0.12, -0.0, -0.06, 0.22, 0.1, 0.06, WOOD.dark);
+  b.box(0.05, top, 0.05, 0.2, top + 0.05, 0.16, WOOD.light);
+  b.push().translate(-0.1, top + 0.06, 0.2).rotateY(0.4);
+  b.box(-0.16, 0, -0.02, 0.1, 0.035, 0.02, WOOD.pale);
+  b.box(0.1, -0.0, -0.06, 0.2, 0.1, 0.06, WOOD.dark);
   b.pop();
 };
 
