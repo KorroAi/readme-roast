@@ -79,7 +79,7 @@ describe('Lantern', () => {
     const l = new Lantern(OIL.fuelSeconds);
     l.update(0, false, COPPER);
     expect(l.capacity).toBe(COPPER.fuelSeconds);
-    expect(l.fraction).toBeCloseTo(0.5, 9);
+    expect(l.fraction).toBeCloseTo(OIL.fuelSeconds / COPPER.fuelSeconds, 9);
     expect(l.refill(COPPER)).toBe(true);
     expect(l.fuel).toBe(COPPER.fuelSeconds);
     expect(l.refill()).toBe(false);

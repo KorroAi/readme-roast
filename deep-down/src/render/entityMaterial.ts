@@ -68,6 +68,10 @@ uniform float uRim;
 uniform vec3 uHiColor;
 uniform vec2 uHi;
 uniform float uHiShimmer; // 1 for legendary finds: a slow band of light travels over them
+#ifdef SONAR_GLOW
+uniform vec4 uSonar;   // round 3: the terrain's sonar shell (render/sonar.ts)
+uniform vec4 uSonarFx;
+#endif
 
 in vec3 vWorldPos;
 in vec3 vNormal;
@@ -113,6 +117,17 @@ void main() {
   vec3 lantern = lanternLight(samplePos, vWorldPos, n, ls.a, 3.0 * uRim);
 #endif
   vec3 emissive = (albedo + uEmissiveColor) * vEmissive * uEmissiveScale;
+#ifdef SONAR_GLOW
+  // Round 3: what glows by itself (fungi, glow-worms, crystals, ice) flares as the sonar's shell
+  // passes and keeps a little of its light behind it: a wave of bioluminescence out from the lantern.
+  if (uSonarFx.y > 0.001 && vEmissive > 0.01) {
+    float sd = distance(vWorldPos, uSonar.xyz);
+    float ahead = (sd - uSonar.w) / 1.8;
+    float reach = 1.0 - smoothstep(0.75, 1.0, sd / max(uSonarFx.z, 1.0));
+    float wave = exp(-ahead * ahead) * 2.4 + step(sd, uSonar.w) * exp(-(uSonar.w - sd) * 0.07) * 0.8 * uSonarFx.w;
+    emissive *= 1.0 + wave * uSonarFx.y * reach;
+  }
+#endif
   if (uRim > 0.0) {
     // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half
     // desaturated on it (warm lamp light is not), so the ochre coat never turns teal. A faint
@@ -129,7 +144,7 @@ void main() {
     vec3 warm = uLanternColor * vec3(1.0, 0.62, 0.36) * uLanternIntensity;
     emissive += albedo * warm * (rim * away * near * 0.15 * uRim);
   }
-  vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact);
+  vec3 light = env * shade * contact + lantern * mix(0.7, 1.0, contact) + glowLight(vWorldPos, n);
   vec3 color = nearShoulder(albedo * light, albedo * lantern);
   // The flame glints on crafted things (wood, iron, brass) as it moves: soft lobe, low reflectance.
   color += lanternSpec(n, normalize(cameraPosition - vWorldPos), 0.5, vec3(0.04)) * contact;
@@ -185,6 +200,18 @@ export interface EntityMaterialOptions {
   debris?: boolean;
   /** Crystal shards (round 2): glass with an inner light, edge-weighted glow and a tight glint. */
   crystal?: boolean;
+  /**
+   * Round 3: the glowing parts flare with the sonar's shell (uSonar / uSonarFx: placeholders until
+   * shareSonar() hands it the terrain's).
+   */
+  sonarGlow?: boolean;
+}
+
+/** Share the terrain's sonar uniforms with a material made with `sonarGlow`. */
+export function shareSonar(m: THREE.ShaderMaterial, sonar: THREE.IUniform<THREE.Vector4>, fx: THREE.IUniform<THREE.Vector4>): void {
+  if (!('uSonar' in m.uniforms)) return;
+  m.uniforms.uSonar = sonar;
+  m.uniforms.uSonarFx = fx;
 }
 
 export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMaterialOptions = {}): THREE.ShaderMaterial {
@@ -201,8 +228,9 @@ export function createEntityMaterial(lighting: LightingUniforms, opts: EntityMat
       uHiColor: { value: new THREE.Vector3(1, 1, 1) },
       uHi: { value: new THREE.Vector2(0, 0) },
       uHiShimmer: { value: 0 },
+      ...(opts.sonarGlow ? { uSonar: { value: new THREE.Vector4(0, -9999, 0, 0) }, uSonarFx: { value: new THREE.Vector4(1, 0, 24, 0) } } : {}),
     },
-    defines: { ...(opts.debris ? { DEBRIS: '' } : {}), ...(opts.crystal ? { CRYSTAL: '' } : {}) },
+    defines: { ...(opts.debris ? { DEBRIS: '' } : {}), ...(opts.crystal ? { CRYSTAL: '' } : {}), ...(opts.sonarGlow ? { SONAR_GLOW: '' } : {}) },
     vertexShader: vertex,
     fragmentShader: fragment,
     side: opts.doubleSided ? THREE.DoubleSide : THREE.FrontSide,

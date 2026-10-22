@@ -77,8 +77,8 @@ describe('Crafting: the upgrade tree', () => {
     // The amended prerequisite 9: "the Rift reached".
     expect(NODES.attunedLantern.prereqs).toEqual(['copperLantern', 'rift']);
     expect(NODES.glimmerPickaxe.prereqs).toEqual(['ironPickaxe', 'rift']);
-    // Balance tiers: pickaxe 4, lantern 3, pack 3.
-    expect([PICKAXES.length, LANTERNS.length, PACKS.length]).toEqual([4, 3, 3]);
+    // Balance tiers (round 3: the strata's picks I-VI, five lanterns, four bags).
+    expect([PICKAXES.length, LANTERNS.length, PACKS.length]).toEqual([6, 5, 4]);
   });
 
   it('reports missing materials with have/need (storage and pack together)', () => {
@@ -173,11 +173,11 @@ describe('Crafting: the upgrade tree', () => {
     const r = Crafting.craft('sturdyPack', c);
     expect(r.ok).toBe(true);
     expect(r.packSlots).toBe(packForTier(2).slots);
-    expect(c.backpack.slotCount).toBe(8);
+    expect(c.backpack.slotCount).toBe(packForTier(2).slots);
     expect(c.backpack.count('glimmerShard')).toBe(2);
     stock(c, 'expeditionPack');
-    expect(craft('expeditionPack', c).packSlots).toBe(10);
-    expect(c.backpack.pouchSlots).toBe(2);
+    expect(craft('expeditionPack', c).packSlots).toBe(packForTier(3).slots);
+    expect(c.backpack.pouchSlots).toBe(packForTier(3).pouch);
   });
 
   it('every node is makeable from exactly its inputs once its prerequisites hold', () => {

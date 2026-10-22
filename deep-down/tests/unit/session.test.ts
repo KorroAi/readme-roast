@@ -3,7 +3,8 @@ import { B, isEmitter } from '../../src/config/blocks';
 import { WorldSession } from '../../src/game/WorldSession';
 
 // WorldSession builds Three.js objects but never touches WebGL until rendering, so the
-// world-edit, light and prop bookkeeping can be verified in Node.
+// world-edit, light and prop bookkeeping can be verified in Node. Round 3: in the game's world, a
+// generated stratum (stratum I of the default seed: the camp, its lamps and fire, mine camps).
 let session: WorldSession;
 
 beforeAll(async () => {
@@ -32,6 +33,13 @@ describe('WorldSession', () => {
     await session.applySave(delta, []);
     for (const [x, y, z] of edits) expect(w.get(x, y, z)).toBe(B.AIR);
     await session.reset();
+  });
+
+  it('loads with no edit at all (every generated prop stands on rock: nothing settles or breaks)', async () => {
+    await session.reset();
+    expect(session.worldEdits()).toEqual([]);
+    await session.applySave([], []);
+    expect(session.worldEdits()).toEqual([]);
   });
 
   it('ignores corrupt delta entries', async () => {
@@ -112,7 +120,7 @@ describe('WorldSession', () => {
   });
 
   it('restores removed props on reset and re-removes them from a save', async () => {
-    const id = [...session.liveProps.keys()].find((k) => k.startsWith('crystalCluster'))!;
+    const id = [...session.liveProps.values()].find((p) => p.kind === 'crystalCluster' && p.minable)!.id;
     await session.applySave([], [id]);
     expect(session.liveProps.has(id)).toBe(false);
     await session.reset();

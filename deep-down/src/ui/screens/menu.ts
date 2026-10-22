@@ -7,6 +7,9 @@ import { formatRelativeTime } from '../format';
 import { iconPx, itemIconDataUrl } from '../icons';
 import type { ScreenHost } from './host';
 import { btn, header, ledger } from './widgets';
+import { iconSvg } from '../hud/glyphs';
+
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 
 /** The Visual Lab button: dev builds, or ?lab for reviewers (never on a player's home screen). */
 function showLab(): boolean {
@@ -23,8 +26,8 @@ export function buildMenu(host: ScreenHost): HTMLElement {
   const seedInput = h('input', {
     class: 'dd-seed-input',
     type: 'text',
-    inputmode: 'numeric',
-    maxlength: 12,
+    inputmode: 'text',
+    maxlength: 24,
     autocomplete: 'off',
     spellcheck: 'false',
     placeholder: t('menu3.seed'),
@@ -148,23 +151,33 @@ export function buildDeath(host: ScreenHost): HTMLElement {
   const kept = inv.pouchSlots > 0 ? (inv.backpack.slice(inv.backpack.length - inv.pouchSlots).filter((s) => s !== null) as Array<{ item: ItemId; count: number }>) : [];
   const chips = (list: Array<[ItemId, number]>) =>
     ledger(list.map(([id, n]) => ({ icon: itemIconDataUrl(id, iconPx(24)), label: t(ITEMS[id].name), value: t('inventory.count', { count: n }), tone: ITEMS[id].rarity })));
+  const info = host.state.deathInfo;
+  // Round 3: the lantern goes out (a dark fall over the world, the flame dying), then the card rises
+  // with what did it, where, what was left and where the explorer wakes.
+  const flame = h('span', { class: 'dd-bo-flame', 'aria-hidden': 'true' });
+  flame.innerHTML = iconSvg('flame');
   return h(
     'section',
-    { class: 'dd-screen dd-overlay dd-death' },
+    { class: `dd-screen dd-overlay dd-death${info ? ' dd-bo' : ''}` },
+    info ? h('div', { class: 'dd-bo-veil', 'aria-hidden': 'true' }, flame) : null,
     h(
       'div',
-      { class: 'dd-panel dd-death-panel', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': t('death.title') },
-      h('h2', { class: 'dd-death-title', text: t('death.title') }),
-      h('p', { class: 'dd-death-body', text: t('death.body') }),
+      { class: 'dd-panel dd-death-panel', role: 'alertdialog', 'aria-modal': 'true', 'aria-label': info ? t('bo3.title') : t('death.title') },
+      h('h2', { class: 'dd-death-title', text: info ? t('bo3.title') : t('death.title') }),
+      info ? h('p', { class: 'dd-bo-cause', text: info.cause }) : null,
+      info && info.biome ? h('p', { class: 'dd-bo-where', text: t('bo3.where', { depth: info.depth, biome: info.biome, stratum: ROMAN[info.stratum] ?? String(info.stratum) }) }) : null,
+      info ? null : h('p', { class: 'dd-death-body', text: t('death.body') }),
       h('h3', { class: 'dd-section-title', text: t('death.cached') }),
       left.length ? chips(left) : h('p', { class: 'dd-muted', text: t('death.nothingLost') }),
       left.length && report?.cacheDepth !== null && report?.cacheDepth !== undefined
         ? h('p', { class: 'dd-death-cache', text: t('death.cacheAt', { depth: report.cacheDepth, count }) })
         : null,
+      left.length && info ? h('p', { class: 'dd-muted', text: t('bo3.mapMarks') }) : null,
       report && report.lostCount > 0 ? h('p', { class: 'dd-muted', text: t('death.cacheReplaced', { count: report.lostCount }) }) : null,
       kept.length ? h('h3', { class: 'dd-section-title', text: t('death.pouchKept') }) : null,
       kept.length ? chips(kept.map((s) => [s.item, s.count] as [ItemId, number])) : null,
-      btn(t('death.respawn'), () => host.actions.respawn(), { variant: 'primary', key: 'respawn', autofocus: true }),
+      info ? h('p', { class: 'dd-bo-wake', text: info.wake }) : null,
+      btn(info ? t('bo3.wake') : t('death.respawn'), () => host.actions.respawn(), { variant: 'primary', key: 'respawn', autofocus: true }),
     ),
   );
 }

@@ -76,7 +76,9 @@ export function dressBiomes(st: CarveState, seed: number): Decor {
   const decor: Decor = { lights: [], lakes: [], pools: [], columns: 0 };
   for (const n of st.plan.nodes) {
     const b = BIOMES[n.biome];
-    if (n.kind === 'arrival' || n.kind === 'gate' || n.kind === 'heart') continue;
+    if (n.kind === 'arrival' || n.kind === 'gate' || n.kind === 'heart' || n.kind === 'vista' || n.kind === 'overlook' || n.kind === 'dungeon') continue;
+    // A set piece dresses its own cavern; the river's chambers keep their pools clear.
+    if (n.role?.startsWith('set:') || n.river) continue;
     const count = n.kind === 'cavern' ? rng.int(5, 9) : n.kind === 'lair' ? 4 : rng.int(1, 3);
     for (let k = 0; k < count; k++) {
       const a = rng.range(0, Math.PI * 2);

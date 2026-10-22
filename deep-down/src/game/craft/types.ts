@@ -48,6 +48,10 @@ export interface CraftContext {
   stratum: number;
   /** Gear already owned (a pick, lantern, pack or weapon is crafted once). */
   owned: ReadonlySet<ItemId>;
+  /** Rare recipes bought from the trader (unlock 'trader'). */
+  bought?: ReadonlySet<string>;
+  /** Furnace fuel multiplier (the camp's chimney halves it; 1 elsewhere). */
+  fuelFactor?: number;
 }
 
 /**
@@ -161,9 +165,11 @@ export interface BagItemView {
   desc: string;
   category: InventoryCategory;
   grade: Rarity;
-  /** What the Inventory's detail pane offers. */
-  actions: Array<'use' | 'equip' | 'place' | 'assign' | 'drop' | 'bank'>;
+  /** What the Inventory's detail pane offers ('socket': set a gem, see socketOptions). */
+  actions: Array<'use' | 'equip' | 'place' | 'assign' | 'drop' | 'bank' | 'socket'>;
   equipped: boolean;
+  /** Gear with sockets (round 3 stretch): each socket's gem (null: empty), its name and what it does. */
+  sockets?: Array<{ gem: ItemId | null; name: string; fx: string }>;
 }
 
 export interface BagView {
@@ -237,5 +243,21 @@ declare module '../../core/events' {
     'recipe:unlocked': { recipe: string; item: ItemId };
     /** A station was placed (prop) or an outpost was set up. */
     'station:placed': { station: StationId | 'outpost'; x: number; y: number; z: number; stratum: number };
+    // Round 3 stretch (LOOP). Declared optional so the exhaustive sample tables of other owners
+    // (tests/unit/audio.test.ts) stay typed until they map them; listeners guard the payload.
+    /** A camp upgrade was built (`level` 1..). */
+    'camp:upgraded'?: { id: string; level: number };
+    /** A barter with the camp's trader (`recipe`: a rare recipe learned). */
+    'trade:done'?: { id: string; times: number; item: ItemId | null; recipe: string | null };
+    /** A gem was set in a weapon or an armour piece. */
+    'gem:socketed'?: { gem: ItemId; item: ItemId; socket: number };
+    /** The explorer is back at camp: the trip's summary (game/quests Trip). */
+    'trip:summary'?: { summary: import('../quests/Trip').TripSummary };
+    /** The Lampling's lure was used here (MOBS tames the nearest wild Lampling). */
+    'companion:lure'?: { x: number; y: number; z: number; radius: number };
+    /** A treat for the companion (MOBS heals it by `heal` and gives it `xp`). */
+    'companion:feed'?: { item: ItemId; xp: number; heal: number };
+    /** The daily descent's goal was reached (`seconds` from its start). */
+    'daily:done'?: { day: number; goal: string; seconds: number; best: boolean };
   }
 }

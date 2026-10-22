@@ -1,12 +1,14 @@
 import { packForTier, lanternForTier, PLAYER } from '../../config/balance';
-import { ARMOUR_SETS } from '../../config/armour';
+import { ARMOUR_CAP, ARMOUR_SETS } from '../../config/armour';
 import { CATALOGUE, INVENTORY_CATEGORIES, ITEMS, isItem, type EquipSlot, type HazardKind, type InventoryCategory, type ItemId } from '../../config/items';
 import { RECIPES, RECIPE_CATEGORIES, recipeInputs, type Recipe } from '../../config/recipes';
 import { OUTPOST, STATIONS, STATION_IDS, stationOfItem, type StationId } from '../../config/stations';
 import { WEAPONS, bestWeapon, type Weapon, type WeaponId } from '../../config/weapons';
 import { BIOMES, type BiomeId } from '../../config/biomes';
-import { B } from '../../config/blocks';
+import { B, BLOCKS } from '../../config/blocks';
 import type { Reward } from '../../config/quests';
+import { BONUS_DROPS } from '../../config/loot';
+import { Rng } from '../../core/rng';
 import { Hazards, type HazardProbe, type WorldHazard } from '../../gameplay/Hazards';
 import { Quests, type QuestWorld } from '../quests/Quests';
 import { Guide } from '../quests/Guide';
@@ -22,7 +24,13 @@ import type { Health } from '../../gameplay/Health';
 import type { Lantern } from '../../gameplay/Lantern';
 import type { HudSlot } from '../../ui/types';
 import { Craft, isUnlocked } from './CraftSystem';
+import { Builder, type BuilderSession, type BuiltThing } from './Builder';
+import { Camp, type CampCtx } from './Camp';
+import { CAMP_UPGRADES, type CampUpgradeId } from '../../config/camp';
 import { Hotbar, HOTBAR_SIZE, type HotbarSave } from './Hotbar';
+import { Sockets, gemLine, isGem, socketsOf, type SocketTotals } from './Sockets';
+import { Trip, type TripSummary } from '../quests/Trip';
+import { DAILY_EFFECT, daily, dayOf, goalMet, type DailyDef, type DailyRun, type DailySave } from '../quests/Daily';
 import type { CraftContext, CraftOutcome, HotbarView, ItemStore, LoopActions, PlaceRequest, CraftMenuView, BagView, RecipeCardView, BagItemView } from './types';
 
 /** What Loop reads from the game (Game satisfies it structurally). */
@@ -37,8 +45,23 @@ export interface LoopHost {
   readonly player: { x: number; y: number; z: number };
   /** WORLD's StratumManager (absent on the old hand-made world). */
   readonly strata?: StrataLike | null;
-  /** The voxels, for the hazard probes (torch warmth, lava heat). */
-  readonly session?: { world: { get(x: number, y: number, z: number): number } } | null;
+  /** The voxels (the hazard probes: torch warmth, lava heat) and the props (placed stations and outposts). */
+  readonly session?: (BuilderSession & { world: { get(x: number, y: number, z: number): number } }) | null;
+  markHalosDirty?(): void;
+  /** The drops in the world (game/Drops): bonus drops of mined blocks fly out of the rock with the main one. */
+  readonly drops?: { spawn(item: ItemId, count: number, x: number, y: number, z: number, rng: Rng): void } | null;
+  /**
+   * MOBS' creatures, for the Lampling companion (read by shape; each part optional):
+   * `lureLampling` tames the nearest wild Lampling within `radius` (true when one came),
+   * `hasCompanion` tells whether a tame one follows the explorer.
+   */
+  readonly mobs?: object | null;
+}
+
+/** The parts of MOBS' director the companion items use (all optional, read by shape). */
+interface CompanionHooks {
+  lureLampling?(x: number, y: number, z: number, radius: number): boolean;
+  hasCompanion?(): boolean;
 }
 
 /** The parts of WORLD's StratumManager the loop reads (game/Stratum). */
@@ -50,17 +73,22 @@ export interface StrataLike {
   isRevealed(lairId: string): boolean;
   gateOpen(): boolean;
   openGate(): boolean;
+  /** Displayed depth (m) of a height in the loaded stratum. */
+  depth?(y: number): number;
   descend(): Promise<boolean>;
   addOutpost?(id: string, x: number, y: number, z: number): unknown;
 }
 
 /** A station placed in the world (Place on a Furnace, Forge or Alchemy Table item). */
 export interface PlacedStation {
+  /** The prop's id (`station:<stratum>:<n>`). */
+  id: string;
   station: StationId;
   stratum: number;
   x: number;
   y: number;
   z: number;
+  rotY: number;
 }
 
 /** An outpost (the Outpost Kit, placed). */
@@ -70,6 +98,7 @@ export interface Outpost {
   x: number;
   y: number;
   z: number;
+  rotY?: number;
 }
 
 export interface LoopSave {
@@ -89,6 +118,10 @@ export interface LoopSave {
   seed: number;
   bestiaryFound: number;
   quests: unknown;
+  camp?: unknown;
+  sockets?: unknown;
+  trips?: unknown;
+  daily?: DailySave;
   tips: string[];
   /** Health at the save (the armour's extra max health is applied after the Health is rebuilt). */
   hp: number;
@@ -102,13 +135,21 @@ export interface LoopCounters {
   placed: number;
   outposts: number;
   used: number;
+  /** Round 3 stretch: camp levels built, barters made, gems set, daily goals reached. */
+  upgrades: number;
+  trades: number;
+  gems: number;
+  dailies: number;
+  /** Creatures defeated (not the guardians). */
+  kills: number;
 }
 
-const ZERO_COUNTERS: LoopCounters = { crafted: 0, smelted: 0, torches: 0, placed: 0, outposts: 0, used: 0 };
+const ZERO_COUNTERS: LoopCounters = { crafted: 0, smelted: 0, torches: 0, placed: 0, outposts: 0, used: 0, upgrades: 0, trades: 0, gems: 0, dailies: 0, kills: 0 };
 
 const CAT_KEY: Record<string, TextKey> = {
   tools: 'craft3.cat.tools', weapons: 'craft3.cat.weapons', armour: 'craft3.cat.armour', lanterns: 'craft3.cat.lanterns',
   consumables: 'craft3.cat.consumables', building: 'craft3.cat.building', stations: 'craft3.cat.stations', smelting: 'craft3.cat.smelting',
+  camp: 'craft3.cat.camp', trader: 'craft3.cat.trader',
 };
 const BAG_KEY: Record<InventoryCategory, TextKey> = {
   materials: 'bag3.cat.materials', gear: 'bag3.cat.gear', consumables: 'bag3.cat.consumables', building: 'bag3.cat.building', key: 'bag3.cat.key',
@@ -118,6 +159,11 @@ const SLOT_KEY: Record<EquipSlot, TextKey> = {
 };
 
 const dist2 = (a: { x: number; y: number; z: number }, b: { x: number; y: number; z: number }) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+
+/** Metres from the camp fire within which a station placed at the camp serves the whole camp. */
+const CAMP_REACH = 16;
+/** A burning flare's light and warmth reach (m). */
+const FLARE_RADIUS = 8;
 
 /**
  * The loop's hub (round 3, LOOP): the bag, the bank, gear, the hotbar, crafting, stations and
@@ -146,6 +192,22 @@ export class Loop implements LoopActions {
   readonly quests: Quests;
   readonly guide: Guide;
   readonly hazards = new Hazards();
+  /** Placed stations and outposts as props in the loaded stratum. */
+  readonly builder: Builder;
+  /** The camp's upgrades and the trader (round 3 stretch). */
+  readonly camp = new Camp();
+  /** Gems set in weapons and armour (round 3 stretch). */
+  readonly sockets = new Sockets();
+  private readonly socketOut: SocketTotals = { damage: 0, speed: 0, armour: 0, health: 0, wards: { cold: 0, gas: 0, heat: 0, dark: 0 } };
+  /** The trip summary (round 3 stretch): counted from the camp to the camp. */
+  readonly trip: Trip;
+  private tripEnding: 'returned' | 'blackout' | null = null;
+  /** The daily descent in progress (null: an ordinary expedition), and the best times per day. */
+  dailyRun: DailyRun | null = null;
+  dailyBest: Record<string, number> = {};
+  private dailyT = 0;
+  private shownLayout: unknown = null;
+  private placedSeq = 0;
   /** The expedition seed (orders and loot), set by Game on a new game / load. */
   seed = 0x5eed;
   /** Bestiary pages found so far (from MOBS' 'mob:bestiary'). */
@@ -159,7 +221,6 @@ export class Loop implements LoopActions {
   };
   private lastPos = { x: 0, y: 0, z: 0 };
   private qworld: QuestWorld | null = null;
-  private qworldT = -1;
   private clock = 0;
   private readonly hudOut: LoopHud;
 
@@ -178,8 +239,12 @@ export class Loop implements LoopActions {
         this.bonusHealth = n;
         this.syncGear();
       },
+      orderFactor: () => this.camp.orderFactor(),
+      held: () => this.hotbar.held(),
     });
     this.guide = new Guide(host.bus);
+    this.builder = new Builder(host);
+    this.trip = new Trip(host.bus);
     this.hotbar = new Hotbar({
       count: (item) => this.host.backpack.count(item),
       pick: () => this.gear.equipped.pick ?? 'rustyPick',
@@ -204,15 +269,43 @@ export class Loop implements LoopActions {
   wire(): void {
     const bus = this.host.bus;
     bus.on('item:picked', (e) => this.learn(e.item));
+    bus.on('block:broken', (e) => this.bonusDrop(e.block, e.x, e.y, e.z));
     bus.on('mob:bestiary', (e) => {
       if (e.page === 'new') this.bestiaryFound = Math.max(this.bestiaryFound + 1, e.found);
     });
-    bus.on('world:stratum', (e) => this.enterStratum(e.stratum));
+    bus.on('world:stratum', (e) => {
+      this.enterStratum(e.stratum);
+      this.showBuilt();
+    });
     this.quests.wire();
     this.guide.wire();
     bus.on('player:placed', (e) => {
       this.counters.placed++;
       if (e.item === 'torch') this.counters.torches++;
+    });
+    // The hub builds a fresh Health on a respawn: the armour and the extra max health go back on.
+    bus.on('player:respawned', () => {
+      this.hazards.reset();
+      this.syncGear(true);
+    });
+    // The trip summary: a trip runs from leaving the camp to coming back (or a black-out); it ends
+    // on the next frame, so the orders paid and the bag banked on arrival count for it.
+    this.trip.wire();
+    bus.on('camp:left', () => {
+      if (!this.trip.active) this.trip.start(this.clock, this.host.strata?.current ?? this.stratum, (this.host.strata?.biomeHere ?? null) as never);
+    });
+    bus.on('camp:entered', () => {
+      if (this.trip.active) this.tripEnding = 'returned';
+      if (this.atMainCamp()) this.arriveAtCamp();
+    });
+    bus.on('player:died', () => {
+      if (this.trip.active) this.tripEnding = 'blackout';
+    });
+    bus.on('quest:shard', () => {
+      if ((this.host.strata?.current ?? 1) === 1) this.showBuilt(true);
+    });
+    bus.on('mob:died', (e) => {
+      if (e.rank !== 'guardian' && e.rank !== 'boss') this.counters.kills++;
     });
   }
 
@@ -228,9 +321,16 @@ export class Loop implements LoopActions {
     this.unlockedCache.clear();
     this.stations = [];
     this.outposts = [];
+    this.placedSeq = 0;
     this.bed = null;
     this.stratum = 1;
     this.deepest = 1;
+    this.builder.sync([]);
+    this.shownLayout = null;
+    this.camp.reset();
+    this.sockets.reset();
+    this.tripEnding = null;
+    this.dailyRun = null;
     for (const k of Object.keys(this.wards)) delete this.wards[k as HazardKind];
     this.counters = { ...ZERO_COUNTERS };
     this.bonusHealth = 0;
@@ -244,10 +344,13 @@ export class Loop implements LoopActions {
   /** A new game: a fresh loop, the tutorial from its first step, the starter gift in the bag. */
   newGame(seed: number, tutorial = true, gift: Reward = {}): void {
     this.seed = seed >>> 0;
+    this.dropRng = new Rng(this.seed ^ 0xb0b);
     this.reset();
+    this.camp.restock(this.seed, 1);
     this.quests.reset(this.seed, tutorial);
     for (const id of Object.keys(this.host.backpack.totals()) as ItemId[]) this.learn(id);
     this.pay(gift, 'starter');
+    this.guide.quietItems(this.known);
   }
 
   /** Pay a reward: the bag first, the bank for what does not fit. */
@@ -277,7 +380,12 @@ export class Loop implements LoopActions {
   /** The weapon an attack at `distance` m uses: the equipped one when it reaches, else the best owned (config/weapons). */
   weaponFor(distance = 0): Weapon {
     const owned = [...this.gear.owned].filter((id) => ITEMS[id].equip === 'weapon');
-    return bestWeapon(owned, distance, this.gear.equipped.weapon);
+    const w = bestWeapon(owned, distance, this.gear.equipped.weapon);
+    // The trophy wall, and the gems set in the weapon in hand.
+    const st = w.id === this.gear.equipped.weapon ? this.socketTotals() : null;
+    const f = this.camp.damageFactor(this.quests.shards.size) * (1 + (st?.damage ?? 0));
+    const speed = 1 + (st?.speed ?? 0);
+    return f === 1 && speed === 1 ? w : { ...w, damage: w.damage * f, rate: w.rate / speed };
   }
 
   /** Weapons owned (Combat's 'owned' list). */
@@ -292,6 +400,7 @@ export class Loop implements LoopActions {
     this.known.add(item);
     this.hotbar.offer(item);
     if (!fresh) return;
+    this.guide.firstItem(item);
     const ctx = this.unlockCtx();
     for (const r of RECIPES) {
       if (this.unlockedCache.has(r.id) || !isUnlocked(r, ctx)) continue;
@@ -309,8 +418,13 @@ export class Loop implements LoopActions {
     for (const r of RECIPES) if (!this.unlockedCache.has(r.id) && isUnlocked(r, ctx)) this.unlockedCache.add(r.id);
   }
 
-  private unlockCtx(): Pick<CraftContext, 'known' | 'stratum'> {
-    return { known: this.known, stratum: this.deepest };
+  private unlockCtx(): Pick<CraftContext, 'known' | 'stratum' | 'bought'> {
+    return { known: this.known, stratum: this.deepest, bought: this.camp.bought };
+  }
+
+  /** At the stratum I camp (not a lift landing): the upgrades and the trader are there. */
+  atMainCamp(): boolean {
+    return this.host.inCamp && (this.host.strata?.current ?? 1) === 1;
   }
 
   /** Apply the gear to the tools the rest of the game reads (mining tier, lantern, bag size, health). */
@@ -321,10 +435,165 @@ export class Loop implements LoopActions {
     h.equipment.upgrade('pack', this.gear.tier('pack'));
     const pack = packForTier(Math.max(this.gear.tier('pack'), h.equipment.tier('pack')));
     if (h.backpack.slotCount < pack.slots) h.backpack.resize(pack.slots, pack.pouch);
-    const max = PLAYER.maxHealth + this.gear.bonusHealth() + this.bonusHealth;
+    const st = this.socketTotals();
+    const max = Math.max(20, PLAYER.maxHealth + this.gear.bonusHealth() + this.bonusHealth + this.camp.bonusHealth() + st.health + this.dailyFactor('maxHealth'));
     h.health.setMax(max, heal);
-    h.health.armour = this.gear.armour();
+    h.health.armour = Math.min(ARMOUR_CAP, this.gear.armour() + st.armour);
   }
+
+  /** Back at the stratum I camp: the garden's harvest goes to the bank, the trader brings new wares. */
+  private arriveAtCamp(): void {
+    const grown = this.camp.harvest();
+    const items = Object.entries(grown) as Array<[ItemId, number]>;
+    if (items.length && this.trip.active) {
+      for (const [id, n] of items) {
+        this.host.storage.add(id, n);
+        this.learn(id);
+      }
+      this.host.bus.emit('reward:paid', { items: grown, reason: 'garden' });
+      this.host.bus.emit('toast', { text: t('camp3.garden.harvest', { items: items.map(([id, n]) => `${n} ${t(ITEMS[id].name)}`).join(', ') }), tone: 'good' });
+    }
+    if (this.trip.active) {
+      this.camp.restock(this.seed, this.deepest);
+      this.host.bus.emit('toast', { text: t('trader3.restock'), tone: 'info' });
+    }
+  }
+
+  // ------------------------------------------------------------------------------------
+  // The daily descent
+
+  /** Today's daily descent, with the best time recorded for it (null: none yet). */
+  dailyToday(now = Date.now()): DailyDef & { best: number | null } {
+    const d = daily(dayOf(now));
+    const best = this.dailyBest[String(d.day)];
+    return { ...d, best: typeof best === 'number' ? best : null };
+  }
+
+  /**
+   * Start a daily run on the expedition just begun (New Game → Daily Descent: the hub starts the
+   * new game on `def.seed`, then calls this). Its modifiers apply at once.
+   */
+  startDaily(def: DailyDef = daily()): void {
+    this.dailyRun = { day: def.day, goal: def.goal, mods: [...def.mods], t0: this.clock, done: null };
+    for (const m of def.mods) {
+      const gift = DAILY_EFFECT[m].gift;
+      if (gift) this.pay(gift, 'daily');
+    }
+    this.syncGear();
+  }
+
+  private loadDaily(x: unknown): void {
+    this.dailyRun = null;
+    this.dailyBest = {};
+    if (!x || typeof x !== 'object') return;
+    const o = x as Partial<DailySave>;
+    if (o.best && typeof o.best === 'object') for (const [k, v] of Object.entries(o.best)) if (typeof v === 'number' && Number.isFinite(v) && v >= 0) this.dailyBest[k] = v;
+    const r = o.run as Partial<DailyRun> | null | undefined;
+    if (r && typeof r.day === 'number' && typeof r.goal === 'string' && Array.isArray(r.mods)) {
+      const def = daily(r.day);
+      this.dailyRun = { day: def.day, goal: def.goal, mods: [...def.mods], t0: typeof r.t0 === 'number' ? r.t0 : 0, done: typeof r.done === 'number' ? r.done : null };
+    }
+  }
+
+  /** The active daily modifiers (MOBS reads 'swarm'). */
+  dailyMods(): readonly string[] {
+    return this.dailyRun?.mods ?? [];
+  }
+
+  private dailyFactor(key: 'burn' | 'maxHealth' | 'dropBonus' | 'swarm'): number {
+    let v = key === 'maxHealth' || key === 'dropBonus' ? 0 : 1;
+    for (const m of this.dailyRun?.mods ?? []) {
+      const e = DAILY_EFFECT[m as keyof typeof DAILY_EFFECT]?.[key];
+      if (typeof e === 'number') v = key === 'maxHealth' || key === 'dropBonus' ? v + e : v * e;
+    }
+    return v;
+  }
+
+  private checkDaily(): void {
+    const run = this.dailyRun;
+    if (!run || run.done !== null) return;
+    const q = this.quests;
+    if (!goalMet(run.goal, { shards: q.shards.size, gatesOpened: q.gatesOpened.size, deepest: this.deepest, guardians: q.shards.size })) return;
+    const seconds = Math.max(0, this.clock - run.t0);
+    run.done = seconds;
+    this.counters.dailies++;
+    const key = String(run.day);
+    const prev = this.dailyBest[key];
+    const best = typeof prev !== 'number' || seconds < prev;
+    if (best) this.dailyBest[key] = seconds;
+    // Keep the last 14 days.
+    for (const k of Object.keys(this.dailyBest)) if (Number(k) < run.day - 14) delete this.dailyBest[k];
+    const m = Math.floor(seconds / 60);
+    const time = t('trip3.minutes', { m, s: Math.round(seconds - m * 60) });
+    this.host.bus.emit('daily:done', { day: run.day, goal: run.goal, seconds, best });
+    this.host.bus.emit('toast', { text: `${t('daily3.done', { goal: t(`daily3.goal.${run.goal}` as TextKey), time })}${best ? ` · ${t('daily3.new')}` : ''}`, tone: 'good' });
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Gem sockets
+
+  /** Gems in the bag (and the bank in reach) that fit a piece, with what each would do there. */
+  socketOptions(item: ItemId): Array<{ gem: ItemId; name: string; count: number; fx: string }> {
+    const where = ITEMS[item].equip === 'weapon' ? 'weapon' : 'armour';
+    if (socketsOf(item) === 0) return [];
+    const bank = this.bankHere();
+    const out: Array<{ gem: ItemId; name: string; count: number; fx: string }> = [];
+    for (const id of CATALOGUE) {
+      if (!isGem(id)) continue;
+      const n = this.host.backpack.count(id) + (bank ? this.host.storage.count(id) : 0);
+      if (n > 0) out.push({ gem: id, name: t(ITEMS[id].name), count: n, fx: gemLine(id, where) });
+    }
+    return out;
+  }
+
+  /** Why a gem cannot be set now (null: it can). */
+  socketBlock(item: ItemId, gem: ItemId): string | null {
+    if (!this.camp.gemCutting) return t('gem3.needCutter');
+    if (!this.stationsNear().has('forge')) return t('gem3.needForge');
+    if (!this.gear.owned.has(item) || socketsOf(item) === 0 || !isGem(gem)) return t('bag3.cantUse');
+    const have = this.host.backpack.count(gem) + (this.bankHere() ? this.host.storage.count(gem) : 0);
+    return have > 0 ? null : t('craft3.missing', { items: `1 ${t(ITEMS[gem].name)}` });
+  }
+
+  /** Set a gem in a piece of gear (at a Forge, gem cutting bought). The gem a full piece gives up goes back to the bag. */
+  socket(item: ItemId, gem: ItemId): boolean {
+    if (this.socketBlock(item, gem) !== null) return false;
+    const res = this.sockets.put(item, gem);
+    if (!res) return false;
+    if (this.host.backpack.remove(gem, 1) < 1) this.host.storage.remove(gem, 1);
+    if (res.replaced) {
+      const a = this.host.backpack.add(res.replaced, 1);
+      if (a < 1) this.host.storage.add(res.replaced, 1);
+    }
+    this.syncGear(false);
+    this.counters.gems++;
+    this.host.bus.emit('gem:socketed', { gem, item, socket: res.socket });
+    this.host.bus.emit('toast', { text: t('gem3.set', { gem: t(ITEMS[gem].name), item: t(ITEMS[item].name) }), tone: 'good' });
+    this.host.bus.emit('inventory:changed', {});
+    return true;
+  }
+
+  /** The worn gems' bonuses (reused object). */
+  private socketTotals(): SocketTotals {
+    const e = this.gear.equipped;
+    return this.sockets.totals(e.weapon, [e.head, e.chest, e.feet], this.socketOut);
+  }
+
+  /** A mined block's bonus drop (config/loot BONUS_DROPS: loose rock with every ore). */
+  private bonusDrop(block: number, x: number, y: number, z: number): void {
+    const b = BONUS_DROPS.get(block);
+    const drops = this.host.drops;
+    if (!b || !drops) return;
+    // The daily's rich veins: half the ores give one more of their own.
+    const rich = this.dailyFactor('dropBonus');
+    const main = BLOCKS[block]?.drop?.item ?? null;
+    if (rich > 0 && main && main !== 'stone' && this.dropRng.next() < rich) drops.spawn(main, 1, x + 0.5, y + 0.5, z + 0.5, this.dropRng);
+    if (this.dropRng.next() >= b.chance) return;
+    const n = this.dropRng.int(b.min, b.max);
+    if (n > 0) drops.spawn(b.item, n, x + 0.5, y + 0.5, z + 0.5, this.dropRng);
+  }
+  /** The bonus drops' own stream (the shared game rng stays aligned for everything else). */
+  private dropRng = new Rng(0x5eed ^ 0xb0b);
 
   // ------------------------------------------------------------------------------------
   // Stations and outposts
@@ -355,32 +624,102 @@ export class Loop implements LoopActions {
     set.clear();
     set.add('hand');
     if (this.host.inCamp || this.outpostNear(OUTPOST.benchRadius)) set.add('workbench');
+    const camp = this.atMainCamp();
+    if (camp) set.add('trader');
     const p = this.host.player;
+    // At the camp, its stations are in reach anywhere round the fire (the camp is one workshop).
+    const fire = camp ? this.host.strata?.layout?.campSite?.fire ?? null : null;
     for (const s of this.stations) {
       if (s.stratum !== this.stratum) continue;
       if (dist2(s, p) <= STATIONS[s.station].reach ** 2) set.add(s.station);
+      else if (fire && (s.x - fire[0]) ** 2 + (s.z - fire[2]) ** 2 <= CAMP_REACH * CAMP_REACH) set.add(s.station);
     }
     return set;
   }
 
-  /** Record a placed station (the prop is WORLD's/VIS's to draw). */
+  /**
+   * Place a station (Place on a Furnace, Forge or Alchemy Table item): it rises out of the floor and
+   * opens the Craft menu on Interact. At the camp it takes its own spot when that is free (WORLD's
+   * camp plan: the camp visibly grows).
+   */
   placeStation(station: StationId, at: { x: number; y: number; z: number }): PlacedStation {
-    const s: PlacedStation = { station, stratum: this.stratum, x: at.x, y: at.y, z: at.z };
+    const p = this.host.player;
+    let pos = { x: at.x, y: at.y, z: at.z, rotY: Math.atan2(p.x - at.x, p.z - at.z) };
+    const slot = this.campSlot(station);
+    if (slot) pos = slot;
+    const s: PlacedStation = { id: `station:${this.stratum}:${++this.placedSeq}`, station, stratum: this.stratum, ...pos };
     this.stations.push(s);
-    this.host.bus.emit('station:placed', { station, x: at.x, y: at.y, z: at.z, stratum: this.stratum });
+    this.builder.show({ id: s.id, kind: station, x: s.x, y: s.y, z: s.z, rotY: s.rotY }, true);
+    this.host.bus.emit('station:placed', { station, x: s.x, y: s.y, z: s.z, stratum: this.stratum });
     return s;
+  }
+
+  /** The camp's own spot for a station (stratum I's camp plan), when the explorer is at camp and it is free. */
+  private campSlot(station: StationId): { x: number; y: number; z: number; rotY: number } | null {
+    if (!this.host.inCamp || this.stratum !== 1) return null;
+    const plan = this.host.strata?.layout?.campSite?.stations ?? null;
+    const spot = plan?.find((x) => x.station === station) ?? null;
+    if (!spot) return null;
+    const taken = this.stations.some((s) => s.stratum === 1 && Math.abs(s.x - spot.p[0]) < 0.5 && Math.abs(s.z - spot.p[2]) < 0.5);
+    return taken ? null : { x: spot.p[0], y: spot.p[1], z: spot.p[2], rotY: spot.rotY };
   }
 
   /** Set up an outpost (the kit placed). @returns null when the stratum has its maximum. */
   placeOutpost(at: { x: number; y: number; z: number }): Outpost | null {
     if (this.outposts.filter((o) => o.stratum === this.stratum).length >= OUTPOST.maxPerStratum) return null;
-    const o: Outpost = { id: `outpost:${this.stratum}:${this.counters.outposts + 1}`, stratum: this.stratum, x: at.x, y: at.y, z: at.z };
+    const p = this.host.player;
+    const o: Outpost = { id: `outpost:${this.stratum}:${this.counters.outposts + 1}`, stratum: this.stratum, x: at.x, y: at.y, z: at.z, rotY: Math.atan2(p.x - at.x, p.z - at.z) };
     this.outposts.push(o);
     this.counters.outposts++;
     this.bed = o.id;
     this.host.strata?.addOutpost?.(o.id, at.x, at.y, at.z);
+    this.builder.show({ id: o.id, kind: 'outpost', x: o.x, y: o.y, z: o.z, rotY: o.rotY ?? 0 }, true);
     this.host.bus.emit('station:placed', { station: 'outpost', x: at.x, y: at.y, z: at.z, stratum: this.stratum });
     return o;
+  }
+
+  /**
+   * Show the current stratum's stations and outposts, and at the stratum I camp its upgrades, the
+   * trophies and the trader (on entering or restoring a stratum; `rise`: the new ones come up out of
+   * the floor, after a build).
+   */
+  showBuilt(rise = false): void {
+    const n = this.host.strata?.current ?? this.stratum;
+    const things: BuiltThing[] = [];
+    for (const s of this.stations) if (s.stratum === n) things.push({ id: s.id, kind: s.station, x: s.x, y: s.y, z: s.z, rotY: s.rotY });
+    for (const o of this.outposts) if (o.stratum === n) things.push({ id: o.id, kind: 'outpost', x: o.x, y: o.y, z: o.z, rotY: o.rotY ?? 0 });
+    const fire = n === 1 ? this.host.strata?.layout?.campSite?.fire ?? null : null;
+    if (fire) things.push(...this.camp.props(fire, [...this.quests.shards]));
+    if (rise) {
+      const before = new Set(things.filter((x) => this.host.session?.liveProps.has(x.id)).map((x) => x.id));
+      this.builder.sync(things.filter((x) => before.has(x.id)));
+      for (const x of things) if (!before.has(x.id)) this.builder.show(x, true);
+    } else this.builder.sync(things);
+    this.shownLayout = this.host.strata?.layout ?? null;
+  }
+
+  /** Where a black-out wakes the explorer: the bed of an outpost in the loaded stratum (null: the hub's spawn). */
+  respawnSpot(): { x: number; y: number; z: number; yaw: number } | null {
+    const n = this.host.strata?.current ?? this.stratum;
+    const o = this.bed ? this.outposts.find((x) => x.id === this.bed && x.stratum === n) : null;
+    if (!o || !this.host.strata?.layout) return null;
+    // Beside the tent, facing it.
+    const a = (o.rotY ?? 0) + Math.PI;
+    return { x: o.x + Math.sin(a) * 1.4, y: o.y, z: o.z + Math.cos(a) * 1.4, yaw: a };
+  }
+
+  /**
+   * Rest at an outpost (its Interact): its bed becomes the respawn point and the bag is banked (the
+   * hotbar's loadout stays). The hub heals and refills the lantern as at the camp fire.
+   */
+  restAtOutpost(id: string): boolean {
+    const o = this.outposts.find((x) => x.id === id);
+    if (!o) return false;
+    this.bed = o.id;
+    this.bankAll();
+    this.hazards.reset();
+    this.host.bus.emit('toast', { text: t('outpost3.rested'), tone: 'good' });
+    return true;
   }
 
   /** What the Place action would put down for the held item (null: nothing placeable held). */
@@ -421,7 +760,8 @@ export class Loop implements LoopActions {
   // ------------------------------------------------------------------------------------
   // Crafting
 
-  craftContext(): CraftContext {
+  craftContext(): CampCtx {
+    const atCamp = this.atMainCamp();
     return {
       bag: this.bagStore,
       bank: this.bankHere() ? this.bankStore : null,
@@ -429,10 +769,16 @@ export class Loop implements LoopActions {
       known: this.known,
       stratum: this.deepest,
       owned: this.gear.owned,
+      bought: this.camp.bought,
+      fuelFactor: this.camp.fuelFactor(atCamp),
+      atCamp,
+      deepest: this.deepest,
     };
   }
 
   craft(recipeId: string, times = 1): CraftOutcome {
+    if (recipeId.startsWith('camp:')) return this.buildUpgrade(recipeId.slice(5) as CampUpgradeId);
+    if (recipeId.startsWith('trade:')) return this.trade(recipeId.slice(6), times);
     const rec = RECIPES.find((r) => r.id === recipeId) ?? null;
     const ctx = this.craftContext();
     const gearOut = rec ? !!ITEMS[rec.output.item].equip : false;
@@ -458,6 +804,44 @@ export class Loop implements LoopActions {
     return out;
   }
 
+  /** Build the next level of a camp upgrade (at the camp's Workbench). */
+  buildUpgrade(id: CampUpgradeId): CraftOutcome {
+    const ctx = this.craftContext();
+    const out = this.camp.build(id, ctx);
+    if (!out.ok) return out;
+    const def = CAMP_UPGRADES[id];
+    const lv = this.camp.levels[id];
+    this.showBuilt(true);
+    this.syncGear();
+    this.counters.upgrades++;
+    this.host.bus.emit('camp:upgraded', { id, level: lv });
+    this.host.bus.emit('toast', { text: t('camp3.upgraded', { name: t(def.name), does: t(def.levels[lv - 1].does) }), tone: 'good' });
+    this.host.bus.emit('inventory:changed', {});
+    return out;
+  }
+
+  /** Barter with the trader (at the camp); a rare recipe is learned for good. */
+  trade(id: string, times = 1): CraftOutcome {
+    const ctx = this.craftContext();
+    const out = this.camp.trade(id, ctx, times);
+    if (!out.ok) return out;
+    const def = this.camp.stock(this.deepest).find((x) => x.id === id) ?? null;
+    if (def) this.learn(def.get.item);
+    if (out.learned) {
+      // The recipe shows in its tab at once (and a 'recipe:unlocked' pip for the menu).
+      const r = RECIPES.find((x) => x.id === out.learned);
+      if (r) {
+        this.unlockedCache.add(r.id);
+        this.host.bus.emit('recipe:unlocked', { recipe: r.id, item: r.output.item });
+        this.host.bus.emit('toast', { text: t('trader3.learned', { name: t(ITEMS[r.output.item].name) }), tone: 'good' });
+      } else if (out.learned === 'sockets') this.host.bus.emit('toast', { text: t('trader3.learned', { name: t('trader3.recipe.sockets') }), tone: 'good' });
+    } else if (def) this.host.bus.emit('toast', { text: t('trader3.done', { items: `${out.added} ${t(ITEMS[def.get.item].name)}` }), tone: 'good' });
+    this.counters.trades += out.made;
+    this.host.bus.emit('trade:done', { id, times: out.made, item: def?.get.item ?? null, recipe: out.learned });
+    this.host.bus.emit('inventory:changed', {});
+    return out;
+  }
+
   /** The Crafting menu (LOOP's own view). */
   craftView(): CraftMenuView {
     const ctx = this.craftContext();
@@ -467,6 +851,7 @@ export class Loop implements LoopActions {
       if (c.state === 'hidden') continue;
       cards.push(this.card(r, c.state, c.have, c.max, c.fuelHave));
     }
+    cards.push(...this.camp.upgradeCards(ctx), ...this.camp.traderCards(ctx));
     cards.sort((a, b) => Number(b.state === 'ok') - Number(a.state === 'ok'));
     const categories = RECIPE_CATEGORIES.map((id) => ({
       id,
@@ -554,6 +939,25 @@ export class Loop implements LoopActions {
       if (u.heal) h.health.heal(u.heal);
       ok = true;
       text = t('bag3.warded', { hazard: t(`hazard.${u.hazard}` as TextKey), seconds: u.seconds });
+    } else if (u.kind === 'lure') {
+      const p = h.player;
+      const mobs = (h.mobs ?? null) as CompanionHooks | null;
+      if (mobs?.lureLampling && !mobs.lureLampling(p.x, p.y, p.z, 10)) {
+        h.bus.emit('toast', { text: t('companion3.none'), tone: 'info' });
+        return false;
+      }
+      h.bus.emit('companion:lure', { x: p.x, y: p.y, z: p.z, radius: 10 });
+      ok = true;
+      text = t('companion3.lured');
+    } else if (u.kind === 'feed') {
+      const mobs = (h.mobs ?? null) as CompanionHooks | null;
+      if (mobs?.hasCompanion && !mobs.hasCompanion()) {
+        h.bus.emit('toast', { text: t('companion3.none'), tone: 'info' });
+        return false;
+      }
+      h.bus.emit('companion:feed', { item, xp: u.xp, heal: u.heal });
+      ok = true;
+      text = t('companion3.fed');
     } else {
       // Thrown things (bombs, flares) go through the hub's throw action (UI) which calls consumeThrown.
       return false;
@@ -565,6 +969,16 @@ export class Loop implements LoopActions {
     h.bus.emit('inventory:changed', {});
     h.bus.emit('toast', { text, tone: 'good' });
     return true;
+  }
+
+  /** Burning flares (thrown): their light keeps the dark and the cold back within FLARE_RADIUS. */
+  private readonly flares: Array<{ x: number; y: number; z: number; left: number }> = [];
+
+  /** A thrown flare landed here and burns `seconds` (the hub's throw calls it; the light is the hazards'). */
+  flareAt(x: number, y: number, z: number, seconds?: number): void {
+    const s = seconds ?? (ITEMS.flare.use?.kind === 'flare' ? ITEMS.flare.use.seconds : 40);
+    if (this.flares.length >= 8) this.flares.shift();
+    this.flares.push({ x, y, z, left: s });
   }
 
   /** A bomb or flare was thrown by the hub: spend one. */
@@ -605,14 +1019,22 @@ export class Loop implements LoopActions {
     return v.slots.map((s) => ({ item: s.item, name: s.item ? t(ITEMS[s.item].name) : '', count: s.count, placeable: s.mode === 'place' }));
   }
 
-  /** Bank everything but what the hotbar holds (camp, outpost). @returns items moved. */
-  bankAll(): number {
-    if (!this.bankHere()) return 0;
-    const keep = new Set<ItemId>();
+  /** The items a deposit leaves in the bag: the hotbar's slots 2..5 (bombs, torches, food, the free slot). */
+  keepOnBank(): ReadonlySet<ItemId> {
+    const keep = this.keepSet;
+    keep.clear();
     for (let i = 2; i < HOTBAR_SIZE; i++) {
       const id = this.hotbar.itemAt(i);
       if (id) keep.add(id);
     }
+    return keep;
+  }
+  private readonly keepSet = new Set<ItemId>();
+
+  /** Bank everything but what the hotbar holds (camp, outpost). @returns items moved. */
+  bankAll(): number {
+    if (!this.bankHere()) return 0;
+    const keep = this.keepOnBank();
     const totals = this.host.backpack.totals();
     let moved = 0;
     const items: Partial<Record<ItemId, number>> = {};
@@ -658,7 +1080,11 @@ export class Loop implements LoopActions {
       if (d.place) actions.push('place');
       if (!d.equip) actions.push('assign', 'drop');
       if (!d.equip && this.bankHere()) actions.push('bank');
-      items[d.category].push({ item: id, count: owned ? 1 : count, name: t(d.name), desc: t(d.desc), category: d.category, grade: d.grade, actions, equipped });
+      const n = owned ? socketsOf(id) : 0;
+      const where = d.equip === 'weapon' ? 'weapon' : 'armour';
+      const sockets = n > 0 ? this.sockets.of(id).map((g) => ({ gem: g, name: g ? t(ITEMS[g].name) : t('gem3.empty'), fx: g ? gemLine(g, where) : '' })) : undefined;
+      if (n > 0 && this.camp.gemCutting) actions.push('socket');
+      items[d.category].push({ item: id, count: owned ? 1 : count, name: t(d.name), desc: t(d.desc), category: d.category, grade: d.grade, actions, equipped, ...(sockets ? { sockets } : {}) });
     }
     const set = this.gear.fullSet();
     return {
@@ -694,10 +1120,19 @@ export class Loop implements LoopActions {
   update(dt: number, playing = true): void {
     if (!(dt > 0)) return;
     this.clock += dt;
+    // A new layout (a switch, a restore, a new game) brings the session's props back from the
+    // layout: put the placed things back on it.
+    const layout = this.host.strata?.layout ?? null;
+    if (layout !== this.shownLayout) this.showBuilt();
+    this.builder.update(dt);
     for (const k of Object.keys(this.wards) as HazardKind[]) {
       const left = (this.wards[k] ?? 0) - dt;
       if (left > 0) this.wards[k] = left;
       else delete this.wards[k];
+    }
+    for (let i = this.flares.length - 1; i >= 0; i--) {
+      this.flares[i].left -= dt;
+      if (this.flares[i].left <= 0) this.flares.splice(i, 1);
     }
     if (!playing) return;
     const h = this.host;
@@ -712,7 +1147,7 @@ export class Loop implements LoopActions {
     p.inCamp = h.inCamp;
     p.health = h.health.current;
     const step = this.hazards.update(dt, p);
-    h.lanternFuel.burn = step.burn;
+    h.lanternFuel.burn = step.burn * this.dailyFactor('burn');
     this.fallFactor = this.gear.safeFall() ? Math.min(1, step.fallFactor) : step.fallFactor;
     if (step.damage > 0) {
       const dealt = h.health.damage(step.damage, true);
@@ -727,9 +1162,56 @@ export class Loop implements LoopActions {
       h.bus.emit('toast', { text: t(`hazard.hurt.${step.kind}` as TextKey), tone: 'warn' });
     } else if (step.stoppedHurting) h.bus.emit('hazard:changed', { kind: null, level: 0 });
     this.quests.update(dt);
+    // The trip: its deepest point; its end (a frame after the arrival or the black-out).
+    if (this.trip.active) {
+      const st = h.strata ?? null;
+      const depth = st?.depth ? st.depth(h.player.y) : 0;
+      this.trip.follow(depth, st?.current ?? this.stratum);
+    }
+    if (this.tripEnding) this.endTrip();
+    this.dailyT += dt;
+    if (this.dailyT >= 1) {
+      this.dailyT = 0;
+      this.checkDaily();
+    }
     const main = this.quests.mainRawStep();
     const mv = this.quests.main();
     this.guide.update(dt, { mainId: main.id, mainStep: main.step, mainText: mv.text, flame: h.lanternFuel.fraction, health: h.health.fraction, inCamp: h.inCamp, playing });
+  }
+
+  /** End the trip under way and show its summary ('trip:summary'). */
+  private endTrip(): void {
+    const outcome = this.tripEnding ?? 'returned';
+    this.tripEnding = null;
+    const s = this.trip.end(this.clock, outcome, this.quests.main().text);
+    if (s) this.host.bus.emit('trip:summary', { summary: s });
+  }
+
+  /**
+   * The ending card (after 'quest:ending': the Heart relit, its guardian fallen): the expedition in
+   * a few lines, then free play.
+   */
+  endingView(playSeconds?: number): { title: string; body: string; free: string; lines: Array<{ label: string; value: string }> } {
+    const q = this.quests;
+    const secs = playSeconds ?? this.clock;
+    const h = Math.floor(secs / 3600);
+    const m = Math.round((secs - h * 3600) / 60);
+    const lines: Array<{ label: string; value: string }> = [
+      { label: t('ending3.time'), value: t('ending3.hm', { h, m }) },
+      { label: t('trip3.shards'), value: `${q.shards.size} / 12` },
+      { label: t('trip3.pages'), value: `${q.pages.size} / 24` },
+      { label: t('ending3.bestiary'), value: String(this.bestiaryFound) },
+      { label: t('trip3.kills'), value: String(this.counters.kills) },
+      { label: t('trip3.crafted'), value: String(this.counters.crafted) },
+      { label: t('ending3.feats'), value: String(q.feats.size) },
+      { label: t('ending3.trips'), value: String(this.trip.records.trips) },
+    ];
+    return { title: t('ending3.title'), body: t('ending3.body'), free: t('ending3.free'), lines };
+  }
+
+  /** The last trip's summary (the UI's card after a return), null before the first. */
+  lastTrip(): TripSummary | null {
+    return this.trip.last;
   }
 
   /** Sample the world round the explorer for the hazards (biome, zones, lava, warmth). */
@@ -740,10 +1222,11 @@ export class Loop implements LoopActions {
     p.moving = (at.x - this.lastPos.x) ** 2 + (at.z - this.lastPos.z) ** 2 > 0.04;
     this.lastPos = { x: at.x, y: at.y, z: at.z };
     const wards = this.gear.wards();
-    p.wards.cold = wards.cold;
-    p.wards.gas = wards.gas;
-    p.wards.heat = wards.heat;
-    p.wards.dark = wards.dark;
+    const sw = this.socketTotals().wards;
+    p.wards.cold = Math.min(1, wards.cold + sw.cold);
+    p.wards.gas = Math.min(1, wards.gas + sw.gas);
+    p.wards.heat = Math.min(1, wards.heat + sw.heat);
+    p.wards.dark = Math.min(1, wards.dark + sw.dark);
     p.potions = this.wards;
     const st = h.strata ?? null;
     const layout = st?.layout ?? null;
@@ -776,7 +1259,7 @@ export class Loop implements LoopActions {
     // Lava heat and warmth from the voxels (a 13 m cube for lava, 9 m for torches).
     const w = h.session?.world;
     let lavaD = Infinity;
-    let warm = h.inCamp || this.outpostNear(OUTPOST.useRadius + 2) !== null;
+    let warm = h.inCamp || this.outpostNear(OUTPOST.useRadius + 2) !== null || this.flares.some((f) => dist2(f, at) <= FLARE_RADIUS * FLARE_RADIUS);
     p.inLava = false;
     if (w) {
       const cx = Math.floor(at.x);
@@ -801,39 +1284,86 @@ export class Loop implements LoopActions {
     p.nearWarmth = warm;
   }
 
-  /** What the quests read (rebuilt at most once a frame). */
+  /**
+   * What the quests read. One object with live getters (never a stale snapshot, even between two
+   * frames); only the lair list is cached, per loaded layout.
+   */
   private questWorld(): QuestWorld {
-    if (this.qworld && this.qworldT === this.clock) return this.qworld;
-    const st = this.host.strata ?? null;
-    const layout = st?.layout ?? null;
-    const lairs = layout
-      ? layout.lairs.map((l) => ({ id: l.id, biome: l.biome as Exclude<BiomeId, 'heart'>, guardian: l.guardian, x: l.entrance[0], y: l.entrance[1], z: l.entrance[2] }))
-      : [];
-    const g = layout?.gate ?? null;
+    if (this.qworld) return this.qworld;
+    const loop = this;
+    const st = () => loop.host.strata ?? null;
+    const layout = () => st()?.layout ?? null;
     this.qworld = {
-      stratum: st?.current ?? this.stratum,
-      deepest: Math.max(st?.deepest ?? 1, this.deepest),
-      lairs,
-      revealed: (id) => st?.isRevealed(id) ?? false,
-      gate: g ? { x: g.stand[0], y: g.stand[1], z: g.stand[2], next: g.next } : null,
-      gateOpen: st ? st.gateOpen() : false,
-      heart: layout?.heart ? { x: layout.heart.centre[0], y: layout.heart.centre[1], z: layout.heart.centre[2] } : null,
-      pickTier: this.gear.tier('pick'),
-      at: this.host.player,
-      biome: st?.biomeHere && st.biomeHere !== 'heart' ? (st.biomeHere as QuestWorld['biome']) : null,
-      bestiaryFound: this.bestiaryFound,
+      get stratum() {
+        return st()?.current ?? loop.stratum;
+      },
+      get deepest() {
+        return Math.max(st()?.deepest ?? 1, loop.deepest);
+      },
+      get lairs() {
+        return loop.lairsOf(layout());
+      },
+      revealed: (id) => st()?.isRevealed(id) ?? false,
+      get gate() {
+        const g = layout()?.gate ?? null;
+        if (!g) return null;
+        const c = loop.gateCache;
+        if (c.src !== g) {
+          c.src = g;
+          c.value = { x: g.stand[0], y: g.stand[1], z: g.stand[2], next: g.next };
+        }
+        return c.value;
+      },
+      get gateOpen() {
+        const s = st();
+        return s ? s.gateOpen() : false;
+      },
+      get heart() {
+        const h = layout()?.heart ?? null;
+        return h ? { x: h.centre[0], y: h.centre[1], z: h.centre[2] } : null;
+      },
+      get pickTier() {
+        return loop.gear.tier('pick');
+      },
+      get at() {
+        return loop.host.player;
+      },
+      get biome() {
+        const b = st()?.biomeHere ?? null;
+        return b && b !== 'heart' ? (b as QuestWorld['biome']) : null;
+      },
+      get bestiaryFound() {
+        return loop.bestiaryFound;
+      },
       pageOf: (propId) => {
         const m = /page_(\d+)/.exec(propId);
         if (m) return Number(m[1]);
-        const pg = layout?.pages.find((x) => x.prop === propId || x.id === propId);
+        const pg = layout()?.pages.find((x) => x.prop === propId || x.id === propId);
         return pg ? pg.n : null;
       },
-      pagesIn: (b) => layout?.pages.filter((x) => x.biome === b).length ?? 0,
-      fullSet: this.gear.fullSet() !== null,
-      counters: this.counters,
+      pagesIn: (b) => layout()?.pages.filter((x) => x.biome === b).length ?? 0,
+      get fullSet() {
+        return loop.gear.fullSet() !== null;
+      },
+      get counters() {
+        return loop.counters;
+      },
     };
-    this.qworldT = this.clock;
     return this.qworld;
+  }
+
+  private readonly gateCache: { src: unknown; value: QuestWorld['gate'] } = { src: null, value: null };
+  private lairCache: { layout: StratumLayout | null; list: QuestWorld['lairs'] } = { layout: null, list: [] };
+
+  /** The loaded layout's lairs as the quests read them (cached per layout). */
+  private lairsOf(layout: StratumLayout | null): QuestWorld['lairs'] {
+    const c = this.lairCache;
+    if (c.layout === layout) return c.list;
+    c.layout = layout;
+    c.list = layout
+      ? layout.lairs.map((l) => ({ id: l.id, biome: l.biome as Exclude<BiomeId, 'heart'>, guardian: l.guardian, x: l.entrance[0], y: l.entrance[1], z: l.entrance[2] }))
+      : [];
+    return c.list;
   }
 
   /**
@@ -887,6 +1417,10 @@ export class Loop implements LoopActions {
       seed: this.seed,
       bestiaryFound: this.bestiaryFound,
       quests: this.quests.toSave(),
+      camp: this.camp.toJSON(),
+      sockets: this.sockets.toJSON(),
+      trips: this.trip.toJSON(),
+      daily: { run: this.dailyRun ? { ...this.dailyRun, mods: [...this.dailyRun.mods] } : null, best: { ...this.dailyBest } },
       tips: this.guide.toSave(),
       hp: this.host.health.current,
     };
@@ -906,8 +1440,12 @@ export class Loop implements LoopActions {
     const num = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
     const pt = (p: unknown): p is { x: number; y: number; z: number; stratum: number } =>
       !!p && typeof p === 'object' && num((p as { x: unknown }).x) && num((p as { y: unknown }).y) && num((p as { z: unknown }).z) && num((p as { stratum: unknown }).stratum);
-    if (Array.isArray(o.stations)) this.stations = o.stations.filter((s): s is PlacedStation => pt(s) && STATION_IDS.includes((s as PlacedStation).station)).map((s) => ({ ...s }));
-    if (Array.isArray(o.outposts)) this.outposts = o.outposts.filter((s): s is Outpost => pt(s) && typeof (s as Outpost).id === 'string').map((s) => ({ ...s }));
+    if (Array.isArray(o.stations))
+      this.stations = o.stations
+        .filter((s): s is PlacedStation => pt(s) && STATION_IDS.includes((s as PlacedStation).station))
+        .map((s) => ({ ...s, id: typeof s.id === 'string' ? s.id : `station:${s.stratum}:${++this.placedSeq}`, rotY: num(s.rotY) ? s.rotY : 0 }));
+    this.placedSeq = Math.max(this.placedSeq, ...this.stations.map((s) => Number(/:(\d+)$/.exec(s.id)?.[1] ?? 0)));
+    if (Array.isArray(o.outposts)) this.outposts = o.outposts.filter((s): s is Outpost => pt(s) && typeof (s as Outpost).id === 'string').map((s) => ({ ...s, rotY: num(s.rotY) ? s.rotY : 0 }));
     this.bed = typeof o.bed === 'string' && this.outposts.some((p) => p.id === o.bed) ? o.bed : null;
     this.deepest = num(o.deepest) ? Math.max(1, Math.min(6, Math.floor(o.deepest as number))) : 1;
     this.stratum = num(o.stratum) ? Math.max(1, Math.min(6, Math.floor(o.stratum as number))) : 1;
@@ -919,6 +1457,11 @@ export class Loop implements LoopActions {
     this.seed = num(o.seed) ? (o.seed as number) >>> 0 : this.seed;
     this.bestiaryFound = num(o.bestiaryFound) ? Math.max(0, Math.floor(o.bestiaryFound as number)) : 0;
     this.quests.fromSave(o.quests, this.seed);
+    this.camp.load(o.camp);
+    if (this.camp.offers.length === 0) this.camp.restock(this.seed, this.deepest);
+    this.sockets.load(o.sockets);
+    this.trip.load(o.trips);
+    this.loadDaily(o.daily);
     this.guide.fromSave(o.tips);
     this.unlockedCache.clear();
     for (const r of RECIPES) if (isUnlocked(r, this.unlockCtx())) this.unlockedCache.add(r.id);

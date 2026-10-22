@@ -122,6 +122,10 @@ export type ItemId =
   | 'warmingTonic'
   | 'coolingDraught'
   | 'flare'
+  | 'deepStew'
+  // --- The Lampling companion (round 3 stretch, with MOBS): the lure tames one, treats feed it
+  | 'lamplingLure'
+  | 'glowTreat'
   // --- Building
   | 'plank'
   | 'torch'
@@ -209,7 +213,11 @@ export type ItemUse =
   /** Thrown: a light that burns `seconds` where it lands and scares monsters (the flare). */
   | { kind: 'flare'; seconds: number }
   /** Thrown: a bomb (config/weapons WEAPONS[weapon]). */
-  | { kind: 'bomb'; weapon: 'flash' | 'bomb' };
+  | { kind: 'bomb'; weapon: 'flash' | 'bomb' }
+  /** The Lampling's lure: used near a wild Lampling, it follows you (MOBS tames it on 'companion:lure'). */
+  | { kind: 'lure' }
+  /** A treat for the companion: heals it and gives it `xp` (MOBS on 'companion:feed'). */
+  | { kind: 'feed'; xp: number; heal: number };
 
 /**
  * What placing an item does (Place action, game/craft Building). The block ids of placed things
@@ -436,6 +444,9 @@ export const ITEMS: Record<ItemId, ItemDef> = {
   warmingTonic: item('warmingTonic', 'potion', 'uncommon', 0xff9040, { use: { kind: 'ward', hazard: 'cold', seconds: 150 } }),
   coolingDraught: item('coolingDraught', 'potion', 'rare', 0x60c0ff, { use: { kind: 'ward', hazard: 'heat', seconds: 120 } }),
   flare: item('flare', 'bomb', 'common', 0xff7040, { use: { kind: 'flare', seconds: 40 }, icon: { kind: 'torch' } }),
+  deepStew: item('deepStew', 'food', 'rare', 0xb86a30, { use: { kind: 'heal', amount: 90 } }),
+  lamplingLure: item('lamplingLure', 'food', 'rare', 0xffd060, { use: { kind: 'lure' }, stackSize: 5 }),
+  glowTreat: item('glowTreat', 'food', 'uncommon', 0x6ff0d0, { use: { kind: 'feed', xp: 1, heal: 30 } }),
   // Building
   plank: item('plank', 'block', 'common', 0x9a6a40, { icon: { kind: 'cube', tile: TILE.plank }, place: 'block' }),
   torch: item('torch', 'light', 'common', 0xffb050, { place: 'torch' }),

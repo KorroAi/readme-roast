@@ -23,41 +23,53 @@ export type LegacyMonsterKind = 'crawler' | 'gnasher' | 'wisp' | 'stalker' | 'se
 export type RosterMonsterKind =
   // I Amber Hollows / Mushroom Forest
   | 'amberTick'
+  | 'gritBoar'
   | 'sporeling'
   | 'capSpitter'
+  | 'gillhanger'
   // II Root Galleries / Flooded Grottoes
   | 'rootLasher'
   | 'tunnelGrub'
   | 'thornback'
+  | 'rootWeevil'
   | 'brineLeech'
   | 'spitNewt'
   | 'clatterclaw'
+  | 'mistwing'
   // III Crystal Geode / Old Halden Mines
   | 'shardling'
   | 'prismBat'
   | 'geodeGolem'
+  | 'quartzRam'
   | 'rustMite'
   | 'fuseBeetle'
+  | 'cartMimic'
   // IV Frost Caverns / Glowroot Jungle
   | 'icefang'
   | 'frostBat'
   | 'shiverDrip'
+  | 'rimeHulk'
   | 'glowMantis'
   | 'bloatToad'
   | 'snapjaw'
+  | 'glowAnt'
   // V Sulphur Bog / Sunken City
   | 'gasbag'
   | 'sulphurSpitter'
   | 'mireLurker'
+  | 'fumeWasp'
   | 'gildedScarab'
   | 'runeSentry'
   | 'chestMimic'
+  | 'drownedKnight'
   // VI Magma Veins / Obsidian Abyss
   | 'cinderHound'
   | 'emberMite'
   | 'magmaBrute'
+  | 'lavaToad'
   | 'voidEye'
-  | 'glassWraith';
+  | 'glassWraith'
+  | 'nullCrawler';
 export type MonsterKind = LegacyMonsterKind | RosterMonsterKind;
 
 export type LegacyBeingKind = 'moth' | 'lampling' | 'glimmerkin' | 'shellback' | 'jelly' | 'burrower';
@@ -122,6 +134,13 @@ export type MobElement = 'none' | 'frost' | 'acid' | 'fire' | 'spore' | 'void' |
 export type MobRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
 
 export type MobSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge';
+
+/**
+ * An elite's affixes (round 3 stretch; game/mobs/elites.ts): radiant (it shines and leads its pack),
+ * armoured (its front turns blows), swift (faster, quicker tells), splitting (it splits in two).
+ */
+export type MobAffix = 'radiant' | 'armoured' | 'swift' | 'splitting';
+export const MOB_AFFIXES: readonly MobAffix[] = ['radiant', 'armoured', 'swift', 'splitting'];
 
 // ---------------------------------------------------------------------------------------
 // Rosters, guardians, the bestiary
@@ -225,7 +244,20 @@ declare module '../../core/events' {
     'mob:telegraph': { id: number; kind: MobKind; pan: number; gain: number };
     'mob:attack': { id: number; kind: MobKind; damage: number; landed: boolean; element?: MobElement };
     'mob:hit': { id: number; kind: MobKind; damage: number; killed: boolean; armoured: boolean; pan: number; gain: number; x?: number; y?: number; z?: number; weak?: boolean };
-    'mob:died': { id: number; kind: MobKind; pan: number; gain: number; biome?: MobBiome; rank?: MobRank };
+    'mob:died': { id: number; kind: MobKind; pan: number; gain: number; biome?: MobBiome; rank?: MobRank; elite?: boolean; affixes?: MobAffix[] };
+    /** An elite is met (first sight): its name (through t()) and affixes, for a toast or a nameplate. */
+    'mob:elite': { id: number; kind: MobKind; affixes: MobAffix[]; name: string };
+    /** The companion (round 3 stretch): a wild Lampling fed a glowcap trusts a little more (`trust` of `need`). */
+    'companion:trust': { kind: MobKind; trust: number; need: number };
+    /** It is tamed: it follows the explorer from now on (saved). */
+    'companion:tamed': { kind: MobKind; name: string };
+    /** Fed (a glowcap) or rewarded: experience gained, and its total toward the next level. */
+    'companion:fed': { kind: MobKind; xp: number; total: number; next: number };
+    'companion:level': { kind: MobKind; level: number };
+    /** It senses a rare ore nearby and chirps (it hovers by it a moment). */
+    'companion:ore': { x: number; y: number; z: number; block: number; rarity: MobRarity };
+    /** It zaps a small foe with a mote of light. */
+    'companion:zap': { target: number; kind: MobKind; damage: number; killed: boolean };
     'mob:interact': { id: number; kind: MobKind; action: 'caught' | 'harvested' | 'spores' | 'petted' };
     /** A creature's voice (breathing, chitter, whisper, drone...), placed in stereo. */
     'mob:cue': { kind: MobKind; cue: string; pan: number; gain: number };
@@ -296,6 +328,8 @@ export interface Mob {
   tappable: boolean;
   /** Catchable or harvestable beings show a rarity rim (HighlightSystem). */
   rarity?: MobRarity;
+  /** An elite's affixes (empty for most). */
+  readonly affixes?: readonly MobAffix[];
   /** The render root (set by render/mobs), for outlines and screen-space picking. */
   object?: THREE.Object3D;
 }
@@ -378,6 +412,8 @@ export interface MobContext {
   invulnerable?: boolean;
   /** The explorer's feet are off the ground (a jump clears a guardian's shockwave). */
   airborne?: boolean;
+  /** Where the explorer looks (unit vector): packs flank outside it, the tutorial's foe comes in it. */
+  look?: { x: number; y: number; z: number };
 }
 
 export interface MobSystem {

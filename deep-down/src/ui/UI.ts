@@ -2,7 +2,7 @@ import './ui.css';
 import './screens/compat.css';
 import type { EventBus, GameEvents } from '../core/events';
 import type { GameUi } from '../game/GameUi';
-import { t, type TextKey } from '../i18n';
+import { hasText, t, type TextKey } from '../i18n';
 import type { InputState } from '../input/types';
 import type { ItemCounts, Settings } from '../save/types';
 import { focusables, h } from './dom';
@@ -22,13 +22,18 @@ import { buildDeath, buildLoading, buildMenu, buildPause, updateLoading } from '
 import { buildSettings } from './screens/settings';
 import { btn } from './screens/widgets';
 import { TouchControls } from './TouchControls';
-import type { ArrivalCard, DiscoveryNotice, HudState, MapSource, PickupNotice, ScreenId, UiActions } from './types';
+import type { ArrivalCard, BlackoutInfo, DiscoveryNotice, HudState, MapSource, PickupNotice, ScreenId, UiActions } from './types';
 import { createPlayerActions, type MenuScreen, type PlayerActions, type UiTargetId } from './hud/actions';
 import { buildBag } from './screens/r3/bag';
 import { buildCraft } from './screens/r3/craft';
 import { buildMap } from './screens/r3/map';
 import { buildQuests } from './screens/r3/quests';
 import { buildBestiary } from './screens/r3/bestiary';
+import { MilestoneBanner } from './hud/Milestones';
+import type { ControlPrefs } from './controlPrefs';
+import { setReducedMotion } from './brand/motion';
+import { rewardLine } from '../game/quests/Quests';
+import type { Reward } from '../config/quests';
 
 type Builder = (host: ScreenHost) => HTMLElement;
 
@@ -54,6 +59,18 @@ const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   about: buildAbout,
 };
 
+/** The rail's order (Bag, Craft, Map, Quests, Bestiary): a switch slides the page that way. */
+const RAIL_ORDER: readonly ScreenId[] = ['inventory', 'crafting', 'map', 'quests', 'bestiary'];
+
+/** How a round 3 menu enters (pure): 'play' (rises over the game), 'left'/'right' (a rail switch), or null. */
+export function menuEnter(from: ScreenId, to: ScreenId): 'play' | 'left' | 'right' | null {
+  const b = RAIL_ORDER.indexOf(to);
+  if (b < 0) return null;
+  const a = RAIL_ORDER.indexOf(from);
+  if (a < 0) return from === 'none' ? 'play' : null;
+  return a === b ? null : b > a ? 'right' : 'left';
+}
+
 /** Screens closed by Escape (and the system Back, through Game) straight back to play. */
 const CLOSABLE: ReadonlySet<ScreenId> = new Set<ScreenId>(['inventory', 'crafting', 'board', 'journal', 'map', 'quests', 'bestiary']);
 
@@ -75,6 +92,12 @@ export class UI implements GameUi {
   private readonly toasts = new Toasts();
   private readonly pickups = new PickupFeed();
   private readonly discovery = new DiscoveryBanner();
+  /** Round 3: feats, Heart Shards and completed bestiary pages (one calm card at a time). */
+  private readonly milestones: MilestoneBanner;
+  /** The last reward paid for a feat (its card says what it gave). */
+  private lastFeatReward: Reward | null = null;
+  /** LOOP's plain toast for a feat that has its own card now (skipped once). */
+  private skipToast: string | null = null;
   private readonly screensEl: HTMLElement;
   /** Screens on their way out: inert, aria-hidden, fading under the one entering. */
   private readonly exitEl: HTMLElement;
@@ -90,6 +113,8 @@ export class UI implements GameUi {
   private gameplay = false;
   /** True while the open screen is being built because it was just opened (ScreenHost.opening). */
   private opening = false;
+  /** How the screen being replaced leaves (a rail switch, a close to play), for its exit. */
+  private leaving: 'rail' | 'close' | null = null;
   /**
    * An Expedition Report waiting to open: 'free' opens as soon as play has no screen up;
    * 'respawn' (a black-out: the death screen is up) waits for 'player:respawned'.
@@ -110,6 +135,7 @@ export class UI implements GameUi {
     loadingProgress: 0,
     loadingLabel: '',
     deathLost: {},
+    deathInfo: null,
     treeTab: 'workbench',
     treeSel: null,
     treeCrafted: null,
@@ -118,12 +144,15 @@ export class UI implements GameUi {
     reportAt: 0,
     bagTab: 'all',
     bagSel: null,
+    bagSocket: null,
     assignSlot: -1,
     craftTab: null,
+    craftStation: null,
     craftFlash: null,
     questsTab: 'main',
     bestiaryBiome: null,
     help: null,
+    mapCamera: null,
   };
 
   constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
@@ -149,7 +178,8 @@ export class UI implements GameUi {
       },
       skipTutorial: () => actions.skipTutorial(),
     });
-    this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el));
+    this.milestones = new MilestoneBanner((screen) => player.open(screen));
+    this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el), this.milestones.el);
     root.appendChild(this.el);
     this.touch = new TouchControls(this.el, input, player);
     // The exit layer comes after the live screens in the DOM (queries find the live screen
@@ -187,7 +217,36 @@ export class UI implements GameUi {
         this.pickup(p);
         if (this.current === 'inventory') this.refresh();
       }),
-      bus.on('toast', (p) => this.toast(p.text, p.tone)),
+      bus.on('toast', (p) => {
+        if (p.text === this.skipToast) {
+          this.skipToast = null;
+          return;
+        }
+        this.toast(p.text, p.tone);
+      }),
+      // Round 3: the milestone cards (feats, Heart Shards, bestiary pages completed).
+      bus.on('reward:paid', ({ items, reason }) => {
+        if (reason === 'feat') this.lastFeatReward = items as Reward;
+      }),
+      bus.on('feat:earned', ({ id }) => {
+        const key = `feat3.${id}`;
+        if (!hasText(key)) return;
+        const name = t(key);
+        const text = `${key}.text`;
+        const reward = this.lastFeatReward;
+        this.lastFeatReward = null;
+        this.skipToast = hasText('feat3.earned') ? t('feat3.earned', { name }) : null;
+        this.milestones.push({ kind: 'feat', name, line: hasText(text) ? t(text) : '', reward: reward ? rewardLine(reward) : '' });
+      }),
+      bus.on('quest:shard', ({ biome, count }) => {
+        const bname = hasText(`biome.${biome}.name`) ? t(`biome.${biome}.name` as TextKey) : biome;
+        this.milestones.push({ kind: 'shard', name: t('ms3.shardName', { biome: bname }), line: t('ms3.shardLine', { have: count, total: 12 }), reward: '' });
+      }),
+      bus.on('mob:bestiary', ({ kind, page }) => {
+        if (page !== 'complete') return;
+        const e = this.actions.getBestiary()?.entries.find((x) => x.kind === kind);
+        if (e) this.milestones.push({ kind: 'bestiary', name: e.name, line: e.bonus ?? '', reward: '' });
+      }),
       bus.on('inventory:changed', () => {
         if (this.current === 'inventory' || this.current === 'crafting') this.refresh();
       }),
@@ -218,6 +277,14 @@ export class UI implements GameUi {
         if (target) this.hud.tutorial.tip(`hint:${id}`, target, text);
       }),
       bus.on('mine:combo', ({ count }) => this.hud.combo(count)),
+      // The companion's chip pings when it senses a rare ore, zaps a foe or grows.
+      bus.on('companion:ore', () => this.hud.companionPing('ore')),
+      bus.on('companion:zap', () => this.hud.companionPing('zap')),
+      bus.on('companion:level', ({ level }) => {
+        this.hud.companionPing('level');
+        const name = this.actions.getBestiary()?.entries.find((e) => e.kind === 'lampling')?.name ?? '';
+        this.milestones.push({ kind: 'companion', name: t('ms3.petLevel', { name, level }), line: t('ms3.petLevelLine'), reward: '' });
+      }),
       bus.on('craft:made', () => {
         if (this.current === 'crafting' || this.current === 'inventory') this.refresh();
       }),
@@ -258,8 +325,15 @@ export class UI implements GameUi {
     // A long-press assignment lasts while the Bag is open; the help card closes with its menu.
     if (id !== 'inventory') this.state.assignSlot = -1;
     if (id !== this.current) this.state.help = null;
+    // A station's filter lasts while Craft is open (the next Craft from the HUD shows everything).
+    if (this.current === 'crafting' && id !== 'crafting') this.state.craftStation = null;
+    // Round 3: how a menu enters (from play it rises; along the rail its page slides that way).
+    const enter = menuEnter(this.current, id);
+    this.leaving = enter === 'left' || enter === 'right' ? 'rail' : id === 'none' && RAIL_ORDER.includes(this.current) ? 'close' : null;
     this.current = id;
     this.render(false);
+    this.leaving = null;
+    if (enter && this.screenEl) this.screenEl.dataset.enter = enter;
     // The first screen replaces the boot mark in one cut (it is drawn over it), not a crossfade.
     if (first) this.screenEl?.classList.add('dd-rebuilt');
     this.updateTouch();
@@ -351,12 +425,26 @@ export class UI implements GameUi {
   }
 
   /** Round 3: the control layout's size and opacity. */
-  setControlPrefs(p: { scale: number; opacity: number }): void {
+  setControlPrefs(p: ControlPrefs): void {
     this.touch.setPrefs(p);
+    // Accessibility: rarity told by pattern and letter too; motion reduced whatever the device says.
+    this.el.classList.toggle('dd-cb', p.patterns);
+    setReducedMotion(p.motion === 'reduce' ? true : null);
   }
 
-  showDeath(lost: ItemCounts): void {
+  /** Round 3: the first-time tips show again (Settings). */
+  replayTips(): void {
+    this.hud.tutorial.resetTips();
+  }
+
+  /** Round 3: the next Craft menu opens on this station's recipes (null: every station). */
+  focusCraft(station: string | null): void {
+    this.state.craftStation = station;
+  }
+
+  showDeath(lost: ItemCounts, info?: BlackoutInfo): void {
     this.state.deathLost = { ...lost };
+    this.state.deathInfo = info ?? null;
     this.showScreen('death');
   }
 
@@ -411,6 +499,7 @@ export class UI implements GameUi {
     this.toasts.dispose();
     this.pickups.dispose();
     this.discovery.dispose();
+    this.milestones.dispose();
     this.el.remove();
   }
 
@@ -469,6 +558,9 @@ export class UI implements GameUi {
   /** Move a screen to the exit layer, where it fades out (140 ms) and is removed. */
   private leave(old: HTMLElement): void {
     old.inert = true;
+    // Round 3: along the rail the old page goes at once (the frame stays); closing to play it sinks.
+    if (this.leaving === 'rail') old.classList.add('dd-rail-out');
+    else if (this.leaving === 'close') old.classList.add('dd-close-out');
     this.exitEl.appendChild(old);
     const id = window.setTimeout(() => {
       this.exitTimers.delete(id);
@@ -544,6 +636,7 @@ export class UI implements GameUi {
     const live = this.gameplay && this.current === 'none' && !this.ceremony;
     this.touch.setEnabled(live);
     this.hud.setVisible(live);
+    this.milestones.setLive(live);
   }
 
   private patchSettings(p: Partial<Settings>, coalesce: boolean): void {

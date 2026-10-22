@@ -19,7 +19,20 @@ export const EASE = {
 /** The rise of an entering element, px. */
 export const ENTER_RISE_PX = 8;
 
-export const prefersReducedMotion = (): boolean => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+/** Round 3: the in-game "Reduce motion" setting (true), or null to follow the device. */
+let reducedOverride: boolean | null = null;
+
+/** Set the in-game override (true: reduce whatever the device says; null: follow it). Marks <html>. */
+export function setReducedMotion(on: boolean | null): void {
+  reducedOverride = on;
+  try {
+    document.documentElement.classList.toggle('dd-reduce-motion', on === true);
+  } catch {
+    // No document (tests).
+  }
+}
+
+export const prefersReducedMotion = (): boolean => reducedOverride ?? (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
 
 /** A duration as it plays here: reduced motion caps every fade. */
 export function playDuration(ms: number, reduced = prefersReducedMotion()): number {

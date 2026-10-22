@@ -18,6 +18,7 @@ import { ITEMS, type ItemId } from '../../config/items';
 import { WEAPONS } from '../../config/weapons';
 import { isBreakable, rarityOf } from '../../config/rarity';
 import { PLAYER } from '../../config/balance';
+import { OUTPOST, STATIONS, type StationId } from '../../config/stations';
 import { t, type TextKey } from '../../i18n';
 import { raycastVoxels } from '../../world/raycast';
 import type { HudState, InteractView, MapMarker, MapSource, MapView, ReticleKind, TrackerLine } from '../../ui/types';
@@ -26,6 +27,7 @@ import type { LoopActions, PlaceRequest, HotbarView } from '../craft/types';
 import type { QuestSystem, QuestStepView } from '../quests/types';
 import type { PropSpec } from '../../world/gen/types';
 import { DashAbility, SonarAbility, dashDirection, sonarScan } from './abilities';
+import { LEVELS as LEVEL_XP } from '../mobs/companion';
 import { PLACE_REACH, REACH, SONAR_RADIUS, SONAR_REVEAL } from './constants';
 import type { Game } from '../Game';
 import './events';
@@ -40,7 +42,15 @@ export interface LoopLike extends LoopActions {
   hudSlots?(): HudState['hotbar'];
   bankHere?(): boolean;
   outposts?: ReadonlyArray<{ id: string; stratum: number; x: number; y: number; z: number }>;
+  /** Stations placed in the world (the Furnace, Forge and Alchemy Table items). */
+  stations?: ReadonlyArray<{ station: StationId; stratum: number; x: number; y: number; z: number }>;
 }
+
+/** What the Interact button acts on: a usable prop, else a placed station or an outpost in reach. */
+export type InteractTarget =
+  | { kind: 'prop'; spec: PropSpec }
+  | { kind: 'station'; station: StationId; x: number; y: number; z: number }
+  | { kind: 'outpost'; id: string; x: number; y: number; z: number };
 
 /** WORLD's StratumManager as Game holds it (`game.strata`). */
 export interface StrataLike {
@@ -54,7 +64,7 @@ export interface StrataLike {
     pages: Array<{ id: string; p: [number, number, number]; prop: string }>;
     chests: Array<{ id: string; p: [number, number, number]; prop: string }>;
     outpostSites: Array<{ id: string; p: [number, number, number] }>;
-    campSite: { centre?: [number, number, number] } | null;
+    campSite: { fire: [number, number, number] } | null;
     arrival: { x: number; y: number; z: number };
     regionMap: Uint8Array;
     biomeAt(x: number, y: number, z: number): BiomeId;
@@ -67,7 +77,12 @@ export interface StrataLike {
   readonly outposts: ReadonlyArray<{ id: string; stratum: number; x: number; y: number; z: number; biome: BiomeId }>;
   travelTo?(id: string): Promise<boolean>;
   addOutpost?(id: string, x: number, y: number, z: number): unknown;
+  enter?(n: number, at?: [number, number, number] | 'lift' | 'arrival'): Promise<void>;
+  readonly busy?: boolean;
 }
+
+/** The fast-travel id of the camp (stratum I). */
+export const CAMP_TRAVEL_ID = 'camp';
 
 interface Seams {
   loop: LoopLike | null;
@@ -76,6 +91,9 @@ interface Seams {
 }
 
 const PLACE_BLOCKS = { BUILT_PLANK: B.BUILT_PLANK, BUILT_BRICK: B.BUILT_BRICK, TORCH: B.TORCH, LADDER: B.LADDER, ROPE: B.ROPE, DOOR: B.DOOR };
+/** A ladder item climbs this many cells up the wall; a rope unrolls down at most this far. */
+export const LADDER_CELLS = 4;
+export const ROPE_CELLS = 16;
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 /** 'look' and 'move' are reported at most this often (s). */
 const USED_EVERY = 0.25;
@@ -113,6 +131,7 @@ export class ActionLayer {
   private time = 0;
   private reticleKind: ReticleKind = 'none';
   private reticleProgress = 0;
+  private reticleName: string | null = null;
   private probeFrame = 0;
   private probeMob: 'attack' | 'use' | null = null;
   private sonarHintAt = -10;
@@ -120,11 +139,54 @@ export class ActionLayer {
   private readonly dir = { x: 0, z: 0 };
   private readonly origin = new THREE.Vector3();
   private readonly ray = new THREE.Vector3();
-  private mapCache: { rev: number; stratum: number; src: MapSource } | null = null;
+  /** The minimap's source, rebuilt when the stratum, its layout or its explored map is a new object. */
+  private mapCache: { rev: number; map: object; layout: object; src: MapSource } | null = null;
   private readonly markers: MapMarker[] = [];
   private tipShown = new Set<string>();
 
-  constructor(private readonly game: Game) {}
+  /** What hurt the explorer last (the black-out card names it). */
+  private lastHurt: { what: 'mob' | 'fall' | 'hazard' | 'cold'; kind?: string; hazard?: string; at: number } | null = null;
+  private hazardKind: string | null = null;
+
+  constructor(private readonly game: Game) {
+    const bus = game.bus;
+    bus.on('mob:attack', (e) => {
+      if (e.landed) this.lastHurt = { what: 'mob', kind: e.kind, at: this.time };
+    });
+    bus.on('hazard:changed', (e) => {
+      this.hazardKind = e.kind;
+    });
+    bus.on('player:damaged', (e) => {
+      // A creature's blow also reports 'hazard': the creature (this very frame) stays the cause.
+      if (this.lastHurt?.what === 'mob' && this.time - this.lastHurt.at < 0.05) return;
+      this.lastHurt = e.cause === 'fall' ? { what: 'fall', at: this.time } : e.cause === 'cold' ? { what: 'cold', at: this.time } : { what: 'hazard', hazard: this.hazardKind ?? undefined, at: this.time };
+    });
+  }
+
+  /** Where a black-out wakes the explorer (the card's last line): an outpost's bed, the camp, the lift. */
+  wakeLine(): string {
+    const { loop, strata } = this.seams();
+    const spot = (loop as unknown as { respawnSpot?(): { x: number; y: number; z: number } | null } | null)?.respawnSpot?.() ?? null;
+    if (spot && strata?.layout) return t('bo3.wakeOutpost', { biome: t(BIOMES[strata.layout.biomeAt(spot.x, spot.y, spot.z)].name) });
+    if (strata?.layout && strata.current > 1) return t('bo3.wakeLift');
+    return t('bo3.wakeCamp');
+  }
+
+  /** The black-out card's line of what did it. */
+  blackoutCause(): string {
+    const h = this.lastHurt;
+    if (!h) return t('bo3.cause.unknown');
+    if (h.what === 'mob') {
+      const name = (this.game.mobs as unknown as { bestiaryView?(): { entries: Array<{ kind: string; name: string }> } }).bestiaryView?.().entries.find((e) => e.kind === h.kind)?.name;
+      return name ? t('bo3.cause.mob', { name }) : t('bo3.cause.creature');
+    }
+    if (h.what === 'fall') return t('bo3.cause.fall');
+    if (h.what === 'cold' || h.hazard === 'cold') return t('bo3.cause.cold');
+    if (h.hazard === 'gas') return t('bo3.cause.gas');
+    if (h.hazard === 'heat') return t('bo3.cause.heat');
+    if (h.hazard === 'dark') return t('bo3.cause.dark');
+    return t('bo3.cause.unknown');
+  }
 
   /** The other owners' seams on Game, read by shape (null until they exist). */
   seams(): Seams {
@@ -138,6 +200,7 @@ export class ActionLayer {
   }
 
   reset(): void {
+    this.lastHurt = null;
     this.dash.reset();
     this.sonar.cooldown.reset();
     this.actionOnMob = false;
@@ -196,7 +259,12 @@ export class ActionLayer {
       return;
     }
     if (input.jumpPressed) this.used('jump');
-    if (input.interactPressed) this.used('interact');
+    if (input.interactPressed) {
+      this.used('interact');
+      // A placed station or an outpost (no prop of its own): Game uses a focused prop itself.
+      const it = g.focusTarget() ? null : this.interactTarget();
+      if (it && it.kind !== 'prop') this.useTarget(it);
+    }
 
     // Dash: along the stick (or back), invulnerable for a moment.
     if (input.dashPressed) {
@@ -284,48 +352,50 @@ export class ActionLayer {
    */
   place(): boolean {
     const g = this.game;
-    const { loop, strata } = this.seams();
+    const { loop } = this.seams();
     const req = loop?.placeRequest?.(PLACE_BLOCKS) ?? null;
     if (!loop || !req) {
       if (loop) g.ui.hint(t('ctl.placeNothing'), 1800);
       return false;
     }
-    const cell = this.placeCell(req.kind === 'block' || req.kind === 'door');
-    if (!cell) {
-      g.ui.hint(t('ctl.placeNoRoom'), 1800);
+    const kind = req.kind;
+    const cells = this.placeCells(kind);
+    if (!cells) {
+      g.ui.hint(t(kind === 'station' || kind === 'outpost' ? 'ctl.placeNoFloor' : 'ctl.placeNoRoom'), 1800);
       return false;
     }
-    const [x, y, z] = cell;
+    const [x, y, z] = cells[0];
     if (req.kind === 'station' || req.kind === 'outpost') {
       const at = { x: x + 0.5, y, z: z + 0.5 };
       if (req.kind === 'station') loop.placeStation?.(req.station, at);
       else {
+        // LOOP registers the outpost with WORLD's strata itself (fast travel, the map).
         const o = loop.placeOutpost?.(at);
         if (!o) {
           g.ui.hint(t('ctl.outpostMax'), 2200);
           return false;
         }
-        strata?.addOutpost?.(o.id, at.x, at.y, at.z);
       }
       loop.consumePlaced?.(req.item);
       g.bus.emit('player:placed', { item: req.item, block: 0, x, y, z });
       this.used('place');
       return true;
     }
-    const old = g.session.world.get(x, y, z);
-    g.session.setBlock(x, y, z, req.block);
-    g.onPlaced(x, y, z, old);
+    // A ladder climbs the wall up to LADDER_CELLS; a rope unrolls down to the floor (one item each).
+    const w = g.session.world;
+    for (const [cx, cy, cz] of cells) {
+      const old = w.get(cx, cy, cz);
+      g.session.setBlock(cx, cy, cz, req.block);
+      g.onPlaced(cx, cy, cz, old);
+    }
     loop.consumePlaced?.(req.item);
     g.bus.emit('player:placed', { item: req.item, block: req.block, x, y, z });
     this.used('place');
     return true;
   }
 
-  /**
-   * The open cell the Place action fills: the cell in front of the face the centre ray hits within
-   * PLACE_REACH. A solid block must not overlap the explorer's body; a torch, ladder or rope may.
-   */
-  placeCell(solid: boolean): [number, number, number] | null {
+  /** The face under the reticle within reach, and the open cell in front of it (or null). */
+  placeTarget(): { cell: [number, number, number]; n: [number, number, number] } | null {
     const g = this.game;
     g.cameraRig.rayThrough(0, 0, this.origin, this.ray);
     const w = g.session.world;
@@ -336,15 +406,55 @@ export class ActionLayer {
     const z = hit.z + hit.nz;
     const eye = g.eyePosition();
     if (Math.hypot(x + 0.5 - eye.x, y + 0.5 - eye.y, z + 0.5 - eye.z) > PLACE_REACH + 0.5) return null;
-    const here = w.get(x, y, z);
-    if (here !== B.AIR && SOLID[here]) return null;
-    if (here !== B.AIR && here !== B.TORCH) return null;
-    if (solid) {
-      const p = g.player;
-      const hw = PLAYER.width / 2;
-      if (x + 1 > p.x - hw && x < p.x + hw && z + 1 > p.z - hw && z < p.z + hw && y + 1 > p.y && y < p.y + PLAYER.height) return null;
+    return { cell: [x, y, z], n: [hit.nx, hit.ny, hit.nz] };
+  }
+
+  /**
+   * The cells the Place action fills for an item `kind` (null: no room):
+   * - a block or a door: the open cell in front of the face, never inside the explorer;
+   * - a torch: that cell, on any face;
+   * - a ladder: a column up from it while the cells are open, up to LADDER_CELLS;
+   * - a rope: a column down from it to the floor, up to ROPE_CELLS;
+   * - a station or an outpost: the floor under that cell (within 3 m down), with room to stand.
+   */
+  placeCells(kind: PlaceRequest['kind']): Array<[number, number, number]> | null {
+    const tgt = this.placeTarget();
+    if (!tgt) return null;
+    const w = this.game.session.world;
+    // Only open air takes a placed thing (never water, a torch already there, or a ladder).
+    const open = (x: number, y: number, z: number) => w.get(x, y, z) === B.AIR;
+    const [x, y, z] = tgt.cell;
+    if (!open(x, y, z)) return null;
+    if (kind === 'block' || kind === 'door') return this.overlapsExplorer(x, y, z) ? null : [[x, y, z]];
+    if (kind === 'torch') return [[x, y, z]];
+    if (kind === 'ladder') {
+      const out: Array<[number, number, number]> = [[x, y, z]];
+      for (let k = 1; k < LADDER_CELLS && open(x, y + k, z); k++) out.push([x, y + k, z]);
+      return out;
     }
-    return [x, y, z];
+    if (kind === 'rope') {
+      const out: Array<[number, number, number]> = [[x, y, z]];
+      for (let k = 1; k < ROPE_CELLS && open(x, y - k, z); k++) out.push([x, y - k, z]);
+      return out;
+    }
+    // A station or an outpost stands on the floor below the aimed cell, with two cells of room.
+    for (let k = 0; k <= 3; k++) {
+      const fy = y - k;
+      if (!open(x, fy, z)) return null;
+      if (SOLID[w.get(x, fy - 1, z)]) return open(x, fy + 1, z) && !this.overlapsExplorer(x, fy, z) ? [[x, fy, z]] : null;
+    }
+    return null;
+  }
+
+  private overlapsExplorer(x: number, y: number, z: number): boolean {
+    const p = this.game.player;
+    const hw = PLAYER.width / 2;
+    return x + 1 > p.x - hw && x < p.x + hw && z + 1 > p.z - hw && z < p.z + hw && y + 1 > p.y && y < p.y + PLAYER.height;
+  }
+
+  /** The first cell Place would fill (the reticle's "place" mark), or null. */
+  placeCell(solid: boolean): [number, number, number] | null {
+    return this.placeCells(solid ? 'block' : 'torch')?.[0] ?? null;
   }
 
   /** Throw the held bomb or flare along the view: it lands where the ray meets rock (or at range). */
@@ -384,6 +494,7 @@ export class ActionLayer {
   /** The reticle: what Action would do on what the centre of the view is on. */
   private updateReticle(blocked: boolean): void {
     const g = this.game;
+    this.reticleName = null;
     if (blocked || g.isRiding()) {
       this.reticleKind = 'none';
       this.reticleProgress = 0;
@@ -412,6 +523,7 @@ export class ActionLayer {
       const tooHard = target.tier > g.equipment.tiers.pickaxe || target.protectedReason !== null;
       this.reticleKind = tooHard ? 'blocked' : 'mine';
       this.reticleProgress = g.miningRules.targetKey === target.key ? g.miningRules.progress : 0;
+      this.reticleName = target.name || null;
       return;
     }
     this.reticleKind = g.focusTarget() ? 'use' : 'none';
@@ -424,6 +536,8 @@ export class ActionLayer {
     this.updateReticle(blocked);
     h.reticle = this.reticleKind;
     h.reticleProgress = this.reticleProgress;
+    // A find mined at the finger (a tap, a hold) names itself too while it cracks.
+    h.reticleName = this.reticleName ?? (h.target && h.target.progress > 0 ? h.target.name : null);
     h.dashCooldown = this.dash.cooldown.fraction;
     h.sonarCooldown = this.sonar.cooldown.fraction;
     h.sprinting = g.input.sprint;
@@ -464,9 +578,23 @@ export class ActionLayer {
     const mobs = g.mobs as unknown as { activeGuardian?(): { name: string; hp: number; max: number; phase: number; phases: number } | null } | undefined;
     const gs = mobs?.activeGuardian?.() ?? null;
     h.guardian = gs ? { name: gs.name, hp: gs.hp, max: gs.max, phase: gs.phase, phases: gs.phases } : null;
-    // The Interact chip.
-    const focus = g.focusTarget();
-    h.interact = focus ? this.interactView(focus) : null;
+    // The companion's chip (MOBS: a tamed Lampling).
+    const cv = (g.mobs as unknown as { companion?(): { name: string; level: number; xp: number; next: number | null; state: 'follow' | 'scout' | 'fight'; glow: number } | null } | undefined)?.companion?.() ?? null;
+    if (cv) {
+      const from = LEVEL_XP[Math.max(0, cv.level - 1)] ?? 0;
+      const progress = cv.next === null ? 1 : Math.max(0, Math.min(1, (cv.xp - from) / Math.max(1, cv.next - from)));
+      const c = h.companion ?? { name: '', level: 0, progress: 0, state: 'follow', glow: 0 };
+      c.name = cv.name;
+      c.level = cv.level;
+      c.progress = progress;
+      c.state = cv.state;
+      c.glow = cv.glow;
+      h.companion = c;
+    } else h.companion = null;
+    // The Interact chip: the prop in focus, else a placed station or an outpost in reach.
+    const it = blocked ? null : this.interactTarget();
+    h.interact = it ? this.viewOf(it) : null;
+    g.ui.touch.setInteract?.(h.interact);
     // First-time tooltips for the contextual buttons.
     if (h.canPlace) this.tipOnce('place', 'place', 'tip.place');
     if (h.interact) this.tipOnce('interact', 'interact', 'tip.interact');
@@ -486,6 +614,58 @@ export class ActionLayer {
     return { id: s.id, text: s.text, have, need };
   }
 
+  /** What Interact would act on now (null: nothing in reach). */
+  interactTarget(): InteractTarget | null {
+    const g = this.game;
+    const focus = g.focusTarget();
+    if (focus) return { kind: 'prop', spec: focus };
+    const { loop, strata } = this.seams();
+    if (!loop) return null;
+    const p = g.player;
+    const here = strata?.layout ? strata.current : 1;
+    let best: InteractTarget | null = null;
+    let bd = Infinity;
+    for (const st of loop.stations ?? []) {
+      if (st.stratum !== here) continue;
+      const d = Math.hypot(st.x - p.x, (st.y - p.y) * 0.7, st.z - p.z);
+      if (d <= Math.min(STATIONS[st.station]?.reach ?? 4.5, 4.5) && d < bd) {
+        bd = d;
+        best = { kind: 'station', station: st.station, x: st.x, y: st.y, z: st.z };
+      }
+    }
+    for (const o of loop.outposts ?? []) {
+      if (o.stratum !== here) continue;
+      const d = Math.hypot(o.x - p.x, (o.y - p.y) * 0.7, o.z - p.z);
+      if (d <= OUTPOST.useRadius && d < bd) {
+        bd = d;
+        best = { kind: 'outpost', id: o.id, x: o.x, y: o.y, z: o.z };
+      }
+    }
+    return best;
+  }
+
+  /** The chip's icon, verb and label for a target. */
+  private viewOf(it: InteractTarget): InteractView {
+    if (it.kind === 'prop') return this.interactView(it.spec);
+    if (it.kind === 'station') return { icon: 'station', verb: t('ctl.verb.craft'), label: t(STATIONS[it.station].name) };
+    return { icon: 'outpost', verb: t('ctl.verb.bank'), label: t('m3.map.m.outpost') };
+  }
+
+  /** Use a placed station (Craft opens on its recipes) or an outpost (the Bag opens on its bank). */
+  private useTarget(it: InteractTarget): void {
+    const g = this.game;
+    if (it.kind === 'prop') {
+      g.interact(it.spec);
+      return;
+    }
+    if (it.kind === 'station') {
+      g.ui.focusCraft?.(it.station);
+      g.openMenu('crafting');
+      return;
+    }
+    g.openMenu('inventory');
+  }
+
   /** The Interact chip's icon and verb for a usable prop. */
   interactView(spec: PropSpec): InteractView {
     const g = this.game;
@@ -497,9 +677,10 @@ export class ActionLayer {
     if (feature === 'cache' || kind === 'chest' || kind === 'crate') [icon, verb] = ['chest', 'ctl.verb.open'];
     else if (feature === 'note' || kind === 'haldenNote') [icon, verb] = ['page', 'ctl.verb.read'];
     else if (feature === 'rope' || feature === 'hoist') [icon, verb] = ['rope', 'ctl.verb.ride'];
-    else if (kind === 'workbench' || kind === 'forge' || kind === 'furnace' || kind === 'alchemy' || kind === 'station') [icon, verb] = ['station', 'ctl.verb.craft'];
+    else if (kind === 'workbench' || kind === 'forge' || kind === 'furnace' || kind === 'alchemy' || kind === 'alchemyTable' || kind === 'station' || spec.interact === 'craft') [icon, verb] = ['station', 'ctl.verb.craft'];
     else if (kind === 'gate' || feature === 'gate') [icon, verb] = ['gate', 'ctl.verb.use'];
     else if (kind === 'outpost' || feature === 'outpost') [icon, verb] = ['outpost', 'ctl.verb.rest'];
+    else if (spec.interact === 'rest') [icon, verb] = ['bed', 'ctl.verb.rest'];
     else if (kind === 'bedroll') [icon, verb] = ['bed', 'ctl.verb.rest'];
     else if (kind === 'door') [icon, verb] = ['door', 'ctl.verb.open'];
     return { icon, verb: t(verb), label };
@@ -517,7 +698,8 @@ export class ActionLayer {
     if (!strata || !map || !layout) return null;
     const p = g.player;
     let c = this.mapCache;
-    if (!c || c.stratum !== layout.stratum) {
+    // A new game or a stratum switch brings a new layout and a new explored map: never draw a stale one.
+    if (!c || c.map !== map || c.layout !== layout) {
       const world = g.session.world;
       const biomes = layout.biomes;
       const colors = [hex(BIOMES[biomes[0]].light), hex(BIOMES[biomes[1]].light), 0xff5a3a];
@@ -536,13 +718,15 @@ export class ActionLayer {
           return SOLID[world.get(Math.floor(x), y, Math.floor(z))] ? 1 : 2;
         },
         biome: (x, z) => layout.regionMap[Math.floor(x) + Math.floor(z) * sx] ?? 0,
+        height: (x, z) => map.heightAt(x, z),
         biomeColors: colors,
         markers: this.markers,
         playerX: p.x,
         playerZ: p.z,
         yaw: g.cameraRig.yaw,
       };
-      c = this.mapCache = { rev: -1, stratum: layout.stratum, src };
+      this.markers.length = 0;
+      c = this.mapCache = { rev: -1, map, layout, src };
     }
     const src = c.src;
     src.playerX = p.x;
@@ -554,9 +738,10 @@ export class ActionLayer {
       const m = this.markers;
       m.length = 0;
       const seen = (x: number, z: number) => map.has(x, z);
-      const camp = layout.campSite?.centre;
-      if (camp) m.push({ kind: 'camp', x: camp[0], z: camp[2], label: t('hud.camp') });
-      else m.push({ kind: 'camp', x: layout.arrival.x, z: layout.arrival.z, label: t('m3.map.m.camp') });
+      // The camp (stratum I: its fire), or this stratum's arrival (the lift landing).
+      const fire = layout.campSite?.fire;
+      if (fire) m.push({ kind: 'camp', x: fire[0] + 0.5, z: fire[2] + 0.5 });
+      else m.push({ kind: 'camp', x: layout.arrival.x, z: layout.arrival.z, label: t('m3.map.lift') });
       for (const l of layout.lairs) if (strata.isRevealed(l.id)) m.push({ kind: 'lair', x: l.centre[0], z: l.centre[2], id: l.id, label: t(BIOMES[l.biome].name) });
       if (seen(layout.gate.centre[0], layout.gate.centre[2])) m.push({ kind: 'gate', x: layout.gate.centre[0], z: layout.gate.centre[2] });
       const live = g.session.liveProps;
@@ -593,7 +778,6 @@ export class ActionLayer {
     if (!src || !strata?.layout || !strata.map) return null;
     const layout = strata.layout;
     const map = strata.map;
-    const p = this.game.player;
     // Explored share per biome (a sampled count: every 4th column).
     const tot = [0, 0];
     const exp = [0, 0];
@@ -604,29 +788,73 @@ export class ActionLayer {
         tot[b]++;
         if (map.has(x, z)) exp[b]++;
       }
-    const travel: MapView['travel'] = [];
-    const here = (x: number, z: number) => Math.hypot(x - p.x, z - p.z) < 6;
-    for (const o of strata.outposts) {
-      if (o.stratum !== strata.current) continue;
-      travel.push({ id: o.id, name: t('m3.map.outpostIn', { biome: t(BIOMES[o.biome].name) }), x: o.x, z: o.z, here: here(o.x, o.z), can: true, reason: null });
-    }
+    const travel = this.travelList();
     const def = STRATA[(layout.stratum - 1) | 0];
     return {
       source: src,
       stratum: layout.stratum,
-      stratumName: def ? `${ROMAN[layout.stratum] ?? layout.stratum} · ${t(def.name)}` : String(layout.stratum),
+      stratumName: `${def ? t(def.name) : `${ROMAN[layout.stratum] ?? layout.stratum}`} · ${layout.biomes.map((b) => t(BIOMES[b].name)).join(' & ')}`,
       biomes: layout.biomes.map((b, i) => ({ name: t(BIOMES[b].name), color: src.biomeColors[i], explored: tot[i] ? exp[i] / tot[i] : 0 })),
       travel,
       seed: String(strata.seed),
     };
   }
 
-  /** Fast travel to an outpost of this stratum (WORLD's travelTo). */
-  async travel(id: string): Promise<boolean> {
+  /**
+   * The fast-travel list (BRIEF §0.4: between outposts): the camp, then every outpost of every
+   * stratum visited. A trip starts from the camp or an outpost (standing at one); the place the
+   * explorer stands at is marked "here".
+   */
+  travelList(): MapView['travel'] {
+    const g = this.game;
     const { strata } = this.seams();
-    if (!strata?.travelTo) return false;
-    const ok = await strata.travelTo(id);
-    if (ok) this.game.bus.emit('toast', { text: t('ctl.travelled'), tone: 'good' });
+    const out: MapView['travel'] = [];
+    if (!strata?.layout) return out;
+    const p = g.player;
+    const cur = strata.current;
+    const near = (o: { stratum: number; x: number; z: number }) => o.stratum === cur && Math.hypot(o.x - p.x, o.z - p.z) <= OUTPOST.useRadius + 2;
+    const atOutpost = strata.outposts.find(near) ?? null;
+    const atCamp = cur === 1 && g.inCamp;
+    const from = atCamp || atOutpost !== null;
+    const reason = from ? null : t('m3.map.travelNeed');
+    const spawn = g.session.layout.spawn;
+    out.push({ id: CAMP_TRAVEL_ID, name: t('m3.map.campName'), x: cur === 1 ? spawn.x : 0, z: cur === 1 ? spawn.z : 0, here: atCamp, can: from && !atCamp, reason: atCamp ? null : reason, stratum: 1 });
+    const list = [...strata.outposts].sort((a, b) => a.stratum - b.stratum);
+    for (const o of list) {
+      const here = atOutpost?.id === o.id;
+      out.push({ id: o.id, name: t('m3.map.outpostIn', { biome: t(BIOMES[o.biome].name) }), x: o.x, z: o.z, here, can: from && !here, reason: here ? null : reason, stratum: o.stratum });
+    }
+    return out;
+  }
+
+  /** Fast travel to an outpost (any stratum visited: WORLD's travelTo) or to the camp. */
+  async travel(id: string): Promise<boolean> {
+    const g = this.game;
+    const { strata } = this.seams();
+    if (!strata?.layout || strata.busy) return false;
+    const row = this.travelList().find((r) => r.id === id);
+    if (!row || !row.can) {
+      if (row?.reason) g.ui.hint(row.reason, 2400);
+      return false;
+    }
+    let ok = false;
+    if (id === CAMP_TRAVEL_ID) {
+      if (strata.current === 1) {
+        const s = g.session.layout.spawn;
+        g.player.teleport(s.x, s.y, s.z, s.yaw);
+        g.cameraRig.yaw = s.yaw + Math.PI;
+        g.cameraRig.snapTo(s.x, s.y + 1.62, s.z);
+        ok = true;
+      } else if (strata.enter) {
+        await strata.enter(1, 'arrival');
+        ok = true;
+      }
+    } else if (strata.travelTo) ok = await strata.travelTo(id);
+    if (ok) {
+      g.tapStop();
+      g.bus.emit('player:travelled', { to: id, stratum: strata.current });
+      g.bus.emit('toast', { text: t('ctl.travelled'), tone: 'good' });
+    }
     return ok;
   }
 

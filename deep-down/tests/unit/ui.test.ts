@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ITEM_IDS } from '../../src/config/items';
+import { packForTier } from '../../src/config/balance';
 import { evaluate, type CraftContext } from '../../src/gameplay/Crafting';
 import { Equipment } from '../../src/gameplay/Equipment';
 import { Backpack } from '../../src/gameplay/Inventory';
@@ -330,6 +331,7 @@ describe('workbench rules shown in the UI', () => {
     expect(equipInfo('pickaxe', 1).stats[0][1]).toBe('100%');
     expect(equipInfo('pickaxe', 2).stats[0][1]).toBe('160%');
     expect(equipInfo('lantern', 2).stats.map((s) => s[1])).toEqual(['14.5 m', '10 min']);
-    expect(equipInfo('pack', 2).stats[0][1]).toBe('8');
+    // The slot count is LOOP's economy (config/balance PACKS): the readout follows the table.
+    expect(equipInfo('pack', 2).stats[0][1]).toBe(String(packForTier(2).slots));
   });
 });

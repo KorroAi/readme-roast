@@ -1,7 +1,7 @@
 import './fp.css';
 import './r3.css';
 import { t, type TextKey } from '../../i18n';
-import type { ArrivalCard, GuardianBarView, HudState, HudSlot, MapSource, ObjectiveArrowView, ReticleKind, TrackerLine } from '../types';
+import type { ArrivalCard, CompanionChipView, GuardianBarView, HudState, HudSlot, MapSource, ObjectiveArrowView, ReticleKind, TrackerLine } from '../types';
 import { h } from '../dom';
 import { depthText } from '../format';
 import { itemIconDataUrl, iconPx } from '../icons';
@@ -10,6 +10,7 @@ import { HOTBAR_SLOTS, type MenuScreen } from './actions';
 import { iconSvg } from './glyphs';
 import { Minimap } from './Minimap';
 import { TutorialOverlay } from './Tutorial';
+import { prefersReducedMotion } from '../brand/motion';
 
 const BAR_STEPS = 200;
 const PROGRESS_STEPS = 60;
@@ -84,16 +85,29 @@ export class Hud {
   private readonly reticle: HTMLElement;
   private readonly ringArc: SVGCircleElement;
   private readonly comboEl: HTMLElement;
+  /** The find under the reticle, named small beneath it ("Copper Vein"); the desktop's target panel. */
+  private readonly targetEl: HTMLElement;
+  private readonly targetName: HTMLElement;
+  private targetV: string | null = '';
   private readonly hintEl: HTMLElement;
   private readonly perf: HTMLElement;
   private readonly hotbarEl: HTMLElement;
   private readonly slots: Array<{ btn: HTMLButtonElement; icon: HTMLElement; count: HTMLElement; item: string | null; n: number }> = [];
   private readonly arrivalEl: HTMLElement;
   private readonly dmgLayer: HTMLElement;
+  /** The tamed companion's chip (a Lampling): its glow, level and progress ring. */
+  private readonly petEl: HTMLButtonElement;
+  private readonly petLevel: HTMLElement;
+  private petV = '';
+  private petQ = -1;
+  private petPingTimer = 0;
   private hintTimer = 0;
   private arrivalTimer = 0;
   private comboTimer = 0;
-  private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  /** Reduced motion (the device's, or Settings → Motion): no shakes, no floating numbers. */
+  private get reduceMotion(): boolean {
+    return prefersReducedMotion();
+  }
 
   // Last displayed values.
   private hpQ = -1;
@@ -172,14 +186,26 @@ export class Hud {
     this.reticle.innerHTML = `<svg viewBox="0 0 30 30" width="30" height="30"><circle class="dd-rt-track" cx="15" cy="15" r="11"/><circle class="dd-rt-ring" cx="15" cy="15" r="11" stroke-dasharray="${RING_C.toFixed(2)}" stroke-dashoffset="${RING_C.toFixed(2)}" transform="rotate(-90 15 15)"/><path class="dd-rt-ticks" d="M15 2v5M15 23v5M2 15h5M23 15h5"/><path class="dd-rt-x" d="M9 9l4 4M21 9l-4 4M9 21l4-4M21 21l-4-4"/><path class="dd-rt-use" d="M15 9l6 6-6 6-6-6z"/><path class="dd-rt-place" d="M15 10v10M10 15h10"/></svg><span class="dd-rt-dot"></span>`;
     this.ringArc = this.reticle.querySelector('.dd-rt-ring') as SVGCircleElement;
     this.comboEl = h('div', { class: 'dd-combo', 'aria-hidden': 'true' });
+    this.targetName = h('span', { class: 'dd-target-name' });
+    this.targetEl = h('div', { class: 'dd-target dd-target3', 'aria-hidden': 'true' }, this.targetName);
     this.hintEl = h('div', { class: 'dd-hint3', role: 'status' });
     this.perf = h('div', { class: 'dd-perf' });
     // The hotbar.
     this.hotbarEl = h('div', { class: 'dd-hotbar', role: 'toolbar', 'aria-label': t('hud3.hotbar'), 'data-ui-target': 'hotbar' });
     for (let i = 0; i < HOTBAR_SLOTS; i++) this.hotbarEl.append(this.slotButton(i));
-    this.arrivalEl = h('div', { class: 'dd-arrival', role: 'status', 'aria-live': 'polite' });
-    this.arrivalEl.addEventListener('click', () => this.arrivalEl.classList.remove('on'));
+    // A tap on the card is the card's (never a look or a tap on the world behind it).
+    this.arrivalEl = h('div', { class: 'dd-arrival', role: 'status', 'aria-live': 'polite', 'data-touch-ignore': '' });
+    // A tap dismisses the card (and lets a waiting tutorial step show at once).
+    this.arrivalEl.addEventListener('click', () => {
+      this.arrivalEl.classList.remove('on');
+      window.clearTimeout(this.arrivalTimer);
+      this.tutorial.suspend(0);
+    });
     this.dmgLayer = h('div', { class: 'dd-dmg-layer', 'aria-hidden': 'true' });
+    this.petLevel = h('span', { class: 'dd-pet-level' });
+    this.petEl = h('button', { class: 'dd-hbtn dd-pet', type: 'button', 'data-ui-target': 'companion', hidden: true }, glyph('lampling'), this.petLevel, h('span', { class: 'dd-pet-ring', 'aria-hidden': 'true' }));
+    this.petEl.addEventListener('click', () => this.actions.open('bestiary'));
+    this.petEl.addEventListener('mousedown', (e) => e.preventDefault());
 
     this.el = h(
       'div',
@@ -188,13 +214,14 @@ export class Hud {
         'div',
         { class: 'dd-top' },
         h('div', { class: 'dd-row1' }, h('div', { class: 'dd-vitals' }, this.hpEl, this.oilEl, this.hazardEl), where, menu),
-        h('div', { class: 'dd-row2' }, h('div', { class: 'dd-hbtns' }, this.bagBtn, craft, map, quests)),
+        h('div', { class: 'dd-row2' }, h('div', { class: 'dd-hbtns' }, this.bagBtn, craft, map, quests), this.petEl),
         h('div', { class: 'dd-row3' }, tracker),
         this.guardian,
       ),
       this.minimap.el,
       this.perf,
       this.reticle,
+      this.targetEl,
       this.comboEl,
       this.hintEl,
       this.hotbarEl,
@@ -232,7 +259,15 @@ export class Hud {
     this.updateTracker(s);
     this.updateGuardian(s.guardian);
     this.updateReticle(s.reticle, s.reticleProgress);
+    const name = s.reticle === 'mine' || s.reticle === 'blocked' || (s.target && s.target.progress > 0) ? s.reticleName : null;
+    if (name !== this.targetV) {
+      this.targetV = name;
+      if (name) this.targetName.textContent = name;
+      this.targetEl.classList.toggle('on', !!name);
+      this.targetEl.classList.toggle('blocked', s.reticle === 'blocked');
+    }
     this.updateHotbar(s.hotbar, s.hotbarSelected);
+    this.updateCompanion(s.companion);
     this.minimap.update(now, t('hud3.minimap'));
     this.tutorial.show(s.tutorial);
 
@@ -274,9 +309,22 @@ export class Hud {
     void this.arrivalEl.offsetWidth;
     this.arrivalEl.classList.add('on');
     window.clearTimeout(this.arrivalTimer);
-    // A first visit gets the full card for 7 s; a return, a short banner.
+    // A first visit gets the full card for 7 s; a return, a short banner. The tutorial's bubble
+    // waits for the card (they would sit on top of each other).
     this.arrivalEl.classList.toggle('brief', !c.first);
-    this.arrivalTimer = window.setTimeout(() => this.arrivalEl.classList.remove('on'), c.first ? 7000 : 2600);
+    const ms = c.first ? 7000 : 2600;
+    this.tutorial.suspend(ms + 350);
+    this.arrivalTimer = window.setTimeout(() => this.arrivalEl.classList.remove('on'), ms);
+  }
+
+  /** The companion found something (a rare ore near, a foe): its chip pings for a moment. */
+  companionPing(kind: 'ore' | 'zap' | 'level'): void {
+    if (this.petEl.hidden) return;
+    this.petEl.classList.remove('ping-ore', 'ping-zap', 'ping-level');
+    void this.petEl.offsetWidth;
+    this.petEl.classList.add(`ping-${kind}`);
+    window.clearTimeout(this.petPingTimer);
+    this.petPingTimer = window.setTimeout(() => this.petEl.classList.remove('ping-ore', 'ping-zap', 'ping-level'), 1600);
   }
 
   /** A small damage number at a screen point (0..1 from the top left); at most DMG_MAX at once. */
@@ -305,6 +353,7 @@ export class Hud {
     window.clearTimeout(this.hintTimer);
     window.clearTimeout(this.arrivalTimer);
     window.clearTimeout(this.comboTimer);
+    window.clearTimeout(this.petPingTimer);
     this.tutorial.dispose();
   }
 
@@ -480,6 +529,28 @@ export class Hud {
     }
   }
 
+  private updateCompanion(c: CompanionChipView | null): void {
+    const v = c ? `${c.name}|${c.level}|${c.state}` : '';
+    if (v !== this.petV) {
+      this.petV = v;
+      this.petEl.hidden = !c;
+      if (c) {
+        this.petLevel.textContent = String(c.level);
+        this.petEl.dataset.state = c.state;
+        this.petEl.setAttribute('aria-label', t('hud3.companion', { name: c.name, level: c.level }));
+        this.petEl.title = t('hud3.companion', { name: c.name, level: c.level });
+      }
+      this.petQ = -1;
+    }
+    if (!c) return;
+    const q = Math.round(c.progress * 40);
+    if (q !== this.petQ) {
+      this.petQ = q;
+      this.petEl.style.setProperty('--xp', String(q / 40));
+      this.petEl.style.setProperty('--glow', String(Math.max(0.25, Math.min(1, c.glow))));
+    }
+  }
+
   private updateGuardian(g: GuardianBarView | null): void {
     const v = g ? `${g.name}|${g.phase}|${g.phases}` : '';
     if (v !== this.guardianV) {
@@ -521,6 +592,8 @@ export class Hud {
       const item = v?.item ?? null;
       if (item !== s.item) {
         s.item = item;
+        // The tutorial's Place step rings a placeable slot while the Place button is not shown yet.
+        s.btn.dataset.placeable = item && v?.placeable ? '1' : '';
         s.icon.style.backgroundImage = item ? `url("${itemIconDataUrl(item as ItemId, iconPx(30))}")` : '';
         s.btn.classList.toggle('empty', !item);
         s.btn.setAttribute('aria-label', item ? t('hud3.slot', { n: i + 1, item: v!.name }) : t('hud3.slotEmpty', { n: i + 1 }));
@@ -530,6 +603,8 @@ export class Hud {
       if (n !== s.n) {
         s.n = n;
         s.count.textContent = n > 1 ? String(n) : '';
+        // A slot whose item ran out stays assigned, dimmed (it fills again with the next pick-up).
+        s.btn.classList.toggle('zero', !!item && n <= 0);
       }
     }
     if (sel !== this.selV) {

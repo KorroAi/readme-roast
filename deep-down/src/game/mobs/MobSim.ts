@@ -7,7 +7,9 @@ import { SPECIES, type BrainId, type GuardianPattern, type ShotDef, type Species
 import { runBrain, crawlerGround } from './brains';
 import { guardianBrain, guardianOnHit } from './guardian';
 import { lairTick, strataSpawner, type Lair, type Nest } from './spawner';
-import type { Mob, MobBiome, MobContext, MobElement, MobFamily, MobHitResult, MobKind, MobRank, MobRarity, MobRay, MobState, MobStrike } from './types';
+import { ARMOUR_ARC, ARMOUR_FRONT, LEADER_POWER, LEADER_REACH, SPLIT, affixNumbers } from './elites';
+import { lightBoost, type CompanionBrain, type CompanionEvent } from './companion';
+import type { Mob, MobAffix, MobBiome, MobContext, MobElement, MobFamily, MobHitResult, MobKind, MobRank, MobRarity, MobRay, MobState, MobStrike } from './types';
 
 /**
  * The creatures' simulation (round 2, MOBS): spawning, the brains of the twelve kinds, combat, the
@@ -52,7 +54,9 @@ export type MobSimEvent =
   | { type: 'scanned'; mob: SimMob }
   /** A burst at a point (an exploder, an emerging burrower, a slam): motes and dust, in its colour. */
   | { type: 'burst'; x: number; y: number; z: number; color: number; size: number }
-  | { type: 'guardian'; mob: SimMob; phase: 'awake' | 'phase' | 'reset' };
+  | { type: 'guardian'; mob: SimMob; phase: 'awake' | 'phase' | 'reset' }
+  /** The companion did something (sensed an ore, zapped a foe). */
+  | { type: 'companion'; mob: SimMob; event: CompanionEvent };
 
 export interface Shot {
   id: number;
@@ -220,6 +224,22 @@ export class SimMob implements Mob {
   scanned = false;
   /** An exploder's fuse is lit. */
   fused = false;
+  /** Its blows' damage factor (1: its kind's; the tutorial's first foe hits softly, elites harder). */
+  power = 1;
+  /** An elite's affixes (game/mobs/elites.ts), and what they make of it: speed, wind-up and cooldown factors. */
+  affixes: MobAffix[] = [];
+  pace = 1;
+  tempo = 1;
+  haste = 1;
+  /** The look's affix bits (radiant 1, armoured 2, swift 4, splitting 8) for the renderer. */
+  affixBits = 0;
+  /** A splitting elite's child (it does not split again). */
+  split = false;
+  /** The companion's body (a tame Lampling), and a wild one's trust (glowcaps fed so far). */
+  tame = false;
+  trust = 0;
+  /** A crawler that climbs above the explorer to drop from the ceiling (once). */
+  ambush = false;
 
   constructor(readonly kind: MobKind, seed: number) {
     const d = SPECIES[kind];
@@ -258,10 +278,15 @@ export class SimMob implements Mob {
   get guardian(): boolean {
     return this.rank !== 'minion';
   }
+
+  get elite(): boolean {
+    return this.affixes.length > 0;
+  }
 }
 
 const tmpA: V3 = { x: 0, y: 0, z: 0 };
 const tmpB: V3 = { x: 0, y: 0, z: 0 };
+const tmpUp = new THREE.Vector3(0, 1, 0);
 const tmpN: V3 = { x: 0, y: 0, z: 0 };
 
 export class MobSim {
@@ -298,6 +323,9 @@ export class MobSim {
   forceBiome: MobBiome | null = null;
   /** Kinds whose bestiary page is complete (blows land harder on them). */
   readonly known = new Set<MobKind>();
+  /** The companion's brain and level (MobDirector sets it once a Lampling is tamed). */
+  companion: { brain: CompanionBrain; level: number } | null = null;
+  private readonly companionOut: CompanionEvent[] = [];
   /** A guardian's snuff: seconds of a choked lantern left. */
   snuffLeft = 0;
   /** Seconds since a monster last pressed the explorer (the encounter director brings the next one). */
@@ -339,7 +367,8 @@ export class MobSim {
 
   count(family?: MobFamily, kind?: MobKind): number {
     let n = 0;
-    for (const m of this.mobs) if (!m.dying && (!family || m.family === family) && (!kind || m.kind === kind)) n++;
+    // The companion is the explorer's, not the cave's: it counts toward no cap.
+    for (const m of this.mobs) if (!m.dying && !m.tame && (!family || m.family === family) && (!kind || m.kind === kind)) n++;
     return n;
   }
 
@@ -417,6 +446,8 @@ export class MobSim {
       case 'lurk':
       case 'cling':
         m.setState('lurk');
+        // A crawler that came on the rock overhead creeps along it to drop on the explorer (a told ambush).
+        if (m.brain === 'cling' && opts.ceiling && m.up.y < -0.6) m.ambush = true;
         break;
       case 'drain':
         m.setState('wander');
@@ -688,7 +719,7 @@ export class MobSim {
       const m = this.mobs[i];
       m.stateTime += dt;
       m.flash = Math.max(0, m.flash - dt / MOBS_RULES.flash);
-      m.cooldown -= dt;
+      m.cooldown -= dt * m.haste;
       if (m.dying) {
         m.fade = Math.max(0, m.fade - dt / (m.guardian ? 3 : m.brain === 'sentinel' ? 2.4 : m.brain === 'drain' ? 0.9 : 0.7));
         if (m.def.locomotion !== 'fly') this.walkerSettle(m, dt);
@@ -707,10 +738,10 @@ export class MobSim {
       this.animate(m, dt);
       if (ctx.active) this.watchScan(m, dt, ctx);
       if (m.brain === 'drain' && m.state === 'attack') dim = Math.min(dim, MOBS_RULES.wispDim + (1 - MOBS_RULES.wispDim) * (1 - Math.min(1, m.stateTime / 1.5)));
-      if (m.brain === 'lamp' && m.state === 'follow') followers++;
+      if (m.brain === 'lamp' && (m.state === 'follow' || m.tame)) followers += m.tame ? 0 : 1;
       if (m.hostile && (m.state === 'windup' || m.state === 'attack' || m.state === 'stalk') && this.distToPlayer(m, ctx) < 18) engaged = true;
       // Put away what is far behind (and every monster when the explorer is home). Guardians keep to their lairs.
-      const reach = m.brain === 'vista' ? 140 : m.guardian ? 90 : m.brain === 'sentinel' ? 60 : MOBS_RULES.despawn;
+      const reach = m.brain === 'vista' ? 140 : m.guardian ? 90 : m.brain === 'sentinel' ? 60 : m.tame ? Infinity : MOBS_RULES.despawn;
       const far = Math.hypot(m.position.x - ctx.player.x, m.position.y - ctx.player.y, m.position.z - ctx.player.z) > reach;
       if (far || (ctx.atCamp && m.hostile && m.brain !== 'sentinel' && !m.guardian)) this.remove(m);
       // Monsters never enter the camp or an outpost: one that strays in turns back to the dark.
@@ -721,7 +752,9 @@ export class MobSim {
     if (this.snuffLeft > 0) dim = Math.min(dim, 0.32);
     this.dim += (dim - this.dim) * Math.min(1, dt * 3);
     this.boostLeft = Math.max(0, this.boostLeft - dt);
-    const boost = (this.boostLeft > 0 ? MOBS_RULES.jellyBoost : 1) * (followers > 0 ? 1.1 : 1);
+    // Light: a jelly's spores, wild lamplings following, the companion (brighter with its level).
+    const tame = this.companion && this.mobs.some((m) => m.tame && !m.dying) ? lightBoost(this.companion.level) : 1;
+    const boost = (this.boostLeft > 0 ? MOBS_RULES.jellyBoost : 1) * Math.max(followers > 0 ? 1.1 : 1, tame);
     this.boost += (boost - this.boost) * Math.min(1, dt * 2);
     this.updateShots(dt);
     this.updateHazards(dt, ctx);
@@ -837,6 +870,12 @@ export class MobSim {
       case 'moth':
         return this.moth(m, dt, ctx);
       case 'lamp':
+        if (m.tame && this.companion) {
+          this.companionOut.length = 0;
+          this.companion.brain.step(this, m, dt, ctx, this.companion.level, this.companionOut);
+          for (const event of this.companionOut) this.emit({ type: 'companion', mob: m, event });
+          return;
+        }
         return this.lampling(m, dt, ctx);
       case 'skitter':
         return this.glimmerkin(m, dt, ctx);
@@ -872,6 +911,81 @@ export class MobSim {
     return clearLine(this.env.solid, tmpA, ctx.eye) || clearLine(this.env.solid, tmpA, { x: ctx.player.x, y: ctx.player.y + 0.9, z: ctx.player.z });
   }
 
+  /** A creature's wind-up (s): its kind's, quicker for a swift elite, never under 0.35 s (or its kind's own, if shorter). */
+  windupOf(m: SimMob): number {
+    return Math.max(Math.min(m.def.windup, 0.35), m.def.windup * m.tempo);
+  }
+
+  /** A pack member's slot: its index among the living of its group (and kind of brain), and their count. */
+  groupSlot(m: SimMob): { i: number; n: number } {
+    if (!m.group) return { i: 0, n: 1 };
+    let i = 0;
+    let n = 0;
+    for (const o of this.mobs) {
+      if (o.group !== m.group || o.dying || o.brain !== m.brain) continue;
+      if (o.id < m.id) i++;
+      n++;
+    }
+    return { i, n: Math.max(1, n) };
+  }
+
+  /**
+   * Is it this pack member's turn to strike? Of the ready ones (near, waiting, rested), the one most
+   * to the explorer's side (the flank: in sight at the edge of the view, its tell heard on that side).
+   * Without a view direction (tests, the first world), any ready one may go.
+   */
+  flanker(m: SimMob, ctx: MobContext): boolean {
+    const look = ctx.look;
+    if (!look || !m.group) return true;
+    const lx = look.x;
+    const lz = look.z;
+    const ll = Math.hypot(lx, lz);
+    if (ll < 1e-3) return true;
+    const score = (o: SimMob) => {
+      const dx = o.position.x - ctx.player.x;
+      const dz = o.position.z - ctx.player.z;
+      const d = Math.max(0.01, Math.hypot(dx, dz));
+      // |sin| of the angle between the view and the bearing: 1 at either side, 0 ahead or behind.
+      return Math.abs(lx * dz - lz * dx) / (ll * d);
+    };
+    const mine = score(m);
+    for (const o of this.mobs) {
+      if (o === m || o.group !== m.group || o.dying || o.brain !== m.brain || o.state !== 'stalk') continue;
+      if (o.cooldown > 0 || o.stateTime <= 0.6 || this.flatDist(o, ctx) >= 7.5) continue;
+      if (score(o) > mine + 0.05) return false;
+    }
+    return true;
+  }
+
+  /** Not cowed by a raised flame: a radiant elite, or a creature within its leader's reach. */
+  brave(m: SimMob): boolean {
+    if (m.affixBits & 1) return true;
+    for (const o of this.mobs) if (o !== m && o.affixBits & 1 && !o.dying && o.position.distanceTo(m.position) <= LEADER_REACH) return true;
+    return false;
+  }
+
+  /** Make a creature an elite (its affixes' hit points, speed, tells; a little bigger). */
+  makeElite(m: SimMob, affixes: readonly MobAffix[]): void {
+    if (!affixes.length || !m.hostile || m.guardian) return;
+    const n = affixNumbers(affixes);
+    m.affixes = [...affixes];
+    m.affixBits = n.bits;
+    m.pace = n.pace;
+    m.tempo = n.tempo;
+    m.haste = n.haste;
+    m.maxHp = Math.round((m.maxHp ?? m.def.hp) * n.hp);
+    m.hp = m.maxHp;
+    m.scale *= 1.12;
+    m.bounds.radius = m.def.radius * m.scale;
+    m.bounds.halfHeight = m.def.halfHeight * m.scale;
+    if (m.def.locomotion === 'walk' || m.def.locomotion === 'still') this.placeWalker(m);
+  }
+
+  /** No rock between two points. */
+  clearSight(a: V3, b: V3): boolean {
+    return clearLine(this.env.solid, a, b);
+  }
+
   announce(m: SimMob, ctx: MobContext): void {
     if (m.met) return;
     if (this.distToPlayer(m, ctx) > (m.brain === 'vista' ? 80 : m.guardian ? 30 : 13)) return;
@@ -882,6 +996,7 @@ export class MobSim {
 
   /** The crawler: on rock at the edge of the light, darting in from the dark, recoiling from a bright flame. */
   crawler(m: SimMob, dt: number, ctx: MobContext): void {
+    if (m.mode === 'ceiling') return this.ceilingDrop(m, dt, ctx);
     const bright = this.brightRadius(ctx);
     const l = ctx.lantern;
     const dl = Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z);
@@ -897,12 +1012,33 @@ export class MobSim {
         m.goal.x = ctx.player.x + Math.sin(a) * ring;
         m.goal.y = ctx.player.y + 1 + Math.sin(a * 1.7) * 1.4;
         m.goal.z = ctx.player.z + Math.cos(a) * ring;
-        if (l.raised && dl < bright + 1) {
+        if (l.raised && dl < bright + 1 && !this.brave(m)) {
           this.recoil(m);
           break;
         }
-        if (dl < bright * 0.8 && l.flame > 0.5) away = true;
+        if (dl < bright * 0.8 && l.flame > 0.5 && !this.brave(m)) away = true;
         const token = this.packNext.get(m.group) ?? 0;
+        if (m.ambush) {
+          // Up the walls to the rock over the explorer; once there, a drip and a circle, then the drop.
+          m.goal.x = ctx.player.x;
+          m.goal.y = ctx.player.y + 12;
+          m.goal.z = ctx.player.z;
+          away = false;
+          const fd = this.flatDist(m, ctx);
+          if (m.up.y < -0.6 && fd < 2.2 && m.position.y - ctx.player.y > 2.4 && m.cooldown <= 0 && this.clock >= token && m.stateTime > 0.8 && this.seesPlayer(m, ctx)) {
+            m.mode = 'ceiling';
+            m.ambush = false;
+            m.setState('windup');
+            m.landed = false;
+            m.vel.y = 0;
+            this.packNext.set(m.group, this.clock + 2.5);
+            this.addMarker(m, 'disc', m.position.x, this.floorY(m.position.x, m.position.y, m.position.z), m.position.z, 1.3);
+            this.telegraph(m);
+            this.sfx(m, 'mob.drip');
+            return;
+          }
+          break;
+        }
         const bold = !l.lit ? 2.2 : l.flame < MOBS_RULES.dimFlame ? 1.6 : 1;
         // It strikes from the dark now and then, and at once when the explorer comes close (still telegraphed).
         const cornered = dp < 3.4 && m.stateTime > 0.5;
@@ -917,7 +1053,7 @@ export class MobSim {
       }
       case 'windup':
         speed = 0;
-        if (m.stateTime >= m.def.windup) m.setState('attack');
+        if (m.stateTime >= this.windupOf(m)) m.setState('attack');
         break;
       case 'attack': {
         speed = m.def.speed * 2.3;
@@ -926,7 +1062,7 @@ export class MobSim {
         m.goal.z = ctx.player.z;
         if (!m.landed && dp <= m.def.reach) {
           m.landed = true;
-          this.emit({ type: 'attack', mob: m, damage: m.def.damage, landed: true });
+          this.strikePlayer(m, m.def.damage);
           m.cooldown = m.def.cooldown;
           this.recoil(m, 1.6);
         } else if (m.stateTime > 2.6 || (l.raised && dl < bright)) {
@@ -948,7 +1084,49 @@ export class MobSim {
       default:
         m.setState('lurk');
     }
-    this.crawlMove(m, dt, speed, away, m.state === 'attack' ? 0 : bright, ctx);
+    // An ambusher is bolder: the lantern's pool only half keeps it off.
+    this.crawlMove(m, dt, speed, away, m.state === 'attack' ? 0 : m.ambush ? bright * 0.4 : bright, ctx);
+  }
+
+  /** A crawler's ceiling ambush: the drip and the circle (its wind-up), then it drops on the spot and fights on the floor. */
+  ceilingDrop(m: SimMob, dt: number, ctx: MobContext): void {
+    if (m.state === 'windup') {
+      const k = Math.min(1, m.stateTime / (this.windupOf(m) + 0.25));
+      m.strike = k;
+      const mk = this.marker(m);
+      if (mk) mk.progress = k;
+      if (k >= 1) {
+        m.setState('attack');
+        m.vel.y = 0;
+      }
+      return;
+    }
+    if (m.state !== 'attack') {
+      m.mode = '';
+      return;
+    }
+    const floor = this.floorY(m.position.x, m.position.y, m.position.z);
+    m.vel.y -= 24 * dt;
+    m.position.y += m.vel.y * dt;
+    // It turns over as it falls (it lands on its feet).
+    m.up.lerp(tmpUp, Math.min(1, dt * 8)).normalize();
+    const ground = floor + m.def.lift * m.scale;
+    if (m.position.y > ground) return;
+    m.position.y = ground;
+    this.areaStrike(m, m.position.x, floor, m.position.z, 1.3, m.def.damage, false);
+    this.emit({ type: 'burst', x: m.position.x, y: floor + 0.2, z: m.position.z, color: m.def.mote, size: 0.6 });
+    this.sfx(m, 'mob.thud');
+    this.dropMarker(m);
+    m.mode = '';
+    const c = this.nearestCling(Math.floor(m.position.x), floor, Math.floor(m.position.z));
+    if (c) {
+      m.cell.x = m.next.x = c.x;
+      m.cell.y = m.next.y = c.y;
+      m.cell.z = m.next.z = c.z;
+    }
+    m.cooldown = m.def.cooldown;
+    this.recoil(m, 1.4);
+    void ctx;
   }
 
   recoil(m: SimMob, seconds = 2.4): void {
@@ -974,7 +1152,7 @@ export class MobSim {
     const dy = tmpB.y - m.position.y;
     const dz = tmpB.z - m.position.z;
     const d = Math.hypot(dx, dy, dz);
-    const step = speed * dt * m.scale ** 0.3;
+    const step = speed * m.pace * dt * m.scale ** 0.3;
     if (d <= Math.max(0.04, step)) {
       m.position.set(tmpB.x, tmpB.y, tmpB.z);
       m.cell.x = m.next.x;
@@ -983,12 +1161,15 @@ export class MobSim {
       if (speed > 0) {
         const l = ctx.lantern;
         const camp = this.env;
+        const brave = this.brave(m);
         const cost = (x: number, y: number, z: number) => {
           let c = 0;
           if (bright > 0) {
             const dd = Math.hypot(x + 0.5 - l.x, y + 0.5 - l.y, z + 0.5 - l.z);
             if (dd < bright) c += (bright - dd) * 1.5;
           }
+          // Placed light (torches, lamps, crystals): swarmers keep to its edge (a radiant leader's are bolder).
+          if (!brave && camp.light(x, y, z) > MOBS_RULES.torchFear) c += 40;
           if (camp.inCamp(x + 0.5, y, z + 0.5)) c += 100;
           return c;
         };
@@ -1035,9 +1216,9 @@ export class MobSim {
         }
         break;
       case 'windup':
-        m.open = Math.min(1, m.stateTime / m.def.windup) * 0.75;
+        m.open = Math.min(1, m.stateTime / this.windupOf(m)) * 0.75;
         this.face(m, ctx, dt, 6);
-        if (m.stateTime >= m.def.windup) m.setState('attack');
+        if (m.stateTime >= this.windupOf(m)) m.setState('attack');
         break;
       case 'attack':
         m.open = 1;
@@ -1047,7 +1228,7 @@ export class MobSim {
         if (!m.landed && m.stateTime >= 0.18) {
           m.landed = true;
           const hitIt = this.flatDist(m, ctx) <= m.def.reach && vdy < 2.2;
-          this.emit({ type: 'attack', mob: m, damage: hitIt ? m.def.damage : 0, landed: hitIt });
+          this.blow(m, hitIt);
         }
         if (m.stateTime >= 0.4) {
           // Teeth out: the moment to strike it.
@@ -1179,20 +1360,20 @@ export class MobSim {
         break;
       case 'windup':
         this.face(m, ctx, dt, 4);
-        m.strike = Math.min(1, m.stateTime / m.def.windup);
+        m.strike = Math.min(1, m.stateTime / this.windupOf(m));
         if (full) {
           m.strike = 0;
           this.flee(m, 7);
           break;
         }
-        if (m.stateTime >= m.def.windup) m.setState('attack');
+        if (m.stateTime >= this.windupOf(m)) m.setState('attack');
         break;
       case 'attack':
         m.strike = 1 - Math.min(1, m.stateTime / 0.35);
         if (!m.landed) {
           m.landed = true;
           const hitIt = this.flatDist(m, ctx) <= m.def.reach + 0.4;
-          this.emit({ type: 'attack', mob: m, damage: hitIt ? m.def.damage : 0, landed: hitIt });
+          this.blow(m, hitIt);
         }
         if (m.stateTime >= 0.5) {
           m.cooldown = m.def.cooldown;
@@ -1234,6 +1415,8 @@ export class MobSim {
       case 'sleep':
         m.glow += (0.12 - m.glow) * Math.min(1, dt * 2);
         m.open += (0 - m.open) * Math.min(1, dt * 2);
+        // A Sentinel of the rosters (no relic to guard) keeps its post: it wakes when the explorer comes near.
+        if (!m.relic && dp < 6.5 && Math.abs(ctx.player.y - m.foot.y) < 3 && this.seesPlayer(m, ctx)) m.setState('wake');
         return this.walkerSettle(m, dt);
       case 'wake':
         m.glow = Math.min(1, m.stateTime / 2);
@@ -1267,9 +1450,9 @@ export class MobSim {
         return;
       case 'windup':
         // The sweep is raised slowly: plenty of time to step back.
-        m.strike = Math.min(1, m.stateTime / m.def.windup);
+        m.strike = Math.min(1, m.stateTime / this.windupOf(m));
         this.face(m, ctx, dt, 1.2);
-        if (m.stateTime >= m.def.windup) m.setState('attack');
+        if (m.stateTime >= this.windupOf(m)) m.setState('attack');
         return this.walkerSettle(m, dt);
       case 'attack': {
         m.strike = 1 - Math.min(1, m.stateTime / 0.45);
@@ -1281,7 +1464,7 @@ export class MobSim {
           const pz = ctx.player.z - m.foot.z;
           const front = (px * fx + pz * fz) / Math.max(0.01, Math.hypot(px, pz)) > Math.cos(1.25);
           const hitIt = front && dp <= m.def.reach + 0.3 && Math.abs(ctx.player.y - m.foot.y) < 2.5;
-          this.emit({ type: 'attack', mob: m, damage: hitIt ? m.def.damage : 0, landed: hitIt });
+          this.blow(m, hitIt);
         }
         if (m.stateTime >= 0.55) {
           // The core opens between sweeps: strike it now.
@@ -1493,8 +1676,15 @@ export class MobSim {
       case 'flee': {
         const ax = m.foot.x + (m.foot.x - ctx.player.x) * 3;
         const az = m.foot.z + (m.foot.z - ctx.player.z) * 3;
-        this.walkToward(m, ax, az, m.def.speed, dt, true);
-        if (m.stateTime >= m.timer) {
+        // Chased, it keeps running but tires; out of breath, it stops, panting: the moment to catch it.
+        const tire = this.tire(m, dt, ctx);
+        this.walkToward(m, ax, az, m.def.speed * (1 - tire), dt, true);
+        if (m.run > MOBS_RULES.chaseTire) {
+          m.run = 0;
+          m.setState('idle');
+          m.cooldown = 3;
+          this.emit({ type: 'cue', mob: m, cue: 'chirp' });
+        } else if (m.stateTime >= m.timer && !this.chasing(m, ctx)) {
           // It stops to look back: the moment to catch it.
           m.setState('idle');
           m.cooldown = 2.5;
@@ -1578,9 +1768,9 @@ export class MobSim {
         }
         return this.walkerSettle(m, dt);
       case 'idle':
-        // A taunt: it shows its loot.
+        // A taunt: it shows its loot (out of breath, it cannot run off again at once).
         this.face(m, ctx, dt, 6);
-        if (m.stateTime > 0.9 + m.seed * 0.6 || dp < 2.5) {
+        if ((m.stateTime > 0.9 + m.seed * 0.6 || dp < 2.5) && m.cooldown <= 0) {
           m.setState('flee');
           m.timer = 2.2 + this.rng.range(0, 1.6);
         }
@@ -1588,7 +1778,16 @@ export class MobSim {
       case 'flee': {
         const ax = m.foot.x + (m.foot.x - ctx.player.x) * 2 + Math.sin(this.clock * 3 + m.seed * 9) * 2;
         const az = m.foot.z + (m.foot.z - ctx.player.z) * 2 + Math.cos(this.clock * 3 + m.seed * 9) * 2;
-        this.walkToward(m, ax, az, m.def.speed * (m.treasure ? 1.15 : 1), dt, true);
+        const tire = this.tire(m, dt, ctx);
+        this.walkToward(m, ax, az, m.def.speed * (m.treasure ? 1.15 : 1) * (1 - tire), dt, true);
+        if (m.run > MOBS_RULES.chaseTire) {
+          // Caught up with: it stops, panting, its loot in its paws.
+          m.run = 0;
+          m.setState('idle');
+          m.cooldown = 2.4;
+          this.emit({ type: 'cue', mob: m, cue: 'squeak' });
+          break;
+        }
         if (m.stateTime >= m.timer) {
           const dig = this.clockOf(m) > 14;
           m.setState(dig ? 'sleep' : 'idle');
@@ -1617,6 +1816,24 @@ export class MobSim {
     return m.timer2;
   }
 
+  /** The explorer runs at it (within 7 m, moving its way). */
+  chasing(m: SimMob, ctx: MobContext): boolean {
+    const vx = ctx.player.vx;
+    const vz = ctx.player.vz;
+    const v = Math.hypot(vx, vz);
+    if (v < 1.5) return false;
+    const dx = m.position.x - ctx.player.x;
+    const dz = m.position.z - ctx.player.z;
+    const d = Math.hypot(dx, dz);
+    return d < 7 && (vx * dx + vz * dz) / (v * Math.max(0.01, d)) > 0.5;
+  }
+
+  /** A chased being's tiredness (0..0.55: how much slower), from its seconds of being chased (m.run). */
+  tire(m: SimMob, dt: number, ctx: MobContext): number {
+    m.run = this.chasing(m, ctx) ? m.run + dt : Math.max(0, m.run - dt * 0.5);
+    return Math.min(0.55, m.run / 7);
+  }
+
   // ------------------------------------------------------------------------------------
   // Locomotion helpers
 
@@ -1626,6 +1843,7 @@ export class MobSim {
 
   /** Walk the feet toward (x, z). @returns whether the way was blocked. */
   walkToward(m: SimMob, x: number, z: number, speed: number, dt: number, keepCampOut = true): boolean {
+    speed *= m.pace;
     const dx = x - m.foot.x;
     const dz = z - m.foot.z;
     const d = Math.hypot(dx, dz);
@@ -1651,6 +1869,7 @@ export class MobSim {
   }
 
   flyToward(m: SimMob, tx: number, ty: number, tz: number, speed: number, dt: number, accel: number): void {
+    speed *= m.pace;
     const dx = tx - m.position.x;
     const dy = ty - m.position.y;
     const dz = tz - m.position.z;
@@ -1685,18 +1904,26 @@ export class MobSim {
     const slack = ray.slack ?? 0.25;
     let best: SimMob | null = null;
     let bestT = Infinity;
+    // The companion never takes a tap meant for a creature behind it: it is picked only alone on the ray.
+    let pet: SimMob | null = null;
+    let petT = Infinity;
     for (const m of this.mobs) {
       if (!m.tappable || m.dying || m.fade < 0.3) continue;
       const r = m.bounds.radius + slack;
       const h = m.bounds.halfHeight;
       const t = rayCapsule(ray.ox, ray.oy, ray.oz, dx, dy, dz, m.position.x, m.position.y - h, m.position.z, m.position.y + h, r);
-      if (t === null || t > maxD || t >= bestT) continue;
+      if (t === null || t > maxD || t >= (m.tame ? petT : bestT)) continue;
       const hit = { x: ray.ox + dx * t, y: ray.oy + dy * t, z: ray.oz + dz * t };
       if (!clearLine(this.env.solid, { x: ray.ox, y: ray.oy, z: ray.oz }, hit)) continue;
-      best = m;
-      bestT = t;
+      if (m.tame) {
+        pet = m;
+        petT = t;
+      } else {
+        best = m;
+        bestT = t;
+      }
     }
-    return best;
+    return best ?? pet;
   }
 
   /** Metres from a point to a mob's capsule surface. */
@@ -1717,6 +1944,19 @@ export class MobSim {
     const light = strike.light === true;
     if (light && (m.brain === 'cling' || m.brain === 'drain')) d *= 1.5;
     if (this.known.has(m.kind)) d *= BESTIARY_BONUS;
+    // An armoured elite: its plated front turns blows; its flanks, its back, its open guard do not.
+    if (m.affixBits & 2 && !strike.blast && !m.vulnerable) {
+      const from = strike.from ?? (this.ctx ? this.ctx.player : null);
+      if (from) {
+        const ax = from.x - m.position.x;
+        const az = from.z - m.position.z;
+        const al = Math.max(0.01, Math.hypot(ax, az));
+        if ((ax * Math.sin(m.yaw) + az * Math.cos(m.yaw)) / al > Math.cos(ARMOUR_ARC)) {
+          d *= ARMOUR_FRONT;
+          armoured = true;
+        } else weak = true;
+      }
+    }
     switch (m.brain) {
       case 'mimic':
         if (m.open < 0.5 && !strike.blast) {
@@ -1731,7 +1971,11 @@ export class MobSim {
         } else if (m.open >= 0.5) weak = true;
         break;
       case 'sentinel':
-        if (m.state === 'sleep') return miss;
+        // A relic's Sentinel sleeps until its relic is taken; one at a post wakes to the blow.
+        if (m.state === 'sleep') {
+          if (m.relic) return miss;
+          m.setState('wake');
+        }
         // Only the open core takes the full blow.
         if (m.state !== 'recoil' && m.state !== 'flee') {
           d *= m.def.armour;
@@ -1825,6 +2069,39 @@ export class MobSim {
     // An exploder struck down: a lit fuse still bursts (it hurts the explorer too); an unlit one pops,
     // and its pop hurts only the monsters round it (a chain).
     if (m.brain === 'fuse') this.burst(m, m.fused);
+    // A radiant elite bursts in light: the monsters round it recoil (MobDirector feeds the lantern).
+    if (m.affixBits & 1) this.flash(m.position.x, m.position.y, m.position.z, 6, 0);
+    // A splitting elite: two smaller ones climb out of it.
+    if (m.affixBits & 8 && !m.split) this.splitOf(m);
+  }
+
+  /** A splitting elite's children: smaller, weaker, of its kind, round where it fell. */
+  splitOf(m: SimMob): SimMob[] {
+    const out: SimMob[] = [];
+    for (let i = 0; i < SPLIT.count; i++) {
+      const a = m.yaw + (i === 0 ? 1.4 : -1.4) + this.rng.range(-0.3, 0.3);
+      const r = m.bounds.radius + 0.4;
+      const fly = m.def.locomotion === 'fly';
+      const c = this.spawn(m.kind, m.position.x + Math.sin(a) * r, fly ? m.position.y : m.foot.y || m.position.y, m.position.z + Math.cos(a) * r, { group: m.group, biome: m.biome });
+      if (!c) continue;
+      c.split = true;
+      c.scale = m.scale / 1.12 * SPLIT.scale;
+      c.bounds.radius = c.def.radius * c.scale;
+      c.bounds.halfHeight = c.def.halfHeight * c.scale;
+      if (c.def.locomotion === 'walk' || c.def.locomotion === 'still') this.placeWalker(c);
+      c.maxHp = Math.max(1, Math.round(c.def.hp * SPLIT.hp));
+      c.hp = c.maxHp;
+      c.power = SPLIT.power;
+      c.cooldown = 0.8 + i * 0.5;
+      c.fade = 0.4;
+      c.met = true;
+      // Thrown clear of the body.
+      c.knock.x = Math.sin(a) * 3;
+      c.knock.z = Math.cos(a) * 3;
+      out.push(c);
+    }
+    if (out.length) this.emit({ type: 'burst', x: m.position.x, y: m.position.y, z: m.position.z, color: 0xe070ff, size: 1 });
+    return out;
   }
 
   /** An exploder's burst at its body. */
@@ -2103,8 +2380,15 @@ export class MobSim {
       this.emit({ type: 'attack', mob: m, damage: 0, landed: false, element, dodged: true });
       return true;
     }
-    this.emit({ type: 'attack', mob: m, damage, landed: true, element });
+    const led = !(m.affixBits & 1) && this.brave(m) ? LEADER_POWER : 1;
+    this.emit({ type: 'attack', mob: m, damage: Math.max(1, Math.round(damage * m.power * led)), landed: true, element });
     return true;
+  }
+
+  /** A melee blow that reached the explorer (through `strikePlayer`: a dash dodges it) or missed. */
+  blow(m: SimMob, reached: boolean, damage: number = m.def.damage): void {
+    if (reached) this.strikePlayer(m, damage);
+    else this.emit({ type: 'attack', mob: m, damage: 0, landed: false, element: m.def.element });
   }
 
   /**

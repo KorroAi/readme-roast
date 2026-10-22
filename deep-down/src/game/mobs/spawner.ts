@@ -2,6 +2,7 @@ import { MOBS_RULES } from './config';
 import { clingable, headroom, standableFor, type V3 } from './nav';
 import { ROSTERS } from './rosters';
 import { SPECIES } from './species';
+import { ELITE_CHANCE, canTake, rollAffixes } from './elites';
 import type { MobSim, SimMob } from './MobSim';
 import type { GuardianKind, MobBiome, MobContext, MobKind, RosterEntry } from './types';
 
@@ -22,6 +23,8 @@ export interface Lair {
   sx: number;
   sy: number;
   sz: number;
+  /** A lair whose guardian does not come yet (the Heart's, until the 12 shards relight it). */
+  sealed?: () => boolean;
 }
 
 export interface Nest {
@@ -95,7 +98,7 @@ function beingsAbout(sim: MobSim): number {
   let n = 0;
   let moths = false;
   for (const m of sim.mobs) {
-    if (m.dying || m.family !== 'being') continue;
+    if (m.dying || m.family !== 'being' || m.tame) continue;
     if (m.brain === 'moth') moths = true;
     else n++;
   }
@@ -124,8 +127,10 @@ export function strataSpawner(sim: MobSim, dt: number, ctx: MobContext): void {
     const entry = pickEntry(ROSTERS[here].monsters, r.next(), (k) => sim.count(undefined, k), night, dark);
     if (entry) {
       const n = Math.min(r.int(entry.pack[0], entry.pack[1]), Math.max(1, budget - about + 1), entry.max - sim.count(undefined, entry.kind));
-      const made = spawnPack(sim, ctx, entry.kind, n, here, due ? 10 : MOBS_RULES.spawnMin, due ? 19 : MOBS_RULES.spawnMax + 4);
+      const pack: SimMob[] = [];
+      const made = spawnPack(sim, ctx, entry.kind, n, here, due ? 10 : MOBS_RULES.spawnMin, due ? 19 : MOBS_RULES.spawnMax + 4, false, undefined, pack);
       if (made > 0) {
+        maybeElite(sim, pack, stratum);
         sim.lastMonster = now;
         if (due) {
           sim.quiet = 0;
@@ -148,8 +153,21 @@ export function strataSpawner(sim: MobSim, dt: number, ctx: MobContext): void {
   }
 }
 
-/** Spawn `n` of a kind somewhere fitting in the shell round the explorer. @returns how many. */
-export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number, biome: MobBiome, minR: number, maxR: number, being = false, nest?: Nest): number {
+/** Now and then a pack has a leader: an elite with one affix (two from stratum IV). @returns it, if one. */
+export function maybeElite(sim: MobSim, pack: readonly SimMob[], stratum: number): SimMob | null {
+  if (!pack.length) return null;
+  const s = Math.max(1, Math.min(6, Math.round(stratum)));
+  if (sim.rng.next() >= ELITE_CHANCE[s]) return null;
+  const lead = pack.find((m) => !m.guardian && !m.owner && (['radiant', 'armoured', 'swift', 'splitting'] as const).some((a) => canTake(m.kind, a)));
+  if (!lead) return null;
+  const affixes = rollAffixes(sim.rng, s, lead.kind);
+  if (!affixes.length) return null;
+  sim.makeElite(lead, affixes);
+  return lead;
+}
+
+/** Spawn `n` of a kind somewhere fitting in the shell round the explorer. @returns how many (and the creatures into `out`). */
+export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number, biome: MobBiome, minR: number, maxR: number, being = false, nest?: Nest, out?: SimMob[]): number {
   const sp = SPECIES[kind];
   const ok = being ? (x: number, y: number, z: number) => canSpawnBeingAt(sim, x, y, z, ctx) : (x: number, y: number, z: number) => sim.canSpawnMonster(x, y, z, ctx);
   const shape = shapeOf(kind);
@@ -157,12 +175,17 @@ export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number
   if (!at) return 0;
   const g = sim.group();
   let made = 0;
+  // About half of the crawler packs bring one on the rock overhead, to drop on the explorer.
+  const ambush = !being && sp.brain === 'cling' && sim.rng.next() < 0.45;
   for (let i = 0; i < n; i++) {
     const jx = i === 0 ? 0 : sim.rng.int(-1, 1);
     const jz = i === 0 ? 0 : sim.rng.int(-1, 1);
     const y = shape === 'air' ? at.y + 0.5 + sim.rng.range(-0.3, 0.6) : at.y;
-    const m = sim.spawn(kind, at.x + 0.5 + jx, y, at.z + 0.5 + jz, { group: g, biome, nest: nest?.id, ceiling: shape === 'ceiling' });
-    if (m) made++;
+    const m = sim.spawn(kind, at.x + 0.5 + jx, y, at.z + 0.5 + jz, { group: g, biome, nest: nest?.id, ceiling: shape === 'ceiling' || (ambush && i === 0) });
+    if (m) {
+      made++;
+      out?.push(m);
+    }
   }
   return made;
 }
@@ -252,17 +275,27 @@ function nests(sim: MobSim, ctx: MobContext, inLair: boolean): void {
     const entry = (nest.kind && entries.find((e) => e.kind === nest.kind)) || entries[sim.rng.int(0, Math.max(0, entries.length - 1))];
     if (!entry) continue;
     nest.next = sim.clock + MOBS_RULES.nestGap;
-    spawnPack(sim, ctx, entry.kind, sim.rng.int(entry.pack[0], entry.pack[1]), nest.biome, 0, 99, false, nest);
+    const brood: SimMob[] = [];
+    spawnPack(sim, ctx, entry.kind, sim.rng.int(entry.pack[0], entry.pack[1]), nest.biome, 0, 99, false, nest, brood);
+    maybeElite(sim, brood, ROSTERS[nest.biome].stratum);
   }
 }
 
 /** One guardian asleep in each lair not yet won, once the explorer is within 30 m of its arena (MobSim.update, every frame). */
 export function lairTick(sim: MobSim, ctx: MobContext): void {
   for (const l of sim.lairs) {
-    if (sim.guardiansDone.has(l.biome)) continue;
+    if (sim.guardiansDone.has(l.biome) || l.sealed?.()) continue;
     if (sim.mobs.some((m) => m.guardian && m.lair === l && !m.dying)) continue;
     if (Math.hypot(l.x - ctx.player.x, l.y - ctx.player.y, l.z - ctx.player.z) > l.radius + 30) continue;
-    const m = sim.spawn(l.guardian, l.sx, l.sy + (SPECIES[l.guardian].locomotion === 'fly' ? hoverOf(l.guardian) : 0), l.sz, { lair: l, biome: l.biome }) ?? sim.spawn(l.guardian, l.x, l.y, l.z, { lair: l, biome: l.biome });
+    // Where it waits; else the arena's centre; else a ring round it (a big body needs its headroom).
+    const up = SPECIES[l.guardian].locomotion === 'fly' ? hoverOf(l.guardian) : 0;
+    const spots: Array<[number, number, number]> = [[l.sx, l.sy, l.sz], [l.x, l.y, l.z]];
+    for (const k of [0.3, 0.55]) for (let a = 0; a < 8; a++) spots.push([l.x + Math.sin((a / 8) * Math.PI * 2) * l.radius * k, l.y, l.z + Math.cos((a / 8) * Math.PI * 2) * l.radius * k]);
+    let m: SimMob | null = null;
+    for (const [x, y, z] of spots) {
+      m = sim.spawn(l.guardian, x, y + up, z, { lair: l, biome: l.biome });
+      if (m) break;
+    }
     if (m) {
       m.home.x = l.x;
       m.home.y = l.y;
@@ -278,4 +311,53 @@ function hoverOf(kind: GuardianKind): number {
 /** The guardian of a lair, if it is about. */
 export function guardianOf(sim: MobSim, lair: Lair): SimMob | null {
   return sim.mobs.find((m) => m.guardian && m.lair === lair && !m.dying) ?? null;
+}
+
+/**
+ * One weak monster 8-10 m from the explorer (wider if the ground there does not allow), out of the
+ * camp and any outpost, in the dark if it can (else in the dimmest spot), in sight and ahead of the
+ * view when possible: a lone Amber Tick, a little bigger than its kin, 3 hit points, soft bites.
+ */
+export function spawnFirstFight(sim: MobSim, ctx: MobContext): SimMob | null {
+  const s = sim.env.solid;
+  const p = ctx.player;
+  const look = (ctx as MobContext & { look?: { x: number; z: number } }).look;
+  const ahead = look ? Math.atan2(look.x, look.z) : 0;
+  let best = null as { x: number; y: number; z: number; score: number } | null;
+  for (const [r0, r1] of [[8, 10], [10, 14], [14, 18]] as const) {
+    for (let i = 0; i < 32; i++) {
+      const a = ahead + ((i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI) / 16;
+      for (const r of [r0, (r0 + r1) / 2, r1]) {
+        const x = Math.floor(p.x + Math.sin(a) * r);
+        const z = Math.floor(p.z + Math.cos(a) * r);
+        for (let dy = 0; dy <= 8; dy++) {
+          const y = Math.floor(p.y) + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
+          if (!standableFor(s, x, y, z, 1)) continue;
+          if (sim.unsafe(x + 0.5, y, z + 0.5)) break;
+          const light = sim.env.light(x, y, z);
+          if (light > 0.6) break;
+          const eye = { x: x + 0.5, y: y + 0.4, z: z + 0.5 };
+          const seen = sim.clearSight(eye, ctx.eye);
+          // Dark beats lit, in sight beats hidden, ahead beats behind.
+          const score = (light <= MOBS_RULES.darkLight ? 4 : 0) + (seen ? 3 : 0) + (Math.cos(a - ahead) + 1) - Math.abs(dy) * 0.1;
+          if (!best || score > best.score) best = { x: x + 0.5, y, z: z + 0.5, score };
+          break;
+        }
+      }
+    }
+    if (best && best.score >= 7) break;
+  }
+  if (!best) return null;
+  const m = sim.spawn('amberTick', best.x, best.y, best.z, { biome: sim.biomeAt(best.x, best.y, best.z) });
+  if (!m) return null;
+  m.scale = 1.35;
+  m.bounds.radius = m.def.radius * m.scale;
+  m.bounds.halfHeight = m.def.halfHeight * m.scale;
+  sim.placeWalker(m);
+  m.hp = 3;
+  m.maxHp = 3;
+  m.power = 0.6;
+  m.cooldown = 2.5;
+  m.yaw = Math.atan2(p.x - m.position.x, p.z - m.position.z);
+  return m;
 }

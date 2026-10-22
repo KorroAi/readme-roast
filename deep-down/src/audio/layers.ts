@@ -28,16 +28,29 @@ export interface LayerSend {
 }
 
 /** Tracks the nodes of one running loop so it can be torn down completely. */
-class LoopGraph {
+export class LoopGraph {
   readonly out: GainNode;
+  /** The stereo position of a positional layer (null: centred, no panner). */
+  readonly panner: StereoPannerNode | null = null;
   private readonly nodes: AudioNode[] = [];
   private readonly sources: AudioScheduledSourceNode[] = [];
 
-  constructor(readonly ctx: BaseAudioContext, dest: AudioNode, send: LayerSend | null) {
+  constructor(readonly ctx: BaseAudioContext, dest: AudioNode, send: LayerSend | null, pan = false) {
     this.out = ctx.createGain();
     this.out.gain.value = 0;
-    this.out.connect(dest);
-    if (send) this.out.connect(this.gain(send.amount)).connect(send.to);
+    let head: AudioNode = this.out;
+    if (pan && typeof ctx.createStereoPanner === 'function') {
+      this.panner = ctx.createStereoPanner();
+      this.nodes.push(this.panner);
+      head = this.out.connect(this.panner);
+    }
+    head.connect(dest);
+    if (send) head.connect(this.gain(send.amount)).connect(send.to);
+  }
+
+  /** A looping buffer of the noise bank (an alias kept short for the beds). */
+  buffer(buffer: AudioBuffer, rate = 1): AudioBufferSourceNode {
+    return this.loop(buffer, rate);
   }
 
   loop(buffer: AudioBuffer, rate = 1): AudioBufferSourceNode {
@@ -78,8 +91,10 @@ class LoopGraph {
     return g;
   }
 
-  lfo(param: AudioParam, rate: number, depth: number): void {
-    this.osc('sine', rate).connect(this.gain(depth)).connect(param);
+  lfo(param: AudioParam, rate: number, depth: number, type: OscillatorType = 'sine'): void {
+    const o = this.osc('sine', rate);
+    o.type = type;
+    o.connect(this.gain(depth)).connect(param);
   }
 
   dispose(): void {
@@ -97,9 +112,10 @@ const LINGER = 2.5;
  * A looping layer that is built when its level rises above silence and torn down after a
  * few quiet seconds, so layers the player cannot hear cost no CPU.
  */
-abstract class LazyLayer {
+export abstract class LazyLayer {
   private graph: LoopGraph | null = null;
   private level: ParamTarget | null = null;
+  private panTarget: ParamTarget | null = null;
   private quiet = 0;
 
   constructor(
@@ -108,6 +124,7 @@ abstract class LazyLayer {
     private readonly dest: AudioNode,
     private readonly fade = 0.25,
     private readonly send: LayerSend | null = null,
+    private readonly positional = false,
   ) {}
 
   protected abstract build(g: LoopGraph): void;
@@ -115,12 +132,18 @@ abstract class LazyLayer {
   /** Drop references to nodes of the torn-down graph. */
   protected onTeardown(): void {}
 
+  /** Built and sounding (diagnostics, tests). */
+  get live(): boolean {
+    return this.graph !== null;
+  }
+
   setLevel(level: number, now: number, dt: number): void {
     if (level > 0.0005) {
       this.quiet = 0;
       if (!this.graph) {
-        this.graph = new LoopGraph(this.ctx, this.dest, this.send);
+        this.graph = new LoopGraph(this.ctx, this.dest, this.send, this.positional);
         this.level = new ParamTarget(this.graph.out.gain, this.fade, 0.0005);
+        if (this.graph.panner) this.panTarget = new ParamTarget(this.graph.panner.pan, 0.15, 0.02);
         this.build(this.graph);
       }
       this.level!.set(level, now);
@@ -131,11 +154,17 @@ abstract class LazyLayer {
     }
   }
 
+  /** Stereo position of a positional layer (-1..1). */
+  setPan(pan: number, now: number): void {
+    this.panTarget?.set(Math.max(-1, Math.min(1, pan)), now);
+  }
+
   stop(): void {
     if (!this.graph) return;
     this.graph.dispose();
     this.graph = null;
     this.level = null;
+    this.panTarget = null;
     this.onTeardown();
   }
 }

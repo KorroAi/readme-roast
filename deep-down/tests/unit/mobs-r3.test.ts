@@ -3,7 +3,15 @@ import { MobSim, type MobEnv, type MobSimEvent, type SimMob } from '../../src/ga
 import { MOBS_RULES } from '../../src/game/mobs/config';
 import { BESTIARY_ORDER, ROSTERS, bestiary } from '../../src/game/mobs/rosters';
 import { ALL_KINDS, BEING_KINDS, GUARDIAN_DEFS, GUARDIAN_KINDS, MONSTER_KINDS, SPECIES } from '../../src/game/mobs/species';
-import { pickEntry, strataBudget, type Lair } from '../../src/game/mobs/spawner';
+import { maybeElite, pickEntry, spawnFirstFight, strataBudget, type Lair } from '../../src/game/mobs/spawner';
+import { AFFIXES, ELITE_CHANCE, canTake, eliteName, rollAffixes } from '../../src/game/mobs/elites';
+import { CompanionBrain, LEVELS, levelFor, lightBoost, nextLevelXp, senseRange, zapDamage } from '../../src/game/mobs/companion';
+import { mobModel } from '../../src/render/mobs/models';
+import { PLANNED_KINDS } from '../../src/render/mobs/bodyPlan';
+import { MAX_BONES } from '../../src/render/mobs/rig';
+import { Rng } from '../../src/core/rng';
+import { ITEMS } from '../../src/config/items';
+import { isSfxName } from '../../src/audio/sfx';
 import { BestiaryLog } from '../../src/game/mobs/bestiary';
 import { guardianState } from '../../src/game/mobs/guardian';
 import { MOB_BIOMES, type GuardianKind, type MobBiome, type MobContext, type MobKind } from '../../src/game/mobs/types';
@@ -415,6 +423,21 @@ describe('guardians and the Heart', () => {
     expect(log.filter((e) => e.type === 'telegraph' && e.mob === h).length).toBeGreaterThanOrEqual(2);
   });
 
+  it("the Dark Heart's chamber stays still until the 12 shards relight it (no ending before the shards)", () => {
+    const sim = new MobSim(env(), 41);
+    sim.spawning = false;
+    let lit = false;
+    sim.lairs = [{ ...lairOf('heartOfDark', 40, 22, 24), sealed: () => !lit }];
+    const c = ctx({ x: 40, z: 30 });
+    run(sim, c, 3);
+    expect(sim.mobs.some((m) => m.kind === 'heartOfDark')).toBe(false);
+    lit = true;
+    run(sim, c, 3);
+    const h = sim.mobs.find((m) => m.kind === 'heartOfDark');
+    expect(h).toBeDefined();
+    expect(h!.state === 'wake' || h!.state === 'stalk' || h!.state === 'windup').toBe(true);
+  });
+
   it.each(GUARDIAN_KINDS)('%s fights: it telegraphs and lands blows on a still explorer in its arena', (kind) => {
     const sim = new MobSim(env(), 40);
     sim.spawning = false;
@@ -435,15 +458,22 @@ describe('the biome spawner', () => {
     expect(strataBudget(1)).toBeLessThan(strataBudget(6));
     expect(strataBudget(3, 1, 1)).toBeGreaterThan(strataBudget(3));
     for (const b of ['amberHollows', 'frostCaverns', 'sunkenCity'] as MobBiome[]) {
-      const sim = new MobSim(env({ biome: b, camp: [0, 0, 12, 12], safe: (x, z) => x > 60 && z > 60 }), 50);
+      // The camp with its 4 m margin, as MobDirector's env gives it.
+      const sim = new MobSim(env({ biome: b, camp: [-4, -4, 16, 16], safe: (x, z) => x > 60 && z > 60 }), 50);
       const c = ctx({ x: 30, z: 30 }, { stratum: ROSTERS[b].stratum, biome: b });
       const seen = new Set<MobKind>();
-      run(sim, c, 120, 1 / 20, () => {
+      let cleared = 0;
+      run(sim, c, 120, 1 / 20, (t) => {
+        // The explorer clears them away now and then, so the spawner keeps drawing from the roster.
+        if (t - cleared > 15) {
+          cleared = t;
+          for (const m of sim.mobs) if (m.hostile) sim.remove(m);
+        }
         for (const m of sim.mobs) {
           if (m.dying) continue;
           seen.add(m.kind);
           if (m.hostile) {
-            expect(m.position.x > 12 + 4 || m.position.z > 12 + 4, 'not in the camp').toBe(true);
+            expect(m.position.x > 12 + 4 || m.position.z > 12 + 4, `not in the camp: ${b} ${m.kind} at ${m.position.x.toFixed(1)},${m.position.z.toFixed(1)}`).toBe(true);
             expect(!(m.position.x > 60 && m.position.z > 60), 'not at the outpost').toBe(true);
           }
         }
@@ -555,6 +585,481 @@ describe('density: 30+ creatures can be about', () => {
     run(sim, c, 15, 1 / 30, () => {
       for (const m of sim.mobs) if (!m.dying && m.mode !== 'under') expect(solid(Math.floor(m.position.x), Math.floor(m.position.y), Math.floor(m.position.z)), `${m.kind} in rock`).toBe(false);
     });
+  });
+});
+
+describe('drops, sounds and the tutorial (round 3 polish)', () => {
+  it('every drop row names an item LOOP knows, and stratum I gives the early parts (hide, chitin, fang, gel)', () => {
+    for (const k of ALL_KINDS) for (const d of SPECIES[k].drops) expect(d.items.some((i) => i in ITEMS), `${k}: ${d.items.join('/')}`).toBe(true);
+    const early = new Set<string>();
+    for (const b of ['amberHollows', 'mushroomForest'] as MobBiome[]) for (const e of ROSTERS[b].monsters) for (const d of SPECIES[e.kind].drops) early.add(d.items.find((i) => i in ITEMS)!);
+    for (const part of ['hide', 'chitin', 'fang', 'gel']) expect(early.has(part), part).toBe(true);
+    // LOOP's biome parts deeper down: roots give heartwood, frost frostFur, the bog venomSac, magma emberCore, the abyss voidEssence.
+    const of = (b: MobBiome) => new Set(ROSTERS[b].monsters.flatMap((e) => SPECIES[e.kind].drops.map((d) => d.items.find((i) => i in ITEMS))));
+    expect(of('rootGalleries').has('heartwood')).toBe(true);
+    expect(of('frostCaverns').has('frostFur')).toBe(true);
+    expect(of('sulphurBog').has('venomSac')).toBe(true);
+    expect(of('magmaVeins').has('emberCore')).toBe(true);
+    expect(of('obsidianAbyss').has('voidEssence')).toBe(true);
+    // No shard item: LOOP pays the Heart Shard on 'mob:guardianDefeated'.
+    for (const k of GUARDIAN_KINDS) for (const d of SPECIES[k].drops) expect(d.items).not.toContain('heartShard');
+  });
+
+  it('every sound a creature makes in a fight is a registered voice (audio/mobSfx through sfx.ts)', () => {
+    const names = new Set<string>();
+    for (const k of ALL_KINDS) {
+      const v = SPECIES[k].voice;
+      for (const n of [v.tele, v.hit, v.die, v.idle]) if (n) names.add(n);
+    }
+    const kinds = [...MONSTER_KINDS.filter((k) => SPECIES[k].brain !== 'vista'), ...GUARDIAN_KINDS];
+    for (const kind of kinds) {
+      const sim = new MobSim(env(), 90);
+      sim.spawning = false;
+      sim.on((e) => {
+        if (e.type === 'sfx') names.add(e.name);
+      });
+      const d = SPECIES[kind];
+      if (d.rank !== 'minion') sim.lairs = [{ id: 'l', biome: d.biome, guardian: kind as GuardianKind, x: 40, y: FLOOR, z: 22, radius: 20, sx: 40, sy: FLOOR, sz: 22 }];
+      else sim.spawn(kind, 20.5, d.locomotion === 'fly' ? FLOOR + 2.5 : d.brain === 'drop' ? CEIL - 1 : FLOOR, 24.5, { ceiling: d.brain === 'drop' });
+      const c = ctx(d.rank !== 'minion' ? { x: 40, z: 30 } : { x: 20, z: 20 });
+      run(sim, c, 12, 1 / 20);
+      for (const m of [...sim.mobs]) if (m.hostile && !m.dying) sim.hit(m, 9999);
+      run(sim, c, 1, 1 / 20);
+    }
+    for (const n of names) expect(isSfxName(n), n).toBe(true);
+    expect(names.size).toBeGreaterThan(30);
+  });
+
+  it("LOOP's tutorial fight: one soft Amber Tick 8-18 m out, never in the camp, facing the explorer", () => {
+    // The camp: a 12 m square round the explorer.
+    const sim = new MobSim(env({ camp: [14, 14, 26, 26] }), 91);
+    sim.spawning = false;
+    const c = ctx({ x: 20, z: 20 }) as MobContext & { look?: { x: number; y: number; z: number } };
+    c.look = { x: 0, y: 0, z: 1 };
+    sim.ctx = c;
+    const m = spawnFirstFight(sim, c)!;
+    expect(m).not.toBeNull();
+    expect(m.kind).toBe('amberTick');
+    const d = Math.hypot(m.position.x - 20, m.position.z - 20);
+    expect(d).toBeGreaterThanOrEqual(7.5);
+    expect(d).toBeLessThanOrEqual(18.8);
+    expect(sim.unsafe(m.position.x, m.position.y, m.position.z)).toBe(false);
+    expect(m.hp).toBe(3);
+    // Ahead of the view (+z) when the ground allows.
+    expect(m.position.z).toBeGreaterThan(20);
+    // Its bite is soft: 60 % of a tick's.
+    const log = record(sim);
+    sim.strikePlayer(m, SPECIES.amberTick.damage);
+    const a = log.find((e) => e.type === 'attack');
+    expect(a && a.type === 'attack' ? a.damage : 0).toBe(Math.round(SPECIES.amberTick.damage * 0.6));
+    // Three pick blows (1 each) end it.
+    sim.hit(m, 1);
+    sim.hit(m, 1);
+    expect(sim.hit(m, 1).killed).toBe(true);
+  });
+});
+
+describe('elites (BRIEF §6 stretch): radiant, armoured, swift, splitting', () => {
+  it('one affix in strata I-III, up to two from IV; each kind only takes what suits it; a name through t()', () => {
+    const rng = new Rng(5);
+    let two = 0;
+    for (let i = 0; i < 400; i++) {
+      expect(rollAffixes(rng, 2, 'thornback').length).toBe(1);
+      const a = rollAffixes(rng, 5, 'cinderHound');
+      expect(a.length).toBeGreaterThanOrEqual(1);
+      expect(new Set(a).size).toBe(a.length);
+      if (a.length === 2) two++;
+    }
+    expect(two).toBeGreaterThan(60);
+    expect(canTake('wisp', 'radiant')).toBe(false);
+    expect(canTake('sporeling', 'splitting')).toBe(false);
+    expect(canTake('gnasher', 'swift')).toBe(false);
+    expect(canTake('amberMatriarch', 'armoured')).toBe(false);
+    expect(canTake('moth', 'swift')).toBe(false);
+    expect(eliteName('icefang', ['swift', 'armoured'])).toBe('Swift Armoured Icefang');
+  });
+
+  it('elites lead some packs, more of them deeper down', () => {
+    const count = (stratum: number) => {
+      const sim = new MobSim(env(), 7 + stratum);
+      let n = 0;
+      for (let i = 0; i < 2000; i++) {
+        const m = sim.spawn('thornback', 20.5, FLOOR, 20.5)!;
+        if (maybeElite(sim, [m], stratum)) n++;
+        sim.mobs.length = 0;
+      }
+      return n / 2000;
+    };
+    const one = count(1);
+    const six = count(6);
+    expect(one).toBeGreaterThan(ELITE_CHANCE[1] * 0.6);
+    expect(one).toBeLessThan(ELITE_CHANCE[1] * 1.5);
+    expect(six).toBeGreaterThan(one * 1.8);
+  });
+
+  it('an elite is tougher and a little bigger; armour turns frontal blows, a flank or back blow lands in full', () => {
+    const sim = new MobSim(env(), 81);
+    sim.spawning = false;
+    const c = ctx({ x: 20, z: 20 });
+    sim.ctx = c;
+    const m = sim.spawn('thornback', 20.5, FLOOR, 25.5)!;
+    const base = m.scale;
+    sim.makeElite(m, ['armoured']);
+    expect(m.maxHp).toBe(Math.round(SPECIES.thornback.hp * AFFIXES.armoured.hp));
+    expect(m.scale).toBeCloseTo(base * 1.12, 5);
+    expect(m.bounds.radius).toBeCloseTo(SPECIES.thornback.radius * m.scale, 5);
+    // Facing the explorer (south, -z): a blow from the explorer is frontal.
+    m.yaw = Math.atan2(20 - 20.5, 20 - 25.5);
+    const front = sim.hit(m, 10);
+    expect(front.armoured).toBe(true);
+    expect(front.damage).toBeCloseTo(4.5, 5);
+    // Struck from behind it (north): in full.
+    const back = sim.hit(m, 10, { from: { x: 20.5, y: FLOOR, z: 31 } });
+    expect(back.armoured).toBe(false);
+    expect(back.damage).toBeCloseTo(10, 5);
+    // A bomb ignores the plates.
+    expect(sim.hit(m, 10, { blast: true }).damage).toBeCloseTo(10, 5);
+  });
+
+  it('a swift elite moves 40 % faster and winds up in 80 % of the time, never under 0.35 s', () => {
+    const sim = new MobSim(env(), 82);
+    const a = sim.spawn('icefang', 10.5, FLOOR, 10.5)!;
+    const b = sim.spawn('icefang', 10.5, FLOOR, 30.5)!;
+    sim.makeElite(b, ['swift']);
+    expect(sim.windupOf(b)).toBeCloseTo(Math.max(0.35, SPECIES.icefang.windup * 0.8), 5);
+    const tick = sim.spawn('rustMite', 10.5, FLOOR, 50.5)!;
+    sim.makeElite(tick, ['swift']);
+    expect(sim.windupOf(tick)).toBeCloseTo(Math.max(Math.min(SPECIES.rustMite.windup, 0.35), SPECIES.rustMite.windup * 0.8), 5);
+    for (let i = 0; i < 30; i++) {
+      sim.walkToward(a, 60, 10.5, 2, 1 / 30);
+      sim.walkToward(b, 60, 30.5, 2, 1 / 30);
+    }
+    const da = a.foot.x - 10.5;
+    const db = b.foot.x - 10.5;
+    // Walking speed also grows with the body (scale ** 0.5): the elite is 12 % bigger.
+    expect(db / da).toBeCloseTo(1.4 * Math.sqrt(b.scale / a.scale), 1);
+  });
+
+  it('a radiant leader: its pack bites 15 % harder and fears no raised flame; it bursts in light when it falls', () => {
+    const sim = new MobSim(env(), 83);
+    sim.spawning = false;
+    const log = record(sim);
+    const c = ctx({ x: 20, z: 20 });
+    sim.ctx = c;
+    const lead = sim.spawn('amberTick', 21.5, FLOOR, 23.5)!;
+    const mate = sim.spawn('amberTick', 19.5, FLOOR, 23.5)!;
+    const far = sim.spawn('amberTick', 60.5, FLOOR, 60.5)!;
+    sim.makeElite(lead, ['radiant']);
+    expect(sim.brave(mate)).toBe(true);
+    expect(sim.brave(far)).toBe(false);
+    sim.strikePlayer(mate, 10);
+    sim.strikePlayer(far, 10);
+    const hits = log.filter((e) => e.type === 'attack').map((e) => (e.type === 'attack' ? e.damage : 0));
+    expect(hits).toEqual([Math.round(10 * 1.15), 10]);
+    // A raised flame does not cow a crawler beside it.
+    const crawler = sim.spawn('crawler', 22.5, FLOOR, 21.5)!;
+    const raised = ctx({ x: 20, z: 20 }, {}, { raised: true });
+    run(sim, raised, 0.5);
+    expect(crawler.state).not.toBe('recoil');
+    // It falls: the others recoil from its light.
+    sim.ctx = c;
+    sim.hit(lead, 999);
+    expect(mate.state).toBe('recoil');
+  });
+
+  it('a splitting elite splits in two smaller, weaker ones of its kind, which do not split again', () => {
+    const sim = new MobSim(env(), 84);
+    sim.spawning = false;
+    sim.ctx = ctx({ x: 20, z: 20 });
+    const m = sim.spawn('thornback', 30.5, FLOOR, 30.5)!;
+    sim.makeElite(m, ['splitting']);
+    sim.hit(m, 999);
+    const kids = sim.mobs.filter((o) => o !== m && o.kind === 'thornback' && !o.dying);
+    expect(kids.length).toBe(2);
+    for (const k of kids) {
+      expect(k.split).toBe(true);
+      expect(k.elite).toBe(false);
+      expect(k.maxHp).toBe(Math.round(SPECIES.thornback.hp * 0.4));
+      expect(k.scale).toBeLessThan(m.scale * 0.7);
+      sim.hit(k, 999);
+    }
+    expect(sim.mobs.filter((o) => o.kind === 'thornback' && !o.dying).length).toBe(0);
+  });
+});
+
+describe('the companion (BRIEF §6 stretch): a Lampling tamed with glowcaps', () => {
+  // A rare ore 6 m from the explorer, an epic one 11 m off, common copper everywhere else in the walls.
+  const RARE = 200;
+  const EPIC = 201;
+  const COPPER = 202;
+  const world = {
+    block: (x: number, y: number, z: number) => (x === 26 && y === FLOOR + 1 && z === 20 ? RARE : x === 31 && y === FLOOR + 1 && z === 20 ? EPIC : solid(x, y, z) ? COPPER : 0),
+    oreRarity: (id: number) => (id === RARE ? 2 : id === EPIC ? 3 : id === COPPER ? 0 : -1),
+  };
+
+  function tame(sim: MobSim, level = 1): { m: SimMob; brain: CompanionBrain } {
+    const brain = new CompanionBrain(world);
+    const m = sim.spawn('lampling', 20.5, FLOOR + 1.9, 20.5)!;
+    m.tame = true;
+    m.setState('follow');
+    sim.companion = { brain, level };
+    return { m, brain };
+  }
+
+  it('levels 1..5 from experience; light, sense, zaps grow with them', () => {
+    expect(levelFor(0)).toBe(1);
+    expect(levelFor(LEVELS[1])).toBe(2);
+    expect(levelFor(999)).toBe(5);
+    expect(nextLevelXp(1)).toBe(LEVELS[1]);
+    expect(nextLevelXp(5)).toBeNull();
+    expect(lightBoost(5)).toBeGreaterThan(lightBoost(1));
+    expect(senseRange(5)).toBeGreaterThan(senseRange(1));
+    expect(zapDamage(5)).toBeGreaterThan(zapDamage(1));
+  });
+
+  it('it follows ahead of the explorer at head height, catches up when left behind, and brightens the lantern', () => {
+    const sim = new MobSim(env(), 101);
+    sim.spawning = false;
+    const { m } = tame(sim, 3);
+    const c = ctx({ x: 30, z: 55 });
+    run(sim, c, 4);
+    expect(Math.hypot(m.position.x - 30, m.position.z - 55)).toBeLessThan(3.5);
+    expect(solid(Math.floor(m.position.x), Math.floor(m.position.y), Math.floor(m.position.z))).toBe(false);
+    expect(m.position.y).toBeGreaterThan(FLOOR + 1.2);
+    expect(sim.boost).toBeCloseTo(lightBoost(3), 1);
+    // Far away (a ride, a fall): it pops back beside the explorer; it is never put away by distance.
+    c.player.x = 70;
+    c.player.z = 70;
+    c.eye.x = 70;
+    c.eye.z = 70;
+    run(sim, c, 1);
+    expect(m.dying).toBe(false);
+    expect(Math.hypot(m.position.x - 70, m.position.z - 70)).toBeLessThan(4);
+  });
+
+  it('it senses the rarest ore in reach (the rare one first at level 1, the epic one once nearer, or at once with a wider sense), each once a minute', () => {
+    const sim = new MobSim(env(), 102);
+    sim.spawning = false;
+    const log = record(sim);
+    tame(sim, 1);
+    const c = ctx({ x: 20, z: 20 });
+    run(sim, c, 1.6);
+    const ores = () => log.filter((e) => e.type === 'companion' && e.event.what === 'ore').map((e) => (e.type === 'companion' && e.event.what === 'ore' ? e.event : null));
+    expect(ores().length).toBe(1);
+    expect(ores()[0]).toMatchObject({ x: 26, z: 20, rarity: 'rare' });
+    // It hovers by the vein: from there the epic one, 5 m further, is in reach; then nothing new.
+    run(sim, c, 9);
+    expect(ores().map((o) => o!.rarity)).toEqual(['rare', 'epic']);
+    // Level 5 reaches 14 m: the epic vein, rarer, is told first.
+    const sim2 = new MobSim(env(), 103);
+    sim2.spawning = false;
+    const log2 = record(sim2);
+    tame(sim2, 5);
+    run(sim2, ctx({ x: 20, z: 20 }), 2);
+    const first = log2.find((e) => e.type === 'companion' && e.event.what === 'ore');
+    expect(first && first.type === 'companion' && first.event.what === 'ore' ? first.event.rarity : null).toBe('epic');
+  });
+
+  it('it zaps small foes near the explorer (never a guardian, never one far off), more of them with its level', () => {
+    const sim = new MobSim(env(), 104);
+    sim.spawning = false;
+    const log = record(sim);
+    tame(sim, 1);
+    const c = ctx({ x: 30, z: 55 });
+    const tick = sim.spawn('amberTick', 33.5, FLOOR, 56.5)!;
+    const crab = sim.spawn('clatterclaw', 26.5, FLOOR, 58.5)!;
+    sim.lairs = [{ id: 'l', biome: 'amberHollows', guardian: 'amberMatriarch', x: 30, y: FLOOR, z: 45, radius: 4, sx: 30, sy: FLOOR, sz: 49 }];
+    run(sim, c, 7);
+    const zaps = log.filter((e) => e.type === 'companion' && e.event.what === 'zap').map((e) => (e.type === 'companion' && e.event.what === 'zap' ? e.event.target : null));
+    expect(zaps.length).toBeGreaterThan(0);
+    expect(zaps[0]).toBe(tick);
+    expect(tick.dying).toBe(true);
+    // The big crab and the sleeping guardian are not its to fight.
+    expect(zaps.includes(crab)).toBe(false);
+    expect(crab.hp).toBe(crab.maxHp);
+    const g = sim.mobs.find((m) => m.guardian)!;
+    expect(g).toBeDefined();
+    expect(zaps.includes(g)).toBe(false);
+  });
+
+  it('a tap meant for a monster behind the companion reaches the monster', () => {
+    const sim = new MobSim(env(), 105);
+    sim.spawning = false;
+    const { m } = tame(sim, 1);
+    m.position.set(20.5, FLOOR + 1.62, 22.5);
+    m.fade = 1;
+    const tick = sim.spawn('thornback', 20.5, FLOOR, 26.5)!;
+    tick.fade = 1;
+    const ray = { ox: 20.5, oy: FLOOR + 1.62, oz: 20, dx: 0, dy: -0.15, dz: 1 };
+    expect(sim.pick(ray)).toBe(tick);
+    sim.remove(tick);
+    expect(sim.pick(ray)).toBe(m);
+  });
+});
+
+describe('smarter packs and beings (BRIEF §6 stretch): flanks, ceiling drops, a chase', () => {
+  it('a pack spreads round the explorer and the one at the side strikes (each blow still told)', () => {
+    const sim = new MobSim(env(), 111);
+    sim.spawning = false;
+    const log = record(sim);
+    // The explorer looks along +z.
+    const c = ctx({ x: 30, z: 55 }, { look: { x: 0, y: 0, z: 1 } });
+    const g = sim.group();
+    for (let i = 0; i < 4; i++) sim.spawn('amberTick', 27.5 + i * 2, FLOOR, 50.5, { group: g });
+    let sides = 0;
+    let fronts = 0;
+    run(sim, c, 20, 1 / 30, () => {
+      for (const e of log.splice(0)) {
+        if (e.type !== 'telegraph') continue;
+        const dx = e.mob.position.x - 30;
+        const dz = e.mob.position.z - 55;
+        const sin = Math.abs(dz * 0 - dx * 1) / Math.max(0.01, Math.hypot(dx, dz));
+        if (sin > 0.5) sides++;
+        else fronts++;
+      }
+    });
+    expect(sides + fronts).toBeGreaterThan(2);
+    expect(sides).toBeGreaterThan(fronts);
+  });
+
+  it("a roster's Stone Sentinel (no relic) keeps its post: it wakes when the explorer comes near, or to a blow", () => {
+    const sim = new MobSim(env({ biome: 'haldenMines' }), 115);
+    sim.spawning = false;
+    const c = ctx({ x: 30, z: 30 }, { biome: 'haldenMines', stratum: 3 });
+    const s = sim.spawn('sentinel', 30.5, FLOOR, 45.5)!;
+    run(sim, c, 2);
+    expect(s.state).toBe('sleep');
+    c.player.z = 41;
+    c.eye.z = 41;
+    run(sim, c, 3);
+    expect(['wake', 'stalk', 'windup', 'attack', 'recoil']).toContain(s.state);
+    const t = sim.spawn('sentinel', 60.5, FLOOR, 20.5)!;
+    expect(t.state).toBe('sleep');
+    sim.ctx = c;
+    sim.hit(t, 1);
+    expect(t.state).toBe('wake');
+  });
+
+  it('a torch holds a pack off: they circle at the edge of its light and do not come in', () => {
+    // A torch's pool round (30, 55): placed light 0.8 within 4 m.
+    const lit: MobEnv = { ...env(), light: (x, _y, z) => (Math.hypot(x + 0.5 - 30, z + 0.5 - 55) < 4 ? 0.8 : 0) };
+    const sim = new MobSim(lit, 114);
+    sim.spawning = false;
+    const log = record(sim);
+    const c = ctx({ x: 30, z: 55 });
+    const g = sim.group();
+    for (let i = 0; i < 3; i++) sim.spawn('amberTick', 26.5 + i * 3, FLOOR, 47.5, { group: g });
+    run(sim, c, 12);
+    expect(log.filter((e) => e.type === 'telegraph').length).toBe(0);
+    for (const m of sim.mobs) expect(Math.hypot(m.position.x - 30, m.position.z - 55)).toBeGreaterThan(3);
+    // Out of the light, they come.
+    c.player.x = 30;
+    c.player.z = 30;
+    c.eye.x = 30;
+    c.eye.z = 30;
+    run(sim, c, 12);
+    expect(log.filter((e) => e.type === 'telegraph').length).toBeGreaterThan(0);
+  });
+
+  it('a crawler climbs over the explorer and drops from the ceiling: a drip, a circle, then the blow', () => {
+    // A low tunnel: floor at 10, the roof at 15.
+    const low = (x: number, y: number, z: number) => y < FLOOR || y >= 15 || x < 0 || x >= 40 || z < 0 || z >= 40;
+    const e2: MobEnv = { solid: low, light: () => 0, inCamp: () => false, depthOf: (y) => 300 - y, biomeAt: () => 'amberHollows' };
+    const sim = new MobSim(e2, 112);
+    sim.spawning = false;
+    const log = record(sim);
+    const c = ctx({ x: 20, z: 20 }, {}, { flame: 0.3 });
+    // It came on the roof (as a crawler pack's ambusher does in the strata).
+    const m = sim.spawn('crawler', 24.5, FLOOR + 3, 24.5, { ceiling: true })!;
+    expect(m.ambush).toBe(true);
+    expect(m.up.y).toBeLessThan(-0.6);
+    let marked = false;
+    let ceiling = false;
+    run(sim, c, 25, 1 / 30, () => {
+      if (m.mode === 'ceiling') ceiling = true;
+      if (sim.markers.some((k) => k.owner === m.id && k.kind === 'disc')) marked = true;
+    });
+    expect(ceiling).toBe(true);
+    expect(marked).toBe(true);
+    expect(log.some((e) => e.type === 'sfx' && e.name === 'mob.drip')).toBe(true);
+    expect(log.some((e) => e.type === 'attack' && e.mob === m && e.landed)).toBe(true);
+    expect(m.ambush).toBe(false);
+  });
+
+  it('a chased glimmerkin keeps running, tires, then stops out of breath: caught', () => {
+    const sim = new MobSim(env(), 113);
+    sim.spawning = false;
+    const k = sim.spawn('glimmerkin', 30.5, FLOOR, 30.5)!;
+    k.fade = 1;
+    const c = ctx({ x: 30, z: 27 });
+    // Hurrying at it: it flees; the explorer keeps running after it at 4 m/s.
+    let first = -1;
+    let last = -1;
+    let stopped = -1;
+    let t = 0;
+    for (; t < 12; t += 1 / 30) {
+      const dx = k.position.x - c.player.x;
+      const dz = k.position.z - c.player.z;
+      const d = Math.max(0.01, Math.hypot(dx, dz));
+      c.player.vx = (dx / d) * 4;
+      c.player.vz = (dz / d) * 4;
+      if (d > 2.4) {
+        c.player.x += c.player.vx / 30;
+        c.player.z += c.player.vz / 30;
+      }
+      c.eye.x = c.player.x;
+      c.eye.z = c.player.z;
+      const before = { x: k.foot.x, z: k.foot.z };
+      sim.update(1 / 30, c);
+      const v = Math.hypot(k.foot.x - before.x, k.foot.z - before.z) * 30;
+      if (k.state === 'flee' && first < 0 && v > 0.5) first = v;
+      if (k.state === 'flee' && v > 0) last = v;
+      if (k.state === 'idle' && first > 0) {
+        stopped = t;
+        break;
+      }
+    }
+    expect(stopped).toBeGreaterThan(0);
+    // It ran past its usual stop (a chase keeps it going), and slower by the end.
+    expect(last).toBeLessThan(first * 0.8);
+    // Panting: it waits, and a tap within reach catches it.
+    expect(k.cooldown).toBeGreaterThan(1.5);
+    c.eye.x = k.position.x - 1.5;
+    c.eye.z = k.position.z;
+    c.eye.y = k.position.y + 1;
+    sim.ctx = c;
+    expect(sim.hit(k, 1).action).toBe('caught');
+  });
+});
+
+describe('the modular body builder: every creature has its own sculpted model', () => {
+  const FIRST = ['crawler', 'gnasher', 'wisp', 'stalker', 'sentinel', 'worm', 'moth', 'lampling', 'glimmerkin', 'shellback', 'jelly', 'burrower'];
+  it('every kind of the rosters is planned (no placeholder), within the bone budget, sized to its capsule', () => {
+    for (const k of ALL_KINDS) {
+      if (FIRST.includes(k)) continue;
+      expect(PLANNED_KINDS.includes(k), `${k} has a body plan`).toBe(true);
+      const m = mobModel(k);
+      const pos = m.geometry.getAttribute('position');
+      const bone = m.geometry.getAttribute('aBone');
+      expect(pos.count, `${k} vertices`).toBeGreaterThan(150);
+      expect(m.bones.length, `${k} bones`).toBeLessThanOrEqual(MAX_BONES);
+      for (let i = 0; i < bone.count; i += 7) expect(bone.getX(i)).toBeLessThan(m.bones.length);
+      for (let i = 0; i < pos.count; i += 5) expect(Number.isFinite(pos.getX(i) + pos.getY(i) + pos.getZ(i)), k).toBe(true);
+      // The drawn body is about the simulated one (half to four times its capsule's radius, the lanky ones longer).
+      const r = SPECIES[k].radius + SPECIES[k].halfHeight;
+      expect(m.radius, `${k} model radius ${m.radius.toFixed(2)} vs capsule ${r.toFixed(2)}`).toBeGreaterThan(r * 0.5);
+      expect(m.radius, `${k} model radius ${m.radius.toFixed(2)} vs capsule ${r.toFixed(2)}`).toBeLessThan(r * 4.5 + 0.6);
+    }
+  });
+
+  it('kinds that share a template still differ (their own geometry, size or skin)', () => {
+    const sig = (k: MobKind) => {
+      const m = mobModel(k);
+      const c = m.geometry.getAttribute('color');
+      return `${m.geometry.getAttribute('position').count}:${m.radius.toFixed(2)}:${c.getX(0).toFixed(3)},${c.getY(0).toFixed(3)}`;
+    };
+    const planned = ALL_KINDS.filter((k) => !FIRST.includes(k));
+    expect(new Set(planned.map(sig)).size).toBe(planned.length);
   });
 });
 

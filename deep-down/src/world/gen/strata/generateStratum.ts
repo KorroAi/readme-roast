@@ -1,14 +1,14 @@
 import { B } from '../../../config/blocks';
-import { STRATUM_SIZE, STRATUM_TOP_Y, stratumDef, type StratumIndex } from '../../../config/biomes';
-import { STRATA_GEN } from '../../../config/balance';
+import { STRATUM_SIZE, stratumDef, type BiomeId, type StratumIndex } from '../../../config/biomes';
 import { hash32 } from '../../../core/math';
 import { Noise } from '../../../core/noise';
 import { VoxelWorld } from '../../VoxelWorld';
 import { carveEdges, carveGalleries, carveNode, carveWorms, dilateGuard, fillHost, type CarveState } from './carve';
 import { Rng } from '../../../core/rng';
-import { buildPlaces, placeContent, reachNear, walkBfs } from './content';
+import { buildPlaces, placeContent, reachNear, validateProps, walkBfs } from './content';
 import { dressBiomes, floors } from './dress';
-import { planStratum } from './plan';
+import { planStratum, type StratumPlan } from './plan';
+import { SECOND_PIECES, SET_PIECES, carveRavines, carveRiver, carveVista, finishDungeon, stampDungeon, stampSetPiece, type SetPieceOut } from './structures';
 import type { StratumLayout, V3 } from './types';
 import { withBiomeAt } from './types';
 
@@ -22,16 +22,41 @@ export interface StratumTimings {
 }
 
 /**
- * Generate stratum `stratum` (1..6) of the expedition `seed` (round 3, WORLD; BRIEF §0.1-0.2):
+ * The set pieces' caverns (before any carving: their caverns skip the biome's columns): each biome's
+ * first great cavern gets its set piece (SET_PIECES), a second one its second piece where it has one.
+ * Never the river's chambers (their pools) nor the vista.
+ */
+function assignSetPieces(plan: StratumPlan): void {
+  const arrival = plan.nodes[plan.arrival];
+  for (const biome of plan.biomes) {
+    // Great caverns first, then the biome's biggest rooms (away from the camp).
+    const caverns = plan.nodes.filter((n) => n.kind === 'cavern' && n.biome === biome && !n.river);
+    const rooms = plan.nodes
+      .filter((n) => n.kind === 'room' && n.biome === biome && !n.river && n.role === null && Math.hypot(n.x - arrival.x, n.z - arrival.z) > 30)
+      .sort((a, b) => Math.min(b.rx, b.rz) - Math.min(a.rx, a.rz));
+    const hosts = [...caverns, ...rooms];
+    const names = [SET_PIECES[biome as Exclude<BiomeId, 'heart'>], SECOND_PIECES[biome]].filter((x): x is string => !!x);
+    names.forEach((name, k) => {
+      // The second piece only in a great cavern.
+      const host = k === 0 ? hosts[0] : caverns[1];
+      if (host && host.role === null) host.role = `set:${name}`;
+    });
+  }
+}
+
+/**
+ * Generate stratum `stratum` (1..6) of the expedition `seed` (round 3, WORLD; BRIEF §0.1-0.2 and §6):
  * deterministic per (seed, stratum), pure (no DOM), run in the zone worker.
  *
- * Passes: plan (regions, nodes, planar tunnel graph, relaxed floor heights) → host rock → chambers →
- * tunnels → floor guard → worm caves → fixed places (gate, lairs, heart, camp or lift) → floors →
- * biome dressing → walk BFS from the arrival → content on the walkable floor (veins, chests, pages,
- * props, lights, nests, spawn points, outposts, hazards) → bedrock shell.
+ * Passes: plan (regions, nodes, planar tunnel graph, relaxed floor heights, the vista, the works, the
+ * river) → host rock → chambers → tunnels → side galleries → floor guard → worm caves → the vista
+ * (hall, balcony, ramp, fall) → the river's channel → the works (stamped) → ravines → fixed places
+ * (gate, lairs, heart, camp or lift) → floors → biome dressing → set pieces → bedrock shell → walk BFS
+ * from the arrival (the gate's seal and the works' door open) → content on the walkable floor.
  *
- * Every key place (each lair, the gate's stand, the heart) must be walkable from the arrival (gates
- * open); a plan that fails is redrawn with the next salt (deterministic, at most 6 tries).
+ * Every key place (each lair, the gate's stand, the heart, the works' vault, the vista's balcony and
+ * its floor) must be walkable from the arrival; a plan that fails is redrawn with the next salt
+ * (deterministic, at most 6 tries).
  */
 export function generateStratum(seed: number, stratumIn: number): StratumLayout & { timings: StratumTimings } {
   const t0 = performance.now();
@@ -47,7 +72,7 @@ export function generateStratum(seed: number, stratumIn: number): StratumLayout 
   return last!;
 }
 
-function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): StratumLayout & { timings: StratumTimings; ok: boolean } {
+export function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): StratumLayout & { timings: StratumTimings; ok: boolean; failed: string[] } {
   const phases: Record<string, number> = {};
   let tp = performance.now();
   const phase = (name: string) => {
@@ -60,6 +85,7 @@ function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): S
   const [sx, sy, sz] = STRATUM_SIZE;
   const world = new VoxelWorld(sx, sy, sz, 16);
   const plan = planStratum(s, stratum, def.biomes, sx, sz);
+  assignSetPieces(plan);
   phase('plan');
   const st: CarveState = {
     world,
@@ -69,35 +95,51 @@ function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): S
     corridor: new Uint8Array(sx * sz),
     biomeCol: new Uint8Array(sx * sz),
     chamberOf: new Uint16Array(sx * sz),
+    edgeOf: new Int16Array(sx * sz),
   };
   fillHost(st);
   phase('host');
-  for (const n of plan.nodes) carveNode(st, n);
+  for (const n of plan.nodes) if (n.kind !== 'vista') carveNode(st, n);
   carveEdges(st);
   const pockets = carveGalleries(st, new Rng(s ^ 0x9a11e7));
   dilateGuard(st, 2);
   phase('carve');
   const wormCells = carveWorms(st, s);
   phase('worms');
+  // The great structures (after the worms: nothing hollows them afterwards).
+  const reserved = new Uint8Array(sx * sz);
+  const vista = carveVista(st, s, reserved);
+  const lavaRiver = stratum === 6 && (vista?.lava ?? false);
+  const river = carveRiver(st, reserved, lavaRiver);
+  const works = stampDungeon(st, s, reserved);
+  const ravines = carveRavines(st, s, reserved);
+  phase('structures');
   const places = buildPlaces(st, stratum, s);
   floors(st);
+  if (works) finishDungeon(st, works);
   const decor = dressBiomes(st, s);
+  const pieces: Array<SetPieceOut & { node: number }> = [];
+  for (const n of plan.nodes) if (n.role?.startsWith('set:')) pieces.push({ ...stampSetPiece(st, n, n.role.slice(4), s, reserved), node: n.id });
   phase('dress');
   // The bedrock shell (the worms and the dressing never reach it, but keep it exact).
   shell(world);
 
   const arrivalNode = plan.nodes[plan.arrival];
   const from: V3 = [Math.floor(arrivalNode.x) + 0.5, arrivalNode.y, Math.floor(arrivalNode.z) + 0.5];
-  const sealIdx = new Set(places.seal.map(([x, y, z]) => x + sx * (y + sy * z)));
-  const seen = walkBfs({ world }, from, sealIdx);
+  const open = new Set(places.seal.map(([x, y, z]) => x + sx * (y + sy * z)));
+  for (const [x, y, z] of works?.door ?? []) open.add(x + sx * (y + sy * z));
+  const seen = walkBfs({ world }, from, open);
   phase('walk');
 
-  // The key places must be reachable (gates open).
-  const keys: V3[] = [places.gateStand, ...plan.lairs.map((li) => [plan.nodes[li].x, plan.nodes[li].y, plan.nodes[li].z] as V3)];
-  if (plan.heart !== null) keys.push([plan.nodes[plan.heart].x, plan.nodes[plan.heart].y, plan.nodes[plan.heart].z]);
-  const ok = keys.every((k) => reachNear(seen, world, k, 4, 3) !== null);
+  // The key places must be reachable (gates and the works' door open).
+  const keys: Array<[string, V3]> = [['gate', places.gateStand], ...plan.lairs.map((li) => [`lair_${plan.nodes[li].biome}`, [plan.nodes[li].x, plan.nodes[li].y, plan.nodes[li].z]] as [string, V3])];
+  if (plan.heart !== null) keys.push(['heart', [plan.nodes[plan.heart].x, plan.nodes[plan.heart].y, plan.nodes[plan.heart].z]]);
+  if (works) keys.push(['works', works.vault]);
+  if (vista) keys.push(['balcony', vista.balcony], ['vistaFloor', vista.rampFoot]);
+  const failed = keys.filter(([, k]) => reachNear(seen, world, k, 4, 3) === null).map(([id]) => id);
+  const ok = failed.length === 0;
 
-  const content = placeContent(st, stratum, s, seen, decor, places);
+  const content = placeContent(st, stratum, s, seen, decor, places, { reserved, vista, river: river?.river ?? null, works, ravines, pieces, pockets, lakes: [...(vista?.lakes ?? []), ...(river?.lakes ?? []), ...pieces.flatMap((p) => p.lakes)] });
   phase('content');
   // A heart's chamber is the Heart biome in the region map (2).
   const regionMap = plan.regionMap;
@@ -107,23 +149,27 @@ function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): S
     for (let z = Math.max(0, Math.floor(hz - r)); z < Math.min(sz, hz + r); z++) for (let x = Math.max(0, Math.floor(hx - r)); x < Math.min(sx, hx + r); x++) if (Math.hypot(x + 0.5 - hx, z + 0.5 - hz) < r) regionMap[x + z * sx] = 2;
   }
   shell(world);
+  phases.propsDropped = validateProps(world, content.props);
   phase('shell');
 
-  const caverns = plan.nodes.filter((n) => n.kind === 'cavern' || n.kind === 'lair' || n.kind === 'heart').map((n) => ({ id: `cavern_${n.id}`, biome: n.biome, centre: [n.x, n.y, n.z] as V3, radius: [n.rx, n.ry, n.rz] as V3 }));
-  const discoveries = plan.nodes
-    .filter((n) => n.kind === 'cavern' || n.kind === 'lair')
-    .map((n) => ({ id: `s${stratum}_${n.kind}_${n.biome}_${n.id}`, min: [n.x - n.rx * 0.6, n.y - 1, n.z - n.rz * 0.6] as [number, number, number], max: [n.x + n.rx * 0.6, n.y + 6, n.z + n.rz * 0.6] as [number, number, number] }));
-  void discoveries;
+  const caverns = plan.nodes.filter((n) => n.kind === 'cavern' || n.kind === 'lair' || n.kind === 'heart' || n.kind === 'vista').map((n) => ({ id: `cavern_${n.id}`, biome: n.biome, centre: [n.x, n.y, n.z] as V3, radius: [n.rx, n.ry, n.rz] as V3 }));
+  const lakes = [...decor.lakes, ...(vista?.lakes ?? []), ...(river?.lakes ?? []), ...pieces.flatMap((p) => p.lakes)];
+  const falls = vista?.falls ?? [];
+  const landmarks = content.landmarks;
+  if (falls[0]) {
+    landmarks.fallTop = falls[0].top;
+    landmarks.fallBottom = falls[0].bottom;
+  }
   const layout = withBiomeAt({
     world,
     seed: s,
     spawn: content.arrival,
     camp: content.camp,
-    // Discovery regions are the old world's journal entries; the strata announce biomes and lairs by events.
+    // Discovery regions are the old world's journal entries; the strata announce their sites themselves.
     discoveries: [],
     props: content.props,
     route: [],
-    landmarks: content.landmarks,
+    landmarks,
     structures: [],
     features: {
       boxes: [],
@@ -136,7 +182,7 @@ function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): S
       areas: [],
       sockets: { fossil: [] },
       eventSites: content.spawnPoints.filter((p, k) => p.open && k % 9 === 0).slice(0, 24).map((p, k) => ({ id: `ev_${k}`, p: p.p, r: 6, tag: k % 3 === 0 ? 'rockfall' : k % 3 === 1 ? 'geyser' : 'migration' }) as const),
-      lakes: decor.lakes,
+      lakes,
     },
     stratum,
     expeditionSeed: seed >>> 0,
@@ -157,12 +203,16 @@ function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): S
     campSite: content.campSite,
     heart: content.heart,
     stats: content.stats,
+    vista: vista ? { id: vista.id, name: vista.name, biome: vista.biome, centre: vista.centre, radius: vista.radius, balcony: vista.balcony, rampFoot: vista.rampFoot, lava: vista.lava } : null,
+    falls,
+    rivers: river ? [river.river] : [],
+    dungeon: content.dungeon,
+    ravines: ravines.map((r) => ({ id: r.id, biome: r.biome, top: r.top, bottom: r.bottom, rope: r.rope })),
+    secrets: content.secrets,
   });
   phases.wormCells = wormCells;
   phases.galleries = pockets.length;
-  void STRATUM_TOP_Y;
-  void STRATA_GEN;
-  return Object.assign(layout, { timings: { totalMs: 0, phases, attempts: 1 }, ok });
+  return Object.assign(layout, { timings: { totalMs: 0, phases, attempts: 1 }, ok, failed });
 }
 
 function shell(w: VoxelWorld): void {

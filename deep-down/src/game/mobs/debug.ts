@@ -4,7 +4,8 @@ import { raycastVoxels } from '../../world/raycast';
 import type { Game } from '../Game';
 import type { MobDirector } from './MobDirector';
 import type { SimMob } from './MobSim';
-import type { MobBiome, MobKind } from './types';
+import type { MobAffix, MobBiome, MobKind } from './types';
+import { rollAffixes } from './elites';
 import { ROSTERS } from './rosters';
 import { ALL_KINDS, SPECIES } from './species';
 import { EYE_HEIGHT } from '../fp/constants';
@@ -45,6 +46,11 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
     pattern: m.pattern,
     scanned: m.scanned,
     marker: m.marker,
+    affixes: [...m.affixes],
+    elite: m.elite,
+    tame: m.tame,
+    power: m.power,
+    maxHp: m.maxHp ?? null,
   });
   // A ring buffer of the creatures' and the weapons' events (tests: "was it caught?").
   const log: Array<{ type: string; payload: unknown }> = [];
@@ -87,6 +93,21 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
       const d = SPECIES[k];
       return d ? { kind: k, brain: d.brain, archetype: d.archetype, biome: d.biome, rank: d.rank, hp: d.hp, damage: d.damage, locomotion: d.locomotion, lift: d.lift, radius: d.radius, height: d.height } : null;
     },
+    /** Tame a Lampling at once (captures, tests): the companion, at this much experience. */
+    tame: gate((id: number, xp = 0) => {
+      const m = byId(id);
+      if (!m || m.kind !== 'lampling') return false;
+      mobs.tameNow(m, xp);
+      return true;
+    }, false),
+    companion: () => mobs.companion(),
+    /** Make a creature an elite (tests, captures): these affixes, or rolled ones. */
+    elite: gate((id: number, affixes?: MobAffix[]) => {
+      const m = byId(id);
+      if (!m) return null;
+      mobs.sim.makeElite(m, affixes ?? rollAffixes(mobs.sim.rng, 4, m.kind));
+      return [...m.affixes];
+    }, null),
     /** Spawn as if in a biome (null: WORLD's map, or the first world's rules). */
     biome: gate((b: MobBiome | null) => {
       mobs.sim.forceBiome = b;

@@ -6,6 +6,7 @@ import { generateMaterials, type MaterialAtlas } from '../../render/materials';
 import { generateStratum } from './strata/generateStratum';
 import { withBiomeAt, type StratumLayout } from './strata/types';
 import { worldGen } from '../../config/balance';
+import { stratumDef } from '../../config/biomes';
 
 /**
  * `stratum` set: one stratum of the strata generator (round 3), seeded by (seed, stratum).
@@ -39,6 +40,19 @@ export interface LoadedZone {
   usedWorker: boolean;
 }
 
+/**
+ * The terrain materials a request paints: none (`materials: false`), every layer (the old world), or a
+ * stratum's own (its two biomes' layers, plus the Heart's in VI; VIS's generateMaterials({ biomes })):
+ * about 0.8 s instead of 2-3 s, and a stratum switch repaints for the new stratum.
+ */
+export function materialsFor(req: ZoneRequest): MaterialAtlas | null {
+  if (req.materials === false) return null;
+  if (!req.stratum) return generateMaterials();
+  const biomes: string[] = [...stratumDef(req.stratum).biomes];
+  if (req.stratum === 6) biomes.push('heart');
+  return generateMaterials({ biomes });
+}
+
 /** The layout of a request: a stratum, or the old hand-made world. */
 export function generateFor(req: ZoneRequest): WorldLayout & { timings: { phases: Record<string, number> } } {
   return req.stratum ? generateStratum(req.seed, req.stratum) : generateWorld(req.seed);
@@ -67,22 +81,22 @@ export async function loadZone(seed: number, onPhase: (phase: 'carve' | 'light')
   const light = new LightField(layout.world);
   light.computeAll();
   const t2 = performance.now();
-  const mats = materials ? generateMaterials() : null;
+  const mats = materialsFor(req);
   if (stratum) withBiomeAt(layout as unknown as StratumLayout);
   return { layout, light, materials: mats, timings: { generateMs: Math.round(t1 - t0), lightMs: Math.round(t2 - t1), materialsMs: Math.round(performance.now() - t2) }, usedWorker: false };
 }
 
 /**
- * Round 3: the zone the game boots into. WORLD_GEN 'strata' (the default once switched) loads stratum
- * `stratum` of the expedition `seed`; 'legacy' the old hand-made world.
+ * Round 3: the zone the game boots into. WORLD_GEN 'strata' (the default) loads stratum `stratum` of the
+ * expedition `seed`; 'legacy' (`?gen=legacy`, or `gen` for tests) the old hand-made world.
  */
-export function loadBootZone(seed: number, stratum: number, onPhase: (phase: 'carve' | 'light') => void): Promise<LoadedZone> {
-  return worldGen() === 'strata' ? loadZone(seed, onPhase, stratum, true) : loadZone(seed, onPhase);
+export function loadBootZone(seed: number, stratum: number, onPhase: (phase: 'carve' | 'light') => void, gen: 'legacy' | 'strata' = worldGen()): Promise<LoadedZone> {
+  return gen === 'strata' ? loadZone(seed, onPhase, stratum, true) : loadZone(seed, onPhase);
 }
 
-/** A stratum switch (no materials: the session keeps its painted layers). `onProgress` 0..1. */
+/** A stratum switch: its voxels, light and its own material layers (painted in the worker). `onProgress` 0..1. */
 export function loadStratumZone(seed: number, stratum: number, onProgress: (p: number) => void): Promise<LoadedZone> {
-  return loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.1 : 0.7), stratum, false);
+  return loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.1 : 0.7), stratum, true);
 }
 
 function loadInWorker(req: ZoneRequest, onPhase: (phase: 'carve' | 'light') => void): Promise<LoadedZone> {

@@ -1,6 +1,6 @@
 import { SPECIES } from '../../game/mobs/species';
 import type { MobKind } from '../../game/mobs/types';
-import { block, boulder, crystal, ellipsoid, fin, lathe, limb, merge, ModelBuilder, place, type PartLook } from './rig';
+import { block, boulder as boulderRaw, crystal, ellipsoid as ellipsoidRaw, fin, lathe as latheRaw, limb as limbRaw, merge, ModelBuilder, place, type PartLook } from './rig';
 import type { MobLook } from './mobMaterial';
 import type { MobModel } from './models';
 
@@ -17,6 +17,27 @@ import type { MobModel } from './models';
  * y = -lift (its species' lift), so the drawn body matches the simulated capsule.
  */
 type P3 = [number, number, number];
+
+/**
+ * Detail by size: a tiny swarmer seen in packs needs far fewer facets than a guardian (the
+ * triangle budget, BRIEF §4: 30+ creatures in view). Set per plan by `bodyPlanModel`; the
+ * primitives below scale their segment counts by it (never under a floor that keeps them round).
+ */
+let DETAIL = 1;
+const DETAIL_BY_SIZE: Record<string, number> = { tiny: 0.5, small: 0.68, medium: 0.85, large: 1, huge: 1 };
+const seg = (n: number, floor: number) => Math.max(floor, Math.round(n * DETAIL));
+function ellipsoid(rx: number, ry: number, rz: number, at: P3 = [0, 0, 0], n = 18, lump = 0, seed = 1) {
+  return ellipsoidRaw(rx, ry, rz, at, seg(n, 6), lump, seed);
+}
+function limb(a: P3, b: P3, ra: number, rb: number, n = 8) {
+  return limbRaw(a, b, ra, rb, seg(n, 4));
+}
+function lathe(profile: Array<[number, number]>, n = 20, at: P3 = [0, 0, 0]) {
+  return latheRaw(profile, seg(n, 8), at);
+}
+function boulder(r: number, seedN: number, amp = 0.22, detail = 4, squash = 0.82) {
+  return boulderRaw(r, seedN, amp, DETAIL < 0.75 ? Math.max(1, detail - 1) : detail, squash);
+}
 
 interface Skin {
   /** Base, top (back) and belly colours; accent (horns, claws, plates); glow (eyes, veins, sacs). */
@@ -79,6 +100,10 @@ interface BugP {
   eyes?: number;
   slug?: boolean;
   tailSpike?: boolean;
+  /** A weevil's long rostrum (m). */
+  snout?: number;
+  /** Antennae with glowing tips (m). */
+  antennae?: number;
 }
 
 /** Swarmers: a segmented body, a head with mandibles, insect legs; shells, spines; or a legless slug. */
@@ -100,6 +125,14 @@ function bug(lift: number, p: BugP, s: Skin): MobModel {
   const hz = p.len * 0.5;
   b.add(ellipsoid(p.head, p.head * 0.8, p.head * 1.1, [0, 0.01, hz], 16, 0.03, 9), 'head', L(s, -p.head, p.head, { gloss: 0.7 }));
   eyes(b, 'head', [0, p.head * 0.35, hz + p.head * 0.85], p.eyes ?? 2, p.head * 0.18, p.head * 0.45, s);
+  if (p.snout) b.add(limb([0, -p.head * 0.05, hz + p.head * 0.75], [0, -p.head * 0.75, hz + p.head * 0.8 + p.snout], p.head * 0.24, p.head * 0.09, 7), 'head', L(s, -p.head, p.head, { gloss: 0.85 }));
+  if (p.antennae) {
+    for (const side of [-1, 1]) {
+      const tip: P3 = [p.head * 0.95 * side, p.head * 0.55 + p.antennae * 0.55, hz + p.head * 0.7 + p.antennae * 0.65];
+      b.add(limb([p.head * 0.3 * side, p.head * 0.5, hz + p.head * 0.65], tip, p.head * 0.07, p.head * 0.035, 4), 'head', A(s));
+      b.add(ellipsoid(p.head * 0.13, p.head * 0.13, p.head * 0.13, tip, 6), 'head', G(s, 1.2));
+    }
+  }
   for (const side of [-1, 1]) {
     b.bone(`jaw${side}`, 'head', [p.head * 0.4 * side, -p.head * 0.3, hz + p.head * 0.8]);
     b.add(merge([limb([p.head * 0.4 * side, -p.head * 0.3, hz + p.head * 0.8], [p.head * 0.75 * side, -p.head * 0.45, hz + p.head * 1.4], p.head * 0.16, p.head * 0.1, 6), limb([p.head * 0.75 * side, -p.head * 0.45, hz + p.head * 1.4], [p.head * 0.3 * side, -p.head * 0.5, hz + p.head * 1.8], p.head * 0.1, p.head * 0.03, 6)]), `jaw${side}`, A(s));
@@ -135,6 +168,8 @@ interface QuadP {
   tail: number;
   tailTip?: 'none' | 'tuft' | 'flame' | 'club';
   loot?: boolean;
+  /** Tusks curving up from the jaw's corners (a boar), their length (m). */
+  tusks?: number;
 }
 
 /** Chargers and small beasts: four legs, a long body, a snouted head with a jaw, ears, horns, a tail. */
@@ -161,6 +196,12 @@ function quad(lift: number, p: QuadP, s: Skin): MobModel {
       b.bone(`ear${side}`, 'head', [p.head * 0.55 * side, hy + p.head * 0.6, hz - p.head * 0.1]);
       const g = p.ears === 'pointy' ? crystal(p.head * 0.7, p.head * 0.22, [p.head * 0.55 * side, hy + p.head * 0.6, hz - p.head * 0.1], [0.4 * side, 1, -0.3], 0, 4) : ellipsoid(p.head * 0.3, p.head * 0.35, p.head * 0.1, [p.head * 0.65 * side, hy + p.head * 0.75, hz - p.head * 0.1], 10);
       b.add(g, `ear${side}`, L(s, hy, hy + p.head * 1.5));
+    }
+  }
+  if (p.tusks) {
+    for (const side of [-1, 1]) {
+      const root: P3 = [p.head * 0.42 * side, hy - p.head * 0.42, hz + p.head * 0.55 + p.snout * 0.55];
+      b.add(merge([limb(root, [root[0] + p.tusks * 0.25 * side, root[1] + p.tusks * 0.35, root[2] + p.tusks * 0.45], p.head * 0.07, p.head * 0.05, 6), crystal(p.tusks * 0.55, p.head * 0.05, [root[0] + p.tusks * 0.25 * side, root[1] + p.tusks * 0.35, root[2] + p.tusks * 0.45], [0.2 * side, 1, 0.25], 0, 5)]), 'jaw', { color: 0xf2e6cc, gloss: 0.8, rim: 0.6, flat: true });
     }
   }
   for (let i = 0; i < (p.horns ?? 0); i++) {
@@ -388,7 +429,7 @@ interface BatP {
   body: number;
   span: number;
   ears: number;
-  kind: 'bat' | 'wraith';
+  kind: 'bat' | 'wraith' | 'fish' | 'wasp';
   crystals?: boolean;
 }
 
@@ -403,6 +444,25 @@ function bat(p: BatP, s: Skin): MobModel {
     b.add(ellipsoid(B * 0.45, B * 0.55, B * 0.45, [0, B * 0.95, B * 0.15], 14), 'head', L(s, 0, B * 1.5, { gloss: 0.95 }));
     eyes(b, 'head', [0, B * 1.0, B * 0.55], 2, B * 0.1, B * 0.18, s);
     for (let i = 0; i < 5; i++) b.add(crystal(B * 0.9, B * 0.1, [(i - 2) * B * 0.18, B * 1.25, 0], [(i - 2) * 0.25, 1, -0.2], 0, 3), 'head', A(s, { flat: true, emit: 0.3 }));
+  } else if (p.kind === 'fish') {
+    // A flying fish: a long glassy body, a big-eyed head, a forked tail; its wings are its fins.
+    b.add(ellipsoid(B * 0.45, B * 0.5, B * 1.45, [0, 0, 0], 18, 0.05, 3), 'body', L(s, -B, B, { sss: 0.85, gloss: 0.95 }));
+    b.add(ellipsoid(B * 0.42, B * 0.44, B * 0.55, [0, B * 0.05, B * 1.25], 14), 'head', L(s, -B, B, { gloss: 0.95 }));
+    eyes(b, 'head', [0, B * 0.22, B * 1.5], 2, B * 0.13, B * 0.32, s);
+    b.bone('t0', 'body', [0, 0, -B * 1.3]);
+    b.add(crystal(B * 1.0, B * 0.14, [0, 0, -B * 1.3], [0, 0.75, -1], 0, 4), 't0', A(s, { sss: 0.9, flat: true }));
+    b.add(crystal(B * 1.0, B * 0.14, [0, 0, -B * 1.3], [0, -0.75, -1], 0, 4), 't0', A(s, { sss: 0.9, flat: true }));
+    for (let i = 0; i < 5; i++) b.add(ellipsoid(B * 0.06, B * 0.06, B * 0.06, [B * 0.4 * (i % 2 ? 1 : -1), B * 0.15, B * (0.8 - i * 0.4)], 6), 'body', G(s, 0.9));
+  } else if (p.kind === 'wasp') {
+    // A wasp: a thorax, a striped abdomen with a glowing sting, a head with antennae, legs hanging.
+    b.add(ellipsoid(B * 0.45, B * 0.45, B * 0.55, [0, 0, 0], 14), 'body', L(s, -B, B, { gloss: 0.8 }));
+    b.bone('t0', 'body', [0, 0, -B * 0.45]);
+    for (let i = 0; i < 4; i++) b.add(ellipsoid(B * (0.52 - i * 0.07), B * (0.5 - i * 0.07), B * 0.34, [0, -B * 0.12 * i, -B * (0.75 + i * 0.42)], 12), 't0', i % 2 ? L(s, -B, B, { gloss: 0.9 }) : A(s, { gloss: 0.9 }));
+    b.add(crystal(B * 0.55, B * 0.07, [0, -B * 0.5, -B * 2.25], [0, -0.45, -1], 0, 4), 't0', G(s, 1.1));
+    b.add(ellipsoid(B * 0.36, B * 0.36, B * 0.34, [0, B * 0.12, B * 0.58], 12), 'head', L(s, -B, B, { gloss: 0.8 }));
+    eyes(b, 'head', [0, B * 0.22, B * 0.8], 2, B * 0.13, B * 0.22, s);
+    for (const side of [-1, 1]) b.add(limb([B * 0.12 * side, B * 0.4, B * 0.78], [B * 0.4 * side, B * 0.95, B * 1.15], B * 0.03, B * 0.015, 4), 'head', A(s));
+    for (let i = 0; i < 3; i++) for (const side of [-1, 1]) b.add(limb([B * 0.3 * side, -B * 0.3, B * (0.25 - i * 0.25)], [B * 0.55 * side, -B * 1.0, B * (0.3 - i * 0.3)], B * 0.04, B * 0.02, 4), 'body', A(s));
   } else {
     b.add(ellipsoid(B * 0.55, B * 0.5, B * 0.8, [0, 0, 0], 16, 0.12, 3), 'body', L(s, -B, B, { sss: 0.5, gloss: 0.3 }));
     b.add(ellipsoid(B * 0.42, B * 0.4, B * 0.4, [0, B * 0.3, B * 0.75], 14, 0.05), 'head', L(s, 0, B, {}));
@@ -417,8 +477,14 @@ function bat(p: BatP, s: Skin): MobModel {
     const mid: P3 = [B * 0.35 * side + p.span * 0.45 * side, B * 0.35, B * 0.05];
     b.bone(`w${side}`, 'body', root);
     b.bone(`wt${side}`, `w${side}`, mid);
-    const inner = fin([[0, 0.12], [p.span * 0.45, 0.18], [p.span * 0.45, -p.span * 0.3], [0, -B * 0.6]].map(([x, z]) => [x * side, z] as [number, number]), 0.05);
-    const outer = fin([[0, 0.18], [p.span * 0.55, 0.05], [p.span * 0.4, -p.span * 0.18], [p.span * 0.2, -p.span * 0.22], [0, -p.span * 0.3]].map(([x, z]) => [x * side, z] as [number, number]), 0.05);
+    // A wasp's wings are narrow blades; a fish's, broad rounded fins; a bat's, membranes.
+    const narrow = p.kind === 'wasp';
+    const inner = narrow
+      ? fin([[0, 0.04], [p.span * 0.45, 0.08], [p.span * 0.48, -0.05], [0, -B * 0.25]].map(([x, z]) => [x * side, z] as [number, number]), 0.02)
+      : fin([[0, 0.12], [p.span * 0.45, 0.18], [p.span * 0.45, -p.span * 0.3], [0, -B * 0.6]].map(([x, z]) => [x * side, z] as [number, number]), 0.05);
+    const outer = narrow
+      ? fin([[0, 0.08], [p.span * 0.5, 0.02], [p.span * 0.45, -0.07], [0, -0.05]].map(([x, z]) => [x * side, z] as [number, number]), 0.02)
+      : fin([[0, 0.18], [p.span * 0.55, 0.05], [p.span * 0.4, -p.span * 0.18], [p.span * 0.2, -p.span * 0.22], [0, -p.span * 0.3]].map(([x, z]) => [x * side, z] as [number, number]), 0.05);
     b.add(place(inner, root), `w${side}`, A(s, { sss: 0.9, gloss: 0.4, rim: 0.8, flat: p.kind === 'wraith' }));
     b.add(place(outer, mid), `wt${side}`, A(s, { sss: 0.9, gloss: 0.4, rim: 0.8, flat: p.kind === 'wraith' }));
     b.add(limb(root, mid, B * 0.06, B * 0.04, 5), `w${side}`, L(s, -B, B));
@@ -490,7 +556,7 @@ interface HangP {
   r: number;
   tendrils: number;
   len: number;
-  kind: 'roots' | 'ice';
+  kind: 'roots' | 'ice' | 'gills';
 }
 
 /** Ceiling droppers: a knot (of roots, of ice) with tendrils hanging below its belly (drawn hugging its rock). */
@@ -506,6 +572,19 @@ function hanger(lift: number, p: HangP, s: Skin): MobModel {
       const a = (i / 6) * Math.PI * 2;
       b.add(limb([Math.sin(a) * R * 0.5, R * 0.1, Math.cos(a) * R * 0.5], [Math.sin(a) * R * 1.3, -R * 0.1, Math.cos(a) * R * 1.3], R * 0.12, R * 0.05, 5), 'body', L(s, -R, R));
     }
+  } else if (p.kind === 'gills') {
+    // A cap turned over on the rock: its dome against the ceiling (model -y), the gills, the stem and the
+    // glowing tendrils toward the room (+y).
+    b.add(lathe([[0.01, -R * 0.62], [R * 0.85, -R * 0.4], [R * 1.15, -R * 0.06], [R * 1.08, R * 0.08], [0.01, R * 0.05]], 22), 'body', L(s, -R, R * 0.1));
+    for (let i = 0; i < 18; i++) {
+      const a = (i / 18) * Math.PI * 2;
+      b.add(limb([Math.sin(a) * R * 0.2, R * 0.08, Math.cos(a) * R * 0.2], [Math.sin(a) * R * 1.0, R * 0.1, Math.cos(a) * R * 1.0], R * 0.04, R * 0.015, 3), 'body', A(s, { sss: 0.8, gloss: 0.3 }));
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = i * 2.39996;
+      b.add(ellipsoid(R * 0.13, R * 0.06, R * 0.13, [Math.sin(a) * R * 0.75, -R * 0.38, Math.cos(a) * R * 0.75], 8), 'body', G(s, 0.8));
+    }
+    b.add(limb([0, R * 0.05, 0], [0, R * 0.5, 0], R * 0.24, R * 0.17, 8), 'body', L(s, 0, R, { color: s.a }));
   } else {
     for (let i = 0; i < 7; i++) {
       const a = i * 2.39996;
@@ -565,7 +644,7 @@ function grub(lift: number, p: GrubP, s: Skin): MobModel {
 
 interface MimicP {
   r: number;
-  kind: 'flower' | 'chest';
+  kind: 'flower' | 'chest' | 'cart';
 }
 
 /** Mimics (the Gnasher's bones: base, lid, maw): an orchid bud, a chest. */
@@ -576,7 +655,26 @@ function mimic(lift: number, p: MimicP, s: Skin): MobModel {
   b.bone('base', -1, [0, 0, 0]);
   b.bone('lid', 'base', [0, 0.02, -R * 0.7]);
   b.bone('maw', 'base', [0, -0.05, 0]);
-  if (p.kind === 'chest') {
+  if (p.kind === 'cart') {
+    // A rusted ore cart on iron wheels; its "lid" is the heap of ore it carries, lifting off its teeth.
+    b.add(block(R * 1.55, R * 0.72, R * 1.05, [0, F + R * 0.62, 0], 0.04), 'base', L(s, F, 0, { flat: true }));
+    b.add(block(R * 1.68, R * 0.1, R * 1.15, [0, F + R * 0.98, 0], 0.02), 'base', A(s, { flat: true, gloss: 0.8 }));
+    for (const x of [-0.6, 0.6]) b.add(block(R * 0.09, R * 0.74, R * 1.08, [x * R, F + R * 0.62, 0], 0.01), 'base', A(s, { flat: true, gloss: 0.85 }));
+    for (const [x, z] of [[-0.82, -0.38], [0.82, -0.38], [-0.82, 0.38], [0.82, 0.38]] as const) {
+      b.add(ellipsoid(R * 0.07, R * 0.24, R * 0.24, [x * R, F + R * 0.24, z * R], 12), 'base', A(s, { gloss: 0.9 }));
+      b.add(ellipsoid(R * 0.09, R * 0.07, R * 0.07, [x * R, F + R * 0.24, z * R], 6), 'base', { color: 0x2a2420, gloss: 0.6 });
+    }
+    for (let i = 0; i < 7; i++) {
+      const a = i * 2.39996;
+      b.add(place(boulder(R * (0.26 + (i % 3) * 0.05), 3 + i, 0.3, 2), [Math.sin(a) * R * 0.42, F + R * 1.12 + (i % 2) * R * 0.1, Math.cos(a) * R * 0.3]), 'lid', i % 3 === 0 ? G(s, 0.7) : L(s, 0, R * 1.5, { color: s.t ?? s.c, flat: true }));
+    }
+    for (let i = 0; i < 12; i++) {
+      const x = (i / 11 - 0.5) * R * 1.4;
+      b.add(crystal(R * 0.2, R * 0.05, [x, F + R * 0.98, R * 0.5], [0, 1, 0.1], 0, 4), 'base', { color: 0xe8e0d0, gloss: 0.8, flat: true });
+    }
+    b.add(ellipsoid(R * 0.6, R * 0.12, R * 0.4, [0, F + R * 0.95, 0.05], 12), 'maw', { color: 0x7a1a22, gloss: 0.9, sss: 0.8 });
+    eyes(b, 'lid', [0, F + R * 1.3, R * 0.45], 2, R * 0.08, R * 0.32, s);
+  } else if (p.kind === 'chest') {
     b.add(block(R * 1.7, R * 0.8, R * 1.2, [0, F + R * 0.4, 0], 0.04), 'base', L(s, F, 0, { flat: true }));
     b.add(block(R * 1.75, R * 0.45, R * 1.25, [0, F + R * 1.02, 0], 0.05), 'lid', L(s, 0, R, { flat: true }));
     for (const x of [-0.75, 0, 0.75]) b.add(block(R * 0.12, R * 1.3, R * 1.28, [x * R, F + R * 0.6, 0], 0.02), x === 0 ? 'lid' : 'base', A(s, { flat: true, gloss: 0.9 }));
@@ -784,11 +882,15 @@ const PLANS: Partial<Record<MobKind, () => MobModel>> = {
   // I Amber Hollows / Mushroom Forest
   amberTick: () => bug(lift('amberTick'), { len: 0.34, w: 0.14, h: 0.1, segs: 2, pairs: 3, legLen: 0.16, head: 0.07, shell: true, eyes: 2 }, { c: 0x8a5a2a, t: 0xd89a3a, a: 0xffb347, g: 0xffd070, e: 0.6, gloss: 0.9 }),
   sporeling: () => puff(lift('sporeling'), { r: 0.3, kind: 'puffball', legs: 2 }, { c: 0xd8c8e8, t: 0xf0e0ff, a: 0x7a6a8a, g: 0x6df0d8, e: 0.7 }),
+  gritBoar: () => quad(lift('gritBoar'), { len: 0.78, w: 0.27, h: 0.25, legLen: 0.2, head: 0.19, snout: 0.15, ears: 'pointy', back: 'fur', tail: 0.16, tailTip: 'tuft', tusks: 0.16 }, { c: 0x6a4a2e, t: 0x9a7244, a: 0x3a2a1c, g: 0xffc070, e: 0.55, gloss: 0.25, sss: 0.45 }),
+  gillhanger: () => hanger(lift('gillhanger'), { r: 0.4, tendrils: 8, len: 0.5, kind: 'gills' }, { c: 0xa83a92, t: 0xe060c8, a: 0xe8d8e8, g: 0x6df0d8, e: 0.85 }),
   capSpitter: () => spitter(lift('capSpitter'), { r: 0.42, squash: 0.8, kind: 'cap', legs: 0.09, mouth: 0.3 }, { c: 0xb03a9a, t: 0xe060c8, a: 0xe8dcc8, g: 0x6df0d8, e: 0.8 }),
   // II Root Galleries / Flooded Grottoes
   rootLasher: () => hanger(lift('rootLasher'), { r: 0.42, tendrils: 7, len: 0.7, kind: 'roots' }, { c: 0x5a3e24, t: 0x8a6a3a, a: 0xa8c84a, g: 0xd8f060, e: 0.6 }),
   tunnelGrub: () => grub(lift('tunnelGrub'), { r: 0.42, segs: 5, len: 1.5, teeth: 10 }, { c: 0xc8a888, t: 0xe0c8a8, a: 0x7a5a3a, g: 0xff9a50, e: 0.6, sss: 0.8 }),
   thornback: () => quad(lift('thornback'), { len: 1.2, w: 0.42, h: 0.36, legLen: 0.32, head: 0.28, snout: 0.22, ears: 'pointy', horns: 1, back: 'thorns', tail: 0.4, tailTip: 'tuft' }, { c: 0x4a3a22, t: 0x6a5a2a, a: 0xc8d26a, g: 0xffd070, e: 0.5 }),
+  rootWeevil: () => bug(lift('rootWeevil'), { len: 0.38, w: 0.15, h: 0.11, segs: 2, pairs: 3, legLen: 0.17, head: 0.07, shell: true, eyes: 2, snout: 0.16 }, { c: 0x3a3020, t: 0x6a5a2a, a: 0xa8c84a, g: 0xd8f060, e: 0.5, gloss: 0.85 }),
+  mistwing: () => bat({ body: 0.22, span: 0.72, ears: 0, kind: 'fish' }, { c: 0xa8d0e0, t: 0xe0f4ff, a: 0x8acaea, g: 0x7fd0ff, e: 0.8, sss: 0.9, gloss: 0.9 }),
   brineLeech: () => bug(lift('brineLeech'), { len: 0.55, w: 0.16, h: 0.11, segs: 4, pairs: 0, legLen: 0, head: 0.08, slug: true, eyes: 0 }, { c: 0x2a4a5a, t: 0x4a7a8a, a: 0x8acaea, g: 0x7fd0ff, e: 0.6, gloss: 0.95, sss: 0.8 }),
   spitNewt: () => spitter(lift('spitNewt'), { r: 0.26, squash: 0.55, kind: 'newt', legs: 0.12, mouth: 0.3 }, { c: 0xc8d8e0, t: 0x8ab0c8, a: 0xf0e8f0, g: 0x7fd0ff, e: 0.8, gloss: 0.95, sss: 0.9 }),
   clatterclaw: () => upright(lift('clatterclaw'), { body: 0.55, h: 0.55, head: 0.2, arms: 0.7, armR: 0.11, hand: 'pincer', legs: 0.7, legR: 0.06, kind: 'crab' }, { c: 0x3a5a6a, t: 0x5a8aa0, a: 0x2a7a9a, g: 0x7fd0ff, e: 0.7 }),
@@ -796,26 +898,34 @@ const PLANS: Partial<Record<MobKind, () => MobModel>> = {
   shardling: () => puff(lift('shardling'), { r: 0.32, kind: 'cluster', legs: 2 }, { c: 0x3a6a8a, a: 0x52e8f5, g: 0xc29cff, e: 0.8 }),
   prismBat: () => bat({ body: 0.2, span: 0.55, ears: 0.9, kind: 'bat', crystals: true }, { c: 0x4a3a6a, t: 0x6a5a9a, a: 0x9a7ae0, g: 0x52e8f5, e: 0.8 }),
   geodeGolem: () => upright(lift('geodeGolem'), { body: 0.62, h: 0.95, head: 0.24, arms: 0.9, armR: 0.17, hand: 'fist', legs: 0.6, legR: 0.18, kind: 'golem', extra: 'crystals' }, { c: 0x5a5a66, t: 0x7a7a88, a: 0x8fe8ff, g: 0xc29cff, e: 0.7 }),
+  quartzRam: () => quad(lift('quartzRam'), { len: 1.15, w: 0.38, h: 0.36, legLen: 0.34, head: 0.27, snout: 0.2, ears: 'pointy', horns: 2, back: 'crystals', tail: 0.25, tailTip: 'tuft' }, { c: 0x5a5a70, t: 0x8a8aa8, a: 0x9a7ae0, g: 0x52e8f5, e: 0.75 }),
+  cartMimic: () => mimic(lift('cartMimic'), { r: 0.6, kind: 'cart' }, { c: 0x4a3a2a, t: 0x7a6a5a, a: 0x8a6a4a, g: 0xffb04a, e: 0.75 }),
   rustMite: () => bug(lift('rustMite'), { len: 0.38, w: 0.15, h: 0.1, segs: 3, pairs: 3, legLen: 0.18, head: 0.08, spines: 3, eyes: 2 }, { c: 0x6a3a22, t: 0xa85a2a, a: 0xd8783a, g: 0xffb04a, e: 0.6 }),
   fuseBeetle: () => puff(lift('fuseBeetle'), { r: 0.34, kind: 'beetle', legs: 3 }, { c: 0x2a2220, t: 0x4a3a30, a: 0x3a2a22, g: 0xff9a3a, e: 0.9, gloss: 0.9 }),
   // IV Frost Caverns / Glowroot Jungle
   icefang: () => quad(lift('icefang'), { len: 1.1, w: 0.36, h: 0.34, legLen: 0.36, head: 0.26, snout: 0.26, ears: 'pointy', back: 'fur', tail: 0.55, tailTip: 'tuft' }, { c: 0xc8d8e8, t: 0xf0f6ff, a: 0x8ab0d8, g: 0x7fd8ff, e: 0.8, sss: 0.6 }),
   frostBat: () => bat({ body: 0.22, span: 0.6, ears: 0.8, kind: 'bat' }, { c: 0xa8c8e0, t: 0xe0f0ff, a: 0x6a9ac8, g: 0xbfeaff, e: 0.8 }),
   shiverDrip: () => hanger(lift('shiverDrip'), { r: 0.4, tendrils: 6, len: 0.55, kind: 'ice' }, { c: 0x8ac8f0, t: 0xd8f4ff, a: 0xc8ecff, g: 0x7fd8ff, e: 0.7 }),
+  rimeHulk: () => upright(lift('rimeHulk'), { body: 0.62, h: 0.95, head: 0.22, arms: 0.95, armR: 0.18, hand: 'fist', legs: 0.6, legR: 0.18, kind: 'golem', extra: 'crystals' }, { c: 0x9ab8d0, t: 0xd8ecff, a: 0xbfeaff, g: 0x7fd8ff, e: 0.75, sss: 0.7, gloss: 0.8 }),
   glowMantis: () => upright(lift('glowMantis'), { body: 0.32, h: 0.75, head: 0.14, arms: 0.75, armR: 0.05, hand: 'scythe', legs: 0.55, legR: 0.04, kind: 'mantis' }, { c: 0x2a6a3a, t: 0x4aa85a, a: 0x8cff6a, g: 0x8cff6a, e: 0.8 }),
   bloatToad: () => spitter(lift('bloatToad'), { r: 0.55, squash: 0.75, kind: 'toad', legs: 0.11, mouth: 0.4 }, { c: 0x4a6a2a, t: 0x6a8a3a, a: 0xd8e0a0, g: 0xb6ff4a, e: 0.8 }),
   snapjaw: () => mimic(lift('snapjaw'), { r: 0.65, kind: 'flower' }, { c: 0x2a5a2a, t: 0x4a8a3a, a: 0xff5aa8, g: 0xff8ad0, e: 0.7 }),
+  glowAnt: () => bug(lift('glowAnt'), { len: 0.42, w: 0.14, h: 0.1, segs: 3, pairs: 3, legLen: 0.2, head: 0.08, eyes: 2, antennae: 0.22 }, { c: 0x1a3a1a, t: 0x2a5a2a, a: 0x3a6a2a, g: 0x9aff6a, e: 0.9, gloss: 0.8 }),
   // V Sulphur Bog / Sunken City
   gasbag: () => puff(lift('gasbag'), { r: 0.5, kind: 'bladder', legs: 0 }, { c: 0xa8b040, t: 0xd8e060, a: 0x6a7020, g: 0xe8ff5a, e: 0.6 }),
   sulphurSpitter: () => spitter(lift('sulphurSpitter'), { r: 0.36, squash: 0.6, kind: 'lizard', legs: 0.12, mouth: 0.3 }, { c: 0x6a6a22, t: 0xa8a83a, a: 0xd8c040, g: 0xe0ff3a, e: 0.8 }),
   mireLurker: () => grub(lift('mireLurker'), { r: 0.52, segs: 6, len: 2.2, teeth: 12, plates: true }, { c: 0x4a4a2a, t: 0x6a6a3a, a: 0x3a3a22, g: 0xe8ff5a, e: 0.6 }),
+  fumeWasp: () => bat({ body: 0.2, span: 0.56, ears: 0, kind: 'wasp' }, { c: 0x2a2a10, t: 0x6a6a20, a: 0xe0d860, g: 0xe0ff3a, e: 0.85, gloss: 0.8 }),
   gildedScarab: () => bug(lift('gildedScarab'), { len: 0.42, w: 0.18, h: 0.12, segs: 2, pairs: 3, legLen: 0.17, head: 0.08, shell: true, eyes: 2 }, { c: 0x3a2a10, t: 0xe0b040, a: 0xffd24a, g: 0x52e8f5, e: 0.6, gloss: 0.95 }),
   runeSentry: () => spitter(lift('runeSentry'), { r: 0.45, squash: 1, kind: 'sentry', legs: 0.1, mouth: 0.2 }, { c: 0x6a6050, t: 0x8a8070, a: 0xa89060, g: 0xffd76a, e: 0.9 }),
   chestMimic: () => mimic(lift('chestMimic'), { r: 0.6, kind: 'chest' }, { c: 0x5a3a1a, t: 0x7a5a2a, a: 0xd8a040, g: 0xffc24a, e: 0.6 }),
+  drownedKnight: () => upright(lift('drownedKnight'), { body: 0.55, h: 0.95, head: 0.2, arms: 0.85, armR: 0.13, hand: 'scythe', legs: 0.65, legR: 0.15, kind: 'statue', extra: 'plates' }, { c: 0x46584a, t: 0x6a8a6a, a: 0xa89060, g: 0xffd76a, e: 0.8, gloss: 0.7 }),
   // VI Magma Veins / Obsidian Abyss
   cinderHound: () => quad(lift('cinderHound'), { len: 1.1, w: 0.36, h: 0.34, legLen: 0.36, head: 0.27, snout: 0.25, ears: 'pointy', horns: 2, back: 'cracks', tail: 0.5, tailTip: 'flame' }, { c: 0x2a1a16, t: 0x3a2420, a: 0x1a1210, g: 0xff6a2a, e: 0.9 }),
   emberMite: () => bug(lift('emberMite'), { len: 0.42, w: 0.17, h: 0.11, segs: 3, pairs: 3, legLen: 0.2, head: 0.09, spines: 4, eyes: 3 }, { c: 0x2a1a14, t: 0x4a2a1a, a: 0x1a1210, g: 0xff7a2a, e: 0.9 }),
   magmaBrute: () => upright(lift('magmaBrute'), { body: 0.72, h: 1.05, head: 0.26, arms: 1.0, armR: 0.2, hand: 'fist', legs: 0.6, legR: 0.21, kind: 'golem', extra: 'lava' }, { c: 0x2a2220, t: 0x3a2a26, a: 0x1a1414, g: 0xff5a1a, e: 1 }),
+  lavaToad: () => spitter(lift('lavaToad'), { r: 0.55, squash: 0.75, kind: 'toad', legs: 0.11, mouth: 0.4 }, { c: 0x2a1a14, t: 0x4a2418, a: 0x1a1210, g: 0xff6a2a, e: 1 }),
+  nullCrawler: () => bug(lift('nullCrawler'), { len: 0.6, w: 0.17, h: 0.12, segs: 4, pairs: 4, legLen: 0.32, head: 0.09, spines: 5, eyes: 0 }, { c: 0x0e0c14, t: 0x1e1a2a, a: 0x302840, g: 0xa070ff, e: 0.8, gloss: 0.95 }),
   voidEye: () => spitter(lift('voidEye'), { r: 0.48, squash: 1, kind: 'eye', legs: 0, mouth: 0 }, { c: 0x1a1426, t: 0x2a2040, a: 0x0a0814, g: 0xa070ff, e: 0.9 }),
   glassWraith: () => bat({ body: 0.32, span: 0.8, ears: 0, kind: 'wraith' }, { c: 0x16121e, t: 0x2a2236, a: 0x302840, g: 0xd8c8ff, e: 0.8, gloss: 0.95 }),
   // Beings
@@ -855,8 +965,13 @@ export function bodyPlanModel(kind: MobKind, variant = 0): MobModel {
   let m = cache.get(key);
   if (m) return m;
   const plan = PLANS[kind];
-  if (plan) m = plan();
-  else {
+  DETAIL = DETAIL_BY_SIZE[SPECIES[kind].size] ?? 1;
+  try {
+    if (plan) m = plan();
+  } finally {
+    DETAIL = 1;
+  }
+  if (!m) {
     // Never shown to players: every roster kind has a plan (tests check it).
     const b = new ModelBuilder();
     b.bone('body', -1, [0, 0, 0]);

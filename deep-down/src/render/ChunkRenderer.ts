@@ -3,6 +3,7 @@ import type { VoxelWorld } from '../world/VoxelWorld';
 import { ChunkMeshData, OFFSET_RANGE, PADDED_VOXELS, VERTEX_BYTES, copyPadded, meshChunk } from './mesher';
 import { MeshPool, meshBuildOnWorkers, meshWorkerCount, spawnMeshWorker, type MeshJob, type MeshResult, type WorkerLike } from './meshPool';
 import { FOG_CULL } from './lighting';
+import { CaveCuller } from './caveCulling';
 
 export interface ChunkStats {
   chunks: number;
@@ -185,6 +186,15 @@ export class ChunkRenderer {
   private readonly warmIds = new Set<number>();
   viewDistance = 96;
   /**
+   * Round 3 (VIS): cave culling (render/caveCulling.ts): chunks behind rock from the eye are not
+   * drawn. On by default; tests and tools may turn it off.
+   */
+  caveCulling = true;
+  /** The cave culler (chunk connectivity and the walk from the eye). */
+  readonly culler: CaveCuller;
+  /** Chunks drawn at the last cull (the report). */
+  culledVisible = 0;
+  /**
    * Round 3 (VIS): told when a chunk's voxels changed (it is taken for re-meshing, in play) and after
    * a whole rebuild (buildAll): torches, decor and the like follow the voxels from here, whatever
    * changed them (mining, placing, the gate opening, a restore).
@@ -211,6 +221,7 @@ export class ChunkRenderer {
     this.material = material;
     const n = world.cx * world.cy * world.cz;
     this.meshes = new Array(n).fill(null);
+    this.culler = new CaveCuller(world);
     this.vertexCounts = new Int32Array(n);
     this.byteCounts = new Int32Array(n);
     this.seams = new Uint32Array(n * 27);
@@ -430,16 +441,40 @@ export class ChunkRenderer {
   cull(focus: THREE.Vector3): void {
     const cs = this.world.chunkSize;
     // Never past the zone's haze (FOG_CULL: nothing there is visible), never past the preset.
-    const maxD2 = (Math.min(this.viewDistance, FOG_CULL.value) + cs) ** 2;
-    for (const m of this.meshes) {
+    const far = Math.min(this.viewDistance, FOG_CULL.value);
+    const maxD2 = (far + cs) ** 2;
+    // Round 3: and never behind the rock (the walk through the caves from the eye).
+    let seen: Uint8Array | null = null;
+    if (this.caveCulling) {
+      this.culler.compute(this.culler.known < this.meshes.length / 2 ? 24 : 2);
+      this.culler.run(focus, far, null);
+      seen = this.culler.visible;
+    }
+    let drawn = 0;
+    for (let i = 0; i < this.meshes.length; i++) {
+      const m = this.meshes[i];
       if (!m) continue;
       const c = m.userData.center as THREE.Vector3;
-      m.visible = c.distanceToSquared(focus) < maxD2;
+      m.visible = c.distanceToSquared(focus) < maxD2 && (!seen || seen[i] === 1);
+      if (m.visible) drawn++;
     }
+    this.culledVisible = drawn;
     for (const a of this.attached) {
       a.viewDistance = Math.min(this.viewDistance, FOG_CULL.value);
       a.cull(focus);
     }
+  }
+
+  /** Round 3: did the last cull leave the chunk at world point (x, y, z) drawn (true when culling is off)? */
+  chunkDrawnAt(x: number, y: number, z: number): boolean {
+    if (!this.caveCulling) return true;
+    const w = this.world;
+    const cs = w.chunkSize;
+    const cx = Math.floor(x / cs);
+    const cy = Math.floor(y / cs);
+    const cz = Math.floor(z / cs);
+    if (cx < 0 || cy < 0 || cz < 0 || cx >= w.cx || cy >= w.cy || cz >= w.cz) return false;
+    return this.culler.visible[w.chunkIndex(cx, cy, cz)] === 1;
   }
 
   /** Draw and cull a static set of meshes with the terrain (see `attached`). */
@@ -779,6 +814,8 @@ export class ChunkRenderer {
 
   private applyMesh(i: number, cx: number, cy: number, cz: number, data: ChunkMeshData, rev: number): void {
     const w = this.world;
+    // Its voxels changed: the cave culler finds its connectivity again.
+    this.culler.invalidate(i);
     this.propagateSeams(i, cx, cy, cz, data.seams, rev);
     let mesh = this.meshes[i];
     this.stats.vertices -= this.vertexCounts[i];

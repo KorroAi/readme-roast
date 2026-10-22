@@ -1,4 +1,8 @@
 import { BIOMES, type BiomeId } from '../../config/biomes';
+import { ITEMS, type ItemId } from '../../config/items';
+
+/** Seconds between two first-time item tips. */
+const ITEM_TIP_GAP = 7;
 import { GUIDE, stratumOfBiome } from '../../config/quests';
 import type { EventBus, GameEvents } from '../../core/events';
 import { hasText, t, type TextKey } from '../../i18n';
@@ -82,6 +86,9 @@ export class Guide {
   private hardT = -Infinity;
   private clock = 0;
   readonly tipsShown = new Set<string>();
+  /** First-time item tips waiting their turn (one every ITEM_TIP_GAP seconds). */
+  private readonly itemTips: string[] = [];
+  private itemTipT = -Infinity;
 
   constructor(private readonly bus: EventBus<GameEvents>) {}
 
@@ -119,11 +126,13 @@ export class Guide {
     this.stuckShown = 0;
     this.flameT = this.healthT = this.bagT = this.hardT = -Infinity;
     this.tipsShown.clear();
+    this.itemTips.length = 0;
+    this.itemTipT = -Infinity;
   }
 
+  /** A hint: the UI shows it once, as its hint line and a tip by the `target` control ('guide:hint'). */
   private hint(id: string, text: string, target: UiTargetId | null): void {
     this.bus.emit('guide:hint', { id, text, target });
-    this.bus.emit('toast', { text, tone: 'info' });
   }
 
   private tip(id: string, key: TextKey, target: UiTargetId | null): void {
@@ -132,9 +141,29 @@ export class Guide {
     this.hint(`tip:${id}`, t(key), target);
   }
 
+  /** Items the explorer starts with need no tip. */
+  quietItems(items: Iterable<ItemId>): void {
+    for (const id of items) this.tipsShown.add(`item:${id}`);
+    this.itemTips.length = 0;
+  }
+
+  /** The first time an item is held: a short tip with what it is for (queued, one at a time). */
+  firstItem(item: ItemId): void {
+    const id = `item:${item}`;
+    if (this.tipsShown.has(id) || !ITEMS[item] || ITEMS[item].keyItem) return;
+    this.tipsShown.add(id);
+    if (this.itemTips.length < 6) this.itemTips.push(item);
+  }
+
   update(dt: number, g: GuideInput): void {
     if (!(dt > 0) || !g.playing) return;
     this.clock += dt;
+    // (Not during the tutorial: its own lines teach the first things.)
+    if (this.itemTips.length && g.mainStep !== 'tutorial' && this.clock - this.itemTipT >= ITEM_TIP_GAP) {
+      const item = this.itemTips.shift() as ItemId;
+      this.itemTipT = this.clock;
+      this.hint(`item:${item}`, t('tip.item', { name: t(ITEMS[item].name), desc: t(ITEMS[item].desc) }), 'bag');
+    }
     // Stuck: the main step has not moved (its text counts as progress too).
     if (g.mainId !== this.stuckId || g.mainText !== this.stuckText) {
       this.stuckId = g.mainId;

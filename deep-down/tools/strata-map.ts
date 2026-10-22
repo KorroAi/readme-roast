@@ -32,7 +32,8 @@ export default function strataMap(args: string[]): void {
     light.computeAll();
     const t2 = performance.now();
     const w = l.world;
-    const seen = walkBfs({ world: w }, [l.arrival.x, l.arrival.y, l.arrival.z], new Set(l.gate.seal.map(([x, y, z]) => w.index(x, y, z))));
+    const open = new Set([...l.gate.seal, ...(l.dungeon?.door ?? [])].map(([x, y, z]) => w.index(x, y, z)));
+    const seen = walkBfs({ world: w }, [l.arrival.x, l.arrival.y, l.arrival.z], open);
     const W = w.sx * S;
     const H = w.sz * S;
     const img = new Uint8Array(W * H * 4);
@@ -73,6 +74,25 @@ export default function strataMap(args: string[]): void {
       px(x, z, [c[0] * k, c[1] * k, c[2] * k]);
     }
     const mark = (p: readonly number[], c: number[], r = 1) => px(Math.floor(p[0]), Math.floor(p[2]), c, r);
+    // The great structures: the river (blue), the vista's balcony and ramp foot (white ring), the works
+    // (orange), ravines (brown), secret rooms (pink), set pieces (lime).
+    for (const rv of l.rivers) for (const q of rv.points) mark(q, rv.kind === 'lava' ? [255, 120, 20] : [60, 160, 255], 0);
+    if (l.vista) {
+      for (let a = 0; a < Math.PI * 2; a += 0.02) mark([l.vista.centre[0] + Math.cos(a) * l.vista.radius, 0, l.vista.centre[2] + Math.sin(a) * l.vista.radius], [235, 235, 235], 0);
+      mark(l.vista.balcony, [255, 255, 255], 2);
+      mark(l.vista.rampFoot, [200, 200, 200], 1);
+    }
+    if (l.dungeon) {
+      for (const c of l.dungeon.door) mark(c, [255, 150, 0], 0);
+      mark(l.dungeon.vault, [255, 150, 0], 2);
+      mark(l.dungeon.entry, [255, 200, 120], 1);
+    }
+    for (const r of l.ravines) {
+      mark(r.top, [150, 90, 40], 1);
+      mark(r.bottom, [150, 90, 40], 1);
+    }
+    for (const sc of l.secrets) mark(sc.centre, [255, 120, 200], 1);
+    for (const st of l.sites) if (st.kind === 'setPiece') mark(st.centre, [190, 255, 60], 1);
     for (const c of l.chests) mark(c.p, [255, 230, 60], 0);
     for (const p of l.pages) mark(p.p, [80, 240, 255], 1);
     for (const o of l.outpostSites) mark(o.p, [60, 255, 90], 1);
@@ -111,6 +131,12 @@ export default function strataMap(args: string[]): void {
       lairsBack: back,
       gateReachable: near(seen, l.gate.stand),
       heartReachable: l.heart ? near(seen, l.heart.centre) : null,
+      vista: l.vista ? { name: l.vista.name, balcony: near(seen, l.vista.balcony), floor: near(seen, l.vista.rampFoot), lava: l.vista.lava } : null,
+      works: l.dungeon ? { puzzle: l.dungeon.puzzle, locks: l.dungeon.sockets.length, vault: near(seen, l.dungeon.vault), sealedShut: !near(walkBfs({ world: w }, [l.arrival.x, l.arrival.y, l.arrival.z], new Set(l.gate.seal.map(([x, y, z]) => w.index(x, y, z)))), l.dungeon.vault) } : null,
+      river: l.rivers.map((r) => ({ kind: r.kind, points: r.points.length })),
+      ravines: l.ravines.length,
+      secrets: l.secrets.length,
+      failed: (l as unknown as { failed?: string[] }).failed ?? [],
       chests: l.chests.length,
       pages: l.pages.length,
       props: l.props.length,

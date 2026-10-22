@@ -6,6 +6,16 @@ import { mobModel, type MobModel } from './models';
 import { createInstancedMobMaterial } from './mobMaterial';
 import { pose, poseWorm, type PoseOut } from './poses';
 import { ellipsoid, fin, limb, merge, place, Rig, MAX_BONES } from './rig';
+import type { CompanionBrain } from '../../game/mobs/companion';
+
+/** The rarities' glow colours (common .. legendary), for the companion's scouting glow. */
+const RARITY_RGB: ReadonlyArray<[number, number, number]> = [
+  [0.85, 0.85, 0.85],
+  [0.45, 1.0, 0.5],
+  [0.35, 0.65, 1.0],
+  [0.8, 0.45, 1.0],
+  [1.0, 0.72, 0.25],
+];
 
 /**
  * Draws the creatures (rounds 2-3, MOBS), instanced: one draw call per creature kind in view
@@ -43,6 +53,7 @@ class Batch {
   private readonly a: Float32Array;
   private readonly hi: Float32Array;
   private readonly sel: Float32Array;
+  private readonly fx: Float32Array;
   private readonly attrs: THREE.InstancedBufferAttribute[];
   n = 0;
 
@@ -54,16 +65,19 @@ class Batch {
     this.a = new Float32Array(MOB_INSTANCES * 4);
     this.hi = new Float32Array(MOB_INSTANCES * 4);
     this.sel = new Float32Array(MOB_INSTANCES);
+    this.fx = new Float32Array(MOB_INSTANCES * 4);
     const mk = (arr: Float32Array, k: number) => new THREE.InstancedBufferAttribute(arr, k).setUsage(THREE.DynamicDrawUsage);
     const ar = mk(this.row, 1);
     const aa = mk(this.a, 4);
     const ah = mk(this.hi, 4);
     const as = mk(this.sel, 1);
+    const af = mk(this.fx, 4);
     g.setAttribute('iRow', ar);
     g.setAttribute('iA', aa);
     g.setAttribute('iHi', ah);
     g.setAttribute('iSel', as);
-    this.attrs = [ar, aa, ah, as];
+    g.setAttribute('iFx', af);
+    this.attrs = [ar, aa, ah, as, af];
     g.instanceCount = 0;
     this.geo = g;
     this.mesh = new THREE.Mesh(g, mat);
@@ -73,20 +87,22 @@ class Batch {
     this.mesh.visible = false;
   }
 
-  push(row: number, flash: number, fade: number, glow: number, seed: number, hc: THREE.Vector3, amb: number, sel: number): void {
+  push(row: number, flash: number, fade: number, glow: number, seed: number, hc: THREE.Vector3, amb: number, sel: number, fxBits = 0, fxK = 1): void {
     if (this.n >= MOB_INSTANCES) return;
     const i = this.n++;
     this.row[i] = row;
     this.a.set([flash, fade, glow, seed], i * 4);
     this.hi.set([hc.x, hc.y, hc.z, amb], i * 4);
     this.sel[i] = sel;
+    this.fx[i * 4] = fxBits;
+    this.fx[i * 4 + 1] = fxK;
   }
 
   end(): void {
     this.geo.instanceCount = this.n;
     this.mesh.visible = this.n > 0;
     if (this.n === 0) return;
-    const sizes = [1, 4, 4, 1];
+    const sizes = [1, 4, 4, 1, 4];
     this.attrs.forEach((at, k) => {
       at.clearUpdateRanges();
       at.addUpdateRange(0, this.n * sizes[k]);
@@ -136,6 +152,8 @@ export class MobRenderer {
   /** Creatures drawn last frame, and the draw calls they took. */
   drawnCount = 0;
   drawCalls = 0;
+  /** The companion's brain (MobDirector sets it): its scouting colour and its zaps. */
+  companion: CompanionBrain | null = null;
 
   constructor(private readonly lighting: LightingUniforms) {
     this.group.name = 'mobs';
@@ -226,7 +244,11 @@ export class MobRenderer {
   }
 
   /** Pose and place every creature for this frame, fill the instance batches. */
-  sync(sim: MobSim, time: number, camera: THREE.Camera, pixelHeight: number, fov: number): void {
+  /**
+   * @param drawnAt VIS's cave culling (ChunkRenderer.chunkDrawnAt): a creature in a chunk hidden behind
+   * rock this frame is not drawn (guardians and huge ones always are; their bulk spans chunks).
+   */
+  sync(sim: MobSim, time: number, camera: THREE.Camera, pixelHeight: number, fov: number, drawnAt?: (x: number, y: number, z: number) => boolean): void {
     const g = this.glows;
     g.begin();
     this.moths.begin();
@@ -264,6 +286,7 @@ export class MobRenderer {
         this.sphere.center.copy(this.vP);
         this.sphere.radius = v.model.radius * sc * 1.4 + 0.6;
         if (!this.frustum.intersectsSphere(this.sphere)) continue;
+        if (drawnAt && !m.guardian && m.def.size !== 'huge' && !drawnAt(this.vP.x, this.vP.y, this.vP.z) && !drawnAt(this.vP.x, this.vP.y + m.bounds.halfHeight + m.bounds.radius, this.vP.z)) continue;
       }
       if (row >= MOB_INSTANCES) continue;
       // Bones to the texture row (world = root x bone).
@@ -291,8 +314,8 @@ export class MobRenderer {
       const hc = v.hi.uHiColor.value;
       const amb = v.hi.uHi.value.x;
       const sel = v.hi.uHi.value.y;
-      bt.body.push(row, m.flash, m.fade, o.glow, m.seed, hc, amb, sel);
-      if (bt.shell) bt.shell.push(row, m.flash * 0.6, m.fade, o.glow, m.seed, hc, amb, sel);
+      bt.body.push(row, m.flash, m.fade, o.glow, m.seed, hc, amb, sel, m.affixBits);
+      if (bt.shell) bt.shell.push(row, m.flash * 0.6, m.fade, o.glow, m.seed, hc, amb, sel, m.affixBits);
       if (sel > 0.01 && m.fade > 0.5) bt.hull.push(row, 0, m.fade, 0, m.seed, hc, 0, sel);
       row++;
       drawn++;
@@ -312,6 +335,22 @@ export class MobRenderer {
       } else g.push(s.p.x, s.p.y, s.p.z, c[0], c[1], c[2], 1.6 * Math.max(0, 1 - s.done / 0.6));
     }
     for (const sp of this.spores) g.push(sp.x, sp.y, sp.z, 0.55, 0.95, 1.0, 0.16 * Math.max(0, sp.life));
+    for (const sh of this.shards) {
+      const k = Math.min(1, sh.t / 0.6);
+      const beat = 0.85 + 0.15 * Math.sin(sh.t * 9);
+      // A white-hot core in a halo of the guardian's own colour.
+      g.push(sh.x, sh.y, sh.z, 1.0, 0.95, 0.85, 1.4 * k * beat);
+      g.push(sh.x, sh.y, sh.z, sh.c[0], sh.c[1], sh.c[2], 2.2 * k * beat);
+    }
+    // The companion's zap: a trail of motes from it to its foe, fading fast.
+    const z = this.companion?.zap;
+    if (z && z.t > 0) {
+      const k = z.t / 0.35;
+      for (let i = 0; i <= 6; i++) {
+        const f = i / 6;
+        g.push(z.x0 + (z.x1 - z.x0) * f, z.y0 + (z.y1 - z.y0) * f, z.z0 + (z.z1 - z.z0) * f, 1.0, 0.86, 0.55, (0.35 + 0.5 * f) * k);
+      }
+    }
     if (row > 0) {
       this.boneTex.needsUpdate = true;
     }
@@ -335,7 +374,14 @@ export class MobRenderer {
   private glowsOf(m: SimMob, o: PoseOut): void {
     const g = this.glows;
     const p = this.vP;
-    if (m.brain === 'lamp') {
+    // A radiant elite's aura (it lights its pack's way).
+    if (m.affixBits & 1) g.push(p.x, p.y + 0.1, p.z, 1.0, 0.8, 0.42, (0.75 + 0.15 * Math.sin(m.stateTime * 3 + m.seed * 6)) * m.fade);
+    if (m.brain === 'lamp' && m.tame) {
+      // The companion: brighter, and in an ore's rarity colour while it hovers by the vein.
+      const r = this.companion?.scoutRarity ?? -1;
+      const c = r >= 0 ? RARITY_RGB[Math.min(4, r)] : hexRgb(m.def.mote);
+      g.push(p.x, p.y, p.z, c[0], c[1], c[2], (r >= 0 ? 0.9 + 0.3 * Math.sin(m.stateTime * 8) : 0.62) * m.fade * o.glow);
+    } else if (m.brain === 'lamp') {
       const c = hexRgb(m.def.mote);
       g.push(p.x, p.y, p.z, c[0], c[1], c[2], 0.4 * m.fade * o.glow);
     } else if (m.brain === 'float') g.push(p.x, p.y + 0.1, p.z, 0.35, 0.75, 1.0, 1.6 * m.fade * (m.tappable ? 1 : 0.5));
@@ -359,6 +405,15 @@ export class MobRenderer {
     }
   }
 
+  /**
+   * A fallen guardian's Heart Shard: it rises glowing from the body (1.6 s), then flies to the
+   * explorer's lantern (absorbed). LOOP pays the shard itself; this is its moment.
+   */
+  private readonly shards: Array<{ x: number; y: number; z: number; y0: number; t: number; c: [number, number, number] }> = [];
+  shardRise(x: number, y: number, z: number, color: number): void {
+    this.shards.push({ x, y, z, y0: y, t: 0, c: hexRgb(color) });
+  }
+
   /** Light spores (a drift jelly's gift): a short rising cloud of motes. */
   private readonly spores: Array<{ x: number; y: number; z: number; vx: number; vy: number; vz: number; life: number }> = [];
   burstSpores(x: number, y: number, z: number, n = 18): void {
@@ -370,8 +425,29 @@ export class MobRenderer {
     if (this.spores.length > 40) this.spores.splice(0, this.spores.length - 40);
   }
 
-  /** Advance the spores toward the eye (they feed the lantern). */
+  /** Advance the spores toward the eye (they feed the lantern), and the shards. */
   step(dt: number, tx: number, ty: number, tz: number): void {
+    for (let i = this.shards.length - 1; i >= 0; i--) {
+      const sh = this.shards[i];
+      sh.t += dt;
+      if (sh.t < 1.6) {
+        // Rising, slowing as it goes.
+        sh.y = sh.y0 + 2.6 * (1 - Math.pow(1 - sh.t / 1.6, 2));
+        continue;
+      }
+      const dx = tx - sh.x;
+      const dy = ty - sh.y;
+      const dz = tz - sh.z;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 0.35 || sh.t > 5) {
+        this.shards.splice(i, 1);
+        continue;
+      }
+      const v = Math.min(d, dt * (4 + (sh.t - 1.6) * 10));
+      sh.x += (dx / d) * v;
+      sh.y += (dy / d) * v;
+      sh.z += (dz / d) * v;
+    }
     for (let i = this.spores.length - 1; i >= 0; i--) {
       const s = this.spores[i];
       s.life -= dt * 0.7;

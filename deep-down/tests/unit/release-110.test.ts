@@ -24,10 +24,12 @@ import type { PropSpec } from '../../src/world/gen/types';
 const SPAWN = { x: 34.5, y: 101, z: 43.2, yaw: Math.PI / 2 };
 
 // WorldSession builds Three.js objects but never touches WebGL until rendering (session.test.ts).
+// These are the 1.1.0 release's fixes: they run in the old hand-made world they were made for (round 3
+// boots the strata; the relics and the Ancient Tablet are that world's).
 let session: WorldSession;
 
 beforeAll(async () => {
-  session = await WorldSession.create(() => undefined);
+  session = await WorldSession.create(() => undefined, WORLD.seed, 1, 'legacy');
 }, 60_000);
 
 describe('a world shift and the opened caches (save/saveData)', () => {

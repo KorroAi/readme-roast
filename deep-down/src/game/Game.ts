@@ -28,9 +28,8 @@ import { shiftWorldIfNeeded } from '../save/saveData';
 import { DEFAULT_SETTINGS, type ItemCounts, type SaveData, type Settings } from '../save/types';
 import { CameraRig, clearOfRock } from './CameraRig';
 import { Viewmodel } from './fp/Viewmodel';
-// VIS: light beams and ambient wonder.
+// VIS: light beams (ambient wonder is VisDirector's).
 import { LightBeams, beamsFor, zoneAnchorsFor } from './effects/LightBeams';
-import { Ambience } from './effects/Ambience';
 import { EYE_HEIGHT } from './fp/constants';
 import { hoistEyeOffset, hoistSide, type HoistSide } from './fp/hoistEye';
 import { PlayerController } from './PlayerController';
@@ -46,7 +45,6 @@ import { VisDirector } from './effects/VisDirector';
 import { isBreakable } from '../config/rarity';
 // VIS: the lantern's light (flicker, the oil shrinking the pool, the tier's colour).
 import { LanternLight } from '../render/lanternLight';
-import { WaterSurfaces } from '../render/water';
 import { lanternFlicker } from './fp/flame';
 import { Waterfall } from './effects/Waterfall';
 // VIS: the world events' visuals (rockfall dust, geyser spores, the bloom's glow, the echo mote).
@@ -61,12 +59,13 @@ import { Progression, summarizeSave } from './Progression';
 import { Loop } from './craft/Loop';
 import type { Quests } from './quests/Quests';
 import type { EventDirector } from './events/EventDirector';
-import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
+import { MENU_FPS, MenuCamera, findMenuShot, menuExplorerPose } from './MenuCamera';
+import { isStratumLayout } from '../world/gen/strata/types';
 import { FrameGuard } from './FrameGuard';
 import { WorldFeatures } from './WorldFeatures';
 // WORLD: the strata of the deep (one loaded at a time), their flow glue and save part.
 import type { StratumManager } from './Stratum';
-import { bootStrata, continueExpedition, createStrata, newExpedition, strataSave } from './StratumFlow';
+import { bootStrata, continueExpedition, createStrata, deepChanged, newExpedition, strataSaveParts } from './StratumFlow';
 import { TapController } from './TapController';
 // FP: tap a creature to attack, catch or harvest it; the weapons in hand (round 2).
 import { Combat } from './fp/Combat';
@@ -82,11 +81,15 @@ import type { MenuScreen } from '../ui/hud/actions';
 import type { PropSpec as Prop } from '../world/gen/types';
 import { loadControlPrefs, saveControlPrefs, type ControlPrefs } from '../ui/controlPrefs';
 import { seedFromText } from '../ui/seed';
+import { installUiDebug } from './fp/uiDebug';
+import { prefersReducedMotion } from '../ui/brand/motion';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
 export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead' | 'crashed';
 
 const INTERACT_RANGE = 2.4;
+/** UI (round 3): the station a placed prop is (LOOP's Builder kinds), for Craft's station filter. */
+const STATION_OF_PROP: Record<string, string | undefined> = { furnace: 'furnace', forge: 'forge', alchemyTable: 'alchemy' };
 
 /**
  * Owns every system and runs the frame loop. Systems communicate through the EventBus;
@@ -268,7 +271,7 @@ export class Game {
     });
     this.scene.add(this.highlight.group);
     // VIS: round 3's visuals follow the live session (biome look, sonar on 'player:sonar', torches).
-    this.vis = new VisDirector({ bus: this.bus, session: () => this.session, highlight: () => this.highlight, grade: this.renderer.post.params, usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)) });
+    this.vis = new VisDirector({ bus: this.bus, session: () => this.session, highlight: () => this.highlight, grade: this.renderer.post.params, usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)), beaten: () => this.mobs?.guardiansBeaten?.() ?? [], hazard: () => ({ kind: this.loop?.hazards.active ?? null, level: this.loop?.hazards.meter ?? 0 }), heartLit: () => this.loop?.quests.heartLit ?? false, companion: () => (this.mobs as unknown as { companionLight?: () => { x: number; y: number; z: number; glow: number } | null } | undefined)?.companionLight?.() ?? null });
     this.scene.add(this.vis.group);
     this.marker.highlight = this.highlight;
     // VIS: ground props stand on the drawn (sculpted) rock, not the voxel top (they floated on rims).
@@ -289,10 +292,8 @@ export class Game {
     const visLandmarks = s.layout.landmarks as Record<string, readonly number[] | undefined>;
     this.scene.add(new LightBeams(s.rig.uniforms, s.terrain.noiseTex, beamsFor(visLandmarks)).mesh);
     s.rig.setZoneAnchors(zoneAnchorsFor(visLandmarks));
-    // VIS: ambient wonder (drips, glow caps, the deep glows and the monotone spaces' focal glows).
-    this.scene.add(new Ambience(s.rig.uniforms, s.world, s.layout.content?.ambient ?? [], visLandmarks).group);
-    // VIS: still water over WORLD's lakes (layout.features.lakes): the Still Lake, the Deep, the vault pool.
-    this.scene.add(new WaterSurfaces(s.rig.uniforms, s.world, s.layout.features?.lakes ?? []).group);
+    // VIS: ambient wonder (drips, glow caps, the deep glows) and still water over WORLD's lakes are drawn
+    // by this.vis (VisDirector), which rebuilds them when a stratum switch swaps the layout.
     // VIS: the world events' visuals (dust, spores, the bloom's glow, the echo mote), read from the director.
     this.eventFx?.dispose();
     this.eventFx = new EventFx(s.rig.uniforms, this.bus, () => this.progression?.events ?? null, () => this.session.world);
@@ -376,6 +377,8 @@ export class Game {
     this.strata = createStrata(this, bootWorld.seed);
     // MOBS: window.__DD__.mobs (tests and captures).
     installMobDebug(this, this.mobs);
+    // UI (round 3): window.__DD__.ui (the action layout's events, HUD fields and control rects).
+    installUiDebug(this);
 
     this.enterMenu();
     this.ready = true;
@@ -481,9 +484,20 @@ export class Game {
     this.ui.showScreen('menu');
     this.audio.setPaused(false);
     this.viewmodel.setVisible(false);
-    // Stage the explorer on the lip of the ledge overlooking the Hollow, like a title card.
-    const pose = menuExplorerPose(this.session.world, this.session.layout.landmarks.ledge);
-    this.player.teleport(pose.x, pose.y, pose.z, pose.yaw);
+    // UI (round 3): over a stratum, the title looks across the camp's hall from its far side (the
+    // longest view round the fire); the first version's world keeps its ledge drift.
+    const layout = this.session.layout;
+    if (isStratumLayout(layout) && this.menuCamera) {
+      const centre = layout.campSite?.fire ?? layout.landmarks.ledge;
+      const shot = findMenuShot(this.session.world, [Math.floor(centre[0]), Math.floor(centre[1]), Math.floor(centre[2])]);
+      this.menuCamera.shot = shot;
+      this.player.teleport(shot.explorer.x, shot.explorer.y, shot.explorer.z, shot.explorer.yaw);
+    } else {
+      if (this.menuCamera) this.menuCamera.shot = null;
+      // Stage the explorer on the lip of the ledge overlooking the Hollow, like a title card.
+      const pose = menuExplorerPose(this.session.world, layout.landmarks.ledge);
+      this.player.teleport(pose.x, pose.y, pose.z, pose.yaw);
+    }
     this.menuCamera?.reset();
     // MOBS: no creature on the title screen.
     this.mobs?.clear();
@@ -500,6 +514,8 @@ export class Game {
       // Only now replace the old save (a failed reset must not have erased it).
       this.saves.clear();
       this.resetProgress();
+      // MOBS: a new expedition: the bestiary and the guardians start over.
+      this.mobs.newExpedition();
       this.halosDirty = true;
       this.startPlaying();
     } catch (e) {
@@ -532,6 +548,8 @@ export class Game {
       await this.newGame();
       return;
     }
+    // WORLD: a 1.x save (another world) shows the calm "The deep has changed" card first; Begin makes it a new expedition keeping feats and lifetime stats.
+    if (deepChanged(this, res.data)) return;
     this.loading = true;
     // A save from another world generator keeps everything but its world edits (save/saveData).
     const { data, shifted } = shiftWorldIfNeeded(res.data, this.session.layout.spawn);
@@ -541,6 +559,8 @@ export class Game {
       // WORLD: a strata save enters its stratum with that stratum's edits; the old world restores.
       if (!(await continueExpedition(this, data))) await this.session.restore(data.worldEdits, data.removedProps);
       this.restoreProgress(data);
+      // MOBS: the bestiary and the beaten guardians come back (a save without them starts both empty).
+      this.mobs.restore(data.mobs);
       this.halosDirty = true;
       this.startPlaying(data.removedProps);
     } catch (e) {
@@ -683,7 +703,9 @@ export class Game {
       stats: { ...this.stats },
       progression: this.progression.toSave(),
       // WORLD: save v4's world part (the seed, the stratum, each stratum's edits and map, outposts, shards).
-      strata: strataSave(this),
+      ...strataSaveParts(this),
+      // MOBS: save v4's creatures part (the bestiary and the guardians beaten).
+      mobs: this.mobs.serialise(),
     };
   }
 
@@ -840,7 +862,8 @@ export class Game {
       if (input.interactPressed && this.focusedProp) this.interact(this.focusedProp);
       this.cameraRig.sensitivity = this.settings.lookSensitivity;
       this.cameraRig.invertY = this.settings.invertY;
-      this.cameraRig.shakeScale = this.settings.cameraShake;
+      // UI (round 3): reduced motion (the device's or Settings → Motion) also stills the view's dips.
+      this.cameraRig.shakeScale = prefersReducedMotion() ? 0 : this.settings.cameraShake;
       this.cameraRig.look(input.lookDX, input.lookDY);
     } else if (input.pausePressed) {
       // Esc / back closes the open screen.
@@ -964,9 +987,10 @@ export class Game {
     this.bus.emit('player:land', { fallSpeed: speed, block: below });
     // A landing dips the view a little (no shake, no roll).
     this.cameraRig.addTrauma(clamp((speed - 5) / 16, 0, 0.6));
-    const dmg = Health.fallDamage(speed, this.player.safeFallSpeed);
+    // LOOP: a 'falls' biome (Root Galleries, Crystal Geode) makes falls hurt more; armour does not soften a fall.
+    const dmg = Health.fallDamage(speed, this.player.safeFallSpeed) * this.loop.fallFactor;
     if (dmg > 0) {
-      const dealt = this.health.damage(dmg);
+      const dealt = this.health.damage(dmg, true);
       if (dealt > 0) this.bus.emit('player:damaged', { amount: dealt, cause: 'fall' });
       this.renderer.post.params.flash = 0.12;
       this.renderer.post.params.flashColor.setRGB(0.6, 0.05, 0.02);
@@ -1149,7 +1173,8 @@ export class Game {
 
   /** Move the backpack into camp storage. @returns the counts banked. */
   private bank(): ItemCounts {
-    const banked = this.storage.deposit(this.backpack);
+    // LOOP: the hotbar's loadout (torches, food, bombs) stays in the bag; the rest is banked.
+    const banked = this.storage.deposit(this.backpack, this.loop.keepOnBank());
     const total = totalOf(banked);
     if (total > 0) {
       this.stats.itemsBanked += total;
@@ -1219,6 +1244,9 @@ export class Game {
   }
 
   interact(spec: PropSpec): void {
+    // UI (round 3): a placed Furnace, Forge or Alchemy Table opens Craft on its own recipes.
+    const station = STATION_OF_PROP[spec.kind as string];
+    if (station && spec.interact === 'craft') this.ui.focusCraft?.(station);
     this.progression.interact(spec);
   }
 
@@ -1360,17 +1388,20 @@ export class Game {
     this.features.cancelRide();
     this.input.mining = false;
     this.desktop.releasePointer();
+    // UI (round 3): the black-out card tells where, what did it and where the explorer wakes.
+    const where = { depth: this.hud.depth, biome: this.hud.biomeName, stratum: this.hud.stratum };
     const left = this.progression.onBlackout();
     this.stats.deaths++;
     this.bus.emit('player:died', { lost: left.cached });
     this.ui.setGameplayActive(false);
-    this.ui.showDeath(left.cached);
+    this.ui.showDeath(left.cached, { cause: this.act.blackoutCause(), ...where, wake: this.act.wakeLine() });
     // The cache is written in the same save as the death.
     this.saveNow('death');
   }
 
   respawn(): void {
-    const spawn = this.session.layout.spawn;
+    // LOOP: an outpost's bed in this stratum is the respawn point (else the camp or the lift landing).
+    const spawn = this.loop.respawnSpot() ?? this.session.layout.spawn;
     this.act.reset();
     this.features.cancelRide();
     // FP: no fight follows the explorer home.
@@ -1569,6 +1600,11 @@ export class Game {
     // Zone atmosphere (camp haze, tunnel grey, Hollow blue-black, rift violet) follows the explorer.
     // VIS: the biome look blends ahead of the atmosphere; the sonar and the torches run.
     this.vis.update(dt, this.time, cam, this.player.x, this.player.y, this.player.z);
+    // VIS: a stratum switch swapped the layout: the halos re-read the new world's lights.
+    if (this.vis.takeLayoutChange()) {
+      this.staticHalos = null;
+      this.halosDirty = true;
+    }
     s.rig.updateAtmosphere(dt, this.player.x, this.player.y, this.player.z, s.layout.camp);
     this.renderer.post.params.zoneExposure = s.rig.exposure;
     s.props.update(dt, this.time, cam.position);
@@ -1719,6 +1755,7 @@ export class Game {
         return st ? String(st.seed) : '';
       },
       getControlPrefs: () => ({ ...this.controlPrefs }),
+      replayTips: () => this.ui.replayTips?.(),
       setControlPrefs: (p) => {
         this.controlPrefs = { ...this.controlPrefs, ...p };
         saveControlPrefs(this.controlPrefs);

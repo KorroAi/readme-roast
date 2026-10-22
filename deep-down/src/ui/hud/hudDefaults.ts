@@ -4,14 +4,15 @@ import { HOTBAR_SLOTS } from './actions';
 /** The round 3 HUD fields at rest (no biome yet, nothing tracked, an empty hotbar). */
 export function r3HudDefaults(): Pick<
   HudState,
-  | 'biomeName' | 'stratum' | 'reticle' | 'reticleProgress' | 'tracker' | 'objectiveArrow' | 'guardian' | 'hotbar' | 'hotbarSelected'
-  | 'canPlace' | 'dashCooldown' | 'sonarCooldown' | 'interact' | 'sprinting' | 'tutorial' | 'hazard'
+  | 'biomeName' | 'stratum' | 'reticle' | 'reticleProgress' | 'reticleName' | 'tracker' | 'objectiveArrow' | 'guardian' | 'hotbar' | 'hotbarSelected'
+  | 'canPlace' | 'dashCooldown' | 'sonarCooldown' | 'interact' | 'sprinting' | 'tutorial' | 'hazard' | 'companion'
 > {
   return {
     biomeName: '',
     stratum: 1,
     reticle: 'none',
     reticleProgress: 0,
+    reticleName: null,
     tracker: { main: null, side: null },
     objectiveArrow: null,
     guardian: null,
@@ -24,5 +25,6 @@ export function r3HudDefaults(): Pick<
     sprinting: false,
     tutorial: null,
     hazard: null,
+    companion: null,
   };
 }

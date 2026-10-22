@@ -1,6 +1,7 @@
 import type * as THREE from 'three';
 import { lockedVerticalFov } from './CameraRig';
 import type { VoxelWorld } from '../world/VoxelWorld';
+import { raycastVoxels } from '../world/raycast';
 
 /**
  * The title screen's camera and the explorer's pose behind it.
@@ -58,10 +59,96 @@ export function menuExplorerPose(world: Pick<VoxelWorld, 'isSolid'>, ledge: read
   return { x: ex, y: ledge[1], z: ez, yaw };
 }
 
+/**
+ * Round 3: the title shot over a live stratum (the camp's hall of stratum I): where the camera
+ * stands and what it looks at, found from the voxels round a centre (the camp fire). The hall's
+ * longest open line of sight is the view; the camera backs up against the far side with room to
+ * spare and looks across the fire down that line.
+ */
+export interface MenuShot {
+  /** Camera position. */
+  x: number;
+  y: number;
+  z: number;
+  /** The base view (radians; forward = (-sin yaw, -cos yaw)) and the side vector for the drift. */
+  yaw: number;
+  pitch: number;
+  /** How far (m) the camera may sway to each side and bob. */
+  sway: number;
+  /** Where the explorer (the menu's lantern) waits: on the floor just ahead of the camera. */
+  explorer: { x: number; y: number; z: number; yaw: number };
+}
+
+/** Find the title shot round `centre` (feet level of the hall). Pure over the voxels (unit-tested). */
+export function findMenuShot(world: Pick<VoxelWorld, 'get' | 'isSolid'> & VoxelWorld, centre: readonly [number, number, number]): MenuShot {
+  const ox = centre[0] + 0.5;
+  const oy = centre[1] + 2.2;
+  const oz = centre[2] + 0.5;
+  const N = 32;
+  const reach = new Array<number>(N);
+  for (let i = 0; i < N; i++) {
+    const a = (i / N) * Math.PI * 2;
+    const hit = raycastVoxels(world, ox, oy, oz, Math.sin(a), 0, Math.cos(a), 48);
+    reach[i] = hit ? hit.distance : 48;
+  }
+  // The longest view, smoothed over its neighbours (a corridor beats a crack).
+  let best = 0;
+  let bestV = -1;
+  for (let i = 0; i < N; i++) {
+    const v = reach[i] * 0.5 + (reach[(i + 1) % N] + reach[(i + N - 1) % N]) * 0.25;
+    if (v > bestV) {
+      bestV = v;
+      best = i;
+    }
+  }
+  const a = (best / N) * Math.PI * 2;
+  const dx = Math.sin(a);
+  const dz = Math.cos(a);
+  // Back up behind the centre (away from the view), keeping 1.6 m from the wall there.
+  const behind = reach[(best + N / 2) % N];
+  const back = Math.max(0, Math.min(7, behind - 1.6));
+  // Raise the eye a little if the hall allows (at most 2.4 m over the base height).
+  let lift = 0;
+  for (let k = 1; k <= 3; k++) if (!world.isSolid(Math.floor(ox - dx * back), Math.floor(oy + k * 0.8), Math.floor(oz - dz * back))) lift = k * 0.8;
+  const x = ox - dx * back;
+  const z = oz - dz * back;
+  const y = oy + Math.min(2.4, lift);
+  // Look along the line, down toward the floor a third of the way out.
+  const far = Math.min(reach[best], 30);
+  const tx = ox + dx * far * 0.55;
+  const tz = oz + dz * far * 0.55;
+  const ty = centre[1] + 0.8;
+  const yaw = Math.atan2(-(tx - x), -(tz - z));
+  const pitch = Math.max(-0.45, Math.min(0.05, Math.atan2(ty - y, Math.hypot(tx - x, tz - z))));
+  // Side room for the drift.
+  const sx = Math.cos(a);
+  const sz = -Math.sin(a);
+  const l = raycastVoxels(world, x, y, z, sx, 0, sz, 4)?.distance ?? 4;
+  const r = raycastVoxels(world, x, y, z, -sx, 0, -sz, 4)?.distance ?? 4;
+  const sway = Math.max(0.2, Math.min(1.4, Math.min(l, r) - 0.8));
+  // The explorer stands on the floor a step ahead of the camera, facing the view.
+  return { x, y, z, yaw, pitch, sway, explorer: { x: x + dx * 1.2, y: centre[1], z: z + dz * 1.2, yaw: a } };
+}
+
+/** The camera pose `t` seconds into the title over a stratum: a slow sway, a bob and a glance. */
+export function shotPose(t: number, s: MenuShot, out: MenuPose = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0 }): MenuPose {
+  const sx = -Math.cos(s.yaw);
+  const sz = Math.sin(s.yaw);
+  const k = Math.sin(t * 0.07);
+  out.x = s.x + sx * s.sway * k;
+  out.z = s.z + sz * s.sway * k;
+  out.y = s.y + Math.sin(t * 0.11) * 0.18;
+  out.yaw = s.yaw - k * 0.09 + Math.sin(t * 0.031) * 0.05;
+  out.pitch = s.pitch + Math.sin(t * 0.05) * 0.03;
+  return out;
+}
+
 /** Drives a camera with the menu pose. */
 export class MenuCamera {
   private t = 0;
   private readonly pose: MenuPose = { x: 0, y: 0, z: 0, pitch: 0, yaw: 0 };
+  /** Round 3: the shot over a stratum (null: the first version's ledge drift). */
+  shot: MenuShot | null = null;
 
   constructor(private readonly ledge: readonly [number, number, number]) {}
 
@@ -75,7 +162,7 @@ export class MenuCamera {
 
   update(dt: number, cam: THREE.PerspectiveCamera, aspect: number): void {
     this.t += dt;
-    const p = menuPose(this.t, this.ledge, this.pose);
+    const p = this.shot ? shotPose(this.t, this.shot, this.pose) : menuPose(this.t, this.ledge, this.pose);
     cam.position.set(p.x, p.y, p.z);
     cam.rotation.order = 'YXZ';
     cam.rotation.set(p.pitch, p.yaw, 0);

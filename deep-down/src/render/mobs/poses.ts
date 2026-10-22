@@ -229,6 +229,7 @@ function poseAs(m: SimMob): string {
       return m.kind;
     case 'snapjaw':
     case 'chestMimic':
+    case 'cartMimic':
     case 'thornmother':
       return 'gnasher';
     case 'vinebell':

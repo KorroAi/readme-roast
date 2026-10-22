@@ -1,7 +1,6 @@
 /// <reference lib="webworker" />
 import { LightField } from '../light';
-import { generateFor, type ZoneRequest, type ZoneResponse } from './zoneLoader';
-import { generateMaterials } from '../../render/materials';
+import { generateFor, materialsFor, type ZoneRequest, type ZoneResponse } from './zoneLoader';
 
 // Builds a zone off the main thread: voxels + full light, then transfers the buffers back.
 self.onmessage = (e: MessageEvent<ZoneRequest>) => {
@@ -13,9 +12,9 @@ self.onmessage = (e: MessageEvent<ZoneRequest>) => {
     const light = new LightField(layout.world);
     light.computeAll();
     const t2 = performance.now();
-    // Terrain material textures do not depend on the zone: every layer (all twelve biomes') is painted
-    // once at boot, here, so the loading screen never stalls and a stratum switch reuses them.
-    const materials = e.data.materials === false ? null : generateMaterials();
+    // Terrain materials: the old world's every layer, or a stratum's own (its biomes' layers), painted
+    // here so the loading screen never stalls; a stratum switch paints the new stratum's.
+    const materials = materialsFor(e.data);
     const t3 = performance.now();
     const { world, timings, ...rest } = layout;
     // A stratum's biomeAt is a function (not cloneable): the loader rebuilds it.

@@ -54,7 +54,7 @@ const SIDES: ReadonlyArray<[number, number]> = [
 /** How a torch in cell (x, y, z) is mounted (pure; unit-tested). */
 export function torchMount(world: VoxelWorld, x: number, y: number, z: number): TorchInfo {
   if (SOLID[world.get(x, y - 1, z)]) return { x, y, z, mount: 'floor', out: [0, 0] };
-  for (const [dx, dz] of SIDES) if (SOLID[world.get(x + dx, y, z + dz)]) return { x, y, z, mount: 'wall', out: [-dx, -dz] };
+  for (const [dx, dz] of SIDES) if (SOLID[world.get(x + dx, y, z + dz)]) return { x, y, z, mount: 'wall', out: [-dx || 0, -dz || 0] };
   return { x, y, z, mount: SOLID[world.get(x, y + 1, z)] ? 'ceiling' : 'floor', out: [0, 0] };
 }
 

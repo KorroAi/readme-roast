@@ -1,4 +1,5 @@
 import { ITEMS } from '../config/items';
+import { itemArt } from './itemArt';
 
 // Pure pixel rasterizers for UI icons (no DOM): small hand-authored 16 x 16 pixel sprites,
 // "specimens" lit from the top left. icons.ts turns the buffers into cached data URLs.
@@ -652,9 +653,14 @@ export function itemRaster(id: string, size: number): Raster {
   const def = (ITEMS as Record<string, { icon: { kind: string }; color: number; keyItem: boolean } | undefined>)[id];
   let rows: readonly string[];
   let palette: Palette;
+  // Round 3: the new items' art (ui/itemArt) comes after the hand-made specimens and the runes.
+  // The seven 1.x rune stones are rune + a capital ('runegold' is an ore of the Sunken City).
+  const rune = /^rune[A-Z]/.test(id);
+  const art = own || rune || def?.icon.kind === 'tablet' ? null : itemArt(id);
   if (own) ({ rows, palette } = own);
+  else if (art) ({ rows, palette } = art);
   else if (RUNE_MARKS[id] && id !== 'ancientTablet') [rows, palette] = [carveMark(RUNE_STONE_ROWS, RUNE_MARKS[id], 4, 4), RUNE_STONE_PALETTE];
-  else if (id.startsWith('rune')) [rows, palette] = [RUNE_STONE_ROWS, RUNE_STONE_PALETTE];
+  else if (rune) [rows, palette] = [RUNE_STONE_ROWS, RUNE_STONE_PALETTE];
   else if (def?.icon.kind === 'shard') [rows, palette] = [SHARD_ROWS, SHARD_PALETTE];
   else if (def?.icon.kind === 'tablet') [rows, palette] = [TABLET_ROWS, TABLET_PALETTE];
   else [rows, palette] = [PEBBLE_ROWS, pebblePalette(def?.color ?? 0x8a95a8)];

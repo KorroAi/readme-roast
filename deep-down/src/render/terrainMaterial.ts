@@ -273,6 +273,15 @@ const float CRACKS = ${CRACK_STAGES}.0;
 ${courseGlsl({ masonry: MAT.masonry, masonryB: MAT.masonryB, crumbling: MAT.crumbling, crumblingB: MAT.crumblingB })}
 
 float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
+// Round 3: smooth value noise (lava's crawling glow).
+float noise3(vec3 p) {
+  vec3 i = floor(p);
+  vec3 f = fract(p);
+  vec3 u = f * f * (3.0 - 2.0 * f);
+  float a = mix(mix(hash13(i), hash13(i + vec3(1, 0, 0)), u.x), mix(hash13(i + vec3(0, 1, 0)), hash13(i + vec3(1, 1, 0)), u.x), u.y);
+  float b = mix(mix(hash13(i + vec3(0, 0, 1)), hash13(i + vec3(1, 0, 1)), u.x), mix(hash13(i + vec3(0, 1, 1)), hash13(i + vec3(1, 1, 1)), u.x), u.y);
+  return mix(a, b, u.z);
+}
 
 // Height used to decide boundaries: alpha for ordinary layers, brightness for emissive ones.
 float heightOf(vec4 t, int layer) {
@@ -638,7 +647,7 @@ void main() {
   // A crystal's face would otherwise be lit by its own emission (sampled one voxel in front)
   // and then add its emission on top: the blown-out cube. Its light is for its surroundings.
   if (family == ${FAMILY.CRYSTAL}) ambient *= 0.3;
-  vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve);
+  vec3 color = albedo * (ambient + lantern + vec3(uDebug.x) * shade * aoCurve + glowLight(vWorldPos, n) * aoCurve);
   vec3 litByFlame = albedo * lantern;
   // The flame's specular on the detailed surface: wet stone and ore metal glint as the lantern
   // moves, dry rubble barely. Roughness widens where the normal changes fast on screen (no sparkle).
@@ -680,6 +689,17 @@ void main() {
 
   float glow = tex.a * matGlow(shownLayer);
   vec3 emissive = tex.rgb * glow;
+  // Round 3: lava moves. Its glow crawls under the crust (two slow noise layers drifting across each
+  // other) and breathes, the hottest seams brightening and dimming over seconds: calm, never strobing.
+  if (shownLayer == ${MAT.lava} || shownLayer == ${MAT.magmaCore}) {
+    vec2 lp = vWorldPos.xz * 0.55;
+    float f1 = hash13(vec3(floor(lp + uTime * vec2(0.05, 0.03)), 3.0));
+    float n1 = noise3(vec3(lp + uTime * vec2(0.06, 0.035), uTime * 0.04));
+    float n2 = noise3(vec3(lp * 2.3 - uTime * vec2(0.03, 0.07), 7.0 + uTime * 0.05));
+    float heat = 0.7 + 0.55 * n1 + 0.3 * n2 + 0.05 * f1;
+    emissive *= heat * (0.92 + 0.08 * sin(uTime * 0.7 + dot(vWorldPos.xz, vec2(0.21, 0.17))));
+    emissive += vec3(1.0, 0.45, 0.12) * smoothstep(0.55, 0.9, n1 * n2 * 1.8) * 0.35 * glow;
+  }
 
   // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
   // the explorer moves, and the painted glints at the prism tips flare when their own (tilted)
@@ -860,6 +880,14 @@ void main() {
   // surface, and emission fades into it too, so distant glows become glowing air, not specks.
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
+  // Round 3: glowing rock (caps, glow vines, crystals, ice) flares as the sonar's shell passes and
+  // keeps a little of its light behind it (uSonarFx.w: the afterglow), like the glowing decor.
+  if (uSonarFx.y > 0.001) {
+    float bsd = distance(vWorldPos, uSonar.xyz);
+    float bah = (bsd - uSonar.w) / 1.8;
+    float breach = 1.0 - smoothstep(0.75, 1.0, bsd / max(uSonarFx.z, 1.0));
+    emissive *= 1.0 + (exp(-bah * bah) * 2.0 + step(bsd, uSonar.w) * exp(-(uSonar.w - bsd) * 0.07) * 0.7 * uSonarFx.w) * uSonarFx.y * breach;
+  }
   color += emissive * uAtmos.w * (1.0 - atm.a * uAtmos.z);
   // Round 3: the sonar pulse (render/sonar.ts), the lantern's ring of light sweeping out over the
   // rock: a thin pale-gold line where the expanding shell crosses the surface, a faint wake behind

@@ -186,7 +186,7 @@ describe('Backpack', () => {
   it('fromJSON drops malformed entries and re-stacks overflow', () => {
     const c = Backpack.fromJSON(
       [
-        { item: 'stone', count: 55 }, // over stack size: 30 stay, 25 overflow
+        { item: 'stone', count: STONE + 25 }, // over stack size: a full stack stays, 25 overflow
         { item: 'nope', count: 3 },
         { item: 'ancientTablet', count: 1 },
         { item: 'copperOre', count: -2 },
@@ -197,7 +197,7 @@ describe('Backpack', () => {
       4,
     );
     expect(c.slotCount).toBe(4);
-    expect(c.count('stone')).toBe(55);
+    expect(c.count('stone')).toBe(STONE + 25);
     expect(c.count('copperOre')).toBe(4);
     expect(c.count('ancientTablet')).toBe(0);
     expect(c.slots[0]).toEqual({ item: 'stone', count: STONE });

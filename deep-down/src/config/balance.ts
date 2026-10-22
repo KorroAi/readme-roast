@@ -41,13 +41,14 @@ export interface PackDef {
 }
 
 export const PICKAXES: readonly PickaxeDef[] = [
-  { tier: 1, name: 'equip.rustyPickaxe', desc: 'equip.rustyPickaxe.desc', power: 1, swingInterval: 0.36, headColor: 0x7d6a5a },
-  { tier: 2, name: 'equip.copperPickaxe', desc: 'equip.copperPickaxe.desc', power: 1.6, swingInterval: 0.34, headColor: 0xd9864b },
-  { tier: 3, name: 'equip.ironPickaxe', desc: 'equip.ironPickaxe.desc', power: 2.4, swingInterval: 0.32, headColor: 0x9aa3ad },
-  { tier: 4, name: 'item.crystalPick', desc: 'item.crystalPick.desc', power: 3.4, swingInterval: 0.3, headColor: 0x8fe3ee },
+  // Round 3: the swing cadence of 1.x (the action layer's tempo and the vein combo make mining faster).
+  { tier: 1, name: 'equip.rustyPickaxe', desc: 'equip.rustyPickaxe.desc', power: 1, swingInterval: 0.42, headColor: 0x7d6a5a },
+  { tier: 2, name: 'equip.copperPickaxe', desc: 'equip.copperPickaxe.desc', power: 1.6, swingInterval: 0.42, headColor: 0xd9864b },
+  { tier: 3, name: 'equip.ironPickaxe', desc: 'equip.ironPickaxe.desc', power: 2.4, swingInterval: 0.4, headColor: 0x9aa3ad },
+  { tier: 4, name: 'item.crystalPick', desc: 'item.crystalPick.desc', power: 3.4, swingInterval: 0.38, headColor: 0x8fe3ee },
   // Round 3 (LOOP): picks V and VI open the last two strata.
-  { tier: 5, name: 'item.coldsteelPick', desc: 'item.coldsteelPick.desc', power: 4.6, swingInterval: 0.28, headColor: 0x9ad8ff },
-  { tier: 6, name: 'item.sunmetalPick', desc: 'item.sunmetalPick.desc', power: 6, swingInterval: 0.26, headColor: 0xffc840 },
+  { tier: 5, name: 'item.coldsteelPick', desc: 'item.coldsteelPick.desc', power: 4.6, swingInterval: 0.36, headColor: 0x9ad8ff },
+  { tier: 6, name: 'item.sunmetalPick', desc: 'item.sunmetalPick.desc', power: 6, swingInterval: 0.34, headColor: 0xffc840 },
 ];
 
 /**
@@ -56,9 +57,9 @@ export const PICKAXES: readonly PickaxeDef[] = [
  */
 export const LANTERNS: readonly LanternDef[] = [
   { tier: 1, name: 'equip.oilLantern', desc: 'equip.oilLantern.desc', fuelSeconds: 420, radius: 11, intensity: 1, ember: 0.38, noCold: false, sonar: 18 },
-  { tier: 2, name: 'equip.copperLantern', desc: 'equip.copperLantern.desc', fuelSeconds: 600, radius: 13.5, intensity: 1.1, ember: 0.42, noCold: false, sonar: 24 },
-  { tier: 3, name: 'item.crystalLantern', desc: 'item.crystalLantern.desc', fuelSeconds: 780, radius: 15, intensity: 1.15, ember: 0.5, noCold: false, sonar: 30 },
-  { tier: 4, name: 'item.glowLantern', desc: 'item.glowLantern.desc', fuelSeconds: 960, radius: 16.5, intensity: 1.2, ember: 0.6, noCold: false, sonar: 36 },
+  { tier: 2, name: 'equip.copperLantern', desc: 'equip.copperLantern.desc', fuelSeconds: 600, radius: 14.5, intensity: 1.15, ember: 0.42, noCold: false, sonar: 24 },
+  { tier: 3, name: 'item.crystalLantern', desc: 'item.crystalLantern.desc', fuelSeconds: 780, radius: 16, intensity: 1.2, ember: 0.5, noCold: false, sonar: 30 },
+  { tier: 4, name: 'item.glowLantern', desc: 'item.glowLantern.desc', fuelSeconds: 960, radius: 17, intensity: 1.24, ember: 0.6, noCold: false, sonar: 36 },
   { tier: 5, name: 'item.sunLantern', desc: 'item.sunLantern.desc', fuelSeconds: 1200, radius: 18, intensity: 1.28, ember: 0.7, noCold: false, sonar: 44 },
 ];
 
@@ -229,8 +230,8 @@ export const STRATA_GEN = {
   findSpacing: 12,
   /** About one chest per this many metres of walked tunnel. */
   chestSpacing: 25,
-  /** Ore veins per 1000 floor cells, at stratum I (rising with depth by veinDepthGain per stratum). */
-  veinsPer1000: 9,
+  /** Ore veins per 1000 floor cells at stratum I (small distinct veins; rising with depth by veinDepthGain per stratum): 3-4x the old world. */
+  veinsPer1000: 140,
   veinDepthGain: 0.15,
   /** Light pockets (a lamp, glowing fungi or crystal) about every this many metres. */
   lightSpacing: 22,
@@ -251,7 +252,8 @@ export const LIGHT = {
 } as const;
 
 export const SAVE = {
-  version: 3,
+  /** 4: round 3's strata (save v4: the seed, the stratum, per-stratum edits and maps, outposts, shards). */
+  version: 4,
   autosaveSeconds: 45,
 } as const;
 

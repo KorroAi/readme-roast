@@ -179,6 +179,13 @@ export interface FeatSnapshot3 {
   fullSet: boolean;
   pages: number;
   pickTier: number;
+  /** Round 3 stretch: the companion's level (0: none), camp levels built, barters, gems set, dailies done. */
+  companion?: number;
+  elites?: number;
+  upgrades?: number;
+  trades?: number;
+  gems?: number;
+  dailies?: number;
 }
 
 export interface FeatDef3 {
@@ -210,6 +217,15 @@ export const FEATS3: readonly FeatDef3[] = [
   { id: 'fullSet', check: (s) => s.fullSet, reward: { bandage: 4 } },
   { id: 'pages12', check: (s) => s.pages >= 12, reward: { oilFlask: 2 } },
   { id: 'sunPick', check: (s) => s.pickTier >= 6, reward: {} },
+  // Round 3 stretch.
+  { id: 'tamed', check: (s) => (s.companion ?? 0) >= 1, reward: { glowTreat: 3 } },
+  { id: 'companion5', check: (s) => (s.companion ?? 0) >= 5, reward: { glowTreat: 6 } },
+  { id: 'campBuilt', check: (s) => (s.upgrades ?? 0) >= 1, reward: { torch: 8 } },
+  { id: 'campGrown', check: (s) => (s.upgrades ?? 0) >= 8, reward: { healingDraught: 3 } },
+  { id: 'firstTrade', check: (s) => (s.trades ?? 0) >= 1, reward: { oilFlask: 2 } },
+  { id: 'firstGem', check: (s) => (s.gems ?? 0) >= 1, reward: { amber: 2 } },
+  { id: 'daily', check: (s) => (s.dailies ?? 0) >= 1, reward: { blastBomb: 2 } },
+  { id: 'elites10', check: (s) => (s.elites ?? 0) >= 10, reward: { healingDraught: 2 } },
 ];
 
 // -------------------------------------------------------------------------------------

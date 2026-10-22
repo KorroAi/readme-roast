@@ -101,6 +101,8 @@ export interface QuestSystem {
   /** Track a side task by id (a QuestStepView or order id), or null for the automatic choice. */
   track(id: string | null): void;
   tutorial(): TutorialStepView | null;
+  /** The same as tutorial() (UI's name for it). */
+  tutorialStep(): TutorialStepView | null;
   skipTutorial(): void;
   view(): QuestsScreenView;
 }

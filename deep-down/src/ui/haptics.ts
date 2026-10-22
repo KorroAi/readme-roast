@@ -1,5 +1,8 @@
 import type { EventBus, GameEvents } from '../core/events';
 import '../game/fp/events';
+import '../game/craft/types';
+import '../game/quests/types';
+import '../game/mobs/types';
 
 /**
  * Short vibrations for the moments a thumb should feel: a pick strike, a block giving way, a
@@ -25,12 +28,35 @@ export const HAPTIC_PATTERNS = {
   strike: 16,
   /** A Flash Charge bursts. */
   flash: [10, 30, 24],
+  // Round 3 (BRIEF §6: a haptic per action), short and sparse like the rest.
+  /** Dash: one quick shove. */
+  dash: 14,
+  /** Sonar: the pulse leaves the lantern, then a faint echo. */
+  sonar: [8, 70, 5],
+  /** Something placed (a torch, a block, a ladder). */
+  place: 10,
+  /** A vein chained (the combo): a crisp tick that tightens with the chain. */
+  combo: 7,
+  /** A hotbar slot or a menu opened: the lightest touch. */
+  select: 4,
+  /** A recipe made in the round 3 Craft menu. */
+  made: [12, 40, 12],
+  /** A tutorial step done. */
+  step: [6, 50, 10],
+  /** A guardian wakes: a long low rumble. */
+  guardian: [40, 60, 40, 60, 70],
+  /** A guardian falls, a Heart Shard won: a rising triple. */
+  shard: [20, 50, 30, 50, 60],
+  /** A gate opens, fast travel lands. */
+  gate: [30, 80, 50],
+  /** A consumable used (food, a potion). */
+  use: 12,
 } as const;
 
 export type HapticKind = keyof typeof HAPTIC_PATTERNS;
 
 /** Minimum gap between two vibrations of the same kind (ms), so bursts do not blur together. */
-const MIN_GAP_MS: Partial<Record<HapticKind, number>> = { pickup: 90, hit: 60, tunk: 120, strike: 60 };
+const MIN_GAP_MS: Partial<Record<HapticKind, number>> = { pickup: 90, hit: 60, tunk: 120, strike: 60, combo: 120, select: 80, place: 120 };
 
 export class Haptics {
   private readonly last = new Map<HapticKind, number>();
@@ -56,6 +82,22 @@ export class Haptics {
       bus.on('block:tunk', () => this.play('tunk')),
       bus.on('weapon:hit', () => this.play('strike')),
       bus.on('weapon:flash', () => this.play('flash')),
+      // Round 3: the action layout and the loop.
+      bus.on('player:dash', () => this.play('dash')),
+      bus.on('player:sonar', () => this.play('sonar')),
+      bus.on('player:placed', () => this.play('place')),
+      bus.on('mine:combo', () => this.play('combo')),
+      bus.on('hotbar:selected', () => this.play('select')),
+      bus.on('ui:opened', () => this.play('select')),
+      bus.on('craft:made', () => this.play('made')),
+      bus.on('item:used', () => this.play('use')),
+      bus.on('tutorial:step', ({ id }) => {
+        if (id) this.play('step');
+      }),
+      bus.on('mob:guardianAwake', () => this.play('guardian')),
+      bus.on('quest:shard', () => this.play('shard')),
+      bus.on('world:gateOpened', () => this.play('gate')),
+      bus.on('player:travelled', () => this.play('gate')),
     );
   }
 

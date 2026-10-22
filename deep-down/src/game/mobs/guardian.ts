@@ -149,7 +149,7 @@ function stalk(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardia
   const c = arenaCentre(m);
   const R = arenaRadius(m);
   sim.face(m, ctx, dt, 2.5);
-  const stationary = m.brain === 'heart';
+  const stationary = m.brain === 'heart' || def.rooted === true;
   if (fly(m)) {
     // Circle the explorer at a distance, over the arena.
     const a = sim.clock * 0.35 * (m.seed > 0.5 ? 1 : -1) + m.seed * 6.28;

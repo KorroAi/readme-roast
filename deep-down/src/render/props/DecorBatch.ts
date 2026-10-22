@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { PropSpec } from '../../world/gen/types';
 import type { LightingUniforms } from '../lighting';
-import { createEntityMaterial } from '../entityMaterial';
+import { createEntityMaterial, shareSonar } from '../entityMaterial';
 import { FOG_CULL } from '../lighting';
 import type { PropModel } from './models';
 
@@ -18,6 +18,11 @@ import type { PropModel } from './models';
 
 const CELL = 32;
 const FAR = 45;
+/** Beyond this (m, from the cell's nearest point) a cell draws its far level: the big things and the lights. */
+const NEAR = 18;
+
+/** Decor that stays in the far level whatever its size (it lights the cave: the pockets' glow). */
+const ALWAYS_FAR = /^(glowWorms|glowCaps|amberGlow|crystalDrops|iceGlow|sulphurCrust|mineLamp|runeLamp|emberCrack|voidShards|heartVein|lairRune)/;
 
 interface DecorItem {
   spec: PropSpec;
@@ -29,6 +34,9 @@ interface DecorCell {
   items: Map<string, DecorItem>;
   body: THREE.Mesh | null;
   glow: THREE.Mesh | null;
+  /** The far level (null when nothing in the cell is big enough to see from there). */
+  bodyFar: THREE.Mesh | null;
+  glowFar: THREE.Mesh | null;
   dirty: boolean;
   center: THREE.Vector3;
   radius: number;
@@ -58,6 +66,8 @@ export class DecorBatch {
   private readonly glowMat: THREE.ShaderMaterial;
   /** Where the drawn ground is (PropRenderer.surfaceTop). */
   surfaceTop: ((x: number, y: number, z: number) => number | null) | null = null;
+  /** Round 3: is the terrain chunk at a point drawn (cave culling)? A cell none of whose chunks is drawn is hidden. */
+  chunkDrawn: ((x: number, y: number, z: number) => boolean) | null = null;
   /** Props baked (tests and the report). */
   get count(): number {
     return this.cellOf.size;
@@ -67,7 +77,7 @@ export class DecorBatch {
 
   constructor(lighting: LightingUniforms, solid: THREE.ShaderMaterial) {
     this.solid = solid;
-    this.glowMat = createEntityMaterial(lighting, { emissiveScale: 1.9 });
+    this.glowMat = createEntityMaterial(lighting, { emissiveScale: 1.9, sonarGlow: true });
     this.group.name = 'decor';
     this.group.matrixAutoUpdate = false;
   }
@@ -76,13 +86,18 @@ export class DecorBatch {
     return this.cellOf.has(id);
   }
 
+  /** Round 3: the glowing decor flares with the sonar's shell (the terrain's uniforms). */
+  setSonar(sonar: THREE.IUniform<THREE.Vector4>, fx: THREE.IUniform<THREE.Vector4>): void {
+    shareSonar(this.glowMat, sonar, fx);
+  }
+
   add(spec: PropSpec, model: PropModel): void {
     this.remove(spec.id);
     const key = `${Math.floor(spec.x / CELL)},${Math.floor(spec.y / CELL)},${Math.floor(spec.z / CELL)}`;
     let cell = this.cells.get(key);
     if (!cell) {
       const [cx, cy, cz] = key.split(',').map(Number);
-      cell = { key, items: new Map(), body: null, glow: null, dirty: true, center: new THREE.Vector3((cx + 0.5) * CELL, (cy + 0.5) * CELL, (cz + 0.5) * CELL), radius: CELL * 0.87 + 2 };
+      cell = { key, items: new Map(), body: null, glow: null, bodyFar: null, glowFar: null, dirty: true, center: new THREE.Vector3((cx + 0.5) * CELL, (cy + 0.5) * CELL, (cz + 0.5) * CELL), radius: CELL * 0.87 + 2 };
       this.cells.set(key, cell);
     }
     cell.items.set(spec.id, { spec, model });
@@ -109,9 +124,8 @@ export class DecorBatch {
     const dirty: DecorCell[] = [];
     for (const c of this.cells.values()) {
       const d = cameraPos.distanceTo(c.center) - c.radius;
-      const vis = d < far;
-      if (c.body) c.body.visible = vis;
-      if (c.glow) c.glow.visible = vis;
+      const vis = d < far && this.cellDrawn(c);
+      this.show(c, vis, d < NEAR);
       if (vis && (c.body || c.glow)) drawn++;
       if (c.dirty && d < far + CELL) dirty.push(c);
     }
@@ -121,27 +135,55 @@ export class DecorBatch {
       this.build(c);
       rebuilt++;
       const d = cameraPos.distanceTo(c.center) - c.radius;
-      if (c.body) c.body.visible = d < far;
-      if (c.glow) c.glow.visible = d < far;
+      const vis = d < far && this.cellDrawn(c);
+      this.show(c, vis, d < NEAR);
     }
     this.drawnCells = drawn;
   }
 
+  /** Any of the cell's eight 16 m chunks drawn (true without cave culling). */
+  private cellDrawn(c: DecorCell): boolean {
+    const f = this.chunkDrawn;
+    if (!f) return true;
+    const h = CELL / 4;
+    for (let k = 0; k < 8; k++) if (f(c.center.x + (k & 1 ? h : -h), c.center.y + (k & 2 ? h : -h), c.center.z + (k & 4 ? h : -h))) return true;
+    return false;
+  }
+
+  /** Near: the full cell; far: only its big things and its lights (fewer triangles, less noise). */
+  private show(c: DecorCell, vis: boolean, near: boolean): void {
+    if (c.body) c.body.visible = vis && near;
+    if (c.glow) c.glow.visible = vis && near;
+    if (c.bodyFar) c.bodyFar.visible = vis && !near;
+    if (c.glowFar) c.glowFar.visible = vis && !near;
+  }
+
+  /** Triangles of the levels drawn (the report). */
+  get drawnTriangles(): number {
+    let n = 0;
+    for (const c of this.cells.values()) for (const m of [c.body, c.glow, c.bodyFar, c.glowFar]) if (m?.visible) n += (m.geometry.index?.count ?? 0) / 3;
+    return n;
+  }
+
   private build(c: DecorCell): void {
     c.dirty = false;
-    for (const m of [c.body, c.glow]) {
+    for (const m of [c.body, c.glow, c.bodyFar, c.glowFar]) {
       if (!m) continue;
       this.group.remove(m);
       m.geometry.dispose();
     }
     c.body = null;
     c.glow = null;
+    c.bodyFar = null;
+    c.glowFar = null;
     if (!c.items.size) {
       this.cells.delete(c.key);
       return;
     }
     const bodies: Array<{ g: THREE.BufferGeometry; m: THREE.Matrix4 }> = [];
     const glows: Array<{ g: THREE.BufferGeometry; m: THREE.Matrix4 }> = [];
+    const farBodies: Array<{ g: THREE.BufferGeometry; m: THREE.Matrix4 }> = [];
+    const farGlows: Array<{ g: THREE.BufferGeometry; m: THREE.Matrix4 }> = [];
     for (const { spec, model } of c.items.values()) {
       let y = spec.y;
       // Ground props sit on the drawn (sculpted) rock, as PropRenderer's do.
@@ -153,11 +195,18 @@ export class DecorBatch {
       const mat = new THREE.Matrix4().compose(_p.set(spec.x, y, spec.z), _q, _s.setScalar(spec.scale));
       bodies.push({ g: model.body, m: mat });
       if (model.glow) glows.push({ g: model.glow, m: mat });
+      // The far level keeps what reads from 18 m on: about a metre or more across, or a light.
+      const size = model.bounds.getSize(_v);
+      if (Math.max(size.x, size.y, size.z) * spec.scale >= 0.9 || ALWAYS_FAR.test(spec.kind)) {
+        farBodies.push({ g: model.body, m: mat });
+        if (model.glow) farGlows.push({ g: model.glow, m: mat });
+      }
     }
     c.body = this.merged(bodies, this.solid, 'decor-body');
     c.glow = glows.length ? this.merged(glows, this.glowMat, 'decor-glow') : null;
-    if (c.body) this.group.add(c.body);
-    if (c.glow) this.group.add(c.glow);
+    c.bodyFar = farBodies.length ? this.merged(farBodies, this.solid, 'decor-body-far') : null;
+    c.glowFar = farGlows.length ? this.merged(farGlows, this.glowMat, 'decor-glow-far') : null;
+    for (const m of [c.body, c.glow, c.bodyFar, c.glowFar]) if (m) this.group.add(m);
   }
 
   private merged(parts: Array<{ g: THREE.BufferGeometry; m: THREE.Matrix4 }>, material: THREE.Material, name: string): THREE.Mesh | null {
@@ -218,7 +267,7 @@ export class DecorBatch {
   }
 
   dispose(): void {
-    for (const c of this.cells.values()) for (const m of [c.body, c.glow]) m?.geometry.dispose();
+    for (const c of this.cells.values()) for (const m of [c.body, c.glow, c.bodyFar, c.glowFar]) m?.geometry.dispose();
     this.cells.clear();
     this.cellOf.clear();
     this.glowMat.dispose();

@@ -371,17 +371,188 @@
   color: #ffb4a8;
 }
 
-/* Map */
-.dd-menu3 .dd-m3-mapwrap {
-  border: 1px solid rgba(176, 130, 63, 0.7);
-  background: #05070b;
+/* Map: the explored stratum (drag to pan, pinch to zoom), its pins, the explorer, the controls. */
+.dd-menu3 .dd-m3-mapname {
+  color: var(--amber-300);
+}
+.dd-menu3 .dd-m3-mapview {
+  position: relative;
+  /* Always square (the view maths assume it): as wide as the panel, at most 58% of the height. */
+  width: min(100%, 58vh);
+  margin: 0 auto;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border: 1px solid rgba(176, 130, 63, 0.75);
+  background:
+    radial-gradient(circle at 50% 45%, rgba(32, 26, 20, 0.0) 0, rgba(0, 0, 0, 0.55) 100%),
+    repeating-linear-gradient(45deg, rgba(176, 130, 63, 0.05) 0 2px, transparent 2px 9px),
+    #06080c;
+  box-shadow: inset 0 0 28px rgba(0, 0, 0, 0.8);
+  touch-action: none;
+  cursor: grab;
+  user-select: none;
+}
+.dd-menu3 .dd-m3-mapview:active {
+  cursor: grabbing;
 }
 .dd-menu3 .dd-m3-map {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
-  height: auto;
-  aspect-ratio: 1;
-  image-rendering: pixelated;
+  height: 100%;
+}
+.dd-menu3 .dd-m3-maplayer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.dd-menu3 .dd-m3-pin {
+  --pin: #fff;
+  position: absolute;
+  left: -15px;
+  top: -15px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 0;
+  background: none;
+  color: #0a0d12;
+  pointer-events: auto;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-menu3 .dd-m3-pin::before {
+  content: '';
+  position: absolute;
+  inset: 5px;
+  border-radius: 50%;
+  background: var(--pin);
+  box-shadow: 0 0 0 2px rgba(5, 8, 13, 0.9), 0 0 10px color-mix(in srgb, var(--pin) 60%, transparent);
+}
+.dd-menu3 .dd-m3-pin.k-lair::before,
+.dd-menu3 .dd-m3-pin.k-gate::before,
+.dd-menu3 .dd-m3-pin.k-objective::before {
+  border-radius: 4px;
+  transform: rotate(45deg);
+  inset: 6px;
+}
+.dd-menu3 .dd-m3-pin.k-objective::before {
+  animation: dd-m3-pin-pulse 1.6s ease-in-out infinite;
+}
+@keyframes dd-m3-pin-pulse {
+  50% {
+    box-shadow: 0 0 0 2px rgba(5, 8, 13, 0.9), 0 0 0 7px color-mix(in srgb, var(--pin) 25%, transparent);
+  }
+}
+.dd-menu3 .dd-m3-pin.done {
+  opacity: 0.5;
+}
+.dd-menu3 .dd-m3-pin.sel::before {
+  box-shadow: 0 0 0 2px #fff4dc, 0 0 14px var(--pin);
+}
+.dd-menu3 .dd-m3-pin[hidden] {
+  display: none;
+}
+.dd-menu3 .dd-m3-pinglyph {
+  position: relative;
+  display: grid;
+  width: 14px;
+  height: 14px;
+}
+.dd-menu3 .dd-m3-pinglyph svg {
+  width: 14px;
+  height: 14px;
+}
+.dd-menu3 .dd-m3-mapme {
+  position: absolute;
+  left: -11px;
+  top: -11px;
+  width: 22px;
+  height: 22px;
+  color: var(--bone-100);
+  filter: drop-shadow(0 0 4px rgba(255, 236, 200, 0.75));
+  pointer-events: none;
+}
+.dd-menu3 .dd-m3-mapme svg {
+  width: 22px;
+  height: 22px;
+}
+.dd-menu3 .dd-m3-north {
+  position: absolute;
+  left: 10px;
+  top: 8px;
+  font: 400 calc(15px * var(--s)) / 1 var(--font-lintel);
+  color: var(--brass-300);
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+.dd-menu3 .dd-m3-north::after {
+  content: '';
+  display: block;
+  width: 2px;
+  height: 8px;
+  margin: 2px auto 0;
+  background: var(--brass-300);
+}
+.dd-menu3 .dd-m3-scale {
+  position: absolute;
+  left: 10px;
+  bottom: 9px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  color: var(--bone-300);
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+}
+.dd-menu3 .dd-m3-scalebar {
+  height: 5px;
+  border: 1.5px solid var(--bone-300);
+  border-top: 0;
+}
+.dd-menu3 .dd-m3-mapctls {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  display: grid;
+  gap: 6px;
+}
+.dd-menu3 .dd-m3-mapctl {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(176, 130, 63, 0.8);
+  border-radius: 6px;
+  background: rgba(9, 13, 19, 0.85);
+  color: var(--bone-100);
+  font: 800 22px / 1 var(--font);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-menu3 .dd-m3-mapctl:active {
+  background: rgba(255, 179, 92, 0.28);
+}
+.dd-menu3 .dd-m3-mapctl-icon,
+.dd-menu3 .dd-m3-mapctl-icon svg {
+  display: grid;
+  width: 22px;
+  height: 22px;
+}
+.dd-menu3 .dd-m3-mapcaption {
+  margin: 6px 0 0;
+  min-height: 1.3em;
+  font: 600 calc(12px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-mapcaption.on {
+  color: var(--amber-300);
+  font-weight: 800;
 }
 .dd-menu3 .dd-m3-seed {
   font-variant-numeric: tabular-nums;
@@ -393,18 +564,52 @@
   padding: 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 5px 12px;
+  gap: 6px 14px;
   font: 600 calc(12px * var(--s)) / 1.3 var(--font);
   color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-biomes {
+  grid-template-columns: 1fr;
 }
 .dd-menu3 :is(.dd-m3-legend, .dd-m3-biomes) li {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
 }
 .dd-menu3 :is(.dd-m3-legend, .dd-m3-biomes) b {
   margin-left: auto;
   color: var(--bone-300);
+  white-space: nowrap;
+}
+.dd-menu3 .dd-m3-legendglyph {
+  --pin: #fff;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--pin);
+  color: #0a0d12;
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.8);
+}
+.dd-menu3 .dd-m3-legend li {
+  --pin: #fff;
+}
+.dd-menu3 .dd-m3-legend li .dd-m3-legendglyph {
+  background: var(--pin);
+}
+.dd-menu3 .dd-m3-legendglyph svg {
+  width: 13px;
+  height: 13px;
+}
+.dd-menu3 .dd-m3-biomename {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.dd-menu3 .dd-m3-prog.small {
+  flex: 1 1 60px;
+  height: 6px;
+  min-width: 40px;
 }
 .dd-menu3 .dd-m3-dot {
   width: 10px;
@@ -417,21 +622,43 @@
   display: grid;
   gap: 6px;
 }
+.dd-menu3 .dd-m3-travelhead {
+  margin: 6px 0 0;
+  font: 800 calc(10.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
 .dd-menu3 .dd-m3-travelrow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  padding: 6px 8px 6px 12px;
+  padding: 6px 8px 6px 10px;
   border: 1px solid rgba(94, 66, 32, 0.7);
   background: rgba(9, 13, 19, 0.55);
   font: 700 calc(13px * var(--s)) / 1.3 var(--font);
+}
+.dd-menu3 .dd-m3-travelglyph,
+.dd-menu3 .dd-m3-travelglyph svg {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  color: var(--amber-300);
+  flex: none;
+}
+.dd-menu3 .dd-m3-travelname {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .dd-menu3 .dd-m3-travelrow .dd-btn {
   min-height: 48px;
 }
 .dd-menu3 .dd-m3-travelrow.here {
   border-color: var(--verdigris-300);
+}
+.dd-menu3 .dd-m3-meta.dim {
+  color: var(--bone-500);
+  font-weight: 600;
 }
 
 /* Quests */
@@ -619,9 +846,8 @@
   .dd-menu3 .dd-m3-panel {
     width: min(900px, 100%);
   }
-  .dd-menu3 .dd-m3-mapwrap {
-    max-width: 60vh;
-    margin: 0 auto;
+  .dd-menu3 .dd-m3-mapview {
+    width: min(100%, 62vh);
   }
 }
 
@@ -664,4 +890,206 @@
   color: var(--bone-100);
   font-variant-numeric: tabular-nums;
   user-select: text;
+}
+
+/* Grades: a faint inner glow in the grade's colour on tiles (everyone), and, with the rarity
+   patterns setting (colour-blind players, .dd-cb on the UI root), a pattern and a letter as well:
+   uncommon dots, rare stripes, epic cross-hatch, legendary diamonds. */
+.dd-menu3 .dd-m3-tile.g-uncommon {
+  background: radial-gradient(circle at 50% 58%, rgba(111, 224, 138, 0.16), rgba(9, 13, 19, 0.72) 72%);
+}
+.dd-menu3 .dd-m3-tile.g-rare {
+  background: radial-gradient(circle at 50% 58%, rgba(95, 183, 255, 0.18), rgba(9, 13, 19, 0.72) 72%);
+}
+.dd-menu3 .dd-m3-tile.g-epic {
+  background: radial-gradient(circle at 50% 58%, rgba(185, 140, 255, 0.2), rgba(9, 13, 19, 0.72) 72%);
+}
+.dd-menu3 .dd-m3-tile.g-legendary {
+  background: radial-gradient(circle at 50% 58%, rgba(255, 207, 90, 0.22), rgba(9, 13, 19, 0.72) 72%);
+}
+.dd-menu3 .dd-m3-tile > * {
+  position: relative;
+  z-index: 1;
+}
+.dd-menu3 .dd-m3-tile > .dd-m3-tilen,
+.dd-menu3 .dd-m3-tile > .dd-m3-tileeq {
+  position: absolute;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail):is(.g-uncommon, .g-rare, .g-epic, .g-legendary) {
+  position: relative;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail):is(.g-uncommon, .g-rare, .g-epic, .g-legendary)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.9;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-uncommon::before {
+  background: radial-gradient(rgba(111, 224, 138, 0.42) 1.1px, transparent 1.6px) 0 0 / 7px 7px;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-rare::before {
+  background: repeating-linear-gradient(45deg, rgba(95, 183, 255, 0.3) 0 2px, transparent 2px 8px);
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-epic::before {
+  background:
+    repeating-linear-gradient(45deg, rgba(185, 140, 255, 0.26) 0 1.5px, transparent 1.5px 7px),
+    repeating-linear-gradient(-45deg, rgba(185, 140, 255, 0.26) 0 1.5px, transparent 1.5px 7px);
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-legendary::before {
+  background: conic-gradient(from 45deg, rgba(255, 207, 90, 0.32) 25%, transparent 0 50%, rgba(255, 207, 90, 0.32) 0 75%, transparent 0) 0 0 / 9px 9px;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail):is(.g-uncommon, .g-rare, .g-epic, .g-legendary)::after {
+  position: absolute;
+  right: 4px;
+  top: 3px;
+  z-index: 2;
+  min-width: 13px;
+  padding: 1px 2px;
+  border-radius: 3px;
+  font: 900 9px / 1 var(--font);
+  text-align: center;
+  color: #05080d;
+  pointer-events: none;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-uncommon::after {
+  content: 'U';
+  background: #6fe08a;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-rare::after {
+  content: 'R';
+  background: #5fb7ff;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-epic::after {
+  content: 'E';
+  background: #b98cff;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-tile, .dd-m3-card, .dd-m3-detail).g-legendary::after {
+  content: 'L';
+  background: #ffcf5a;
+}
+.dd-cb .dd-menu3 :is(.dd-m3-card, .dd-m3-detail) > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* Menu transitions (BRIEF §6): from play the panel rises over the game; along the rail the frame
+   stays and the page slides in from the side of the menu chosen. */
+.dd-menu3[data-enter='play'] .dd-m3-panel {
+  animation: dd-m3-up 0.26s var(--ease-enter);
+}
+@keyframes dd-m3-up {
+  from {
+    opacity: 0;
+    transform: translateY(26px) scale(0.985);
+  }
+}
+.dd-menu3:is([data-enter='left'], [data-enter='right']) {
+  animation: none;
+}
+.dd-menu3:is([data-enter='left'], [data-enter='right']) .dd-m3-panel {
+  animation: none;
+}
+.dd-menu3[data-enter='right'] :is(.dd-m3-body, .dd-m3-head) {
+  animation: dd-m3-from-right 0.22s var(--ease-enter);
+}
+.dd-menu3[data-enter='left'] :is(.dd-m3-body, .dd-m3-head) {
+  animation: dd-m3-from-left 0.22s var(--ease-enter);
+}
+@keyframes dd-m3-from-right {
+  from {
+    opacity: 0;
+    transform: translateX(28px);
+  }
+}
+@keyframes dd-m3-from-left {
+  from {
+    opacity: 0;
+    transform: translateX(-28px);
+  }
+}
+/* A rail switch: the old page leaves at once (the frame is the same); a close sinks it away. */
+.dd-screens-exit > .dd-menu3.dd-rail-out {
+  animation-duration: 90ms;
+}
+.dd-screens-exit > .dd-menu3.dd-rail-out .dd-m3-panel {
+  visibility: hidden;
+}
+.dd-screens-exit > .dd-menu3.dd-close-out .dd-m3-panel {
+  animation: dd-m3-down var(--dur-exit) var(--ease-exit) forwards;
+}
+@keyframes dd-m3-down {
+  to {
+    opacity: 0;
+    transform: translateY(18px) scale(0.99);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-menu3[data-enter] :is(.dd-m3-panel, .dd-m3-body, .dd-m3-head) {
+    animation: none;
+  }
+}
+
+/* The Bag's gem sockets (LOOP's stretch): the piece's sockets, then the gems that fit. */
+.dd-menu3 .dd-m3-sockets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.dd-menu3 .dd-m3-socket {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 4px;
+  border: 1px solid rgba(185, 140, 255, 0.55);
+  border-radius: 14px;
+  background: rgba(30, 20, 46, 0.5);
+  font: 700 calc(11.5px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-socket img {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-socket.empty {
+  border-style: dashed;
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-socketempty {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1.5px dashed rgba(185, 140, 255, 0.6);
+}
+.dd-menu3 .dd-m3-gems {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+}
+.dd-menu3 .dd-m3-gem {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 4px 10px;
+  border: 1px solid rgba(185, 140, 255, 0.6);
+  background: rgba(20, 14, 32, 0.7);
+  color: var(--bone-100);
+  text-align: left;
+  font: inherit;
+}
+.dd-menu3 .dd-m3-gem img {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-gemtext {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: 600 calc(12px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-gemtext b {
+  color: var(--bone-100);
+  font-weight: 800;
 }

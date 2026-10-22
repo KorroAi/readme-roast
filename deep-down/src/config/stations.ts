@@ -14,7 +14,7 @@ import type { ItemId } from './items';
  * Place, at the camp or anywhere else (an outpost is the natural spot). A recipe is craftable when
  * its station is within `reach` metres of the explorer (game/craft StationsNear).
  */
-export type StationId = 'hand' | 'workbench' | 'furnace' | 'forge' | 'alchemy';
+export type StationId = 'hand' | 'workbench' | 'furnace' | 'forge' | 'alchemy' | 'trader';
 
 export interface StationDef {
   id: StationId;
@@ -34,9 +34,11 @@ export const STATIONS: Record<StationId, StationDef> = {
   furnace: { id: 'furnace', name: 'station.furnace', desc: 'station.furnace.desc', item: 'furnace', reach: 4.5, fuel: true },
   forge: { id: 'forge', name: 'station.forge', desc: 'station.forge.desc', item: 'forge', reach: 4.5, fuel: false },
   alchemy: { id: 'alchemy', name: 'station.alchemy', desc: 'station.alchemy.desc', item: 'alchemyTable', reach: 4.5, fuel: false },
+  // Round 3 stretch: the trader at the camp (config/camp TRADES); in reach anywhere in the camp.
+  trader: { id: 'trader', name: 'station.trader', desc: 'station.trader.desc', item: null, reach: Infinity, fuel: false },
 };
 
-export const STATION_IDS: readonly StationId[] = ['hand', 'workbench', 'furnace', 'forge', 'alchemy'];
+export const STATION_IDS: readonly StationId[] = ['hand', 'workbench', 'furnace', 'forge', 'alchemy', 'trader'];
 
 /** The station a placed item becomes. */
 export function stationOfItem(item: ItemId): StationId | null {

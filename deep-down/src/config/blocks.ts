@@ -181,6 +181,9 @@ export const B = {
   LIGHT_RUNE: 122,
   LIGHT_VOID: 123,
   LIGHT_HEART: 124,
+  /** The mini-dungeons (Halden works): the iron-bound door of a reward vault (it opens when the works' levers or plates are all set) and a pressure plate in a floor. */
+  HALDEN_DOOR: 125,
+  PRESSURE_PLATE: 126,
 } as const;
 
 export type SoundKind = 'stone' | 'metal' | 'crystal' | 'wood' | 'soil' | 'ancient';
@@ -411,6 +414,9 @@ emitter(B.LIGHT_SULPHUR, [0.42, 0.48, 0.08]);
 emitter(B.LIGHT_RUNE, [0.7, 0.54, 0.16]);
 emitter(B.LIGHT_VOID, [0.32, 0.12, 0.62]);
 emitter(B.LIGHT_HEART, [0.86, 0.14, 0.2]);
+// The Halden works' lock: an iron-bound door (it never breaks: the works open it) and a plate set in the floor.
+def({ id: B.HALDEN_DOOR, name: k('block.haldenDoor'), solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'metal', tiles: same(TILE.hardenedSlate), debris: [0x5c3f28, 0x4a4f5a, 0x2b2f3a] });
+def({ id: B.PRESSURE_PLATE, name: k('block.pressurePlate'), solid: true, visible: true, hardness: 999, tier: UNBREAKABLE_TIER, protectedReason: 'protected', drop: noDrop, sound: 'ancient', tiles: { top: TILE.glyphStone, side: TILE.ancientBrick, bottom: TILE.ancientBrickTop }, glow: 0.5, debris: [0x535a6a, 0x434957] });
 
 /** The events director's passing lights (never saved). */
 export const EVENT_LIGHT = new Uint8Array(256);
@@ -484,7 +490,7 @@ const paintAs: Array<[number, number]> = [
   [B.BASALT, B.DEEP_SLATE], [B.SCORIA, B.UMBER], [B.ASH_FLOOR, B.GRAVEL], [B.EMBERITE, B.EMBER_GLASS], [B.MAGMA_CORE, B.LANTERNSTONE], [B.LAVA, B.HEARTH],
   [B.OBSIDIAN, B.EMBER_GLASS], [B.VOID_STONE, B.BEDROCK], [B.OBSIDIAN_FLOOR, B.BEDROCK], [B.VOIDSHARD, B.GEM_ORE], [B.STARSTEEL, B.IRON_ORE],
   [B.HEART_STONE, B.HEARTH], [B.GATE_SEAL, B.IRONBOUND], [B.CRACKED_WALL, B.CRUMBLING_BRICK], [B.BUILT_PLANK, B.PLANK], [B.BUILT_BRICK, B.ANCIENT_BRICK],
-  [B.DOOR, B.PLANK],
+  [B.DOOR, B.PLANK], [B.HALDEN_DOOR, B.IRONBOUND], [B.PRESSURE_PLATE, B.GLYPH_STONE],
 ];
 for (const [id, look] of paintAs) PAINT_AS[id] = look;
 

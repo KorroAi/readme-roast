@@ -24,6 +24,8 @@ export interface CarveState {
   biomeCol: Uint8Array;
   /** Chamber columns: node id + 1 (0 none). */
   chamberOf: Uint16Array;
+  /** The tunnel whose walking line runs over a column: edge id + 1 (0 none; the last one carved wins). */
+  edgeOf?: Int16Array;
 }
 
 const idx = (w: VoxelWorld, x: number, y: number, z: number) => x + w.sx * (y + w.sy * z);
@@ -61,7 +63,8 @@ export function carveNode(st: CarveState, n: PlanNode): void {
   const x1 = Math.min(w.sx - 3, Math.ceil(n.x + R));
   const z0 = Math.max(2, Math.floor(n.z - R));
   const z1 = Math.min(w.sz - 3, Math.ceil(n.z + R));
-  const flat = n.kind === 'arrival' || n.kind === 'gate' || n.kind === 'lair' || n.kind === 'heart';
+  // Flat floors: the fixed places, the river's chambers (it pools there), the balcony, the works' mouth.
+  const flat = n.kind === 'arrival' || n.kind === 'gate' || n.kind === 'lair' || n.kind === 'heart' || n.kind === 'overlook' || n.kind === 'dungeon' || !!n.river;
   const bumpAmp = flat ? 0 : n.kind === 'cavern' ? 3 : 1.2;
   const lakeBiome = shape.lakes > 0.4 || shape.lava > 0.4;
   const pillars: Array<[number, number, number]> = [];
@@ -109,7 +112,7 @@ function smooth(a: number, b: number, x: number): number {
  * Carve one tunnel sample: an arched cross-section of radius r and height h over the floor at cy.
  * `respect`: a side gallery never digs under a floor already guarded (it opens a wall at most).
  */
-function carveSample(st: CarveState, cx: number, cy: number, cz: number, r: number, h: number, respect: boolean): void {
+function carveSample(st: CarveState, cx: number, cy: number, cz: number, r: number, h: number, respect: boolean, edge = -1): void {
   const w = st.world;
   const { sx, sy } = w;
   const floor = Math.round(cy);
@@ -123,7 +126,10 @@ function carveSample(st: CarveState, cx: number, cy: number, cz: number, r: numb
     const col = x + z * sx;
     const guard = st.floorY[col];
     if (respect && guard >= 0 && floor < guard && floor >= guard - 6) continue;
-    if (d < 1.2 && !respect) st.corridor[col] = 1;
+    if (d < 1.2 && !respect) {
+      st.corridor[col] = 1;
+      if (edge >= 0 && st.edgeOf) st.edgeOf[col] = edge + 1;
+    }
     const top = Math.min(sy - 3, Math.floor(floor + h * Math.sqrt(Math.max(0, 1 - (d / (r + 0.6)) ** 2)) + 0.6));
     // Inside a chamber the chamber's floor rules (a tunnel never digs a trench below it).
     const inChamber = st.chamberOf[col] > 0;
@@ -147,7 +153,7 @@ export function carveEdges(st: CarveState): void {
       s += 0.6;
       const r = e.radius * (1 + 0.22 * noise.noise2(s / 9 + e.id * 13, 0.5));
       const h = e.height * (1 + 0.2 * noise.noise2(s / 7, e.id * 3.7));
-      carveSample(st, cx, cy, cz, r, h, false);
+      carveSample(st, cx, cy, cz, r, h, false, e.id);
     }
   }
 }

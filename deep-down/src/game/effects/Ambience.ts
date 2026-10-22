@@ -61,7 +61,7 @@ void main() {
   float z = max(0.1, -mv.z);
   vDepth = length(mv.xyz);
   // At least ~1.5 px wide, so a far drip is a thread of light, never a sparkle.
-  float w = max(0.011, 1.5 * z / uPixelScale);
+  float w = max(0.008, 1.2 * z / uPixelScale);
   vec3 upV = mat3(viewMatrix) * vec3(0.0, 1.0, 0.0);
   mv.xyz += vec3(aCorner.x * w, 0.0, 0.0) + upV * (aCorner.y * w * 1.3 * stretch);
   gl_Position = projectionMatrix * mv;
@@ -87,7 +87,9 @@ void main() {
   float lit = lanternVisibility(vWorldPos);
   float dl = length(uLanternPos - vWorldPos);
   vec3 glint = uLanternColor * (uLanternIntensity * lit * 1.6 / (1.0 + 0.35 * dl * dl));
-  vec3 col = (ambientFrom(ls) * 0.9 + glint + vec3(0.02, 0.03, 0.035)) * body * vAlpha;
+  // Round 3: water is pale and cool; it takes only a little of the light round it (a drip under a
+  // warm light pocket read as an orange spark), its glint the flame's.
+  vec3 col = (ambientFrom(ls) * 0.35 + glint * 0.85 + vec3(0.026, 0.034, 0.042)) * body * vAlpha * 0.85;
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
   col *= 1.0 - fog;
   fragColor = vec4(uSceneEncode > 0.5 ? col * 1.4 : col, 1.0);
@@ -165,7 +167,8 @@ export class Ambience {
   readonly drips: number;
   readonly caps: number;
 
-  constructor(lighting: LightingUniforms, world: VoxelWorld, anchors: readonly AmbientAnchor[], landmarks: Landmarks) {
+  /** `deepGlows` false: the deep zones' glows are drawn elsewhere (round 3: the strata's light pockets). */
+  constructor(lighting: LightingUniforms, world: VoxelWorld, anchors: readonly AmbientAnchor[], landmarks: Landmarks, deepGlows = true) {
     this.group.name = 'ambience';
     // Drips.
     const drips = anchors.filter((a) => a.kind === 'drip' && (a.drop ?? 0) >= 1);
@@ -223,7 +226,7 @@ export class Ambience {
       this.group.add(mesh);
     }
     // Halos: the deep glows, the focal glows and a faint one over each clump of caps.
-    const sources: HaloSource[] = [...deepGlowSources(world), ...focalGlows(landmarks)];
+    const sources: HaloSource[] = [...(deepGlows ? deepGlowSources(world) : []), ...focalGlows(landmarks)];
     for (const a of anchors) if (a.kind === 'fungus') sources.push({ x: a.p[0] - 0.5, y: a.p[1] - 0.5, z: a.p[2] - 0.5, id: B.LIGHT_EMBER, color: [0.5, 0.32, 0.12], size: 0.45, lift: 0.62 });
     this.halos = new HaloSystem(lighting, sources);
     this.halos.mesh.name = 'ambientHalos';

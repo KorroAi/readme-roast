@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SAVE } from '../../src/config/balance';
+import { SAVE, lanternForTier, packForTier } from '../../src/config/balance';
 import {
   LocalStorageStore,
   MemoryStore,
@@ -424,14 +424,14 @@ describe('validateSaveData / createNewSave', () => {
       savedAt: 77,
       worldSeed: 123,
       playTime: 0,
-      player: { x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, health: 100, lanternFuel: 300 },
+      player: { x: SPAWN.x, y: SPAWN.y, z: SPAWN.z, yaw: SPAWN.yaw, health: 100, lanternFuel: lanternForTier(1).fuelSeconds },
       storage: {},
       equipment: { pickaxe: 1, lantern: 1, pack: 1 },
       objectives: { completed: [], current: 'look', stats: {} },
       worldEdits: [],
       stats: { blocksMined: 0, deaths: 0, itemsBanked: 0 },
     });
-    expect(d.backpack).toEqual([null, null, null, null, null, null]);
+    expect(d.backpack).toEqual(new Array(packForTier(1).slots).fill(null));
   });
 
   const mutations: Array<[string, (d: Record<string, unknown> & SaveData) => void]> = [

@@ -92,6 +92,10 @@ export const MOBS_RULES = {
   hitStopHeavy: 0.07,
   /** Knock-back speed (m/s) of a blow on a mass-1 creature. */
   knock: 5,
+  /** A fleeing being chased this long (s) runs out of breath and stops (catch it then). */
+  chaseTire: 4.5,
+  /** Placed light this bright (0..1 of the light volume: a torch's pool) keeps swarmers off. */
+  torchFear: 0.5,
 } as const;
 
 /** Drops: each entry lists item ids in preference order (the first one the game knows is used). */
@@ -99,7 +103,7 @@ export const MOB_DROPS: Partial<Record<MobKind, readonly Drop[]>> = Object.fromE
 
 /** The treasure burrower (an event): a golden thief whose pouch is full. */
 export const TREASURE_DROPS = [
-  { items: ['lanternstone', 'glimmerShard'], min: 1, max: 2, chance: 1 },
+  { items: ['glimmerShard', 'amber'], min: 1, max: 2, chance: 1 },
   { items: ['gem', 'echoShard'], min: 2, max: 4, chance: 1 },
 ] as const;
 

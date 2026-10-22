@@ -70,7 +70,9 @@ export type StrataPropKind =
   | 'lairBrazier'
   | 'furnace'
   | 'alchemyTable'
-  | 'outpost';
+  | 'outpost'
+  /** The Halden works' lock (round 3, WORLD): a lever on a wall (VIS models it; its socket lamp shows its state). */
+  | 'lever';
 
 /** Round 3: ambient props that hang from the roof (anchored on the cell above). */
 export const HANGING_PROPS: ReadonlySet<string> = new Set(['amberDrip', 'hangingRoots', 'icicle', 'vineCurtain']);
@@ -96,7 +98,7 @@ export interface PropSpec {
   /** Rune stones (interact 'rune'): the rune's key item and its glyph (config/runes). */
   rune?: { item: string; glyph: number };
   /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
-  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache' | 'gate' | 'lift'; id: string; end?: 'top' | 'bottom' };
+  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache' | 'gate' | 'lift' | 'lever'; id: string; end?: 'top' | 'bottom' };
   /** Halden caches, supply crates and the builders' coffers (feature 'cache'): what is inside (game/Progression). */
   loot?: Partial<Record<'stone' | 'rootFibre' | 'copperOre' | 'ironOre' | 'glimmerShard' | 'echoShard', number>>;
   /** A secret alcove's reward (content pass): opening it counts the secret. */

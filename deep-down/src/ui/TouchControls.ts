@@ -47,13 +47,9 @@ const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [d
 /** Cooldown rings are drawn in this many steps (a still cooldown writes nothing). */
 const CD_STEPS = 40;
 
-/** The control layout's user preferences (Settings: button size and opacity). */
-export interface ControlPrefs {
-  /** Button size multiplier (0.8 .. 1.3). */
-  scale: number;
-  /** Button opacity at rest (0.35 .. 1). */
-  opacity: number;
-}
+/** The control layout's part of the device preferences (ui/controlPrefs). */
+export type { ControlPrefs } from './controlPrefs';
+import type { ControlPrefs } from './controlPrefs';
 
 /**
  * The round 3 mobile action layout (BRIEF §0.6), upright first:

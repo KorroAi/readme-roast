@@ -7,7 +7,7 @@ import { btn } from '../widgets';
 import { costChip, empty, menuShell, tabRow } from './shell';
 
 /** Which category tab opens: the remembered one if it has cards, else the first with a ready card, else the first. */
-export function pickCategory(v: CraftMenuView, remembered: string | null): string {
+export function pickCategory(v: Pick<CraftMenuView, 'categories'>, remembered: string | null): string {
   if (remembered && v.categories.some((c) => c.id === remembered && c.total > 0)) return remembered;
   return (v.categories.find((c) => c.ready > 0) ?? v.categories.find((c) => c.total > 0) ?? v.categories[0])?.id ?? '';
 }
@@ -21,15 +21,40 @@ export function buildCraft(host: ScreenHost): HTMLElement {
   const v = loop?.craftView() ?? null;
   const st = host.state;
   if (!v || !loop) return menuShell(host, 'crafting', t('craft3.title'), t('m3.help.craft'), [empty(t('m3.craft.none'))]);
-  const cat = pickCategory(v, st.craftTab);
+  // A station's own recipes (opened from a placed Furnace, Forge or Alchemy Table), else all.
+  const station = st.craftStation && v.cards.some((c) => c.station === st.craftStation) ? st.craftStation : null;
+  const pool = station ? v.cards.filter((c) => c.station === station) : v.cards;
+  const categories = v.categories
+    .map((c) => ({ ...c, total: pool.filter((x) => x.category === c.id).length, ready: pool.filter((x) => x.category === c.id && x.state === 'ok').length }))
+    .filter((c) => c.total > 0);
+  const cat = pickCategory({ categories }, st.craftTab);
   st.craftTab = cat;
-  const cards = v.cards.filter((c) => c.category === cat);
+  const cards = pool.filter((c) => c.category === cat);
 
+  const chip = (id: string | null, text: string, near: boolean) =>
+    h(
+      'button',
+      {
+        class: `dd-m3-station${near ? ' near' : ''}${station === id ? ' cur' : ''}`,
+        type: 'button',
+        'aria-pressed': String(station === id),
+        'data-key': `station:${id ?? 'all'}`,
+        onclick: () => {
+          st.craftStation = station === id ? null : id;
+          st.craftTab = null;
+          host.rerender();
+        },
+      },
+      text,
+    );
   const stations = h(
     'div',
-    { class: 'dd-m3-stations', 'aria-label': t('m3.craft.stations') },
-    ...v.stations.filter((s) => s.id !== 'hand').map((s) => h('span', { class: `dd-m3-station${s.near ? ' near' : ''}`, text: s.near ? t('m3.craft.stationNear', { name: s.name }) : s.name })),
-    v.bank ? h('span', { class: 'dd-m3-station near', text: t('craft3.bank') }) : null,
+    { class: 'dd-m3-stations', role: 'group', 'aria-label': t('m3.craft.stations') },
+    chip(null, t('m3.craft.allStations'), false),
+    ...v.stations
+      .filter((s) => s.id !== 'hand' && v.cards.some((c) => c.station === s.id))
+      .map((s) => chip(s.id, s.near ? t('m3.craft.stationNear', { name: s.name }) : s.name, s.near)),
+    v.bank ? h('span', { class: 'dd-m3-station near bank', text: t('craft3.bank') }) : null,
   );
 
   const list = h('div', { class: 'dd-m3-cards' });
@@ -38,7 +63,7 @@ export function buildCraft(host: ScreenHost): HTMLElement {
   const body = [
     tabRow(
       t('craft3.title'),
-      v.categories.filter((c) => c.total > 0).map((c) => ({ id: c.id as string, text: c.name, count: c.ready })),
+      categories.map((c) => ({ id: c.id as string, text: c.name, count: c.ready })),
       cat,
       (id) => {
         st.craftTab = id;

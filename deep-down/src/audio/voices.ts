@@ -56,6 +56,47 @@ export class VoiceLimiter<T> {
     this.slots.push({ voice, start, end, priority });
   }
 
+  /** Change the priority of every voice `pick` selects (a fading deck's voices go first). */
+  reprioritize(pick: (voice: T) => boolean, priority: number): void {
+    for (const s of this.slots) if (pick(s.voice)) s.priority = priority;
+  }
+
+  /** How many live voices `pick` selects (per-category budgets). */
+  count(now: number, pick: (voice: T) => boolean): number {
+    this.prune(now);
+    let n = 0;
+    for (const s of this.slots) if (pick(s.voice)) n++;
+    return n;
+  }
+
+  /** The oldest live voice `pick` selects (to steal within a category), or null. */
+  oldest(now: number, pick: (voice: T) => boolean): T | null {
+    this.prune(now);
+    let best: Slot<T> | null = null;
+    for (const s of this.slots) if (pick(s.voice) && (!best || s.start < best.start)) best = s;
+    return best ? best.voice : null;
+  }
+
+  /** Remove every voice `pick` selects, handing each to `fn` (a released deck's voices). */
+  removeWhere(pick: (voice: T) => boolean, fn?: (voice: T) => void): void {
+    let w = 0;
+    for (let r = 0; r < this.slots.length; r++) {
+      const s = this.slots[r];
+      if (pick(s.voice)) fn?.(s.voice);
+      else this.slots[w++] = s;
+    }
+    this.slots.length = w;
+  }
+
+  /** Forget one voice (it was stolen or killed outside the limiter). */
+  remove(voice: T): void {
+    const i = this.slots.findIndex((s) => s.voice === voice);
+    if (i >= 0) {
+      this.slots[i] = this.slots[this.slots.length - 1];
+      this.slots.length--;
+    }
+  }
+
   /** Remove every voice, handing each to `fn` (e.g. to fade it out). */
   clear(fn?: (voice: T) => void): void {
     if (fn) for (const s of this.slots) fn(s.voice);

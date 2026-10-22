@@ -70,6 +70,8 @@ uniform float uLanternIntensity;
 uniform vec3 uAmbient;
 uniform vec3 uOpenAmbient;
 uniform float uEmitGain;
+uniform vec4 uGlowLight;
+uniform vec3 uGlowColor;
 uniform vec3 uFogColor;
 uniform vec3 uFogLow;
 uniform vec4 uFogPool;
@@ -318,6 +320,18 @@ vec4 atmosphere(vec3 wp, float depth, vec3 emit) {
   return vec4(col, a);
 }
 
+// Round 3 (VIS): the companion's own small light (a tame Lampling's glow), moving with it: a soft
+// wrapped falloff to uGlowLight.w metres, no shadow (it stays small, so it never reaches far).
+vec3 glowLight(vec3 p, vec3 n) {
+  if (uGlowLight.w <= 0.0) return vec3(0.0);
+  vec3 d = uGlowLight.xyz - p;
+  float l = length(d);
+  if (l >= uGlowLight.w) return vec3(0.0);
+  float ndl = max(dot(n, d / max(l, 1e-3)), 0.0) * 0.75 + 0.25;
+  float f = 1.0 - l / uGlowLight.w;
+  return uGlowColor * ndl * f * f;
+}
+
 float hash13(vec3 p) {
   p = fract(p * 0.1031);
   p += dot(p, p.zyx + 31.32);
@@ -550,6 +564,9 @@ export class LightingRig {
       uAmbient: { value: new THREE.Color() },
       uOpenAmbient: { value: new THREE.Color() },
       uEmitGain: { value: EMIT_GAIN },
+      // Round 3 (VIS): a small moving light (the companion's glow): xyz, w radius (0 = none), colour.
+      uGlowLight: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uGlowColor: { value: new THREE.Color(0, 0, 0) },
       uFogColor: { value: new THREE.Color() },
       uFogLow: { value: this.fogLow },
       uFogPool: { value: this.fogPool },

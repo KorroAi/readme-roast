@@ -60,6 +60,26 @@ export type DD = {
     runeSites(): any[];
   };
   game: any;
+  // Round 3 (WORLD's StratumDebug): the strata of the deep.
+  stratum(n?: number): number | Promise<number>;
+  biomeHere(): string | null;
+  goto(where: string, which?: string): Promise<Vec3i | null>;
+  seed(n?: number): number | Promise<number>;
+  strata(): any;
+  reveal(id: string): boolean;
+  openGate(): boolean;
+  descend(): Promise<boolean>;
+  ascend(): Promise<boolean>;
+  // Round 3 (MOBS): the creatures.
+  mobs: any;
+  // Round 3 (UI, game/fp/uiDebug): the action layout's events, HUD fields and control rects.
+  ui: {
+    events(type?: string): Array<{ type: string; payload: any; t: number }>;
+    clear(): void;
+    hud(): any;
+    rect(target: string): { x: number; y: number; w: number; h: number } | null;
+    ringed(): string | null;
+  };
 };
 
 declare global {

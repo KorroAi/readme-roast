@@ -303,6 +303,19 @@ export class PropRenderer {
     }
   }
 
+  /**
+   * Round 3 (VIS): is the terrain chunk at a point drawn (ChunkRenderer.chunkDrawnAt: the cave
+   * culling)? A prop whose chunk is hidden behind rock is not drawn either. null: no culling.
+   */
+  get chunkDrawn(): ((x: number, y: number, z: number) => boolean) | null {
+    return this.drawnAt;
+  }
+  set chunkDrawn(fn: ((x: number, y: number, z: number) => boolean) | null) {
+    this.drawnAt = fn;
+    this.decor.chunkDrawn = fn;
+  }
+  private drawnAt: ((x: number, y: number, z: number) => boolean) | null = null;
+
   update(dt: number, time: number, cameraPos: THREE.Vector3): void {
     this.settleSome();
     this.decor.update(cameraPos, this.viewDistance);
@@ -315,7 +328,7 @@ export class PropRenderer {
     const far = Math.min(this.viewDistance, FOG_CULL.value);
     for (const e of this.list) {
       const dist = cameraPos.distanceTo(e.center) - e.radius;
-      e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, SMALL_PROP_FAR));
+      e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, SMALL_PROP_FAR)) && (!this.drawnAt || e.radius >= 2 || this.drawnAt(e.center.x, e.center.y, e.center.z));
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt / FLASH_TIME);
       const lit = this.highlighted === e;
       if ((lit || e.flash > 0 || e.fxActive) && !(e.hi && !lit && e.flash <= 0)) this.applyFx(e, lit ? highlightPulse : 0);

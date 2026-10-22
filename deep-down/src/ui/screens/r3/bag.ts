@@ -32,7 +32,15 @@ const ACTION_LABEL: Record<BagItemView['actions'][number], TextKey> = {
   assign: 'bag3.assign',
   drop: 'bag3.drop',
   bank: 'bag3.bank',
+  socket: 'm3.bag.socket',
 };
+
+/** LOOP's gem sockets (round 3 stretch), read by shape: the options for a piece, why not, and set one. */
+interface SocketLoop {
+  socketOptions?(item: ItemId): Array<{ gem: ItemId; name: string; count: number; fx: string }>;
+  socketBlock?(item: ItemId, gem: ItemId): string | null;
+  socket?(item: ItemId, gem: ItemId): boolean;
+}
 
 function itemsOf(v: BagView, tab: BagTab): BagItemView[] {
   if (tab !== 'all') return v.items[tab] ?? [];
@@ -95,6 +103,7 @@ export function buildBag(host: ScreenHost): HTMLElement {
         { class: `dd-m3-detail g-${sel.grade}` },
         h('div', { class: 'dd-m3-detailhead' }, h('img', { src: itemIconDataUrl(sel.item, iconPx(44)), width: 44, height: 44, alt: '', 'aria-hidden': 'true' }), h('div', null, h('h3', { text: sel.name }), h('p', { class: 'dd-m3-sub', text: t('m3.bag.have', { n: sel.count }) }))),
         h('p', { class: 'dd-m3-desc', text: sel.desc }),
+        sel.sockets?.length ? socketRow(sel) : null,
         h(
           'div',
           { class: 'dd-m3-actions' },
@@ -106,7 +115,8 @@ export function buildBag(host: ScreenHost): HTMLElement {
                 () => {
                   if (a === 'use') {
                     if (!loop.use(sel.item)) host.toast(t('bag3.cantUse'), 'warn');
-                  } else if (a === 'equip') loop.equip(sel.item);
+                  } else if (a === 'socket') st.bagSocket = st.bagSocket === sel.item ? null : sel.item;
+                  else if (a === 'equip') loop.equip(sel.item);
                   else if (a === 'assign' || a === 'place') {
                     const slot = firstFreeSlot(loop.hotbarView().slots, sel.item);
                     loop.assign(slot, sel.item);
@@ -119,6 +129,7 @@ export function buildBag(host: ScreenHost): HTMLElement {
               ),
             ),
         ),
+        st.bagSocket === sel.item ? gemPicker(host, sel) : null,
       )
     : null;
 
@@ -182,4 +193,52 @@ export function firstFreeSlot(slots: ReadonlyArray<{ item: ItemId | null; role?:
   const free = slots.findIndex((s, i) => s.item === null && i >= 2);
   if (free >= 0) return free;
   return Math.max(0, slots.length - 1);
+}
+
+/** A piece's sockets: each gem's icon (or an empty socket) and what it does. */
+function socketRow(sel: BagItemView): HTMLElement {
+  return h(
+    'div',
+    { class: 'dd-m3-sockets', 'aria-label': t('m3.bag.sockets') },
+    ...(sel.sockets ?? []).map((sk) =>
+      h(
+        'span',
+        { class: `dd-m3-socket${sk.gem ? '' : ' empty'}`, title: sk.fx || sk.name },
+        sk.gem ? h('img', { src: itemIconDataUrl(sk.gem, iconPx(22)), width: 22, height: 22, alt: '', 'aria-hidden': 'true' }) : h('span', { class: 'dd-m3-socketempty', 'aria-hidden': 'true' }),
+        h('span', { class: 'dd-m3-socketfx', text: sk.gem ? sk.fx : sk.name }),
+      ),
+    ),
+  );
+}
+
+/** The gems that fit the selected piece (from the bag, and the bank in reach): tap one to set it. */
+function gemPicker(host: ScreenHost, sel: BagItemView): HTMLElement {
+  const loop = host.actions.loop() as unknown as SocketLoop | null;
+  const opts = loop?.socketOptions?.(sel.item) ?? [];
+  if (!opts.length) return h('p', { class: 'dd-m3-meta dim', text: t('m3.bag.noGems') });
+  return h(
+    'div',
+    { class: 'dd-m3-gems', role: 'group', 'aria-label': t('m3.bag.chooseGem') },
+    ...opts.map((o) =>
+      h(
+        'button',
+        {
+          class: 'dd-m3-gem',
+          type: 'button',
+          'data-key': `gem:${o.gem}`,
+          onclick: () => {
+            const why = loop?.socketBlock?.(sel.item, o.gem) ?? null;
+            if (why) {
+              host.toast(why, 'warn');
+              return;
+            }
+            if (loop?.socket?.(sel.item, o.gem)) host.state.bagSocket = null;
+            host.rerender();
+          },
+        },
+        h('img', { src: itemIconDataUrl(o.gem, iconPx(26)), width: 26, height: 26, alt: '', 'aria-hidden': 'true' }),
+        h('span', { class: 'dd-m3-gemtext' }, h('b', { text: `${o.name} ×${o.count}` }), h('span', { text: o.fx })),
+      ),
+    ),
+  );
 }

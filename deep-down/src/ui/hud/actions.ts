@@ -56,12 +56,13 @@ export type UiTargetId =
   | 'craft'
   | 'map'
   | 'quests'
-  | 'menu';
+  | 'menu'
+  | 'companion';
 
 export const UI_TARGETS: readonly UiTargetId[] = [
   'joystick', 'look', 'action', 'jump', 'dash', 'interact', 'sonar', 'place', 'reticle',
   'hotbar', 'hotbar:0', 'hotbar:1', 'hotbar:2', 'hotbar:3', 'hotbar:4', 'hotbar:5',
-  'health', 'flame', 'depth', 'minimap', 'tracker', 'compass', 'bag', 'craft', 'map', 'quests', 'menu',
+  'health', 'flame', 'depth', 'minimap', 'tracker', 'compass', 'bag', 'craft', 'map', 'quests', 'menu', 'companion',
 ];
 
 export function isUiTarget(id: string): id is UiTargetId {

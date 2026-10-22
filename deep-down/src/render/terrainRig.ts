@@ -45,7 +45,7 @@ export interface TerrainUniforms {
   uHiView: THREE.IUniform<THREE.Vector4>;
   /**
    * Round 3: the sonar pulse (render/sonar.ts): xyz its origin, w the shell's radius now (m);
-   * uSonarFx x band width (m), y strength (0 = off), z the pulse's full radius, w unused.
+   * uSonarFx x band width (m), y strength (0 = off), z the pulse's full radius, w the afterglow (1 -> 0 after the sweep: what glows keeps the wave a while).
    */
   uSonar: THREE.IUniform<THREE.Vector4>;
   uSonarFx: THREE.IUniform<THREE.Vector4>;

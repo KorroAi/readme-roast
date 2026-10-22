@@ -327,8 +327,9 @@ export type RecipeId = NodeId;
 import type { StationId as CraftStation } from './stations';
 
 /** The Crafting menu's tabs, in order. */
-export type RecipeCategory = 'tools' | 'weapons' | 'armour' | 'lanterns' | 'consumables' | 'building' | 'stations' | 'smelting';
-export const RECIPE_CATEGORIES: readonly RecipeCategory[] = ['tools', 'weapons', 'armour', 'lanterns', 'consumables', 'building', 'stations', 'smelting'];
+export type RecipeCategory = 'tools' | 'weapons' | 'armour' | 'lanterns' | 'consumables' | 'building' | 'stations' | 'smelting' | 'camp' | 'trader';
+/** The tabs: the eight of RECIPES, then the camp's upgrades and the trader's barters (game/craft Camp, shown at the camp). */
+export const RECIPE_CATEGORIES: readonly RecipeCategory[] = ['tools', 'weapons', 'armour', 'lanterns', 'consumables', 'building', 'stations', 'smelting', 'camp', 'trader'];
 
 /**
  * When a recipe shows in the menu.
@@ -336,8 +337,9 @@ export const RECIPE_CATEGORIES: readonly RecipeCategory[] = ['tools', 'weapons',
  * - 'seen': once every input has been held at least once (the default: recipes appear as the
  *   descent finds their materials, so the menu never lists what cannot be made yet).
  * - stratum: once that stratum has been entered.
+ * - 'trader': a rare recipe the camp's trader sells (config/camp TRADES), shown once bought.
  */
-export type RecipeUnlock = 'start' | 'seen' | { stratum: number };
+export type RecipeUnlock = 'start' | 'seen' | { stratum: number } | 'trader';
 
 export interface Recipe {
   /** Unique: the output id, or `${output}@${n}` for an alternative recipe of the same thing. */
@@ -373,11 +375,11 @@ export const RECIPES: readonly Recipe[] = [
   // --- Weapons: three per band (melee, reach, ranged), at the Forge; bombs at the Alchemy Table.
   r({ out: 'machete', category: 'weapons', station: 'forge', inputs: { copperIngot: 3, hide: 1 } }),
   r({ out: 'spear', category: 'weapons', station: 'forge', inputs: { copperIngot: 2, fungalWood: 3, fang: 1 } }),
-  r({ out: 'sling', category: 'weapons', station: 'workbench', inputs: { hide: 2, fungalWood: 2 } }),
+  r({ out: 'sling', category: 'weapons', station: 'workbench', inputs: { hide: 1, gel: 1, fungalWood: 2 } }),
   r({ out: 'sword', category: 'weapons', station: 'forge', inputs: { silverIngot: 4, ironIngot: 3, fang: 2 } }),
   r({ out: 'crystalSpear', category: 'weapons', station: 'forge', inputs: { glimmerShard: 4, ironIngot: 3, heartwood: 2 } }),
   r({ out: 'crossbow', category: 'weapons', station: 'forge', inputs: { heartwood: 3, ironIngot: 3, chitin: 3, goldIngot: 1 } }),
-  r({ out: 'greatAxe', category: 'weapons', station: 'forge', inputs: { sunmetalIngot: 4, coldsteelIngot: 3, fang: 3 } }),
+  r({ out: 'greatAxe', category: 'weapons', station: 'forge', inputs: { sunmetalIngot: 4, coldsteelIngot: 3, hide: 2 } }),
   r({ out: 'sunLance', category: 'weapons', station: 'forge', inputs: { sunmetalIngot: 3, orichalcum: 2, verdite: 1 } }),
   r({ out: 'emberCrossbow', category: 'weapons', station: 'forge', inputs: { embersteelIngot: 3, starsteel: 1, heartwood: 2, chitin: 4 } }),
   r({ out: 'flashCharge', n: 2, category: 'weapons', station: 'alchemy', inputs: { sporeQuartz: 1, coal: 1 } }),
@@ -385,15 +387,15 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'blastBomb', n: 2, category: 'weapons', station: 'alchemy', inputs: { coal: 2, gel: 1, copperIngot: 1 } }),
   r({ out: 'blastBomb', alt: 2, n: 3, category: 'weapons', station: 'alchemy', inputs: { sulphur: 2, gel: 1 } }),
   // --- Armour: four sets (helmet, chest, boots); a full set gives its bonus (config/armour).
-  r({ out: 'minerHelmet', category: 'armour', station: 'forge', inputs: { copperIngot: 2, hide: 1, amber: 1 } }),
-  r({ out: 'minerVest', category: 'armour', station: 'forge', inputs: { hide: 3, fungalWood: 2, copperIngot: 1 } }),
-  r({ out: 'minerBoots', category: 'armour', station: 'forge', inputs: { hide: 2, chitin: 2 } }),
+  r({ out: 'minerHelmet', category: 'armour', station: 'forge', inputs: { copperIngot: 2, chitin: 2, amber: 1 } }),
+  r({ out: 'minerVest', category: 'armour', station: 'forge', inputs: { hide: 2, chitin: 2, copperIngot: 1 } }),
+  r({ out: 'minerBoots', category: 'armour', station: 'forge', inputs: { hide: 1, chitin: 2, fungalWood: 1 } }),
   r({ out: 'furHood', category: 'armour', station: 'forge', inputs: { frostFur: 2, silverIngot: 1 } }),
-  r({ out: 'furCoat', category: 'armour', station: 'forge', inputs: { frostFur: 4, hide: 2, silverIngot: 2 } }),
+  r({ out: 'furCoat', category: 'armour', station: 'forge', inputs: { frostFur: 5, silverIngot: 2 } }),
   r({ out: 'furBoots', category: 'armour', station: 'forge', inputs: { frostFur: 2, chitin: 2 } }),
   r({ out: 'bogMask', category: 'armour', station: 'forge', inputs: { glass: 3, mireOpal: 1, coldsteelIngot: 1 } }),
-  r({ out: 'bogCoat', category: 'armour', station: 'forge', inputs: { hide: 3, coldsteelIngot: 2, glowvine: 4 } }),
-  r({ out: 'bogBoots', category: 'armour', station: 'forge', inputs: { hide: 2, rimeIron: 3, chitin: 2 } }),
+  r({ out: 'bogCoat', category: 'armour', station: 'forge', inputs: { venomSac: 2, coldsteelIngot: 2, glowvine: 4 } }),
+  r({ out: 'bogBoots', category: 'armour', station: 'forge', inputs: { venomSac: 1, rimeIron: 3, chitin: 2 } }),
   r({ out: 'emberHelm', category: 'armour', station: 'forge', inputs: { embersteelIngot: 3, magmaCore: 1 } }),
   r({ out: 'emberPlate', category: 'armour', station: 'forge', inputs: { embersteelIngot: 5, sunmetalIngot: 2, emberCore: 2 } }),
   r({ out: 'emberGreaves', category: 'armour', station: 'forge', inputs: { embersteelIngot: 3, voidshard: 2 } }),
@@ -402,8 +404,8 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'crystalLantern', category: 'lanterns', station: 'forge', inputs: { glimmerShard: 4, goldIngot: 2, glass: 2 } }),
   r({ out: 'glowLantern', category: 'lanterns', station: 'forge', inputs: { sapAmber: 3, silverIngot: 2, glass: 2, frostCrystal: 1 } }),
   r({ out: 'sunLantern', category: 'lanterns', station: 'forge', inputs: { orichalcum: 2, sunmetalIngot: 2, glass: 3 } }),
-  r({ out: 'sturdyPack', category: 'lanterns', station: 'workbench', inputs: { hide: 4, fungalWood: 2, copperIngot: 1 } }),
-  r({ out: 'expeditionPack', category: 'lanterns', station: 'workbench', inputs: { hide: 6, rootFibre: 6, ironIngot: 2 } }),
+  r({ out: 'sturdyPack', category: 'lanterns', station: 'workbench', inputs: { hide: 3, rootFibre: 4, copperIngot: 1 } }),
+  r({ out: 'expeditionPack', category: 'lanterns', station: 'workbench', inputs: { hide: 3, rootFibre: 6, silverIngot: 2 } }),
   r({ out: 'deepPack', category: 'lanterns', station: 'workbench', inputs: { frostFur: 4, glowvine: 6, silverIngot: 2 } }),
   // --- Consumables: food and healing, oil, wards against the hazards, flares.
   r({ out: 'bandage', n: 2, category: 'consumables', station: 'hand', inputs: { glowcap: 1, fungalWood: 1 }, unlock: 'start' }),
@@ -417,18 +419,28 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'warmingTonic', n: 2, category: 'consumables', station: 'alchemy', inputs: { coal: 2, amber: 1, glowcap: 2 } }),
   r({ out: 'antidote', n: 2, category: 'consumables', station: 'alchemy', inputs: { glowvine: 2, pearl: 1 } }),
   r({ out: 'antidote', alt: 2, n: 2, category: 'consumables', station: 'alchemy', inputs: { venomSac: 1, glowcap: 2 } }),
-  r({ out: 'coolingDraught', n: 2, category: 'consumables', station: 'alchemy', inputs: { frostCrystal: 1, gel: 1, glowcap: 2 } }),
+  r({ out: 'coolingDraught', n: 2, category: 'consumables', station: 'alchemy', inputs: { frostCrystal: 1, glowcap: 2 } }),
+  r({ out: 'coolingDraught', alt: 2, n: 3, category: 'consumables', station: 'alchemy', inputs: { frostCrystal: 1, gel: 1, voidEssence: 1 } }),
   r({ out: 'flare', n: 2, category: 'consumables', station: 'workbench', inputs: { amber: 1, coal: 1 } }),
   r({ out: 'flare', alt: 2, n: 3, category: 'consumables', station: 'workbench', inputs: { sulphur: 1, fungalWood: 1 } }),
+  // Rare recipes from the trader (config/camp TRADES).
+  r({ out: 'deepStew', n: 2, category: 'consumables', station: 'furnace', inputs: { glowcap: 3, hide: 1, pearl: 1 }, fuel: 1, unlock: 'trader' }),
+  r({ out: 'lamplingLure', category: 'consumables', station: 'alchemy', inputs: { glowcap: 4, amber: 2, gel: 1 }, unlock: 'trader' }),
+  r({ out: 'glowTreat', n: 3, category: 'consumables', station: 'alchemy', inputs: { glowcap: 3, amber: 1 }, unlock: 'trader' }),
   // --- Building: planks, bricks, torches, ladders, ropes, doors.
   r({ out: 'plank', n: 4, category: 'building', station: 'hand', inputs: { fungalWood: 1 }, unlock: 'start' }),
   r({ out: 'plank', alt: 2, n: 6, category: 'building', station: 'hand', inputs: { heartwood: 1 } }),
+  // Wood of the deep: boards salvaged from the Halden works, vine boards from the Glowroot Jungle.
+  r({ out: 'plank', alt: 3, n: 3, category: 'building', station: 'workbench', inputs: { haldenScrap: 2 } }),
+  r({ out: 'plank', alt: 4, n: 4, category: 'building', station: 'hand', inputs: { glowvine: 2 } }),
   r({ out: 'torch', n: 4, category: 'building', station: 'hand', inputs: { fungalWood: 1, coal: 1 }, unlock: 'start' }),
   r({ out: 'torch', alt: 2, n: 3, category: 'building', station: 'hand', inputs: { fungalWood: 1, glowcap: 1 }, unlock: 'start' }),
   r({ out: 'torch', alt: 3, n: 6, category: 'building', station: 'hand', inputs: { sulphur: 1, fungalWood: 1 } }),
   r({ out: 'torch', alt: 4, n: 4, category: 'building', station: 'hand', inputs: { glowvine: 1, coal: 1 } }),
+  r({ out: 'torch', alt: 5, n: 5, category: 'building', station: 'hand', inputs: { sulphur: 1, plank: 1 } }),
+  r({ out: 'torch', alt: 6, n: 4, category: 'building', station: 'hand', inputs: { emberite: 1, plank: 1 } }),
   r({ out: 'ladder', n: 3, category: 'building', station: 'workbench', inputs: { plank: 3 } }),
-  r({ out: 'rope', n: 2, category: 'building', station: 'workbench', inputs: { fungalWood: 2, hide: 1 } }),
+  r({ out: 'rope', n: 2, category: 'building', station: 'workbench', inputs: { fungalWood: 2, gel: 1 } }),
   r({ out: 'rope', alt: 2, n: 3, category: 'building', station: 'workbench', inputs: { rootFibre: 3 } }),
   r({ out: 'rope', alt: 3, n: 3, category: 'building', station: 'workbench', inputs: { glowvine: 3 } }),
   r({ out: 'door', category: 'building', station: 'workbench', inputs: { plank: 4, copperIngot: 1 } }),
@@ -436,9 +448,16 @@ export const RECIPES: readonly Recipe[] = [
   // --- Stations and outposts (made at the Workbench, placed with Place).
   r({ out: 'furnace', category: 'stations', station: 'workbench', inputs: { stone: 12, coal: 2 }, unlock: 'start' }),
   r({ out: 'furnace', alt: 2, category: 'stations', station: 'workbench', inputs: { stone: 12, fungalWood: 4 }, unlock: 'start' }),
+  r({ out: 'furnace', alt: 3, category: 'stations', station: 'workbench', inputs: { stone: 12, sulphur: 2 } }),
   r({ out: 'forge', category: 'stations', station: 'workbench', inputs: { stone: 10, copperIngot: 4, coal: 2 } }),
+  // The deeper strata build their Forge from their own bars.
+  r({ out: 'forge', alt: 2, category: 'stations', station: 'workbench', inputs: { brick: 8, ironIngot: 3 } }),
+  r({ out: 'forge', alt: 3, category: 'stations', station: 'workbench', inputs: { brick: 8, silverIngot: 2 } }),
   r({ out: 'alchemyTable', category: 'stations', station: 'workbench', inputs: { fungalWood: 4, glowcap: 4, amber: 2, copperIngot: 1 } }),
-  r({ out: 'outpostKit', category: 'stations', station: 'workbench', inputs: { plank: 8, torch: 4, copperIngot: 3, hide: 2 } }),
+  r({ out: 'alchemyTable', alt: 2, category: 'stations', station: 'workbench', inputs: { plank: 4, glass: 3, gel: 2 } }),
+  r({ out: 'outpostKit', category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, copperIngot: 2 } }),
+  r({ out: 'outpostKit', alt: 2, category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, ironIngot: 2 } }),
+  r({ out: 'outpostKit', alt: 3, category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, silverIngot: 1 } }),
   // --- Smelting at the Furnace (fuel per craft).
   r({ out: 'copperIngot', category: 'smelting', station: 'furnace', inputs: { copperOre: 2 }, fuel: 1 }),
   r({ out: 'ironIngot', category: 'smelting', station: 'furnace', inputs: { ironOre: 2 }, fuel: 1 }),

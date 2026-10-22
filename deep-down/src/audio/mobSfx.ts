@@ -212,6 +212,240 @@ export const MOB_SFX = {
     f.frequency.exponentialRampToValueAtTime(6000, t + 1.4);
     [880, 1318.5, 1760].forEach((fr, i) => bell(v, t + 0.1 + i * 0.12, fr, 0.06, 1.1));
   }, 0.3),
+  // ---- Round 3: the archetypes' voices and wind-ups (every attack is heard before it lands).
+  /** A swarmer's idle buzz (ticks, mites, scarabs): a dry, beating drone, close and small. */
+  'mob.buzz': def(0.45, 0.2, 1, 0.8, (v, p) => {
+    const t = v.t;
+    const k = p.pitch ?? 1;
+    const src = v.osc('sawtooth', 132 * k * v.vary(0.08), t, t + 0.7);
+    const env = v.swell(t, 0.08, 0.16, 0.3, 0.3);
+    src.connect(v.filter('bandpass', 900 * k, 2.2)).connect(env).connect(v.out);
+    v.lfo(env.gain, 38 * v.vary(0.1), 0.12, t, t + 0.7, 'square');
+  }, 0.6),
+  /** A spitter's idle croak (toads, newts, lizards): two throaty pulses. */
+  'mob.croak': def(0.55, 0.3, 1, 0.8, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.08);
+    for (const at of [t, t + 0.22]) {
+      const src = v.osc('square', 82 * k, at, at + 0.2);
+      src.frequency.setValueAtTime(96 * k, at);
+      src.frequency.exponentialRampToValueAtTime(70 * k, at + 0.16);
+      const env = v.perc(at, 0.01, 0.22, 0.16);
+      src.connect(v.filter('bandpass', 620 * k, 3)).connect(env).connect(v.out);
+      v.lfo(env.gain, 31, 0.1, at, at + 0.18, 'square');
+    }
+  }, 0.8),
+  /** A bat's wings: a quick patter of soft beats. */
+  'mob.flutter': def(0.45, 0.25, 1, 0.8, (v) => {
+    const t = v.t;
+    for (let i = 0; i < 8; i++) noiseBurst(v, t + i * v.rand(0.055, 0.075), 'pink', 'bandpass', v.rand(900, 1500), 1.4, v.rand(0.12, 0.2), 0.035);
+  }, 0.6),
+  /** A ceiling dropper's tell: a drip, then another, and a faint creak of roots or ice. */
+  'mob.drip': def(0.6, 0.55, 3, 1.0, (v) => {
+    const t = v.t;
+    for (const [at, f] of [[0, 1500], [0.32, 1800]] as const) {
+      glide(v, t + at, 'sine', f * v.vary(0.05), f * 2.1, 0.05, 0.18, 0.002);
+      noiseBurst(v, t + at + 0.02, 'white', 'bandpass', 4200, 3, 0.05, 0.03);
+    }
+    const f = swellNoise(v, t + 0.1, 'brown', 'bandpass', 420, 5, 0.1, 0.25, 0.2, 0.4);
+    v.lfo(f.frequency, 6, 80, t + 0.1, t + 0.95);
+  }, 0.5),
+  /** A spitter swells: a wet hiss rising to the spit (also a guardian's volley). */
+  'mob.hiss': def(0.65, 0.3, 3, 0.9, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'white', 'bandpass', 2600, 2.5, 0.28, 0.45, 0.15, 0.25);
+    f.frequency.setValueAtTime(1800, t);
+    f.frequency.exponentialRampToValueAtTime(4200, t + 0.6);
+    const g = v.osc('sawtooth', 70, t, t + 0.7);
+    const env = v.swell(t, 0.3, 0.08, 0.2, 0.2);
+    g.connect(v.filter('lowpass', 400, 1.5)).connect(env).connect(v.out);
+    v.lfo(env.gain, 27, 0.06, t, t + 0.7, 'square');
+  }, 0.3),
+  /** The glob leaves the mouth: a wet "ptoo". */
+  'mob.spit': def(0.6, 0.15, 2, 0.45, (v) => {
+    const t = v.t;
+    noiseBurst(v, t, 'pink', 'bandpass', 1300 * v.vary(0.1), 1.8, 0.4, 0.08);
+    glide(v, t, 'sine', 340 * v.vary(0.06), 140, 0.12, 0.25, 0.003);
+  }, 0.08),
+  /** A glob lands (on rock, or on the explorer): a splat and a few droplets. */
+  'mob.splat': def(0.6, 0.2, 2, 0.6, (v) => {
+    const t = v.t;
+    noiseBurst(v, t, 'pink', 'lowpass', 1600, 0.9, 0.45, 0.12);
+    thud(v, t, 160, 70, 0.25, 0.1);
+    for (let i = 0; i < 4; i++) {
+      const at = t + 0.05 + i * v.rand(0.03, 0.07);
+      v.osc('sine', v.rand(2200, 3600), at, at + 0.05).connect(v.perc(at, 0.001, 0.04, 0.04)).connect(v.out);
+    }
+  }, 0.06),
+  /** A beast's challenge before a charge: a snort and a low growl. */
+  'mob.roar': def(0.8, 0.35, 3, 1.1, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.06);
+    noiseBurst(v, t, 'pink', 'bandpass', 700 * k, 1.6, 0.35, 0.09);
+    noiseBurst(v, t + 0.14, 'pink', 'bandpass', 650 * k, 1.6, 0.3, 0.08);
+    const src = v.osc('sawtooth', 78 * k, t + 0.25, t + 1.0);
+    src.frequency.setValueAtTime(70 * k, t + 0.25);
+    src.frequency.linearRampToValueAtTime(104 * k, t + 0.75);
+    const env = v.swell(t + 0.25, 0.12, 0.34, 0.3, 0.3);
+    src.connect(v.filter('lowpass', 640 * k, 2.5)).connect(env).connect(v.out);
+    v.lfo(env.gain, 19, 0.16, t + 0.25, t + 1.0, 'square');
+  }, 0.4),
+  /** The charge itself: hooves drumming and a rush of air. */
+  'mob.rush': def(0.75, 0.2, 3, 0.9, (v) => {
+    const t = v.t;
+    for (let i = 0; i < 5; i++) thud(v, t + i * 0.11, 120 * v.vary(0.08), 55, 0.32, 0.08);
+    const f = swellNoise(v, t, 'pink', 'bandpass', 600, 1.2, 0.25, 0.25, 0.2, 0.3);
+    f.frequency.setValueAtTime(400, t);
+    f.frequency.exponentialRampToValueAtTime(1400, t + 0.5);
+  }, 0.3),
+  /** A diver marks its target: a thin, breathy shriek (low enough never to sting). */
+  'mob.screech': def(0.5, 0.45, 3, 0.9, (v) => {
+    const t = v.t;
+    const a = v.osc('sine', 1500 * v.vary(0.05), t, t + 0.6);
+    a.frequency.setValueAtTime(1300, t);
+    a.frequency.linearRampToValueAtTime(1900, t + 0.35);
+    a.frequency.linearRampToValueAtTime(1600, t + 0.6);
+    const env = v.swell(t, 0.06, 0.08, 0.25, 0.3);
+    a.connect(env).connect(v.out);
+    v.lfo(a.frequency, 11, 40, t, t + 0.6);
+    swellNoise(v, t, 'white', 'bandpass', 2600, 3, 0.1, 0.05, 0.25, 0.3);
+  }, 0.4),
+  /** The dive: a falling whoosh. */
+  'mob.swoop': def(0.6, 0.25, 2, 0.8, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'pink', 'bandpass', 900, 1.6, 0.35, 0.15, 0.15, 0.35);
+    f.frequency.setValueAtTime(2200, t);
+    f.frequency.exponentialRampToValueAtTime(500, t + 0.6);
+  }, 0.2),
+  /** A burrower underground: a low rumble rolling closer. */
+  'mob.rumble': def(0.65, 0.5, 2, 1.6, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'brown', 'lowpass', 140, 0.9, 0.45, 0.4, 0.5, 0.6);
+    v.lfo(f.frequency, 7, 40, t, t + 1.5);
+    v.osc('sine', 41, t, t + 1.5).connect(v.swell(t, 0.4, 0.14, 0.5, 0.6)).connect(v.out);
+    for (let k = 0; k < 4; k++) noiseBurst(v, t + v.rand(0.2, 1.2), 'white', 'bandpass', v.rand(500, 900), 1.2, 0.05, 0.05);
+  }, 0.6),
+  /** A burrower (or a guardian) bursts up through the floor: a crack, debris, dust. */
+  'mob.burst': def(0.85, 0.35, 3, 1.2, (v) => {
+    const t = v.t;
+    thud(v, t, 110, 40, 0.7, 0.35);
+    noiseBurst(v, t, 'brown', 'lowpass', 900, 0.8, 0.5, 0.3);
+    for (let k = 0; k < 8; k++) noiseBurst(v, t + 0.03 + k * v.rand(0.03, 0.08), 'white', 'bandpass', v.rand(800, 2200), 1.3, v.rand(0.08, 0.18), 0.04);
+  }, 0.15),
+  /** A slam lands, a dropper hits the floor: a heavy stomp and loose stones. */
+  'mob.stomp': def(0.9, 0.35, 3, 1.2, (v) => {
+    const t = v.t;
+    thud(v, t, 95 * v.vary(0.05), 34, 0.85, 0.45);
+    noiseBurst(v, t, 'brown', 'lowpass', 600, 0.8, 0.4, 0.25);
+    for (let k = 0; k < 6; k++) noiseBurst(v, t + 0.06 + k * v.rand(0.04, 0.1), 'white', 'bandpass', v.rand(700, 1700), 1.2, v.rand(0.06, 0.14), 0.05);
+  }, 0.1),
+  /** A charger into the rock (dazed), a dropper landing: a dull thud. */
+  'mob.thud': def(0.8, 0.25, 3, 0.7, (v) => {
+    const t = v.t;
+    thud(v, t, 150 * v.vary(0.06), 52, 0.6, 0.2);
+    noiseBurst(v, t, 'pink', 'lowpass', 1100, 0.8, 0.3, 0.08);
+  }, 0.08),
+  /** An exploder lights: a sizzling fuse and a whistle rising to the burst. */
+  'mob.fuse': def(0.6, 0.25, 3, 1.2, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'white', 'highpass', 3800, 0.8, 0.14, 0.05, 0.85, 0.15);
+    v.lfo(f.frequency, 23, 900, t, t + 1.05);
+    for (let k = 0; k < 10; k++) noiseBurst(v, t + k * v.rand(0.06, 0.11), 'white', 'bandpass', v.rand(3000, 6000), 2, 0.08, 0.012);
+    glide(v, t + 0.2, 'triangle', 520, 1250, 0.85, 0.06, 0.3);
+  }, 0.3),
+  /** A lit exploder bursts: a deep boom and crackle (its circle was marked). */
+  'mob.boom': def(0.95, 0.5, 4, 1.6, (v) => {
+    const t = v.t;
+    thud(v, t, 130, 34, 0.95, 0.55);
+    noiseBurst(v, t, 'brown', 'lowpass', 1400, 0.8, 0.7, 0.45);
+    noiseBurst(v, t, 'white', 'lowpass', 4200, 0.8, 0.25, 0.12);
+    for (let k = 0; k < 7; k++) noiseBurst(v, t + 0.08 + k * v.rand(0.05, 0.12), 'white', 'bandpass', v.rand(1200, 3200), 1.4, v.rand(0.05, 0.12), 0.03);
+  }, 0.12),
+  /** An unlit exploder struck down: a small wet pop. */
+  'mob.pop': def(0.6, 0.2, 2, 0.5, (v) => {
+    const t = v.t;
+    glide(v, t, 'sine', 420 * v.vary(0.08), 120, 0.09, 0.3, 0.002);
+    noiseBurst(v, t, 'pink', 'bandpass', 1500, 1.4, 0.3, 0.07);
+  }, 0.05),
+  // ---- Guardians (heard across the arena: big, slow, readable).
+  /** A guardian winds up (most patterns) or wakes: a vast growl over a sub thud. */
+  'guardian.roar': def(0.95, 0.6, 4, 2.0, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.04);
+    thud(v, t, 70 * k, 30, 0.55, 0.5);
+    for (const [f, a] of [[52, 0.32], [78, 0.18]] as const) {
+      const src = v.osc('sawtooth', f * k, t, t + 1.7);
+      src.frequency.setValueAtTime(f * k * 0.9, t);
+      src.frequency.linearRampToValueAtTime(f * k * 1.25, t + 0.8);
+      src.frequency.linearRampToValueAtTime(f * k * 0.85, t + 1.6);
+      const env = v.swell(t + 0.05, 0.25, a, 0.7, 0.7);
+      src.connect(v.filter('lowpass', 520 * k, 2.2)).connect(env).connect(v.out);
+      v.lfo(env.gain, 14, a * 0.35, t, t + 1.7, 'square');
+    }
+    const f = swellNoise(v, t, 'brown', 'bandpass', 360, 1.2, 0.35, 0.3, 0.6, 0.8);
+    f.frequency.setValueAtTime(260, t);
+    f.frequency.linearRampToValueAtTime(520, t + 0.8);
+  }, 0.6),
+  /** A guardian calls its brood: a wavering, rising howl answered from the dark. */
+  'guardian.call': def(0.85, 0.7, 4, 1.8, (v) => {
+    const t = v.t;
+    for (const [f0, f1, a] of [[170, 380, 0.2], [255, 570, 0.08]] as const) {
+      const o = v.osc('triangle', f0, t, t + 1.4);
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f1, t + 1.0);
+      o.frequency.exponentialRampToValueAtTime(f1 * 0.8, t + 1.35);
+      o.connect(v.swell(t, 0.2, a, 0.6, 0.55)).connect(v.out);
+      v.lfo(o.frequency, 6, f0 * 0.05, t, t + 1.4);
+    }
+    swellNoise(v, t + 0.2, 'white', 'bandpass', 1400, 2, 0.1, 0.4, 0.4, 0.6);
+    for (let k = 0; k < 3; k++) noiseBurst(v, t + 0.9 + k * v.rand(0.12, 0.25), 'white', 'bandpass', v.rand(2600, 4200), 6, 0.08, 0.02);
+  }, 0.8),
+  /** A shockwave leaves a guardian: a deep boom and the rumble of the rolling ring. */
+  'guardian.wave': def(0.95, 0.6, 4, 1.8, (v) => {
+    const t = v.t;
+    thud(v, t, 82, 30, 0.9, 0.6);
+    const r = swellNoise(v, t, 'brown', 'lowpass', 220, 0.9, 0.45, 0.1, 0.6, 0.9);
+    r.frequency.setValueAtTime(320, t);
+    r.frequency.exponentialRampToValueAtTime(120, t + 1.4);
+    const w = swellNoise(v, t, 'pink', 'bandpass', 700, 1.2, 0.18, 0.05, 0.3, 0.6);
+    w.frequency.setValueAtTime(1600, t);
+    w.frequency.exponentialRampToValueAtTime(380, t + 0.9);
+  }, 0.4),
+  /** A guardian snuffs the light: a long breath drawn in and the lantern's gutter. */
+  'guardian.snuff': def(0.85, 0.7, 4, 2.0, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'white', 'bandpass', 1800, 2.5, 0.3, 0.7, 0.3, 0.8);
+    f.frequency.setValueAtTime(3200, t);
+    f.frequency.exponentialRampToValueAtTime(280, t + 1.6);
+    glide(v, t + 0.2, 'sine', 220, 52, 1.5, 0.22, 0.2);
+    for (let k = 0; k < 5; k++) noiseBurst(v, t + 0.9 + k * v.rand(0.06, 0.14), 'pink', 'bandpass', v.rand(500, 900), 2, 0.1, 0.05);
+  }, 1),
+  /** A guardian's new phase: a roar breaking into a rising shimmer (faster now). */
+  'guardian.phase': def(0.95, 0.65, 4, 2.0, (v) => {
+    const t = v.t;
+    thud(v, t, 90, 34, 0.7, 0.5);
+    const src = v.osc('sawtooth', 60, t, t + 1.3);
+    src.frequency.setValueAtTime(58, t);
+    src.frequency.exponentialRampToValueAtTime(120, t + 1.1);
+    src.connect(v.filter('lowpass', 700, 2)).connect(v.swell(t, 0.15, 0.3, 0.5, 0.6)).connect(v.out);
+    glide(v, t + 0.3, 'sine', 330, 990, 1.2, 0.1, 0.3);
+    const f = swellNoise(v, t + 0.3, 'white', 'bandpass', 2000, 3, 0.12, 0.5, 0.3, 0.6);
+    f.frequency.setValueAtTime(1200, t + 0.3);
+    f.frequency.exponentialRampToValueAtTime(5200, t + 1.3);
+  }, 1),
+  /** A guardian falls: a long falling groan, its body coming down, then its shard rings out. */
+  'guardian.fall': def(1.0, 0.75, 4, 4.0, (v) => {
+    const t = v.t;
+    const src = v.osc('sawtooth', 120, t, t + 1.8);
+    src.frequency.setValueAtTime(130, t);
+    src.frequency.exponentialRampToValueAtTime(36, t + 1.7);
+    src.connect(v.filter('lowpass', 480, 1.6)).connect(v.swell(t, 0.1, 0.32, 0.5, 1.2)).connect(v.out);
+    thud(v, t + 1.1, 80, 28, 0.95, 0.8);
+    swellNoise(v, t + 1.1, 'brown', 'lowpass', 300, 0.8, 0.55, 0.05, 0.6, 1.6);
+    for (let k = 0; k < 9; k++) noiseBurst(v, t + 1.15 + v.rand(0, 1.4), 'white', 'bandpass', v.rand(600, 1800), 1.2, v.rand(0.08, 0.22), 0.06);
+    // The Heart Shard's ring.
+    [987.8, 1318.5, 1975.5].forEach((f, i) => bell(v, t + 2.3 + i * 0.12, f, 0.1, 1.6));
+  }, 2),
   // ---- Weapons (FP's viewmodels; FP emits the 'weapon:*' events).
   /** A blade or the pick cutting the air. */
   'weapon.whoosh': def(0.6, 0.06, 2, 0.35, (v, p) => {

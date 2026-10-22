@@ -1,5 +1,5 @@
 import { SAVE } from '../config/balance';
-import { migrateV1, migrateV2, normalizeSave, validateSaveData } from './saveData';
+import { migrateV1, migrateV2, migrateV3, normalizeSave, validateSaveData } from './saveData';
 import { sanitizeSettings } from './settings';
 import type { SaveData, Settings } from './types';
 
@@ -121,8 +121,10 @@ export type Migration = (old: Record<string, unknown>) => Record<string, unknown
  * - 1 -> 2: the progression block and genVersion; stacks above the new stack sizes move into
  *   camp storage (save/saveData migrateV1).
  * - 2 -> 3: opened caches, feats and lifetime counters in the progression block (migrateV2).
+ * - 3 -> 4: round 3's strata. A 1.x world cannot map onto them: the save is marked `changed` (the calm
+ *   "The deep has changed" card on Continue, then a new expedition keeping feats and lifetime stats).
  */
-export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1, 2: migrateV2 };
+export const MIGRATIONS: Readonly<Record<number, Migration>> = { 1: migrateV1, 2: migrateV2, 3: migrateV3 };
 
 export type SaveErrorCode = 'invalid' | 'serialize' | 'quota' | 'unavailable' | 'verify';
 export type LoadErrorCode = 'corrupt' | 'version';

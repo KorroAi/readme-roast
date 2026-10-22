@@ -13,6 +13,8 @@ export interface BestiarySave {
   v: 1;
   pages: Array<[MobKind, number, number, number, number]>;
   guardians: MobBiome[];
+  /** The companion (MobDirector adds it): its kind and experience (the level follows from it). */
+  companion?: { kind: MobKind; level: number; xp: number };
 }
 
 const blank = (): BestiaryProgress => ({ seen: false, scanned: false, defeated: 0, befriended: 0 });

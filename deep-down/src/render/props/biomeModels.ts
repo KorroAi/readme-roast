@@ -3,6 +3,8 @@ import type { VoxBuilder } from '../voxModel';
 import type { ModelBuilder, PropModelOptions } from './models';
 import { beam, disc, ring, shade, vary } from './shapes';
 import { CLOTH, IRON, ROPE, WOOD, FIRE, ASH } from './palette';
+import { POCKET_PROPS } from './pocketModels';
+import { CAMP_PROPS } from './campModels';
 
 /**
  * Round 3 (VIS): the twelve biomes' ambient props and the new stations (WORLD's BIOMES[b].props and
@@ -114,21 +116,100 @@ const frozenBones: Build = bonesWith({ light: 0xa0aab4, mid: 0x7e8a96, dark: 0x3
   }
 });
 
-/** Stacked tapering rock: a stalagmite (up) or a stalactite (down). */
-function dripstone(b: VoxBuilder, rng: Rng, height: number, base: number, pal: readonly number[], down: boolean): void {
-  const tiers = Math.max(3, Math.round(height / 0.22));
-  for (let i = 0; i < tiers; i++) {
-    const t0 = i / tiers;
-    const t1 = (i + 1) / tiers;
-    const r = base * (1 - t0 * 0.85);
-    const y0 = height * t0;
-    const y1 = height * t1;
-    const col = vary(pal[Math.min(pal.length - 1, 1 + Math.floor(t0 * (pal.length - 1)))], rng, 0.06);
-    b.push().rotateY(rng.range(0, Math.PI / 4)).translate(rng.range(-0.01, 0.01), 0, rng.range(-0.01, 0.01));
-    if (down) disc(b, r, -y1, -y0, col);
-    else disc(b, r, y0, y1, col);
-    b.pop();
+type V3 = [number, number, number];
+
+/**
+ * A smooth tapering column (dripstone, resin, ice): rings of `sides` along y (down: hanging from
+ * y = 0), the radius following `profile(t)` (t 0 at the base, 1 at the tip) with a little wobble, and
+ * a pointed tip. `col(t)` colours each band, `glow(t)` its emission (0 = lit stone).
+ */
+export function lathe(
+  b: VoxBuilder,
+  rng: Rng,
+  o: { height: number; base: number; down: boolean; sides?: number; segs?: number; tip?: number; profile?: (t: number) => number; col: (t: number) => number; glow?: (t: number) => number },
+): void {
+  const sides = o.sides ?? 7;
+  const segs = o.segs ?? 6;
+  const dir = o.down ? -1 : 1;
+  const profile = o.profile ?? ((t: number) => Math.pow(1 - t, 0.75) * 0.9 + 0.1);
+  const phase = rng.range(0, Math.PI * 2);
+  const rings: V3[][] = [];
+  const axis: V3[] = [];
+  let ox = 0;
+  let oz = 0;
+  for (let k = 0; k <= segs; k++) {
+    const t = k / segs;
+    if (k > 0) {
+      ox += rng.range(-0.012, 0.012) * o.base * 6;
+      oz += rng.range(-0.012, 0.012) * o.base * 6;
+    }
+    const r = o.base * profile(t);
+    const y = dir * o.height * t;
+    axis.push([ox, y, oz]);
+    rings.push(
+      Array.from({ length: sides }, (_, i) => {
+        const a = phase + (i / sides) * Math.PI * 2;
+        const rr = r * (1 + 0.1 * Math.sin(i * 2.3 + k * 1.7));
+        return [ox + Math.cos(a) * rr, y, oz + Math.sin(a) * rr] as V3;
+      }),
+    );
   }
+  const rgb = (hex: number) => [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255];
+  const outward = (v: V3[], c: V3): V3 => {
+    const ax = v[1][0] - v[0][0], ay = v[1][1] - v[0][1], az = v[1][2] - v[0][2];
+    const bx = v[2][0] - v[0][0], by = v[2][1] - v[0][1], bz = v[2][2] - v[0][2];
+    let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx;
+    const l = Math.hypot(nx, ny, nz) || 1;
+    nx /= l;
+    ny /= l;
+    nz /= l;
+    const mx = (v[0][0] + v[2][0]) / 2 - c[0], mz = (v[0][2] + v[2][2]) / 2 - c[2];
+    return nx * mx + nz * mz < 0 ? [-nx, -ny, -nz] : [nx, ny, nz];
+  };
+  for (let k = 0; k < segs; k++) {
+    const t = (k + 0.5) / segs;
+    const c = rgb(vary(o.col(t), rng, 0.05));
+    const e = o.glow?.(t) ?? 0;
+    for (let i = 0; i < sides; i++) {
+      const j = (i + 1) % sides;
+      const lo = rings[k];
+      const hi = rings[k + 1];
+      let v: V3[] = o.down ? [hi[j], hi[i], lo[i], lo[j]] : [lo[j], lo[i], hi[i], hi[j]];
+      const n = outward(v, axis[k]);
+      // Keep the quads counter-clockwise seen from outside (the normal's side).
+      const ax = v[1][0] - v[0][0], ay = v[1][1] - v[0][1], az = v[1][2] - v[0][2];
+      const bx = v[2][0] - v[0][0], by = v[2][1] - v[0][1], bz = v[2][2] - v[0][2];
+      if ((ay * bz - az * by) * n[0] + (az * bx - ax * bz) * n[1] + (ax * by - ay * bx) * n[2] < 0) v = [v[3], v[2], v[1], v[0]];
+      b.quad(v, n, c, e);
+    }
+  }
+  // The tip.
+  const last = rings[segs];
+  const end = axis[segs];
+  const apex: V3 = [end[0], end[1] + dir * (o.tip ?? o.base * 0.6), end[2]];
+  const ct = rgb(o.col(1));
+  const et = o.glow?.(1) ?? 0;
+  for (let i = 0; i < sides; i++) {
+    const j = (i + 1) % sides;
+    let tri: V3[] = [last[j], last[i], apex];
+    const n = outward([tri[0], tri[1], tri[2]], end);
+    const ax = tri[1][0] - tri[0][0], ay = tri[1][1] - tri[0][1], az = tri[1][2] - tri[0][2];
+    const bx = tri[2][0] - tri[0][0], by = tri[2][1] - tri[0][1], bz = tri[2][2] - tri[0][2];
+    if ((ay * bz - az * by) * n[0] + (az * bx - ax * bz) * n[1] + (ax * by - ay * bx) * n[2] < 0) tri = [tri[1], tri[0], tri[2]];
+    b.tri(tri[0], tri[1], tri[2], n, ct, et);
+  }
+}
+
+/** A stalagmite (up) or a stalactite (down): a smooth dripstone, darker at its root, paler wet tip. */
+function dripstone(b: VoxBuilder, rng: Rng, height: number, base: number, pal: readonly number[], down: boolean): void {
+  lathe(b, rng, {
+    height,
+    base,
+    down,
+    segs: Math.max(4, Math.min(8, Math.round(height / 0.2))),
+    tip: base * 0.7,
+    col: (t) => pal[Math.min(pal.length - 1, 1 + Math.floor(t * (pal.length - 1)))],
+  });
 }
 
 const stalagmite: Build = (m, rng, o) => {
@@ -157,7 +238,9 @@ const amberDrip: Build = (m, rng) => {
 function mushroom(m: ModelBuilder, rng: Rng, x: number, z: number, h: number, r: number, col: { dark: number; mid: number; glow: number }): void {
   const b = m.body;
   const lean = rng.range(-0.15, 0.15);
-  b.push().translate(x, 0, z).rotateZ(lean).rotateY(rng.range(0, Math.PI));
+  const turn = rng.range(0, Math.PI);
+  // The body and the glowing parts share the transform (the gills and spots sit on their own cap).
+  for (const v of [b, m.glow]) v.push().translate(x, 0, z).rotateZ(lean).rotateY(turn);
   disc(b, r * 0.22, 0.004, h + 0.01, vary(STEMC.mid, rng, 0.08));
   disc(b, r * 0.3, -0.002, h * 0.12, STEMC.dark);
   // Cap: two tiers, dark velvet top (the upper tier sinks a little into the lower: no shared plane).
@@ -173,6 +256,7 @@ function mushroom(m: ModelBuilder, rng: Rng, x: number, z: number, h: number, r:
     m.glow.cube(Math.cos(a) * rr, h + r * 0.24, Math.sin(a) * rr, r * 0.12, 0.012, r * 0.12, col.glow, 0.85);
   }
   b.pop();
+  m.glow.pop();
 }
 
 const mushroomSmall: Build = (m, rng, o) => {
@@ -256,11 +340,15 @@ const shells: Build = (m, rng) => {
   const b = m.body;
   for (let i = 0; i < rng.int(5, 9); i++) {
     const s = rng.range(0.04, 0.1);
-    b.push().translate(rng.range(-0.35, 0.35), 0, rng.range(-0.35, 0.35)).rotateY(rng.range(0, Math.PI * 2));
+    const sx = rng.range(-0.35, 0.35);
+    const sz = rng.range(-0.35, 0.35);
+    const turn = rng.range(0, Math.PI * 2);
+    for (const v of [b, m.glow]) v.push().translate(sx, 0, sz).rotateY(turn);
     // A coiled shell: stacked shrinking discs, nacre lip.
     for (let k = 0; k < 4; k++) disc(b, s * (1 - k * 0.2), k * s * 0.35, (k + 1) * s * 0.35, vary(k % 2 ? 0x8a8478 : 0x6e6a62, rng, 0.06));
     m.glow.box(-s, 0, s * 0.6, s, s * 0.4, s * 0.8, 0xb8c8d8, 0.12);
     b.pop();
+    m.glow.pop();
   }
   for (let i = 0; i < 5; i++) b.cube(rng.range(-0.4, 0.4), 0.02, rng.range(-0.4, 0.4), 0.06, 0.04, 0.05, STONE[rng.int(1, 3)]);
 };
@@ -378,7 +466,8 @@ const fern: Build = (m, rng) => {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rng.range(-0.2, 0.2);
     const len = rng.range(0.4, 0.7);
-    b.push().rotateY(-a).rotateZ(-rng.range(0.5, 0.9));
+    const tilt = rng.range(0.5, 0.9);
+    for (const v of [b, m.glow]) v.push().rotateY(-a).rotateZ(-tilt);
     b.box(0, -0.01, -0.012, len, 0.01, 0.012, LEAF.dark);
     for (let k = 1; k < 6; k++) {
       const x = (k / 6) * len;
@@ -387,6 +476,7 @@ const fern: Build = (m, rng) => {
     }
     m.glow.cube(len, 0, 0, 0.025, 0.02, 0.025, LEAF.glow, 0.6);
     b.pop();
+    m.glow.pop();
   }
   m.glowScale = 1.3;
 };
@@ -619,17 +709,93 @@ const outpost: Build = (m) => {
   m.glowScale = 2;
 };
 
+/** A carved glyph (glow) on a face of a stone at local z = `z`, centred at (x, y), `s` metres tall. */
+function glyph(g: VoxBuilder, rng: Rng, x: number, y: number, z: number, s: number, col: number, emissive: number): void {
+  // Three strokes from a small alphabet: a bar, a hook and a dot, each on a 3 x 4 grid.
+  const u = s / 4;
+  const strokes = rng.int(2, 3);
+  for (let k = 0; k < strokes; k++) {
+    const vertical = rng.chance(0.55);
+    const gx = rng.int(0, 2) - 1;
+    const gy = rng.int(0, 3) - 1.5;
+    const len = rng.int(1, 3);
+    const w = u * 0.36;
+    if (vertical) g.box(x + gx * u - w / 2, y + gy * u - (len * u) / 2, z, x + gx * u + w / 2, y + gy * u + (len * u) / 2, z + 0.012, col, emissive);
+    else g.box(x + gx * u - (len * u) / 2, y + gy * u - w / 2, z, x + gx * u + (len * u) / 2, y + gy * u + w / 2, z + 0.012, col, emissive);
+  }
+}
+
 const lairPillar: Build = (m, rng) => {
-  // A guardian's standing stone: a rough monolith ringed with a rune band that glows red-rose.
+  // A guardian's standing stone: a plinth of three worn tiers, a shaft of rough drums set a little
+  // askew, a cap with the shard's rose crystal in its socket, carved glyphs glowing rose down two
+  // faces, old bones and a fallen drum at its foot. The rose is the guardian's: every arena of the
+  // deep wears it, whatever the biome.
   const b = m.body;
-  const h = rng.range(2.2, 3.2);
-  b.box(-0.35, 0, -0.3, 0.35, h * 0.9, 0.3, vary(STONE[1], rng, 0.08));
-  b.box(-0.28, h * 0.9, -0.24, 0.28, h, 0.24, STONE[2]);
-  b.box(-0.45, 0, -0.4, 0.45, 0.2, 0.4, STONE[0]);
-  for (const y of [h * 0.55, h * 0.62]) m.glow.box(-0.36, y, -0.31, 0.36, y + 0.04, 0.31, 0xd8486a, 0.75);
-  for (let i = 0; i < 3; i++) m.glow.box(-0.08 + i * 0.08 - 0.02, h * 0.66, 0.305, -0.08 + i * 0.08 + 0.02, h * 0.74, 0.31, 0xff6a8a, 0.9);
-  for (let i = 0; i < 4; i++) bone(b, rng, rng.range(0.25, 0.4), BONE.light);
-  m.glowScale = 1.8;
+  const g = m.glow;
+  const rose = 0xd8486a;
+  const roseHot = 0xff7a96;
+  for (const [hw, y0, y1, c] of [[0.62, 0, 0.12, STONE[0]], [0.52, 0.12, 0.24, STONE[1]], [0.44, 0.24, 0.32, STONE[2]]] as const) {
+    b.box(-hw, y0, -hw * 0.9, hw, y1, hw * 0.9, vary(c, rng, 0.06));
+    b.box(-hw + 0.04, y1 - 0.004, -hw * 0.9 + 0.04, hw - 0.04, y1 + 0.012, hw * 0.9 - 0.04, shade(c, 1.12));
+  }
+  const drums = rng.int(4, 6);
+  let y = 0.32;
+  let w = 0.36;
+  for (let i = 0; i < drums; i++) {
+    const h = rng.range(0.38, 0.56);
+    const turn = rng.range(-0.12, 0.12);
+    const dx = rng.range(-0.025, 0.025);
+    for (const v of [b, g]) v.push().translate(dx, 0, 0).rotateY(turn);
+    const c = vary(STONE[1 + (i % 2)], rng, 0.07);
+    b.box(-w, y, -w * 0.86, w, y + h, w * 0.86, c);
+    // Chamfered corners: a slightly smaller cross box.
+    b.box(-w - 0.02, y + 0.03, -w * 0.62, w + 0.02, y + h - 0.03, w * 0.62, shade(c, 0.94));
+    // A worn seam between drums.
+    b.box(-w + 0.03, y + h - 0.012, -w * 0.86 + 0.03, w - 0.03, y + h + 0.004, w * 0.86 - 0.03, STONE[0]);
+    // Glyphs down the two broad faces.
+    if (i > 0 || drums < 5) {
+      glyph(g, rng, 0, y + h * 0.5, w * 0.86 + 0.002, h * 0.62, i % 2 ? rose : roseHot, 0.78);
+      g.push().rotateY(Math.PI);
+      glyph(g, rng, 0, y + h * 0.5, w * 0.86 + 0.002, h * 0.62, rose, 0.72);
+      g.pop();
+    }
+    for (const v of [b, g]) v.pop();
+    y += h;
+    w *= rng.range(0.9, 0.96);
+  }
+  // The cap and its socket, the rose crystal set in it.
+  b.box(-w - 0.08, y, -w * 0.86 - 0.08, w + 0.08, y + 0.14, w * 0.86 + 0.08, STONE[3]);
+  b.box(-w * 0.55, y + 0.14, -w * 0.5, w * 0.55, y + 0.24, w * 0.5, STONE[2]);
+  g.push().translate(0, y + 0.22, 0);
+  g.crystal(0.07, 0.34, 0.12, 6, roseHot, rose, 0.85);
+  g.pop();
+  // A band of light under the cap.
+  g.box(-w - 0.002, y - 0.06, -w * 0.86 - 0.002, w + 0.002, y - 0.035, w * 0.86 + 0.002, rose, 0.6);
+  // At its foot: bones and a fallen drum.
+  for (let i = 0; i < 4; i++) {
+    b.push().translate(rng.range(-0.7, 0.7), 0, rng.range(0.62, 0.95)).rotateY(rng.range(0, Math.PI));
+    bone(b, rng, rng.range(0.22, 0.38), BONE.light);
+    b.pop();
+  }
+  b.push().translate(rng.range(-0.5, 0.5), 0.17, -0.85).rotateZ(Math.PI / 2).rotateX(rng.range(-0.3, 0.3));
+  b.box(-0.17, -0.3, -0.24, 0.17, 0.3, 0.24, vary(STONE[1], rng, 0.08));
+  b.pop();
+  m.glowScale = 1.9;
+};
+
+const lairRune: Build = (m, rng, o) => {
+  // An inlaid floor stone of the arena's ring: a flat worn slab, a glyph cut in it glowing rose (the
+  // guardian lives) or a cold ash-gold once it has fallen (variant 1).
+  const spent = o.variant === 1;
+  const b = m.body;
+  const w = rng.range(0.34, 0.46);
+  const d = rng.range(0.26, 0.36);
+  b.box(-w, -0.04, -d, w, 0.035, d, vary(STONE[1], rng, 0.06));
+  b.box(-w + 0.03, 0.03, -d + 0.03, w - 0.03, 0.045, d - 0.03, STONE[2]);
+  m.glow.push().rotateX(-Math.PI / 2);
+  glyph(m.glow, rng, 0, 0, 0.046, Math.min(w, d) * 1.4, spent ? 0x8a6a3a : 0xff6a8a, spent ? 0.35 : 0.9);
+  m.glow.pop();
+  m.glowScale = spent ? 1.1 : 1.8;
 };
 
 const lairBrazier: Build = (m) => {
@@ -689,8 +855,13 @@ export const BIOME_PROPS: Record<string, { build: Build; variants: number }> = {
   outpost: { build: outpost, variants: 1 },
   lairPillar: { build: lairPillar, variants: 2 },
   lairBrazier: { build: lairBrazier, variants: 1 },
+  lairRune: { build: lairRune, variants: 2 },
+  // What glows in the light pockets (render/props/pocketModels.ts), hanging from the roof.
+  ...POCKET_PROPS,
+  // The camp that grows (render/props/campModels.ts): LOOP's camp upgrades.
+  ...CAMP_PROPS,
 };
 
 /** Kinds built hanging down from y = 0 (WORLD anchors them to the ceiling cell). */
-export const HANGING_KINDS: ReadonlySet<string> = new Set(['icicle', 'hangingRoots', 'vineCurtain', 'amberDrip']);
+export const HANGING_KINDS: ReadonlySet<string> = new Set(['icicle', 'hangingRoots', 'vineCurtain', 'amberDrip', ...Object.keys(POCKET_PROPS)]);
 

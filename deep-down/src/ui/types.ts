@@ -82,6 +82,8 @@ export interface HudState {
   /** The reticle: what the Action button would do on what is under it, and the mining progress on its ring. */
   reticle: ReticleKind;
   reticleProgress: number;
+  /** The find under the reticle ("Copper Vein"), shown small under it while it is a find; null: none. */
+  reticleName: string | null;
   /** The quest tracker: the main step and one optional side task. */
   tracker: TrackerView;
   /** The compass arrow to the current objective, once it is known (null hides it). */
@@ -104,6 +106,18 @@ export interface HudState {
   tutorial: TutorialView | null;
   /** The hazard building up here (cold, gas, heat, dark) with its meter 0..1 and a ward's seconds left; null: none. */
   hazard: { kind: 'cold' | 'gas' | 'heat' | 'dark'; level: number; warded: number } | null;
+  /** The tamed companion (a Lampling): its name, level, progress to the next (0..1), what it does, its glow. */
+  companion: CompanionChipView | null;
+}
+
+/** The companion's HUD chip (MOBS's `mobs.companion()`). */
+export interface CompanionChipView {
+  name: string;
+  level: number;
+  /** 0..1 toward the next level (1 at the top level). */
+  progress: number;
+  state: 'follow' | 'scout' | 'fight';
+  glow: number;
 }
 
 // ---------------------------------------------------------------------------------------
@@ -193,6 +207,8 @@ export interface MapSource {
   revision: number;
   cell(x: number, z: number): number;
   biome(x: number, z: number): number;
+  /** The height a column was seen at (feet y), for the Map's hill-shade; absent: flat. */
+  height?(x: number, z: number): number;
   /** The tint of each biome index (sRGB hex). */
   biomeColors: readonly number[];
   markers: readonly MapMarker[];
@@ -207,8 +223,8 @@ export interface MapView {
   stratum: number;
   stratumName: string;
   biomes: Array<{ name: string; color: number; explored: number }>;
-  /** Outposts and the camp, for fast travel (`here`: the explorer stands at it). */
-  travel: Array<{ id: string; name: string; x: number; z: number; here: boolean; can: boolean; reason: string | null }>;
+  /** Outposts and the camp, for fast travel (`here`: the explorer stands at it; `stratum`: where it is). */
+  travel: Array<{ id: string; name: string; x: number; z: number; here: boolean; can: boolean; reason: string | null; stratum: number }>;
   /** The seed of this expedition (shown on the map and in Settings). */
   seed: string;
 }
@@ -250,6 +266,17 @@ export interface SaveSummary {
   cacheWaiting: boolean;
   /** The black stone has answered (the finale was reached). */
   finale?: boolean;
+}
+
+/** Round 3: the black-out card's story (where, what did it, where the explorer wakes). */
+export interface BlackoutInfo {
+  /** What blacked the explorer out: a creature's name, or the fall, the cold, the gas, the heat, the dark. */
+  cause: string;
+  depth: number;
+  biome: string;
+  stratum: number;
+  /** Where the explorer wakes: the camp, or an outpost's bed (its biome). */
+  wake: string;
 }
 
 /** What the inventory and crafting screens need. */
@@ -537,8 +564,10 @@ export interface UiActions {
   /** The expedition's seed (Settings, the Map), '' before one is rolled. */
   getSeed(): string;
   /** Button size and opacity (the control layout's own preferences). */
-  getControlPrefs(): { scale: number; opacity: number };
-  setControlPrefs(p: { scale?: number; opacity?: number }): void;
+  getControlPrefs(): import('./controlPrefs').ControlPrefs;
+  setControlPrefs(p: Partial<import('./controlPrefs').ControlPrefs>): void;
+  /** Forget which first-time tips were shown (Settings), so they show again. */
+  replayTips?(): void;
 }
 
 export interface DiscoveryNotice {

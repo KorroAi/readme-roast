@@ -7,6 +7,8 @@ import { NO_LIFE, normalizeLife } from '../gameplay/Feats';
 import type { CacheState } from '../gameplay/Expedition';
 import type { WorldLayout } from '../world/gen/types';
 import type { ItemCounts, ProgressionSave, SaveData, SlotData } from './types';
+import { BIOMES, STRATUM_COUNT, type BiomeId, type StratumIndex } from '../config/biomes';
+import type { OutpostRecord, StrataSave, StratumSlice } from '../game/Stratum';
 
 /** Upper bound for a backpack array in a save (far above any pack tier). */
 const MAX_SLOTS = 64;
@@ -97,8 +99,57 @@ export function validateSaveData(x: unknown): x is SaveData {
     strings(x.removedProps) &&
     isObj(st) &&
     ['blocksMined', 'deaths', 'itemsBanked'].every((k) => count(st[k])) &&
-    validProgression(x.progression)
+    validProgression(x.progression) &&
+    (x.strata === undefined || validStrata(x.strata))
   );
+}
+
+/** Save v4's strata part, as normalizeStrata leaves it (a seed and a stratum at least). */
+function validStrata(x: unknown): boolean {
+  return isObj(x) && finite(x.seed) && isStratum(x.current) && isStratum(x.deepest) && isObj(x.strata) && Array.isArray(x.outposts) && strings(x.shards);
+}
+
+const isStratum = (v: unknown): v is StratumIndex => Number.isInteger(v) && (v as number) >= 1 && (v as number) <= STRATUM_COUNT;
+const isBiome = (v: unknown): v is BiomeId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(BIOMES, v);
+
+/**
+ * Save v4: bring an untrusted strata part into shape (anything malformed is dropped, not fatal): the
+ * seed and the stratum, each stratum's slice (edits as integer pairs, props, the explored map, the
+ * revealed lairs, the gate, the biomes seen), the outposts and the Heart Shards. A part without a
+ * usable seed is no part (undefined): Continue then treats the save as one from another world.
+ */
+export function normalizeStrata(x: unknown): StrataSave | undefined {
+  if (!isObj(x) || !finite(x.seed)) return undefined;
+  const current: StratumIndex = isStratum(x.current) ? x.current : 1;
+  const deepest: StratumIndex = isStratum(x.deepest) ? (Math.max(x.deepest, current) as StratumIndex) : current;
+  const strs = (v: unknown) => (Array.isArray(v) ? v.filter((s): s is string => typeof s === 'string') : []);
+  const strata: Partial<Record<StratumIndex, StratumSlice>> = {};
+  if (isObj(x.strata)) {
+    for (const [k, v] of Object.entries(x.strata)) {
+      const n = Number(k);
+      if (!isStratum(n) || !isObj(v)) continue;
+      const edits = Array.isArray(v.edits) && v.edits.length % 2 === 0 && v.edits.every(Number.isInteger) ? (v.edits as number[]).slice() : [];
+      strata[n] = {
+        edits,
+        removedProps: strs(v.removedProps),
+        explored: isObj(v.explored) ? (v.explored as unknown as StratumSlice['explored']) : null,
+        revealed: strs(v.revealed),
+        gateOpen: v.gateOpen === true,
+        seenBiomes: strs(v.seenBiomes).filter(isBiome),
+        found: strs(v.found),
+      };
+    }
+  }
+  const outposts: OutpostRecord[] = [];
+  if (Array.isArray(x.outposts)) {
+    for (const o of x.outposts) {
+      if (!isObj(o) || typeof o.id !== 'string' || !isStratum(o.stratum) || !finite(o.x) || !finite(o.y) || !finite(o.z)) continue;
+      outposts.push({ id: o.id, stratum: o.stratum, x: o.x as number, y: o.y as number, z: o.z as number, biome: isBiome(o.biome) ? o.biome : BIOMES.amberHollows.id });
+    }
+  }
+  const out: StrataSave = { seed: (x.seed as number) >>> 0, current, deepest, strata, outposts, shards: [...new Set(strs(x.shards).filter(isBiome))], gen: count(x.gen) ? (x.gen as number) : 0 };
+  if (x.fresh === true) out.fresh = true;
+  return out;
 }
 
 function validProgression(x: unknown): boolean {
@@ -196,6 +247,11 @@ export function normalizeSave(raw: Record<string, unknown>): { data: Record<stri
     d.journal = journal;
   }
   d.progression = normalizeProgression(d.progression, report);
+  if (d.strata !== undefined) {
+    const st = normalizeStrata(d.strata);
+    if (st) d.strata = st;
+    else delete d.strata;
+  }
   return { data: d, report };
 }
 
@@ -278,6 +334,18 @@ export function migrateV2(old: Record<string, unknown>): Record<string, unknown>
   if (life.itemsBanked === 0 && count(stats.itemsBanked)) life.itemsBanked = stats.itemsBanked as number;
   p.life = life;
   return d;
+}
+
+/**
+ * Save format v3 -> v4 (round 3, the strata): a 1.x save's world (the hand-made 160 x 128 x 160 deep)
+ * cannot map onto the random strata. Its world edits and removed props go; everything else is kept
+ * for now and the save is marked `changed`: on Continue the game shows the calm card and starts a new
+ * expedition that keeps the feats, the lifetime counters and the records (game/StratumFlow).
+ */
+export function migrateV3(old: Record<string, unknown>): Record<string, unknown> {
+  const d = normalizeSave({ ...old }).data;
+  delete d.strata;
+  return { ...d, worldEdits: [], removedProps: [], changed: true };
 }
 
 /**

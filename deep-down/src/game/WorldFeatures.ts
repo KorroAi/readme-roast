@@ -17,6 +17,7 @@ import { applyLiving, bloomSiteFor, rollLiving } from '../world/gen/features/liv
 import type { FeatureLayout, FeatureLink, RuneDoorDef, V3 } from '../world/gen/features/types';
 import type { PropSpec } from '../world/gen/types';
 import { isStratumLayout } from '../world/gen/strata/types';
+import { PAGE_COUNT } from '../config/quests';
 import { LumenMoths } from './effects/LumenMoths';
 import type { Game } from './Game';
 import { MothFlock, type MothAnchor } from './moths';
@@ -172,6 +173,11 @@ export class WorldFeatures {
     return this.active !== null;
   }
 
+  /** The old hand-made world is loaded (round 3: its fixed-place systems are retired in the strata). */
+  get legacy(): boolean {
+    return !isStratumLayout(this.game.session.layout);
+  }
+
   /** Stop a ride where it is (a black-out, a respawn, the menu): no end event, no teleport. */
   cancelRide(): void {
     this.active = null;
@@ -184,7 +190,8 @@ export class WorldFeatures {
 
   /** Camp entry after a trip: if it went into the Hollow, the deep breathes (a new epoch). */
   onCampEntered(tripDeepest: number): void {
-    if (!this.layout) return;
+    // Round 3: the living rock was the old world's (fixed places); the strata do not breathe.
+    if (!this.layout || !this.legacy) return;
     if (tripDeepest < WORLD.depthOffset - BREATHE_BELOW_Y) return;
     this.game.progression.day = this.epoch + 1;
     this.breathe(this.epoch);
@@ -201,7 +208,7 @@ export class WorldFeatures {
     const p = g.player;
     this.updateDoors(dt);
     if (this.pendingBloom && --this.pendingBloom.frames < 0) this.growBloom();
-    if (!g.journal.has('undercroft') && p.grounded && !this.active && inBox(p.x, p.y, p.z, UNDERCROFT)) g.discover('undercroft');
+    if (this.legacy && !g.journal.has('undercroft') && p.grounded && !this.active && inBox(p.x, p.y, p.z, UNDERCROFT)) g.discover('undercroft');
     this.updateMoths(dt);
   }
 
@@ -260,6 +267,9 @@ export class WorldFeatures {
         return this.gateLabel();
       case 'lift':
         return t(wt('world.gate.lift'));
+      // Round 3 (WORLD): a lever of the Halden works.
+      case 'lever':
+        return this.game.strata?.works.leverLabel(f.id) ?? t('world.lever.pull');
     }
   }
 
@@ -351,6 +361,9 @@ export class WorldFeatures {
       case 'gate':
       case 'lift':
         this.useStrataFeature(f.kind);
+        break;
+      case 'lever':
+        this.game.strata?.works.pull(f.id);
         break;
     }
   }
@@ -627,6 +640,15 @@ export class WorldFeatures {
   private readNote(id: string): void {
     const g = this.game;
     const key = `note.${id}`;
+    // Round 3: a page of Halden's journal in the strata (LOOP's text, page.N.*; numbered 1..24).
+    const page = this.legacy ? null : /^page_(\d+)$/.exec(id);
+    if (page) {
+      const n = Number(page[1]);
+      const first = g.journal.addDiscovery(key);
+      g.ui.showDiscovery({ id: key, title: t(`page.${n}.title` as TextKey), body: t(`page.${n}.body` as TextKey), index: n, total: PAGE_COUNT, major: false });
+      g.bus.emit('world:note', { id, first });
+      return;
+    }
     const first = !g.journal.has(key);
     if (first) g.discover(key);
     else {

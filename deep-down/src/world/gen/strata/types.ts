@@ -48,6 +48,69 @@ export interface StratumLayout extends WorldLayout {
   heart: { centre: V3; radius: number; spawn: V3 } | null;
   /** Density per biome, counted by the generator (tests and tools). */
   stats: Record<string, BiomeStats>;
+  /** The landmark vista: a huge hall seen from its balcony, a ramp down its wall (null: none fitted). */
+  vista: VistaSite | null;
+  /** Falls for VIS to draw (the vista's waterfall or lava fall). */
+  falls: FallSite[];
+  /** The underground river(s) for VIS (a ribbon along the points) and the map. */
+  rivers: RiverSite[];
+  /** The Halden works: the mini-dungeon, its lock (levers or plates) and its reward vault (null: none fitted). */
+  dungeon: DungeonSite | null;
+  /** Ravines down to dead-end pockets, each with a generated rope. */
+  ravines: RavineSite[];
+  /** Secret rooms behind cracked walls (rare loot; sonar shows them). */
+  secrets: SecretSite[];
+}
+
+export type { FallSite, RiverSite } from './structures';
+import type { FallSite, RiverSite } from './structures';
+
+export interface VistaSite {
+  id: string;
+  /** Text key stem (`site.<name>.title|body`). */
+  name: string;
+  biome: BiomeId;
+  centre: V3;
+  radius: number;
+  /** Where the view opens (feet) and the ramp's foot on the hall floor. */
+  balcony: V3;
+  rampFoot: V3;
+  lava: boolean;
+}
+
+export interface DungeonSite {
+  id: string;
+  biome: BiomeId;
+  puzzle: 'levers' | 'plates';
+  entry: V3;
+  hall: V3;
+  vault: V3;
+  /** HALDEN_DOOR cells: air once the lock is open. */
+  door: V3[];
+  /** One lamp cell per lever or plate, in order: air (unset) or LIGHT_RUNE (set). The state lives in the voxels (saved as edits). */
+  sockets: V3[];
+  /** Lever prop ids (index = socket), or the plates' floor cells (index = socket; press them in order). */
+  levers: string[];
+  plates: V3[][];
+  /** The reward chests' prop ids. */
+  chests: string[];
+}
+
+export interface RavineSite {
+  id: string;
+  biome: BiomeId;
+  top: V3;
+  bottom: V3;
+  rope: V3[];
+}
+
+export interface SecretSite {
+  id: string;
+  biome: BiomeId;
+  /** The cracked wall's cells and the room's centre (feet); its chest prop id. */
+  wall: V3[];
+  centre: V3;
+  chest: string;
 }
 
 export interface LairSite {
@@ -104,8 +167,8 @@ export interface ChestSite {
   biome: BiomeId;
   p: V3;
   prop: string;
-  /** A tunnel chest, a vault's (behind a cracked wall), a mine camp's, a shrine's, a lair's reward. */
-  kind: 'tunnel' | 'vault' | 'camp' | 'shrine' | 'lair' | 'oreRoom';
+  /** A tunnel chest, a vault's (behind a cracked wall), a mine camp's, a shrine's, a lair's reward, the works' vault, a secret room's, a ravine pocket's, a set piece's. */
+  kind: 'tunnel' | 'vault' | 'camp' | 'shrine' | 'lair' | 'oreRoom' | 'dungeon' | 'secret' | 'ravine' | 'setPiece';
   /** 1..6: the loot table's tier (the stratum, +1 for vaults and lairs). */
   tier: number;
 }
@@ -150,11 +213,16 @@ export interface HazardZone {
 
 export interface StructureSite {
   id: string;
-  kind: 'mineCamp' | 'shrine' | 'oreRoom' | 'vault' | 'setPiece' | 'lightPocket';
+  kind: 'mineCamp' | 'shrine' | 'oreRoom' | 'vault' | 'setPiece' | 'lightPocket' | 'vista' | 'river' | 'dungeon' | 'ravine' | 'secret';
   biome: BiomeId;
   centre: V3;
   radius: number;
-  /** A set piece's name (geode, stillLake, lanternVault, crystalChoir, emberDeep). */
+  /**
+   * A named place (text `site.<name>.title|body`): the set pieces (honeycomb, grandCap, worldRoot,
+   * stillLake, geode, crystalChoir, lanternVault, frozenFalls, bloomClearing, geyserField, colonnade,
+   * emberDeep, glassGarden), the vista, the river, the works. Named sites are announced the first
+   * time the explorer comes within their radius (StratumManager: a discovery banner).
+   */
   name?: string;
 }
 
@@ -174,8 +242,9 @@ export interface BiomeStats {
   props: number;
   lights: number;
   caverns: number;
-  /** Chests per 25 m of walked floor, an estimate: chests / (floorCells / 25 / 3). */
+  /** Chests along the plan's tunnels per 25 m of their walking line (BRIEF §0.1: about one), and that length (m). */
   chestsPer25m: number;
+  tunnelMetres?: number;
 }
 
 /** Rebuild the layout's biomeAt after a structured clone (the worker) dropped it. */

@@ -1,12 +1,30 @@
 import { B, SOLID } from '../../../config/blocks';
-import { BIOMES, LAIR_PAGES, STRATA_PAGES_PER_BIOME, type BiomeId, type StratumIndex } from '../../../config/biomes';
+import { BIOMES, PAGE_PLAN, type BiomeId, type StratumIndex } from '../../../config/biomes';
 import { STRATA_GEN } from '../../../config/balance';
+import { lootFor, type ChestKind } from '../../../config/loot';
 import { Rng } from '../../../core/rng';
 import { HANGING_PROPS, type PropKind, type PropSpec, type Region } from '../types';
 import type { CarveState } from './carve';
 import { floorNear, isHost, type Decor } from './dress';
 import { edgePath, type PlanNode } from './plan';
-import type { BiomeStats, CampSite, ChestSite, GateSite, HazardZone, LairSite, NestSite, OutpostSite, PageSite, SpawnPoint, StructureSite, V3 } from './types';
+import type { BiomeStats, CampSite, ChestSite, DungeonSite, GateSite, HazardZone, LairSite, NestSite, OutpostSite, PageSite, SecretSite, SpawnPoint, StructureSite, V3 } from './types';
+import type { DungeonOut, RavineOut, Reserved, RiverSite, SetPieceOut, VistaOut } from './structures';
+import type { LakeDef } from '../features/types';
+
+/** The great structures' results the content pass dresses (structures.ts). */
+export interface ContentExtras {
+  /** Curated columns: the density pass places nothing there (no chest, vein, vault or clutter). */
+  reserved: Reserved;
+  vista: VistaOut | null;
+  river: RiverSite | null;
+  works: DungeonOut | null;
+  ravines: RavineOut[];
+  pieces: Array<SetPieceOut & { node: number }>;
+  /** The side galleries' end pockets (the forks' dead ends): most hold a chest. */
+  pockets: Array<[number, number, number]>;
+  /** Still water the structures made (the vista's lake, the river's pools, the set pieces'): for the chill. */
+  lakes?: LakeDef[];
+}
 
 /**
  * The content of a stratum (round 3, WORLD): the camp or the lift, the gate, the lairs, and the
@@ -95,6 +113,30 @@ export function walkBfs(st: { world: { sx: number; sy: number; sz: number; block
   return seen;
 }
 
+/**
+ * The last word on props (after every voxel pass): a prop whose anchor is not solid rock would fall or
+ * break the moment the session loads (a spurious world edit in the first save), so it is dropped with
+ * its light; a prop standing inside rock is dropped too. Returns how many were dropped.
+ */
+export function validateProps(w: { sx: number; sy: number; sz: number; blocks: Uint8Array }, props: PropSpec[]): number {
+  const { sx, sy, sz } = w;
+  const at = (x: number, y: number, z: number) => (x < 0 || y < 0 || z < 0 || x >= sx || y >= sy || z >= sz ? B.BEDROCK : w.blocks[x + sx * (y + sy * z)]);
+  let dropped = 0;
+  for (let k = props.length - 1; k >= 0; k--) {
+    const p = props[k];
+    const a = p.anchor;
+    // A hanging prop's body is the cell under its anchor; a standing one's the cell its feet are in.
+    const hangs = !!a && a[1] >= Math.floor(p.y);
+    const body = at(Math.floor(p.x), Math.floor(p.y - (hangs ? 0.05 : 0)), Math.floor(p.z));
+    const ok = (!a || SOLID[at(a[0], a[1], a[2])] === 1) && SOLID[body] !== 1;
+    if (ok) continue;
+    for (const [x, y, z] of p.emitters) if (!SOLID[at(x, y, z)]) w.blocks[x + sx * (y + sy * z)] = B.AIR;
+    props.splice(k, 1);
+    dropped++;
+  }
+  return dropped;
+}
+
 /** Is a reachable cell within r (plan) and dy levels of p? Returns the cell's feet point or null. */
 export function reachNear(seen: Uint8Array, w: { sx: number; sy: number; sz: number }, p: V3, r = 3, levels = 4): V3 | null {
   const x0 = Math.floor(p[0]);
@@ -135,6 +177,8 @@ export interface ContentOut {
   heart: { centre: V3; radius: number; spawn: V3 } | null;
   stats: Record<string, BiomeStats>;
   oreBlocks: number;
+  dungeon: DungeonSite | null;
+  secrets: SecretSite[];
 }
 
 /**
@@ -236,11 +280,18 @@ export function buildPlaces(st: CarveState, stratum: StratumIndex, seed: number)
 }
 
 /** Everything placed on the walkable floor (after the walk BFS). */
-export function placeContent(st: CarveState, stratum: StratumIndex, seed: number, seen: Uint8Array, decor: Decor, places: ReturnType<typeof buildPlaces>): ContentOut {
+export function placeContent(st: CarveState, stratum: StratumIndex, seed: number, seen: Uint8Array, decor: Decor, places: ReturnType<typeof buildPlaces>, extras: ContentExtras): ContentOut {
   const w = st.world;
   const plan = st.plan;
   const { sx, sy, sz } = w;
   const rng = new Rng(seed ^ 0xc0e7e47);
+  /** A curated column (the vista's balcony and ramp, the river, the works, ravines, set pieces). */
+  const curated = (x: number, z: number) => x >= 0 && z >= 0 && x < sx && z < sz && extras.reserved[x + z * sx] === 1;
+  /** Loot from LOOP's tables (config/loot), deterministic for this stratum's stream. */
+  const lootOf = (kind: ChestSite['kind'], tier: number, biome: BiomeId): PropSpec['loot'] => {
+    const k: ChestKind = kind === 'dungeon' || kind === 'secret' || kind === 'ravine' ? 'vault' : kind === 'setPiece' ? 'shrine' : kind;
+    return lootFor(k, Math.min(6, tier), rng, biome);
+  };
   const props: PropSpec[] = [];
   let propN = 0;
   const lights: V3[] = decor.lights.map((l) => [l[0], l[1], l[2]]);
@@ -274,6 +325,22 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     return spec;
   };
 
+  /** A lantern hung from the real roof over (x, z) (natural rock or timber within `reach` of the floor y0). */
+  const hangLamp = (x: number, y0: number, z: number, light: number, reach = 9): boolean => {
+    const lx = Math.floor(x);
+    const lz = Math.floor(z);
+    for (let k = 3; k <= reach; k++) {
+      const id = get(lx, y0 + k, lz);
+      if (!SOLID[id]) continue;
+      if (!isHost(id) && id !== B.PLANK && id !== B.BEAM) return false;
+      const roof = y0 + k;
+      if (get(lx, roof - 2, lz) !== B.AIR || get(lx, roof - 1, lz) !== B.AIR) return false;
+      addProp({ kind: 'hangingLantern', x: lx + 0.5, y: roof - 1.8, z: lz + 0.5, anchor: [lx, roof, lz] }, light);
+      return true;
+    }
+    return false;
+  };
+
   // Reachable floor cells per biome (the density pass draws from them).
   const cells: number[] = [];
   const sxy = sx * sy;
@@ -300,7 +367,8 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     return true;
   };
   const mark = (cat: string, p: V3, d: number) => {
-    const g = grids.get(cat)!;
+    let g = grids.get(cat);
+    if (!g) grids.set(cat, (g = new Map()));
     const cs = Math.max(4, Math.ceil(d));
     const k = Math.floor(p[0] / cs) + Math.floor(p[2] / cs) * 1000;
     const list = g.get(k) ?? [];
@@ -333,6 +401,9 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     addProp({ kind: 'barrel', x: ax - 6, y: ay, z: az - 0.5 });
     addProp({ kind: 'pickaxeRack', x: ax + 1, y: ay, z: az - 5.5, rotY: 0 });
     for (const [dx, dz] of [[-6, -5], [6, -5], [-6, 5], [6, 5]]) addProp({ kind: 'lanternPost', x: ax + dx, y: ay, z: az + dz }, B.LIGHT_AMBER);
+    // Two lamps hang over the camp from its roof (where the roof is in reach).
+    hangLamp(ax - 2, ay, az + 1, B.LIGHT_AMBER);
+    hangLamp(ax + 2.5, ay, az - 1, B.LIGHT_AMBER);
     campSite = {
       region: { id: 'camp', min: [ax - an.rx, ay - 1, az - an.rz], max: [ax + an.rx, ay + 7, az + an.rz] },
       fire: [ax, ay, az],
@@ -350,6 +421,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   } else {
     addProp({ kind: 'hoistWinch', x: ax, y: ay, z: az - 2, rotY: 0, interact: 'feature', feature: { kind: 'lift', id: `lift_${stratum}` }, id: `lift_${stratum}` }, B.LIGHT_LAMP);
     for (const [dx, dz] of [[-3, 2], [3, 2]]) addProp({ kind: 'lanternPost', x: ax + dx, y: ay, z: az + dz }, B.LIGHT_AMBER);
+    hangLamp(ax, ay, az + 3, B.LIGHT_AMBER);
     camp = { id: 'lift', min: [ax - 6, ay - 1, az - 6], max: [ax + 6, ay + 6, az + 6] };
     landmarks.campfire = [ax, ay, az];
   }
@@ -421,10 +493,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     take('nest');
     take('outpost');
     take('outpost');
-    const setPiece: Partial<Record<BiomeId, string[]>> = { crystalGeode: ['geode', 'crystalChoir'], floodedGrottoes: ['stillLake'], haldenMines: ['lanternVault'], magmaVeins: ['emberDeep'] };
-    (setPiece[biome] ?? []).forEach((name, k) => {
-      if (caverns[k]) caverns[k].role = `set:${name}`;
-    });
+    void caverns;
   }
   const floorAt = (n: { x: number; y: number; z: number }) => {
     const f = floorNear(st, Math.floor(n.x), n.y, Math.floor(n.z), 4);
@@ -433,7 +502,8 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   for (const n of plan.nodes) {
     if (!n.role) continue;
     const c: V3 = [Math.floor(n.x) + 0.5, floorAt(n), Math.floor(n.z) + 0.5];
-    if (!reachNear(seen, w, c, 2, 2)) continue;
+    // A set piece may stand on its centre (a giant cap, a world root): it is announced from its ring.
+    if (!n.role.startsWith('set:') && !reachNear(seen, w, c, 2, 2)) continue;
     const lb = BIOMES[n.biome].lightBlock;
     if (n.role === 'nest') {
       nests.push({ id: `nest_${n.id}`, biome: n.biome, p: c, radius: Math.max(4, Math.min(n.rx, n.rz)), kind: null });
@@ -452,7 +522,15 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     }
     if (n.role === 'mineCamp') {
       sites.push({ id: `mineCamp_${n.id}`, kind: 'mineCamp', biome: n.biome, centre: c, radius: Math.max(n.rx, n.rz) });
-      addProp({ kind: 'hangingLantern', x: c[0], y: c[1] + 3.2, z: c[2], anchor: [Math.floor(c[0]), Math.floor(c[1]) + 5, Math.floor(c[2])] }, B.LIGHT_LAMP);
+      // The camp's lamp hangs from the real roof over its centre (a post when the roof is out of reach).
+      const lx = Math.floor(c[0]);
+      const lz = Math.floor(c[2]);
+      if (hangLamp(lx, c[1], lz, B.LIGHT_LAMP)) {
+        // Hung.
+      } else if (free(lx, c[1], lz)) {
+        claim(lx, c[1], lz);
+        addProp({ kind: 'lanternPost', x: lx + 0.5, y: c[1], z: lz + 0.5 }, B.LIGHT_LAMP);
+      }
       for (const k of ['crate', 'crate', 'barrel', 'brokenCart', 'pickaxeRack', 'ropeCoil'] as const) {
         const p = nearWall(c, 5);
         if (p) addProp({ kind: k, x: p[0], y: p[1], z: p[2] });
@@ -480,7 +558,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     }
     if (n.role.startsWith('set:')) {
       const name = n.role.slice(4);
-      sites.push({ id: `set_${name}`, kind: 'setPiece', biome: n.biome, centre: c, radius: Math.max(n.rx, n.rz), name });
+      sites.push({ id: `set_${name}_${n.id}`, kind: 'setPiece', biome: n.biome, centre: [n.x, n.y, n.z], radius: Math.max(7, Math.min(n.rx, n.rz) * 0.85), name });
       landmarks[name] = c;
       continue;
     }
@@ -528,6 +606,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     const p = cellOf(i);
     const [x, y, z] = p;
     if (!spaced('light', p, STRATA_GEN.lightSpacing) || !spaced('lightAny', p, 12)) continue;
+    if (curated(x, z)) continue;
     if (lit.has(darkKey(x, y, z)) && rng.chance(0.7)) continue;
     if (solidN(x, y, z) === 0) continue;
     const biome = biomeAtCell(x, z);
@@ -551,63 +630,124 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   for (const l of decor.lights) stats[biomeAtCell(l[0], l[2])].lights++;
 
   // Chests: about one per chestSpacing m of walked floor, against a wall, never in a lair or the camp.
-  const lootFor = (tier: number, kind: ChestSite['kind']): PropSpec['loot'] => {
-    const m = kind === 'vault' || kind === 'lair' ? 2 : 1;
-    const l: NonNullable<PropSpec['loot']> = { stone: rng.int(1, 3), copperOre: rng.int(1, 2) * m };
-    if (tier >= 1) l.rootFibre = rng.int(1, 2);
-    if (tier >= 2) l.ironOre = rng.int(1, 2) * m;
-    if (tier >= 3) l.glimmerShard = rng.int(0, 2) * m;
-    if (tier >= 4) l.echoShard = rng.int(1, 2) * m;
-    return l;
-  };
-  const addChest = (p: V3, kind: ChestSite['kind'], tier: number): void => {
-    const biome = biomeAtCell(p[0], p[2]);
+  const addChest = (p: V3, kind: ChestSite['kind'], tier: number): string => {
+    const biome = biomeAtCell(Math.floor(p[0]), Math.floor(p[2]));
     const id = `s${stratum}_chest_${chests.length}`;
-    addProp({ kind: 'chest', x: p[0] + 0.5, y: p[1], z: p[2] + 0.5, scale: 0.85, interact: 'feature', feature: { kind: 'cache', id }, loot: lootFor(tier, kind), id });
-    chests.push({ id, biome, p: [p[0] + 0.5, p[1], p[2] + 0.5], prop: id, kind, tier });
+    claim(Math.floor(p[0]), p[1], Math.floor(p[2]));
+    addProp({ kind: 'chest', x: Math.floor(p[0]) + 0.5, y: p[1], z: Math.floor(p[2]) + 0.5, scale: kind === 'secret' || kind === 'dungeon' ? 1 : 0.85, interact: 'feature', feature: { kind: 'cache', id }, loot: lootOf(kind, tier, biome), id });
+    chests.push({ id, biome, p: [Math.floor(p[0]) + 0.5, p[1], Math.floor(p[2]) + 0.5], prop: id, kind, tier });
     stats[biome].chests++;
+    return id;
   };
-  for (const i of order) {
-    const p = cellOf(i);
-    const [x, y, z] = p;
-    if (!spaced('chest', p, STRATA_GEN.chestSpacing * 0.78)) continue;
-    if (nearArrival(p, 14) || inLair(p) || !free(x, y, z) || solidN(x, y, z) < 1) continue;
-    claim(x, y, z);
-    addChest(p, 'tunnel', stratum);
-    mark('chest', p, STRATA_GEN.chestSpacing * 0.78);
+  // BRIEF §0.1: about one chest per 25 m of walked tunnel. Along every tunnel of the plan one every
+  // 21-29 m, by a wall near its walking line; one in each room (its role's kind: a mine camp's, a
+  // shrine's, an ore room's) and two in each great cavern; one at the end of most side galleries (the
+  // forks' reward). Never in a lair, the camp or a curated place.
+  const tunnelM: Record<string, number> = {};
+  const tunnelChests: Record<string, number> = {};
+  const chestSpot = (c: readonly number[], r: number): V3 | null => {
+    for (let t = 0; t < 28; t++) {
+      const x = Math.floor(c[0]) + rng.int(-r, r);
+      const z = Math.floor(c[2]) + rng.int(-r, r);
+      for (let dy = 0; dy <= 6; dy++) {
+        const y = Math.round(c[1]) + (dy & 1 ? -(dy + 1) / 2 : dy / 2);
+        if (y < 1 || y >= sy - 2 || x < 1 || z < 1 || x >= sx - 1 || z >= sz - 1) continue;
+        if (!seen[x + sx * (y + sy * z)] || curated(x, z) || !free(x, y, z) || solidN(x, y, z) < 1) continue;
+        if (nearArrival([x, y, z], 14) || inLair([x, y, z]) || !spaced('chest', [x, y, z], 9)) continue;
+        return [x, y, z];
+      }
+    }
+    return null;
+  };
+  for (const e of plan.edges) {
+    const path = edgePath(plan, e, 1);
+    for (const q of path) {
+      const b = biomeAtCell(Math.max(0, Math.min(sx - 1, Math.floor(q[0]))), Math.max(0, Math.min(sz - 1, Math.floor(q[2]))));
+      tunnelM[b] = (tunnelM[b] ?? 0) + 1;
+    }
+    for (let k = rng.int(5, 15); k < path.length - 5; k += rng.int(21, 29)) {
+      const q = chestSpot(path[k], 3);
+      if (!q) continue;
+      mark('chest', q, 9);
+      addChest(q, 'tunnel', stratum);
+      const b = biomeAtCell(q[0], q[2]);
+      tunnelChests[b] = (tunnelChests[b] ?? 0) + 1;
+    }
+  }
+  const roleKind: Record<string, ChestSite['kind']> = { mineCamp: 'camp', shrine: 'shrine', oreRoom: 'oreRoom' };
+  for (const n of plan.nodes) {
+    if ((n.kind !== 'room' && n.kind !== 'cavern') || n.role === 'nest' || n.role?.startsWith('set:')) continue;
+    const want = n.kind === 'cavern' ? 2 : 1;
+    for (let k = 0; k < want; k++) {
+      const q = chestSpot([n.x, floorAt(n), n.z], Math.max(2, Math.floor(Math.min(n.rx, n.rz)) - 1));
+      if (!q) continue;
+      mark('chest', q, 9);
+      const kind = (n.role && roleKind[n.role]) || 'tunnel';
+      addChest(q, kind, kind === 'tunnel' ? stratum : stratum + (kind === 'oreRoom' ? 0 : 1));
+    }
+  }
+  for (const pk of extras.pockets) {
+    if (!rng.chance(0.7)) continue;
+    const q = chestSpot(pk, 2);
+    if (!q) continue;
+    mark('chest', q, 9);
+    addChest(q, 'tunnel', stratum);
   }
 
-  // Treasure vaults behind cracked walls: a sealed room behind a tunnel wall, its chest one tier up.
+  // Treasure vaults behind cracked walls: a sealed room behind a tunnel wall, its chest one tier up;
+  // each biome's first is a secret room (deeper, behind two cracked walls, rare loot two tiers up and
+  // a gem cluster; sonar shows it, the map marks it once opened).
+  const secrets: SecretSite[] = [];
   let vaults = 0;
   for (let bi = 0; bi < 2; bi++) {
     let made = 0;
     for (const i of order) {
-      if (made >= 2) break;
+      if (made >= 3) break;
       const p = cellOf(i);
       const [x, y, z] = p;
-      if (biomeAtCell(x, z) !== plan.biomes[bi] || nearArrival(p, 20) || inLair(p) || !spaced('vault', p, 40)) continue;
-      // A wall direction with 7 m of rock behind it.
+      if (biomeAtCell(x, z) !== plan.biomes[bi] || curated(x, z) || nearArrival(p, 20) || inLair(p) || !spaced('vault', p, 36)) continue;
+      const secret = made === 0;
+      const depth = secret ? 11 : 8;
+      // A wall direction with `depth` m of untouched rock behind it.
       for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
         if (!isHost(get(x + dx, y, z + dz)) || !isHost(get(x + dx, y + 1, z + dz))) continue;
         let rock = true;
-        for (let k = 1; k <= 8 && rock; k++) for (let s = -3; s <= 3 && rock; s++) for (let h = -1; h <= 4 && rock; h++) {
+        for (let k = 1; k <= depth && rock; k++) for (let s = -3; s <= 3 && rock; s++) for (let h = -1; h <= 4 && rock; h++) {
           const cx = x + dx * k + (dz ? s : 0);
           const cz = z + dz * k + (dx ? s : 0);
-          if (!isHost(get(cx, y + h, cz))) rock = false;
+          if (!isHost(get(cx, y + h, cz)) || curated(cx, cz)) rock = false;
         }
         if (!rock) continue;
-        // Carve the room (k 2..6), the door (k 1) as cracked wall.
-        for (let k = 2; k <= 6; k++) for (let s = -2; s <= 2; s++) for (let h = 0; h <= 2; h++) set(x + dx * k + (dz ? s : 0), y + h, z + dz * k + (dx ? s : 0), B.AIR);
-        set(x + dx, y, z + dz, B.CRACKED_WALL);
-        set(x + dx, y + 1, z + dz, B.CRACKED_WALL);
-        const cp: V3 = [x + dx * 5, y, z + dz * 5];
-        addChest(cp, 'vault', Math.min(6, stratum + 1));
-        const lx = x + dx * 4 + (dz ? 2 : 0);
-        const lz = z + dz * 4 + (dx ? 2 : 0);
+        const k0 = secret ? 3 : 2;
+        const k1 = secret ? 9 : 6;
+        // Carve the room (k0..k1); the door: one cracked wall (two for a secret, a short crawl between).
+        for (let k = k0; k <= k1; k++) for (let s = -2; s <= 2; s++) for (let h = 0; h <= 2; h++) set(x + dx * k + (dz ? s : 0), y + h, z + dz * k + (dx ? s : 0), B.AIR);
+        const wall: V3[] = [];
+        for (let k = 1; k < k0; k++) for (let h = 0; h <= 1; h++) {
+          set(x + dx * k, y + h, z + dz * k, B.CRACKED_WALL);
+          wall.push([x + dx * k, y + h, z + dz * k]);
+        }
+        const mid = Math.floor((k0 + k1) / 2);
+        const cp: V3 = [x + dx * (k1 - 1), y, z + dz * (k1 - 1)];
+        const lx = x + dx * mid + (dz ? 2 : 0);
+        const lz = z + dz * mid + (dx ? 2 : 0);
         set(lx, y + 2, lz, BIOMES[plan.biomes[bi]].lightBlock);
         lights.push([lx, y + 2, lz]);
-        sites.push({ id: `vault_${vaults}`, kind: 'vault', biome: plan.biomes[bi], centre: [x + dx * 4 + 0.5, y, z + dz * 4 + 0.5], radius: 3 });
-        mark('vault', p, 40);
+        const centre: V3 = [x + dx * mid + 0.5, y, z + dz * mid + 0.5];
+        if (secret) {
+          const chest = addChest(cp, 'secret', stratum + 2);
+          // The rare find of the room: a gem cluster (minable crystal) by its wall.
+          const gx = x + dx * mid + (dz ? -2 : 0);
+          const gz = z + dz * mid + (dx ? -2 : 0);
+          addProp({ kind: 'crystalCluster', x: gx + 0.5, y, z: gz + 0.5, scale: 1.2, minable: { hardness: 3, tier: 1, drop: stratum >= 3 ? 'echoShard' : 'glimmerShard', min: 2, max: 3 } });
+          secrets.push({ id: `secret_${plan.biomes[bi]}`, biome: plan.biomes[bi], wall, centre, chest });
+          sites.push({ id: `secret_${plan.biomes[bi]}`, kind: 'secret', biome: plan.biomes[bi], centre, radius: 3, name: 'secret' });
+        } else {
+          addChest(cp, 'vault', stratum + 1);
+          sites.push({ id: `vault_${vaults}`, kind: 'vault', biome: plan.biomes[bi], centre, radius: 3 });
+        }
+        for (let k = k0; k <= k1; k++) for (let s = -2; s <= 2; s++) extras.reserved[x + dx * k + (dz ? s : 0) + (z + dz * k + (dx ? s : 0)) * sx] = 1;
+        mark('vault', p, 36);
         vaults++;
         made++;
         break;
@@ -621,23 +761,48 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     if (p) addChest([Math.floor(p[0]), p[1], Math.floor(p[2])], 'lair', Math.min(6, stratum + 1));
   }
 
-  // Halden's journal pages: STRATA_PAGES_PER_BIOME per biome, in chambers of the biome, the first tells of the lair.
-  let pageN = (stratum - 1) * STRATA_PAGES_PER_BIOME * 2;
-  for (let bi = 0; bi < 2; bi++) {
-    const biome = plan.biomes[bi];
-    const homes = plan.nodes.filter((n) => n.biome === biome && (n.kind === 'cavern' || n.kind === 'room') && n.role !== 'nest');
-    let made = 0;
-    for (let k = 0; k < homes.length * 3 && made < STRATA_PAGES_PER_BIOME; k++) {
-      const n = homes[(k * 7 + bi) % homes.length];
-      const p = nearWall([Math.floor(n.x) + 0.5, floorAt(n), Math.floor(n.z) + 0.5], Math.min(6, Math.floor(Math.min(n.rx, n.rz))));
-      if (!p || !spaced('page', p, 30)) continue;
-      mark('page', p, 30);
-      pageN++;
-      const id = `page_${pageN}`;
-      addProp({ kind: 'haldenNote', x: p[0], y: p[1], z: p[2], interact: 'feature', feature: { kind: 'note', id }, id });
-      pages.push({ id, n: pageN, biome, p, prop: id, revealsLair: LAIR_PAGES.has(pageN) ? `lair_${biome}` : null });
-      made++;
+  // Halden's journal pages (config/biomes PAGE_PLAN; LOOP's text): each in a chamber of its biome, a
+  // page that names a guardian 40-120 m from that lair (it tells where to look), the camp's page by
+  // the camp, the first page below the gate by the lift, the last by the Heart's door.
+  for (const pg of PAGE_PLAN) {
+    if (BIOMES[pg.biome].stratum !== stratum) continue;
+    const biome = plan.biomes.includes(pg.biome) ? pg.biome : plan.biomes[0];
+    let p: V3 | null = null;
+    if (pg.near === 'arrival') {
+      for (let t = 0; t < 4 && !p; t++) p = nearWall([ax, ay, az], Math.ceil(Math.max(an.rx, an.rz)) + 4 + t * 2);
+    } else if (pg.near === 'gate') {
+      for (let t = 0; t < 4 && !p; t++) p = nearWall(places.gateStand, 5 + t * 2);
     }
+    if (!p) {
+      const lair = lairs.find((l) => l.biome === biome);
+      const homes = plan.nodes
+        .filter((n) => n.biome === biome && (n.kind === 'cavern' || n.kind === 'room') && n.role !== 'nest' && !curated(Math.floor(n.x), Math.floor(n.z)))
+        .map((n) => ({ n, d: lair ? Math.hypot(n.x - lair.centre[0], n.z - lair.centre[2]) : 60 }))
+        .filter((h) => !pg.lair || (h.d >= 40 && h.d <= 120))
+        .sort((p1, p2) => (pg.lair ? Math.abs(p1.d - 70) - Math.abs(p2.d - 70) : rng.next() - 0.5));
+      for (const h of homes) {
+        const q = nearWall([Math.floor(h.n.x) + 0.5, floorAt(h.n), Math.floor(h.n.z) + 0.5], Math.min(6, Math.floor(Math.min(h.n.rx, h.n.rz))));
+        if (q && spaced('page', q, 30)) {
+          p = q;
+          break;
+        }
+      }
+    }
+    if (!p) {
+      // Any reachable floor of the biome by a wall.
+      for (const i of order) {
+        const c = cellOf(i);
+        if (biomeAtCell(c[0], c[2]) !== biome || curated(c[0], c[2]) || !free(c[0], c[1], c[2]) || solidN(c[0], c[1], c[2]) === 0 || !spaced('page', c, 30)) continue;
+        claim(c[0], c[1], c[2]);
+        p = [c[0] + 0.5, c[1], c[2] + 0.5];
+        break;
+      }
+    }
+    if (!p) continue;
+    mark('page', p, 30);
+    const id = `page_${pg.n}`;
+    addProp({ kind: 'haldenNote', x: p[0], y: p[1], z: p[2], interact: 'feature', feature: { kind: 'note', id }, id });
+    pages.push({ id, n: pg.n, biome, p, prop: id, revealsLair: pg.lair ? `lair_${pg.biome}` : null });
   }
 
   // Ambient props along the floor: about every findSpacing m something to see (crates and carts in the
@@ -660,7 +825,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     const p = cellOf(i);
     const [x, y, z] = p;
     if (!spaced('prop', p, STRATA_GEN.findSpacing)) continue;
-    if (nearArrival(p, 10) || inLair(p) || !free(x, y, z) || solidN(x, y, z) === 0) continue;
+    if (curated(x, z) || nearArrival(p, 10) || inLair(p) || !free(x, y, z) || solidN(x, y, z) === 0) continue;
     const biome = biomeAtCell(x, z);
     const kinds = ambient[biome] ?? ['crate'];
     const kind = kinds[rng.int(0, kinds.length - 1)];
@@ -680,7 +845,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     const p = cellOf(i);
     const [x, y, z] = p;
     if (!spaced('decor', p, 4.5)) continue;
-    if (nearArrival(p, 8) || inLair(p) || st.corridor[x + z * sx]) continue;
+    if (curated(x, z) || nearArrival(p, 8) || inLair(p) || st.corridor[x + z * sx]) continue;
     const biome = biomeAtCell(x, z);
     const kinds = BIOMES[biome].props.filter((k) => !skipDecor.has(k));
     if (!kinds.length) continue;
@@ -716,10 +881,15 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     }
   }
 
-  // Ore veins: in the walls beside the walkable floor, the biome's ores by weight (rarer deeper).
+  // Ore veins (BRIEF §0.1: at least 3x the old density, rarity rising with depth): small distinct
+  // veins in the walls (0-3 m up) and roofs within reach of the walkable floor, never touching another
+  // vein (so they read as many finds, and a chain of ore never tunnels through a wall), the biome's ores
+  // by weight (the rarer ones weigh more deeper, and come in smaller veins). Ore rooms hold big veins.
   let oreBlocks = 0;
   const veinsPerCell = (STRATA_GEN.veinsPer1000 * (1 + STRATA_GEN.veinDepthGain * (stratum - 1))) / 1000;
   const rarRank: Record<string, number> = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
+  const ORE = new Uint8Array(256);
+  for (const bb of plan.biomes) for (const o of BIOMES[bb].ores) ORE[o.block] = 1;
   const orePick = (biome: BiomeId) => {
     const ores = BIOMES[biome].ores;
     let total = 0;
@@ -729,43 +899,50 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       return v;
     });
     let r = rng.next() * total;
-    for (let k = 0; k < ores.length; k++) if ((r -= ws[k]) <= 0) return ores[k].block;
-    return ores[ores.length - 1].block;
+    for (let k = 0; k < ores.length; k++) if ((r -= ws[k]) <= 0) return ores[k];
+    return ores[ores.length - 1];
   };
-  const oreRoomNear = (x: number, z: number) => sites.some((s) => s.kind === 'oreRoom' && Math.hypot(s.centre[0] - x, s.centre[2] - z) < s.radius + 2);
+  const oreRoomNear = (x: number, z: number) => sites.some((s2) => s2.kind === 'oreRoom' && Math.hypot(s2.centre[0] - x, s2.centre[2] - z) < s2.radius + 2);
+  const touchesOre = (x: number, y: number, z: number, own: ReadonlySet<number> | null) => {
+    for (let ddz = -1; ddz <= 1; ddz++) for (let ddy = -1; ddy <= 1; ddy++) for (let ddx = -1; ddx <= 1; ddx++) {
+      if (!ddx && !ddy && !ddz) continue;
+      const xx = x + ddx;
+      const yy = y + ddy;
+      const zz = z + ddz;
+      if (ORE[get(xx, yy, zz)] && !(own && own.has(xx + sx * (yy + sy * zz)))) return true;
+    }
+    return false;
+  };
+  const DIRS: Array<[number, number, number]> = [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, 1, 0]];
   for (let bi = 0; bi < 2; bi++) {
     const biome = plan.biomes[bi];
     if (!BIOMES[biome].ores.length) continue;
     const want = Math.round(stats[biome].floorCells * veinsPerCell);
     let made = 0;
-    for (let tries = 0; tries < want * 30 && made < want; tries++) {
+    for (let tries = 0; tries < want * 24 && made < want; tries++) {
       const i = cells[rng.int(0, cells.length - 1)];
       const [x, y, z] = cellOf(i);
-      if (biomeAtCell(x, z) !== biome) continue;
+      if (biomeAtCell(x, z) !== biome || curated(x, z)) continue;
       if (nearArrival([x, y, z], 8)) continue;
-      // March from the floor cell toward a wall at 0..2 m up.
-      const dir = rng.int(0, 3);
-      const dx = dir === 0 ? 1 : dir === 1 ? -1 : 0;
-      const dz = dir === 2 ? 1 : dir === 3 ? -1 : 0;
-      const h = rng.int(0, 2);
-      let hx = -1;
-      let hz = -1;
-      for (let k = 1; k <= 6; k++) {
+      // March from the floor cell toward a wall (0..3 m up) or the roof.
+      const [dx, dy, dz] = DIRS[rng.int(0, DIRS.length - 1)];
+      const h = dy ? 1 : rng.int(0, 3);
+      let hit: V3 | null = null;
+      for (let k = 1; k <= (dy ? 7 : 6); k++) {
         const cx = x + dx * k;
+        const cy = y + h + dy * k;
         const cz = z + dz * k;
-        const id = get(cx, y + h, cz);
+        const id = get(cx, cy, cz);
         if (SOLID[id]) {
-          if (isHost(id)) {
-            hx = cx;
-            hz = cz;
-          }
+          if (isHost(id)) hit = [cx, cy, cz];
           break;
         }
       }
-      if (hx < 0) continue;
+      if (!hit || touchesOre(hit[0], hit[1], hit[2], null)) continue;
       const ore = orePick(biome);
-      const size = oreRoomNear(x, z) ? rng.int(6, 12) : rng.int(3, 8);
-      const n = growVein(hx, y + h, hz, ore, size);
+      const rank = rarRank[ore.rarity];
+      const size = oreRoomNear(x, z) ? rng.int(6, 12) : rank >= 3 ? rng.int(1, 2) : rank === 2 ? rng.int(1, 3) : rng.int(2, 4);
+      const n = growVein(hit[0], hit[1], hit[2], ore.block, size, false, true);
       if (n) {
         made++;
         oreBlocks += n;
@@ -774,17 +951,167 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       }
     }
   }
-  function growVein(x: number, y: number, z: number, ore: number, size: number): number {
+  function growVein(x: number, y: number, z: number, ore: number, size: number, inCurated = false, distinct = false): number {
     const q: V3[] = [[x, y, z]];
+    const own = new Set<number>();
     let n = 0;
     while (q.length && n < size) {
       const [cx, cy, cz] = q.splice(rng.int(0, q.length - 1), 1)[0];
-      if (!isHost(get(cx, cy, cz))) continue;
+      if (!isHost(get(cx, cy, cz)) || (!inCurated && curated(cx, cz))) continue;
+      if (distinct && touchesOre(cx, cy, cz, own)) continue;
       set(cx, cy, cz, ore);
+      own.add(cx + sx * (cy + sy * cz));
       n++;
       for (const [ddx, ddy, ddz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) if (rng.chance(0.7)) q.push([cx + ddx, cy + ddy, cz + ddz]);
     }
     return n;
+  }
+
+  // ---- The great structures' content (curated: the density pass left these places alone).
+  /** The reachable feet point nearest p (within 3 m), or null. */
+  const onFloor = (p: V3): V3 | null => reachNear(seen, w, p, 3, 2);
+  let dungeon: DungeonSite | null = null;
+  const V = extras.vista;
+  if (V) {
+    sites.push({ id: V.id, kind: 'vista', biome: V.biome, centre: V.balcony, radius: 8, name: V.name });
+    landmarks.vista = V.balcony;
+    for (const l of V.lights) {
+      lights.push(l);
+      markLit(l);
+    }
+    // Two lamp posts at the back of the balcony (the view stays open in front).
+    const ux = V.balcony[0] - V.centre[0];
+    const uz = V.balcony[2] - V.centre[2];
+    const ul = Math.hypot(ux, uz) || 1;
+    for (const side of [-1, 1]) {
+      const q = onFloor([V.balcony[0] + (ux / ul) * 2.5 - (uz / ul) * side * 3, V.balcony[1], V.balcony[2] + (uz / ul) * 2.5 + (ux / ul) * side * 3]);
+      if (q && free(Math.floor(q[0]), q[1], Math.floor(q[2]))) {
+        claim(Math.floor(q[0]), q[1], Math.floor(q[2]));
+        addProp({ kind: 'lanternPost', x: q[0], y: q[1], z: q[2] }, B.LIGHT_AMBER);
+      }
+    }
+    // The hall's floor, dressed generously with its biome's props round the lake.
+    const kinds = BIOMES[V.biome].props.filter((k) => !HANGING_PROPS.has(k as PropKind) && !['chest', 'crate', 'barrel', 'lanternPost', 'runeStone', 'abyssMonolith'].includes(k));
+    if (kinds.length) {
+      for (const i of order) {
+        const c = cellOf(i);
+        const [x, y, z] = c;
+        if (y !== V.centre[1] || Math.hypot(x + 0.5 - V.centre[0], z + 0.5 - V.centre[2]) > V.radius - 2) continue;
+        if (curated(x, z) || !free(x, y, z) || !spaced('vistaDecor', c, 3.2)) continue;
+        claim(x, y, z);
+        mark('vistaDecor', c, 3.2);
+        addProp({ kind: kinds[rng.int(0, kinds.length - 1)] as PropKind, x: x + 0.5, y, z: z + 0.5, scale: rng.range(0.8, 1.4) });
+        stats[V.biome].props++;
+      }
+    }
+    const foot = onFloor(V.rampFoot);
+    if (foot) outpostSites.push({ id: `outpost_${V.id}`, biome: V.biome, p: foot, radius: 4 });
+  }
+
+  const RV = extras.river;
+  if (RV) {
+    const sb = biomeAtCell(Math.floor(RV.spring[0]), Math.floor(RV.spring[2]));
+    sites.push({ id: RV.id, kind: 'river', biome: sb, centre: RV.spring, radius: 8, name: RV.kind === 'lava' ? 'lavaRiver' : 'river' });
+    landmarks.spring = RV.spring;
+    // Its banks: reeds, shells and driftwood every few metres (charred bones and vents by lava).
+    const bank = RV.kind === 'lava' ? ['charredBones', 'emberVent'] : ['reeds', 'shells', 'driftwood', 'reeds'];
+    for (let k = 0; k < RV.points.length; k += 4) {
+      const [px0, py0, pz0] = RV.points[k];
+      const q = onFloor([px0 + rng.range(-2.5, 2.5), Math.round(py0 + 0.25), pz0 + rng.range(-2.5, 2.5)]);
+      if (!q) continue;
+      const qx = Math.floor(q[0]);
+      const qz = Math.floor(q[2]);
+      if (curated(qx, qz) || !free(qx, q[1], qz) || !spaced('bank', q, 3)) continue;
+      claim(qx, q[1], qz);
+      mark('bank', q, 3);
+      addProp({ kind: bank[rng.int(0, bank.length - 1)] as PropKind, x: q[0], y: q[1], z: q[2], scale: rng.range(0.8, 1.2) });
+    }
+    const sx0 = Math.floor(RV.spring[0]);
+    const sz0 = Math.floor(RV.spring[2]);
+    const sy0 = Math.round(RV.spring[1]) + 3;
+    if (get(sx0, sy0, sz0) === B.AIR) {
+      set(sx0, sy0, sz0, RV.kind === 'lava' ? B.LIGHT_MAGMA : B.LIGHT_CYAN);
+      lights.push([sx0, sy0, sz0]);
+    }
+  }
+
+  const WK = extras.works;
+  if (WK) {
+    sites.push({ id: WK.id, kind: 'dungeon', biome: WK.biome, centre: WK.entry, radius: 6, name: 'works' });
+    landmarks.works = WK.entry;
+    const leverIds: string[] = [];
+    WK.levers.forEach((l, k) => {
+      const id = `${WK.id}_lever_${k}`;
+      claim(Math.floor(l.p[0]), l.p[1], Math.floor(l.p[2]));
+      addProp({ kind: 'lever', x: l.p[0], y: l.p[1], z: l.p[2], rotY: l.rotY, interact: 'feature', feature: { kind: 'lever', id }, id });
+      leverIds.push(id);
+    });
+    for (const lamp of WK.lamps) addProp({ kind: 'hangingLantern', x: lamp.p[0], y: lamp.p[1], z: lamp.p[2], anchor: lamp.anchor }, B.LIGHT_LAMP);
+    const chestIds = WK.chests.map((c, k) => addChest(c, k === 2 ? 'secret' : 'dungeon', stratum + (k === 2 ? 2 : 1)));
+    for (const d of WK.dressing) {
+      const x = Math.floor(d.p[0]);
+      const z = Math.floor(d.p[2]);
+      if (!free(x, d.p[1], z)) continue;
+      claim(x, d.p[1], z);
+      addProp({ kind: d.kind as PropKind, x: d.p[0], y: d.p[1], z: d.p[2], rotY: d.rotY });
+    }
+    const ex = Math.floor(WK.entry[0]);
+    const ez = Math.floor(WK.entry[2]);
+    if (free(ex, WK.entry[1], ez)) addProp({ kind: 'lanternPost', x: WK.entry[0], y: WK.entry[1], z: WK.entry[2] }, B.LIGHT_LAMP);
+    dungeon = { id: WK.id, biome: WK.biome, puzzle: WK.puzzle, entry: WK.entry, hall: WK.hall, vault: WK.vault, door: WK.door, sockets: WK.sockets, levers: leverIds, plates: WK.plates, chests: chestIds };
+  }
+
+  for (const r of extras.ravines) {
+    sites.push({ id: r.id, kind: 'ravine', biome: r.biome, centre: r.bottom, radius: 4 });
+    const bx = Math.floor(r.bottom[0]);
+    const bz = Math.floor(r.bottom[2]);
+    const by = r.bottom[1];
+    if (get(bx, by, bz) === B.AIR && get(bx, by + 1, bz) === B.AIR && SOLID[get(bx, by - 1, bz)]) addChest([bx, by, bz], 'ravine', stratum + 1);
+    if (get(bx, by + 3, bz) === B.AIR) {
+      set(bx, by + 3, bz, BIOMES[r.biome].lightBlock);
+      lights.push([bx, by + 3, bz]);
+    }
+    // The pocket's walls are rich: three veins of the biome's rarer ores.
+    const ores = BIOMES[r.biome].ores;
+    for (let k = 0; k < 3 && ores.length; k++) {
+      const a = rng.range(0, Math.PI * 2);
+      for (let s = 2; s < 6; s++) {
+        const x = Math.floor(r.bottom[0] + Math.cos(a) * s);
+        const z = Math.floor(r.bottom[2] + Math.sin(a) * s);
+        if (isHost(get(x, by + 1, z))) {
+          const ore = ores[Math.min(ores.length - 1, 1 + k)]?.block ?? ores[0].block;
+          const n = growVein(x, by + 1, z, ore, rng.int(4, 7), true);
+          stats[r.biome].oreBlocks += n;
+          if (n) stats[r.biome].oreVeins++;
+          break;
+        }
+      }
+    }
+  }
+
+  for (const pc of extras.pieces) {
+    const pn = plan.nodes[pc.node];
+    for (const l of pc.lights) {
+      lights.push(l);
+      markLit(l);
+    }
+    if (pc.chest) {
+      const q = onFloor(pc.chest);
+      if (q && free(Math.floor(q[0]), q[1], Math.floor(q[2]))) addChest([Math.floor(q[0]), q[1], Math.floor(q[2])], 'setPiece', stratum + 1);
+    }
+    for (const pr of pc.props) {
+      if (pr.p[1] < 1) continue;
+      if (pr.anchor) {
+        if (SOLID[get(pr.anchor[0], pr.anchor[1], pr.anchor[2])]) addProp({ kind: pr.kind as PropKind, x: pr.p[0], y: pr.p[1], z: pr.p[2], anchor: pr.anchor, scale: rng.range(0.8, 1.2) }, pr.kind === 'hangingLantern' ? B.LIGHT_LAMP : undefined);
+        continue;
+      }
+      const x = Math.floor(pr.p[0]);
+      const z = Math.floor(pr.p[2]);
+      if (!free(x, pr.p[1], z) || !SOLID[get(x, pr.p[1] - 1, z)]) continue;
+      claim(x, pr.p[1], z);
+      addProp({ kind: pr.kind as PropKind, x: pr.p[0], y: pr.p[1], z: pr.p[2], rotY: pr.rotY ?? rng.range(0, Math.PI * 2), scale: rng.range(0.85, 1.25) }, pr.kind === 'lanternPost' ? B.LIGHT_AMBER : undefined);
+      stats[pn.biome].props++;
+    }
   }
 
   // Spawn points: every ~14 m of floor, out of the camp and the lairs.
@@ -806,15 +1133,39 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   const hazards: HazardZone[] = decor.pools.map((pl, k) => ({ id: `hz_${k}`, kind: pl.kind, biome: biomeAtCell(Math.floor(pl.x), Math.floor(pl.z)), centre: [pl.x, pl.y, pl.z], radius: pl.r + (pl.kind === 'gas' ? 3 : 1), strength: pl.kind === 'gas' ? 0.8 : 1 }));
   for (const n of plan.nodes) {
     const hk = BIOMES[n.biome].hazard.kind;
-    if (n.kind !== 'cavern') continue;
+    if (n.kind !== 'cavern' && n.kind !== 'vista') continue;
     if (hk === 'cold' || hk === 'dark' || hk === 'void') hazards.push({ id: `hz_${hazards.length}`, kind: hk, biome: n.biome, centre: [n.x, n.y, n.z], radius: Math.max(n.rx, n.rz), strength: BIOMES[n.biome].hazard.strength });
+  }
+  // The gentle hazards of strata II and III, in real places only: the chill by the grottoes' water
+  // (every lake and river pool of a chill biome), the long falls of the ravines' openings, the old
+  // timbers of the mines' camps and works (rockfall).
+  for (const lk of [...decor.lakes, ...(extras.lakes ?? [])]) {
+    const cx = (lk.min[0] + lk.max[0]) / 2;
+    const cz = (lk.min[1] + lk.max[1]) / 2;
+    const b = biomeAtCell(Math.floor(cx), Math.floor(cz));
+    if (BIOMES[b].hazard.kind !== 'chill') continue;
+    hazards.push({ id: `hz_${hazards.length}`, kind: 'chill', biome: b, centre: [cx, lk.level, cz], radius: Math.hypot(lk.max[0] - lk.min[0], lk.max[1] - lk.min[1]) / 2 + 3, strength: BIOMES[b].hazard.strength });
+  }
+  for (const r of extras.ravines) hazards.push({ id: `hz_${hazards.length}`, kind: 'falls', biome: r.biome, centre: r.top, radius: 9, strength: Math.max(0.3, BIOMES[r.biome].hazard.kind === 'falls' ? BIOMES[r.biome].hazard.strength : 0.3) });
+  for (const site of sites) {
+    if ((site.kind !== 'mineCamp' && site.kind !== 'dungeon') || BIOMES[site.biome].hazard.kind !== 'rockfall') continue;
+    hazards.push({ id: `hz_${hazards.length}`, kind: 'rockfall', biome: site.biome, centre: site.centre, radius: site.kind === 'dungeon' ? 16 : site.radius + 2, strength: BIOMES[site.biome].hazard.strength });
   }
 
   for (const b of plan.biomes) {
-    const s = stats[b];
-    // Walked metres ~ floor cells / tunnel width (~3 standable cells across a passage).
-    s.chestsPer25m = s.floorCells ? s.chests / (s.floorCells / 3 / STRATA_GEN.chestSpacing) : 0;
+    const st2 = stats[b];
+    // Chests along the plan's tunnels per 25 m of their walking line (BRIEF §0.1: about one).
+    st2.tunnelMetres = Math.round(tunnelM[b] ?? 0);
+    st2.chestsPer25m = tunnelM[b] ? +((tunnelChests[b] ?? 0) / (tunnelM[b] / STRATA_GEN.chestSpacing)).toFixed(2) : 0;
   }
 
-  return { props, lairs, gate, arrival, camp, campSite, outpostSites, pages, chests, nests, spawnPoints, hazards, sites, landmarks, heart, stats, oreBlocks };
+  // The set pieces' own hazards: the geyser field's gas, the ember deep's and the vista's lava.
+  for (const pc of extras.pieces) {
+    const pn = plan.nodes[pc.node];
+    if (pc.name === 'geyserField') hazards.push({ id: `hz_${hazards.length}`, kind: 'gas', biome: pn.biome, centre: [pn.x, pn.y, pn.z], radius: Math.min(pn.rx, pn.rz) * 0.7, strength: 0.7 });
+    if (pc.name === 'emberDeep') hazards.push({ id: `hz_${hazards.length}`, kind: 'lava', biome: pn.biome, centre: [pn.x, pn.y, pn.z], radius: Math.min(pn.rx, pn.rz) * 0.45, strength: 1 });
+  }
+  if (V?.lava) hazards.push({ id: `hz_${hazards.length}`, kind: 'lava', biome: V.biome, centre: V.centre, radius: V.radius * 0.45, strength: 1 });
+
+  return { props, lairs, gate, arrival, camp, campSite, outpostSites, pages, chests, nests, spawnPoints, hazards, sites, landmarks, heart, stats, oreBlocks, dungeon, secrets };
 }

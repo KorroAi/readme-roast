@@ -16,9 +16,9 @@ import type { CraftContext } from '../../src/gameplay/Crafting';
 import type { ItemCounts } from '../../src/save/types';
 
 describe('materials, packs and lanterns (loop spec 2.1, 2.2)', () => {
-  it('has the six materials with tight stacks and the eight runes as key items', () => {
+  it('round 3: materials and ores stack to 60, gems to 30; the 1.x runes stay key items (old saves)', () => {
     const stacks = Object.fromEntries(['stone', 'rootFibre', 'copperOre', 'ironOre', 'glimmerShard', 'echoShard'].map((id) => [id, ITEMS[id as keyof typeof ITEMS].stackSize]));
-    expect(stacks).toEqual({ stone: 30, rootFibre: 20, copperOre: 15, ironOre: 10, glimmerShard: 10, echoShard: 5 });
+    expect(stacks).toEqual({ stone: 60, rootFibre: 60, copperOre: 60, ironOre: 60, glimmerShard: 30, echoShard: 30 });
     expect(RUNE_ITEMS.length).toBe(8);
     expect(RUNE_ITEMS).toContain('ancientTablet');
     for (const id of RUNE_ITEMS) expect(ITEMS[id].keyItem).toBe(true);
@@ -34,19 +34,22 @@ describe('materials, packs and lanterns (loop spec 2.1, 2.2)', () => {
     expect(BLOCKS[B.IRON_ORE].drop).toMatchObject({ item: 'ironOre', min: 1, max: 2 });
   });
 
-  it('packs grow 6 -> 8 -> 10, and only the Expedition Pack has the 2-slot Sealed Pouch', () => {
-    expect(PACKS.map((p) => [p.slots, p.pouch])).toEqual([[6, 0], [8, 0], [10, 2]]);
-    expect(packForTier(3).name).toBe('equip.expeditionPack');
+  it('round 3: bags grow 16 -> 24 -> 32 -> 40; the Expedition and Deep packs keep a Sealed Pouch', () => {
+    expect(PACKS.map((p) => [p.slots, p.pouch])).toEqual([[16, 0], [24, 0], [32, 4], [40, 6]]);
+    expect(packForTier(3).name).toBe('item.expeditionPack');
+    expect(packForTier(9).slots).toBe(40);
   });
 
-  it('lanterns burn 300 / 600 / 900 s; the Attuned one keeps a bright ember and the cold away', () => {
-    expect(LANTERNS.map((l) => l.fuelSeconds)).toEqual([300, 600, 900]);
-    expect(LANTERNS.map((l) => l.noCold)).toEqual([false, false, true]);
-    expect(lanternForTier(3).ember).toBe(0.7);
+  it('round 3: five lanterns burn 7 to 20 min with a wider sonar; the Sun Lantern keeps the brightest ember', () => {
+    expect(LANTERNS.map((l) => l.fuelSeconds)).toEqual([420, 600, 780, 960, 1200]);
+    expect(LANTERNS.map((l) => l.sonar)).toEqual([18, 24, 30, 36, 44]);
+    // The cold is the hazards' now (gameplay/Hazards): no lantern makes the explorer immune.
+    expect(LANTERNS.map((l) => l.noCold)).toEqual([false, false, false, false, false]);
+    expect(lanternForTier(5).ember).toBe(0.7);
     const l = new Lantern(300, 0);
     expect(l.radiusFactor).toBe(PLAYER.emptyLanternFactor);
-    l.refill(lanternForTier(3));
-    l.update(1000, false, lanternForTier(3));
+    l.refill(lanternForTier(5));
+    l.update(2000, false, lanternForTier(5));
     expect(l.lit).toBe(false);
     expect(l.radiusFactor).toBe(0.7);
   });

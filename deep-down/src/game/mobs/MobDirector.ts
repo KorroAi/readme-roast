@@ -10,8 +10,12 @@ import { standableFor } from './nav';
 import { BestiaryLog, type BestiarySave } from './bestiary';
 import { guardianState } from './guardian';
 import { ROSTERS } from './rosters';
-import { setSpawnSpots, type Lair, type Nest } from './spawner';
+import { setSpawnSpots, spawnFirstFight, type Lair, type Nest } from './spawner';
 import { SPECIES } from './species';
+import { ELITE_BONUS, RADIANT_OIL, eliteName } from './elites';
+import { CompanionBrain, TAME_NEED, XP, levelFor, nextLevelXp, type CompanionState, type CompanionView } from './companion';
+import { RARITY_CODE } from '../../config/rarity';
+import { isSfxName } from '../../audio/sfx';
 import type { BestiaryEntryView, GuardianState, Mob, MobBiome, MobContext, MobHitResult, MobKind, MobRay, MobStrike, MobSystem } from './types';
 import type { Game } from '../Game';
 
@@ -38,7 +42,7 @@ interface GameExtras {
   /** UI: seconds of dash i-frames left. */
   invulnerable?: number;
   /** WORLD: the stratum manager (built outposts are safe ground). */
-  strata?: { current?: number; outposts?: ReadonlyArray<{ p?: readonly number[]; x?: number; y?: number; z?: number }> };
+  strata?: { current?: number; outposts?: ReadonlyArray<{ p?: readonly number[]; x?: number; y?: number; z?: number; stratum?: number }> };
   /** A day cycle if one is added (0 day .. 1 night). */
   dayNight?: number;
   events?: { handle?: (k: 'migration' | 'treasure') => void };
@@ -83,6 +87,17 @@ export class MobDirector implements MobSystem {
   night = 0;
   /** Captures and some tests: blows land (events, sounds) but take no health. */
   harmless = false;
+  private drawnAt: ((x: number, y: number, z: number) => boolean) | null = null;
+  /** The companion (a tame Lampling), saved; its brain senses ores and zaps foes. */
+  private companionState: CompanionState | null = null;
+  private readonly companionBrain: CompanionBrain;
+  /** Ore cells it chirped about: mining one gives it experience. */
+  private readonly toldOres = new Set<string>();
+  private hungryHintAt = -Infinity;
+  /** LOOP's tutorial asked for its first fight (step 'fight'): one weak monster is due. */
+  private fightWanted = false;
+  private fightTry = 0;
+  private fightMob = 0;
 
   constructor(private readonly game: Game, private readonly hooks: MobDirectorHooks) {
     const g = game;
@@ -101,9 +116,12 @@ export class MobDirector implements MobSystem {
       },
       depthOf: (y) => WORLD.depthOffset - y,
       safe: (x, y, z) => {
-        const list = extras().strata?.outposts;
+        const st = extras().strata;
+        const list = st?.outposts;
         if (!list) return false;
         for (const o of list) {
+          // Only this stratum's outposts (another's stands at the same coordinates in another cave).
+          if (o.stratum !== undefined && st?.current !== undefined && o.stratum !== st.current) continue;
           const ox = o.p ? o.p[0] : o.x;
           const oy = o.p ? o.p[1] : o.y;
           const oz = o.p ? o.p[2] : o.z;
@@ -116,6 +134,11 @@ export class MobDirector implements MobSystem {
     this.sim = new MobSim(env, 0x6d0b5 ^ Math.floor(Math.random() * 1e6));
     this.renderer = new MobRenderer(g.session.rig.uniforms);
     this.group = this.renderer.group;
+    this.companionBrain = new CompanionBrain({
+      block: (x, y, z) => g.session.world.get(x, y, z),
+      oreRarity: (id) => RARITY_CODE[id & 255] - 1,
+    });
+    this.renderer.companion = this.companionBrain;
     this.configureWorld();
     this.offs.push(this.sim.on((e) => this.onSim(e)));
     const bus = g.bus;
@@ -136,9 +159,20 @@ export class MobDirector implements MobSystem {
     this.offs.push(bus.on('block:hit', ({ x, y, z }) => {
       for (const m of this.sim.mobs) if (m.brain === 'moth' && m.state === 'follow' && m.position.distanceTo(tmp.set(x + 0.5, y + 0.5, z + 0.5)) < 2.5) m.setState('wander');
     }));
-    // The sonar's pulse scans every creature in its reach (a bestiary page each).
+    // The sonar's pulse scans every creature in its reach (a bestiary page each). UI's ActionLayer
+    // also calls scan() directly; a second scan of the same creatures does nothing.
     this.offs.push(bus.on('player:sonar', ({ x, y, z, radius }) => {
       this.scan(x, y, z, radius);
+    }));
+    // The companion's ores: one the explorer mines after its chirp is worth experience.
+    this.offs.push(bus.on('block:broken', ({ x, y, z }) => {
+      const k = `${x},${y},${z}`;
+      if (this.toldOres.delete(k)) this.gainXp(XP.oreMined);
+    }));
+    // LOOP's tutorial: its 'fight' step wants a first, gentle foe in sight.
+    this.offs.push(bus.on('tutorial:step', ({ id }) => {
+      this.fightWanted = id === 'fight';
+      this.fightTry = 0;
     }));
   }
 
@@ -178,7 +212,9 @@ export class MobDirector implements MobSystem {
     }
     if (sl.heart) {
       const h = sl.heart;
-      lairs.push({ id: 'heart', biome: 'heart', guardian: 'heartOfDark', x: h.centre[0], y: h.centre[1], z: h.centre[2], radius: h.radius, sx: h.spawn[0], sy: h.spawn[1], sz: h.spawn[2] });
+      // The Dark Heart wakes when the 12 shards relight the Heart (LOOP's 'quest:heartLit'): before that
+      // its chamber is still, so the ending cannot come before the shards.
+      lairs.push({ id: 'heart', biome: 'heart', guardian: 'heartOfDark', x: h.centre[0], y: h.centre[1], z: h.centre[2], radius: h.radius, sx: h.spawn[0], sy: h.spawn[1], sz: h.spawn[2], sealed: () => !this.heartLit() });
     }
     this.sim.lairs = lairs;
     const nests: Nest[] = [];
@@ -189,6 +225,22 @@ export class MobDirector implements MobSystem {
     }
     this.sim.nests = nests;
     setSpawnSpots((sl.spawnPoints ?? []).filter((q) => q.biome in ROSTERS).map((q) => ({ x: q.p[0], y: q.p[1], z: q.p[2], biome: q.biome as MobBiome, dark: q.dark, open: q.open, ceiling: q.ceiling })));
+    // Warm this stratum's creatures' models and batches, one a tick (no hitch at a first meeting).
+    const biomes = ((sl as { biomes?: readonly string[] }).biomes ?? []).filter((b): b is MobBiome => b in ROSTERS);
+    if (sl.heart) biomes.push('heart');
+    const kinds = new Set<MobKind>();
+    for (const b of biomes) {
+      const r = ROSTERS[b];
+      for (const e of [...r.monsters, ...r.beings]) kinds.add(e.kind);
+      kinds.add(r.guardian);
+    }
+    if (kinds.size) this.renderer.prepare([...kinds]);
+  }
+
+  /** LOOP's quest: the Heart relit with the 12 shards (its boss may come). */
+  private heartLit(): boolean {
+    const q = (this.game as unknown as { quests?: { heartLit?: boolean } }).quests;
+    return q?.heartLit === true;
   }
 
   private sentinelSites(lm: Record<string, readonly number[] | undefined>): SentinelSite[] {
@@ -303,7 +355,154 @@ export class MobDirector implements MobSystem {
       this.renderer.step(dt, ctx.lantern.x, ctx.lantern.y, ctx.lantern.z);
     }
     if (this.fighting && (this.fighting.dying || this.fighting.state === 'sleep' || !this.sim.mobs.includes(this.fighting))) this.fighting = null;
+    if (active && this.fightWanted) this.tutorialFight(dt, ctx);
+    if (active && this.companionState) this.keepCompanion(ctx);
   }
+
+  // ------------------------------------------------------------------------------------
+  // The companion
+
+  /** Its body in this stratum: placed beside the explorer when it has none (a load, a switch, the camp). */
+  private keepCompanion(ctx: MobContext): void {
+    if (this.sim.mobs.some((m) => m.tame && !m.dying)) return;
+    const p = ctx.player;
+    const m = this.sim.spawn('lampling', p.x + 0.7, p.y + 1.9, p.z + 0.7, { biome: this.sim.biomeAt(p.x, p.y, p.z) });
+    if (!m) return;
+    this.makeTame(m);
+  }
+
+  private makeTame(m: SimMob): void {
+    m.tame = true;
+    m.met = true;
+    m.rarity = undefined;
+    m.tappable = true;
+    m.setState('follow');
+    const c = this.companionState;
+    if (c) this.sim.companion = { brain: this.companionBrain, level: c.level };
+  }
+
+  /** A tap on a Lampling: feed it a glowcap (three tame a wild one; the companion grows on them). */
+  private feed(m: SimMob): void {
+    const g = this.game;
+    const bus = g.bus;
+    const food: ItemId = 'glowcap';
+    const have = g.backpack.count(food) > 0;
+    const now = this.sim.clock;
+    if (m.tame) {
+      if (!have) {
+        this.sfxAt(this.voice('companion.happy', 'mob.chime'), m.position);
+        return;
+      }
+      g.backpack.remove(food, 1);
+      bus.emit('inventory:changed', {});
+      this.gainXp(XP.fed, true);
+      g.particles.sparkle(m.position.x, m.position.y, m.position.z, m.def.mote, 8, g.rng, 0.8);
+      return;
+    }
+    if (m.kind !== 'lampling') return;
+    if (this.companionState) {
+      if (now - this.hungryHintAt > 20) {
+        this.hungryHintAt = now;
+        g.ui.hint(t('mob.companion.already'), 2600);
+      }
+      return;
+    }
+    if (!have) {
+      if (now - this.hungryHintAt > 20) {
+        this.hungryHintAt = now;
+        g.ui.hint(t('mob.companion.hungry'), 3200);
+      }
+      return;
+    }
+    g.backpack.remove(food, 1);
+    bus.emit('inventory:changed', {});
+    m.trust++;
+    // A fed one stays with the explorer while it makes up its mind.
+    m.setState('follow');
+    m.stateTime = 0;
+    bus.emit('companion:trust', { kind: m.kind, trust: m.trust, need: TAME_NEED });
+    g.particles.sparkle(m.position.x, m.position.y, m.position.z, m.def.mote, 6, g.rng, 0.7);
+    this.sfxAt(this.voice('companion.chirp', 'mob.chirp'), m.position);
+    if (m.trust < TAME_NEED) {
+      g.ui.hint(t('mob.companion.trust', { n: m.trust, need: TAME_NEED }), 2600);
+      return;
+    }
+    this.tameNow(m);
+  }
+
+  /** It chooses the explorer: the companion from now on (also the debug hook's way in). */
+  tameNow(m: SimMob, xp = 0): void {
+    const g = this.game;
+    const bus = g.bus;
+    this.companionState = { kind: m.kind, level: levelFor(xp), xp };
+    this.makeTame(m);
+    const name = t('mob.lampling');
+    bus.emit('companion:tamed', { kind: m.kind, name });
+    g.ui.toast(t('mob.companion.tamed'), 'good');
+    g.ui.hint(t('mob.companion.how'), 6000);
+    this.sfxAt(this.voice('companion.happy', 'mob.catch'), m.position);
+    // Every Lampling of its little group goes home: this one has chosen.
+    for (const o of this.sim.mobs) if (o !== m && o.kind === 'lampling' && o.group === m.group && !o.tame) o.setState('flee');
+  }
+
+  /** Experience for the companion; a level comes with a toast and a chime. */
+  private gainXp(n: number, fed = false): void {
+    const c = this.companionState;
+    if (!c) return;
+    c.xp += n;
+    const level = levelFor(c.xp);
+    if (fed) this.game.bus.emit('companion:fed', { kind: c.kind, xp: n, total: c.xp, next: nextLevelXp(c.level) ?? c.xp });
+    if (fed) this.game.ui.hint(t('mob.companion.fed'), 1800);
+    if (level > c.level) {
+      c.level = level;
+      if (this.sim.companion) this.sim.companion.level = level;
+      this.game.bus.emit('companion:level', { kind: c.kind, level });
+      this.game.ui.toast(t('mob.companion.level', { level }), 'good');
+      const body = this.sim.mobs.find((m) => m.tame && !m.dying);
+      if (body) {
+        this.sfxAt(this.voice('companion.levelup', 'mob.catch'), body.position);
+        this.game.particles.sparkle(body.position.x, body.position.y, body.position.z, body.def.mote, 14, this.game.rng, 1.2);
+      }
+    } else if (fed) {
+      const body = this.sim.mobs.find((m) => m.tame && !m.dying);
+      if (body) this.sfxAt(this.voice('companion.happy', 'mob.chime'), body.position);
+    }
+  }
+
+  /** A sound AUDIO may register later (the companion's voices), else one of mine. */
+  private voice(name: string, fallback: string): string {
+    return isSfxName(name) ? name : fallback;
+  }
+
+  /** UI's HUD chip: the companion, or null before one is tamed. */
+  companion(): CompanionView | null {
+    const c = this.companionState;
+    if (!c) return null;
+    const body = this.sim.mobs.find((m) => m.tame && !m.dying);
+    return {
+      kind: c.kind,
+      name: t('mob.lampling'),
+      level: c.level,
+      xp: c.xp,
+      next: nextLevelXp(c.level),
+      state: this.companionBrain.state,
+      glow: body ? Math.min(1, 0.6 + 0.08 * c.level) : 0,
+    };
+  }
+
+  /** The tutorial's first fight: until one stands, try every second to put a lone, soft Amber Tick in view. */
+  private tutorialFight(dt: number, ctx: MobContext): void {
+    if (this.sim.mobs.some((m) => m.id === this.fightMob && !m.dying)) return;
+    this.fightTry -= dt;
+    if (this.fightTry > 0) return;
+    this.fightTry = 1;
+    const m = spawnFirstFight(this.sim, ctx);
+    if (m) {
+      this.fightWanted = false;
+      this.fightMob = m.id;
+    }
+  }
+
 
   update(dt: number, ctx: MobContext): void {
     this.lastCtx = ctx;
@@ -311,7 +510,10 @@ export class MobDirector implements MobSystem {
     else this.sim.ctx = ctx;
     const g = this.game;
     const cam = g.cameraRig.camera;
-    this.renderer.sync(this.sim, g.session.rig.uniforms.uTime.value, cam, g.renderer.canvas.height, cam.fov);
+    // VIS's cave culling: creatures behind rock are not drawn.
+    const chunks = g.session.chunks as unknown as { chunkDrawnAt?(x: number, y: number, z: number): boolean };
+    const drawnAt = typeof chunks.chunkDrawnAt === 'function' ? this.drawnAt ?? (this.drawnAt = (x, y, z) => chunks.chunkDrawnAt!(x, y, z)) : undefined;
+    this.renderer.sync(this.sim, g.session.rig.uniforms.uTime.value, cam, g.renderer.canvas.height, cam.fov, drawnAt);
   }
 
   // ------------------------------------------------------------------------------------
@@ -348,6 +550,12 @@ export class MobDirector implements MobSystem {
   activeGuardian(): GuardianState | null {
     const m = this.fighting;
     if (!m || m.dying || m.state === 'sleep') return null;
+    // Out of its arena (fled, or carried off): no bar; it heals and sleeps if the explorer stays away.
+    const ctx = this.lastCtx;
+    if (ctx && m.lair) {
+      const d = Math.hypot(ctx.player.x - m.lair.x, ctx.player.z - m.lair.z);
+      if (d > m.lair.radius + 12 || Math.abs(ctx.player.y - m.lair.y) > 16) return null;
+    }
     return guardianState(m);
   }
 
@@ -366,12 +574,17 @@ export class MobDirector implements MobSystem {
     return this.bestiary.view();
   }
 
-  /** WORLD's save v4: the bestiary and the guardians beaten. */
+  /** WORLD's save v4: the bestiary, the guardians beaten, the companion. */
   serialise(): BestiarySave {
-    return this.bestiary.serialise(this.sim.guardiansDone);
+    const out = this.bestiary.serialise(this.sim.guardiansDone);
+    if (this.companionState) out.companion = { ...this.companionState };
+    return out;
   }
 
   restore(data: unknown): void {
+    const c = (data as { companion?: Partial<CompanionState> } | null)?.companion;
+    this.companionState = c && c.kind === 'lampling' && Number.isFinite(c.xp) ? { kind: 'lampling', xp: Math.max(0, Number(c.xp)), level: levelFor(Math.max(0, Number(c.xp))) } : null;
+    this.sim.companion = this.companionState ? { brain: this.companionBrain, level: this.companionState.level } : null;
     const beaten = this.bestiary.restore(data);
     this.sim.guardiansDone.clear();
     for (const b of beaten) this.sim.guardiansDone.add(b);
@@ -466,12 +679,15 @@ export class MobDirector implements MobSystem {
     this.met.clear();
   }
 
-  /** New Game: the bestiary and the beaten guardians start over too (Continue restores them). */
+  /** New Game: the bestiary, the beaten guardians and the companion start over (Continue restores them). */
   newExpedition(): void {
     this.reset();
     this.bestiary.clear();
     this.sim.known.clear();
     this.sim.guardiansDone.clear();
+    this.companionState = null;
+    this.sim.companion = null;
+    this.toldOres.clear();
   }
 
   // ------------------------------------------------------------------------------------
@@ -526,8 +742,13 @@ export class MobDirector implements MobSystem {
       case 'die': {
         const m = e.mob;
         const s = this.stereo(m.position);
-        bus.emit('mob:died', { id: m.id, kind: m.kind, biome: m.biome, rank: m.rank, ...s });
+        bus.emit('mob:died', { id: m.id, kind: m.kind, biome: m.biome, rank: m.rank, ...s, ...(m.elite ? { elite: true, affixes: [...m.affixes] } : {}) });
         this.dropsOf(m);
+        if (m.elite) {
+          // A radiant leader bursts in light: oil for the lantern (the sim made the others recoil).
+          if (m.affixBits & 1) g.lanternFuel.add(RADIANT_OIL);
+          g.ui.toast(t('mob.elite.down', { name: eliteName(m.kind, m.affixes) }), 'good');
+        }
         this.page(m.kind, this.bestiary.defeat(m.kind));
         // A few motes in its own colour (calm: no burst, no flash on the screen).
         const p = m.position;
@@ -538,12 +759,15 @@ export class MobDirector implements MobSystem {
         if (m.guardian) {
           const biome = m.lair?.biome ?? m.biome;
           bus.emit('mob:guardianDefeated', { id: m.id, kind: m.kind as GuardianState['kind'], biome, shard: biome, x: p.x, y: p.y, z: p.z });
+          // Its Heart Shard rises from the body and flies to the explorer's lantern.
+          this.renderer.shardRise(p.x, p.y + m.bounds.halfHeight, p.z, m.def.mote);
           g.ui.toast(t('mob.guardianDown', { name: t(`mob.${m.kind}` as TextKey) }), 'good');
           if (this.fighting === m) this.fighting = null;
         }
         break;
       }
       case 'interact':
+        if (e.action === 'petted' && e.mob.brain === 'lamp' && (e.mob.tame || e.mob.kind === 'lampling')) this.feed(e.mob);
         bus.emit('mob:interact', { id: e.mob.id, kind: e.mob.kind, action: e.action });
         this.page(e.mob.kind, this.bestiary.befriend(e.mob.kind));
         if (e.action === 'caught' || e.action === 'harvested') {
@@ -575,6 +799,7 @@ export class MobDirector implements MobSystem {
         break;
       case 'meet':
         this.meet(e.mob.kind);
+        if (e.mob.elite) this.metElite(e.mob);
         break;
       case 'shot': {
         const s = this.stereo(e.shot.p);
@@ -605,6 +830,25 @@ export class MobDirector implements MobSystem {
           if (this.fighting === m) this.fighting = null;
           bus.emit('mob:guardianReset', { id: m.id, kind: m.kind as GuardianState['kind'], biome });
           g.ui.hint(t('mob.guardianReset'), 2600);
+        }
+        break;
+      }
+      case 'companion': {
+        const ev = e.event;
+        if (ev.what === 'ore') {
+          bus.emit('companion:ore', { x: ev.x, y: ev.y, z: ev.z, block: ev.block, rarity: ev.rarity });
+          this.toldOres.add(`${ev.x},${ev.y},${ev.z}`);
+          if (this.toldOres.size > 64) this.toldOres.delete(this.toldOres.values().next().value as string);
+          this.gainXp(XP.oreFound);
+          this.sfxAt(this.voice('companion.alert', 'mob.chirp'), { x: ev.x + 0.5, y: ev.y + 0.5, z: ev.z + 0.5 });
+          if (!g.progression.hintsShown.has('companion.ore')) {
+            g.progression.hintsShown.add('companion.ore');
+            g.ui.hint(t('mob.companion.ore'), 3600);
+          }
+        } else {
+          bus.emit('companion:zap', { target: ev.target.id, kind: ev.target.kind, damage: ev.damage, killed: ev.killed });
+          this.sfxAt('weapon.spark', ev.target.position);
+          if (ev.killed) this.gainXp(XP.zapKill);
         }
         break;
       }
@@ -666,21 +910,35 @@ export class MobDirector implements MobSystem {
     if (hasText(key)) g.ui.hint(t(key as TextKey), 4200);
   }
 
-  /** Drops fly to the bag like a mined vein's. */
+  /** An elite is met: its name and its twist, once per creature. */
+  private metElite(m: SimMob): void {
+    const name = eliteName(m.kind, m.affixes);
+    this.game.bus.emit('mob:elite', { id: m.id, kind: m.kind, affixes: [...m.affixes], name });
+    this.game.ui.toast(t('mob.elite.met', { name, tip: t(`mob.elite.tip.${m.affixes[0]}` as TextKey) }), 'info');
+  }
+
+  /** Drops fly to the bag like a mined vein's (an elite's twice over, and a gem of its depth). */
   private dropsOf(m: SimMob, only?: number): void {
     const g = this.game;
     const table = m.brain === 'thief' && m.treasure ? TREASURE_DROPS : MOB_DROPS[m.kind];
-    if (!table) return;
     const rng = g.rng;
-    const list = only !== undefined ? table.slice(0, only) : table;
-    // Brood called by a guardian leaves little (no farming the summons).
-    const scale = m.owner ? 0.3 : 1;
-    for (const d of list) {
-      if (rng.next() > d.chance * scale) continue;
-      const item = d.items.find((i) => i in ITEMS) as ItemId | undefined;
-      if (!item) continue;
-      const n = rng.int(d.min, d.max);
-      g.drops.spawn(item, n, m.position.x, m.position.y + 0.3, m.position.z, rng);
+    const at = (item: ItemId, n: number) => g.drops.spawn(item, n, m.position.x, m.position.y + 0.3, m.position.z, rng);
+    if (table) {
+      const list = only !== undefined ? table.slice(0, only) : table;
+      // Brood called by a guardian (and a splitting elite's children) leave little: no farming them.
+      const scale = m.owner || m.split ? 0.3 : 1;
+      const rolls = m.elite ? 2 : 1;
+      for (let k = 0; k < rolls; k++) {
+        for (const d of list) {
+          if (rng.next() > Math.min(1, d.chance * scale * (m.elite ? 1.5 : 1))) continue;
+          const item = d.items.find((i) => i in ITEMS) as ItemId | undefined;
+          if (item) at(item, rng.int(d.min, d.max));
+        }
+      }
+    }
+    if (m.elite) {
+      const bonus = (ELITE_BONUS[ROSTERS[m.biome]?.stratum ?? 1] ?? []).filter((i) => i in ITEMS) as ItemId[];
+      if (bonus.length) at(bonus[rng.int(0, bonus.length - 1)], rng.int(1, 2));
     }
   }
 

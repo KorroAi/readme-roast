@@ -4,8 +4,9 @@ import type { InputState } from './types';
  * Keyboard + mouse controls for desktop play and development (round 3, BRIEF §0.6):
  *   WASD / arrows move, Shift sprints, Ctrl dashes, Space jumps, Q sonar, E interacts, F flash,
  *   1-6 pick a hotbar slot, I or Tab the Bag, C Craft, M Map, J Quests, B Bestiary, Esc pauses.
- *   Click the canvas to capture the mouse (pointer lock); hold the left button to mine or strike
- *   what the reticle is on; the right button places the held torch, block, ladder or rope. Without
+ *   Click the canvas to capture the mouse (pointer lock); then the left button is the Action (hold
+ *   it to mine or strike what the reticle is on; it throws, places or uses what the hotbar holds) and
+ *   the right button places the held torch, block, ladder or rope. Without
  *   pointer lock, hold left to mine under the cursor, drag with the right button to look, and a
  *   right click without a drag places.
  */
@@ -34,6 +35,7 @@ export class DesktopInput {
     on(window, 'blur', () => {
       this.keys.clear();
       this.input.mining = false;
+      this.input.actionHeld = false;
       this.input.jumpHeld = false;
       this.rightDrag = false;
       this.updateMove();
@@ -55,6 +57,7 @@ export class DesktopInput {
         this.wasLocked = false;
         this.expectRelease = false;
         this.input.mining = false;
+        this.input.actionHeld = false;
       }
     };
     document.addEventListener('pointerlockchange', onLock);
@@ -130,9 +133,14 @@ export class DesktopInput {
     if (!this.enabled || (e as PointerEvent).pointerType === 'touch') return;
     this.input.lastDevice = 'mouse';
     if (e.button === 0) {
-      if (!this.pointerLocked && matchMedia('(pointer: fine)').matches) {
-        this.canvas.requestPointerLock?.();
+      // With the pointer captured the left button is the Action (mine, strike, throw, place or use
+      // what the reticle is on, as the touch button does); free, it mines under the cursor.
+      if (this.pointerLocked) {
+        this.input.actionHeld = true;
+        this.input.actionPressed = true;
+        return;
       }
+      if (matchMedia('(pointer: fine)').matches) this.canvas.requestPointerLock?.();
       this.input.mining = true;
       this.setAim(e);
     } else if (e.button === 2) {
@@ -150,7 +158,10 @@ export class DesktopInput {
   }
 
   private onMouseUp(e: MouseEvent): void {
-    if (e.button === 0) this.input.mining = false;
+    if (e.button === 0) {
+      this.input.mining = false;
+      this.input.actionHeld = false;
+    }
     if (e.button === 2) {
       this.rightDrag = false;
       const d = this.rightDownAt;

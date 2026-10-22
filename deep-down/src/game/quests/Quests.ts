@@ -16,6 +16,7 @@ import {
 } from '../../config/quests';
 import type { EventBus, GameEvents } from '../../core/events';
 import { hasText, t, type TextKey } from '../../i18n';
+import { rarityOf } from '../../config/rarity';
 import { ROSTERS } from '../mobs/rosters';
 import { bestiary } from '../mobs/rosters';
 import { chainOutline, mainStep, type LairInfo, type MainState, type MainStep } from './mainQuest';
@@ -42,7 +43,7 @@ export interface QuestWorld {
   /** Pages in a biome of the loaded stratum (0 when unknown). */
   pagesIn(biome: BiomeKey): number;
   fullSet: boolean;
-  counters: { crafted: number; smelted: number; torches: number; outposts: number };
+  counters: { crafted: number; smelted: number; torches: number; outposts: number; upgrades?: number; trades?: number; gems?: number; dailies?: number };
 }
 
 export interface QuestHost {
@@ -54,6 +55,10 @@ export interface QuestHost {
   strata(): { openGate(): boolean; descend(): Promise<boolean>; gateOpen(): boolean } | null;
   /** Max health from the bestiary's milestones. */
   setBonusHealth(n: number): void;
+  /** The camp's lamps make orders pay more (1: as written). */
+  orderFactor?(): number;
+  /** The hotbar's selected item (the torch step rings the torch slot until a torch is in hand). */
+  held?(): ItemId | null;
 }
 
 interface BiomeProgress {
@@ -79,6 +84,8 @@ export interface QuestSave {
   bestiaryPaid: number[];
   feats: string[];
   gatesOpened: number[];
+  companion?: number;
+  elites?: number;
 }
 
 const BIOME_LIST: readonly BiomeKey[] = Object.values(STRATUM_BIOMES).flat();
@@ -89,6 +96,8 @@ const guardianName = (kind: string | null): string => {
   const k = `mob.${kind}`;
   return hasText(k) ? t(k) : kind;
 };
+/** The name inside a sentence: "Defeat the Amber Matriarch" (the names start with a capital "The"). */
+const guardianInLine = (kind: string | null): string => guardianName(kind).replace(/^The /, 'the ');
 const biomeName = (b: BiomeKey | null): string => {
   if (!b) return '';
   const k = `biome.${b}.name`;
@@ -111,7 +120,8 @@ export function rewardLine(r: Reward): string {
  */
 export class Quests implements QuestSystem {
   readonly shards = new Set<BiomeKey>();
-  tutorialStep = 0;
+  /** The tutorial's current step (index into TUTORIAL). */
+  tutIndex = 0;
   tutorialDone = false;
   private readonly tutFlags = new Set<string>();
   private tutTimer = 0;
@@ -126,6 +136,10 @@ export class Quests implements QuestSystem {
   private readonly bestiaryPaid = new Set<number>();
   readonly feats = new Set<string>();
   readonly gatesOpened = new Set<number>();
+  /** The Lampling companion's level (0: none tamed; MOBS' 'companion:tamed' / 'companion:level'). */
+  companionLevel = 0;
+  /** Elite creatures defeated (MOBS' 'mob:died' {elite}). */
+  elites = 0;
 
   private mainCache: QuestStepView | null = null;
   private mainRaw: MainStep | null = null;
@@ -156,11 +170,15 @@ export class Quests implements QuestSystem {
       if (e.screen === 'map') this.flag('map');
       if (e.screen === 'quests') this.flag('quest');
     });
-    bus.on('block:broken', () => this.flag('mine'));
-    bus.on('item:picked', (e) => {
+    bus.on('block:broken', (e) => {
+      this.flag('mine');
+      // Biome task: veins mined in the biome you stand in (any find: rarityOf is not null).
+      if (rarityOf(e.block) === null) return;
+      const b = this.host.world().biome;
+      if (b && isBiome(b)) this.biomeAdd(b, 'mine', 1);
+    });
+    bus.on('item:picked', () => {
       this.flag('pickup');
-      const b = ITEMS[e.item]?.biome;
-      if (b && ITEMS[e.item].category === 'materials') this.biomeAdd(b, 'mine', e.count);
       touch();
     });
     bus.on('craft:made', (e) => {
@@ -181,6 +199,7 @@ export class Quests implements QuestSystem {
     bus.on('mob:died', (e) => {
       this.flag('fight');
       if (e.rank === 'guardian' || e.rank === 'boss') return;
+      if ((e as { elite?: boolean }).elite) this.elites++;
       this.orderProgress(this.book.progress('hunt', null, 1));
       const b = (e.biome as BiomeKey | undefined) ?? this.host.world().biome;
       if (b && isBiome(b)) this.biomeAdd(b, 'hunt', 1);
@@ -211,6 +230,14 @@ export class Quests implements QuestSystem {
       if (n !== null) this.readPage(n);
     });
     bus.on('camp:entered', () => this.collectOrders());
+    bus.on('companion:tamed', () => {
+      this.companionLevel = Math.max(1, this.companionLevel);
+      this.featClock = 1;
+    });
+    bus.on('companion:level', (e) => {
+      this.companionLevel = Math.max(this.companionLevel, e.level);
+      this.featClock = 1;
+    });
     bus.on('inventory:changed', touch);
     bus.on('gear:equipped', touch);
   }
@@ -220,7 +247,7 @@ export class Quests implements QuestSystem {
 
   reset(seed: number, tutorial = true): void {
     this.shards.clear();
-    this.tutorialStep = 0;
+    this.tutIndex = 0;
     this.tutorialDone = !tutorial;
     this.tutFlags.clear();
     this.tutTimer = 0;
@@ -237,6 +264,8 @@ export class Quests implements QuestSystem {
     this.bestiaryPaid.clear();
     this.feats.clear();
     this.gatesOpened.clear();
+    this.companionLevel = 0;
+    this.elites = 0;
     this.lookCount = this.moveCount = 0;
     this.dirty = true;
     this.lastMainId = '';
@@ -249,13 +278,13 @@ export class Quests implements QuestSystem {
   }
 
   private advanceTutorial(): void {
-    const before = this.tutorialStep;
-    while (this.tutorialStep < TUTORIAL.length && this.tutFlags.has(TUTORIAL[this.tutorialStep].id)) this.tutorialStep++;
-    if (this.tutorialStep >= TUTORIAL.length) {
+    const before = this.tutIndex;
+    while (this.tutIndex < TUTORIAL.length && this.tutFlags.has(TUTORIAL[this.tutIndex].id)) this.tutIndex++;
+    if (this.tutIndex >= TUTORIAL.length) {
       this.finishTutorial(false);
       return;
     }
-    if (this.tutorialStep !== before) {
+    if (this.tutIndex !== before) {
       this.tutTimer = 0;
       this.emitTutorial();
       this.dirty = true;
@@ -263,14 +292,14 @@ export class Quests implements QuestSystem {
   }
 
   private emitTutorial(): void {
-    const s = TUTORIAL[this.tutorialStep];
+    const s = TUTORIAL[this.tutIndex];
     this.host.bus.emit('tutorial:step', s ? { id: s.id, highlight: s.highlight, line: t(s.line) } : { id: null, highlight: null, line: null });
   }
 
   private finishTutorial(skipped: boolean): void {
     if (this.tutorialDone) return;
     this.tutorialDone = true;
-    this.tutorialStep = TUTORIAL.length;
+    this.tutIndex = TUTORIAL.length;
     this.host.bus.emit('tutorial:step', { id: null, highlight: null, line: null });
     this.host.bus.emit('quest:done', { id: 'main:tutorial', kind: 'tutorial', reward: null });
     if (!skipped) this.host.bus.emit('toast', { text: t('tut.done'), tone: 'good' });
@@ -286,7 +315,7 @@ export class Quests implements QuestSystem {
     if (!(dt > 0)) return;
     this.clock += dt;
     if (!this.tutorialDone) {
-      const s = TUTORIAL[this.tutorialStep];
+      const s = TUTORIAL[this.tutIndex];
       this.tutTimer += dt;
       if (s?.timeout && this.tutTimer >= s.timeout) this.flag(s.id);
     }
@@ -364,8 +393,8 @@ export class Quests implements QuestSystem {
     if (!(n >= 1 && n <= PAGE_COUNT)) return;
     const first = !this.pages.has(n);
     this.pages.add(n);
+    // WORLD's discovery banner shows the page's title and text: no toast here.
     this.host.bus.emit('quest:page', { n, first });
-    if (first) this.host.bus.emit('toast', { text: t(`page.${n}.title` as TextKey), tone: 'good' });
     this.dirty = true;
   }
 
@@ -377,9 +406,12 @@ export class Quests implements QuestSystem {
   /** On camp entry: pay the done orders, renew them. */
   collectOrders(): void {
     const paid = this.book.collect(this.host.world().deepest, dayNumber());
+    const f = Math.max(1, this.host.orderFactor?.() ?? 1);
     for (const o of paid) {
-      this.host.pay(o.reward, 'order');
-      const line = rewardLine(o.reward);
+      const reward: Reward = {};
+      for (const [id, n] of Object.entries(o.reward) as Array<[ItemId, number]>) reward[id] = Math.round(n * f);
+      this.host.pay(reward, 'order');
+      const line = rewardLine(reward);
       this.host.bus.emit('order:paid', { id: o.id, reward: line });
       this.host.bus.emit('quest:done', { id: o.id, kind: 'order', reward: line });
       this.host.bus.emit('toast', { text: t('order.paid', { reward: line }), tone: 'good' });
@@ -421,7 +453,7 @@ export class Quests implements QuestSystem {
     const p = this.progressOf(b);
     switch (id) {
       case 'mine':
-        return t('task.mine', { need, item: biomeName(b) });
+        return t('task.mine', { need, biome: biomeName(b) });
       case 'hunt':
         return t('task.hunt', { need, biome: biomeName(b) });
       case 'scan':
@@ -446,6 +478,12 @@ export class Quests implements QuestSystem {
       fullSet: w.fullSet,
       pages: this.pages.size,
       pickTier: w.pickTier,
+      companion: this.companionLevel,
+      elites: this.elites,
+      upgrades: w.counters.upgrades ?? 0,
+      trades: w.counters.trades ?? 0,
+      gems: w.counters.gems ?? 0,
+      dailies: w.counters.dailies ?? 0,
     };
     for (const f of FEATS3) {
       if (this.feats.has(f.id) || !f.check(snap)) continue;
@@ -531,7 +569,7 @@ export class Quests implements QuestSystem {
     let text = '';
     switch (m.step) {
       case 'tutorial': {
-        const s = TUTORIAL[this.tutorialStep];
+        const s = TUTORIAL[this.tutIndex];
         text = s ? t(s.line) : t('quest.step.tutorial');
         break;
       }
@@ -542,7 +580,7 @@ export class Quests implements QuestSystem {
         text = t('quest.step.lairs', { stratum: sn, have: m.progress?.have ?? 0, need: 2 });
         break;
       case 'guardian':
-        text = t('quest.step.guardian', { guardian: guardianName(m.guardian), biome: biomeName(m.biome) });
+        text = t('quest.step.guardian', { guardian: guardianInLine(m.guardian), biome: biomeName(m.biome) });
         break;
       case 'prepare': {
         const pick = NEXT_PICK[m.stratum];
@@ -631,8 +669,16 @@ export class Quests implements QuestSystem {
 
   tutorial(): TutorialStepView | null {
     if (this.tutorialDone) return null;
-    const s = TUTORIAL[this.tutorialStep];
-    return s ? { id: s.id, index: this.tutorialStep + 1, total: TUTORIAL.length, line: t(s.line), highlight: s.highlight } : null;
+    const s = TUTORIAL[this.tutIndex];
+    if (!s) return null;
+    // The torch step: first the torch slot, then Place.
+    if (s.id === 'torch' && this.host.held && this.host.held() !== 'torch') return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.torch.pick'), highlight: 'hotbar:3' };
+    return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t(s.line), highlight: s.highlight };
+  }
+
+  /** UI's name for tutorial(): the step to show ({ id, highlight, line, index, total }), null when done or skipped. */
+  tutorialStep(): TutorialStepView | null {
+    return this.tutorial();
   }
 
   view(): QuestsScreenView {
@@ -645,7 +691,7 @@ export class Quests implements QuestSystem {
       name: stratumName(st.stratum),
       steps: st.steps.map((s) => {
         let text = '';
-        if (s.id === 'guardian') text = t('quest.step.guardian', { guardian: guardianName(ROSTERS[s.biome as BiomeKey]?.guardian ?? null), biome: biomeName(s.biome) });
+        if (s.id === 'guardian') text = t('quest.step.guardian', { guardian: guardianInLine(ROSTERS[s.biome as BiomeKey]?.guardian ?? null), biome: biomeName(s.biome) });
         else if (s.id === 'prepare') text = t('quest.step.prepare', { pick: NEXT_PICK[st.stratum] ? t(ITEMS[NEXT_PICK[st.stratum] as ItemId].name) : '' });
         else if (s.id === 'gate') text = t('quest.step.gate', { stratum: stratumName(st.stratum) });
         else if (s.id === 'heart') text = t('quest.step.heart');
@@ -691,7 +737,7 @@ export class Quests implements QuestSystem {
     return {
       v: 1,
       shards: [...this.shards],
-      tutorial: { step: this.tutorialStep, done: this.tutorialDone, flags: [...this.tutFlags] },
+      tutorial: { step: this.tutIndex, done: this.tutorialDone, flags: [...this.tutFlags] },
       heartLit: this.heartLit,
       bossDefeated: this.bossDefeated,
       ending: this.ending,
@@ -703,6 +749,8 @@ export class Quests implements QuestSystem {
       bestiaryPaid: [...this.bestiaryPaid],
       feats: [...this.feats],
       gatesOpened: [...this.gatesOpened],
+      companion: this.companionLevel,
+      elites: this.elites,
     };
   }
 
@@ -713,7 +761,7 @@ export class Quests implements QuestSystem {
     if (Array.isArray(o.shards)) for (const b of o.shards) if (isBiome(b)) this.shards.add(b);
     if (o.tutorial && typeof o.tutorial === 'object') {
       this.tutorialDone = !!o.tutorial.done;
-      this.tutorialStep = Math.max(0, Math.min(TUTORIAL.length, Math.floor(Number(o.tutorial.step) || 0)));
+      this.tutIndex = Math.max(0, Math.min(TUTORIAL.length, Math.floor(Number(o.tutorial.step) || 0)));
       if (Array.isArray(o.tutorial.flags)) for (const f of o.tutorial.flags) if (typeof f === 'string') this.tutFlags.add(f);
     }
     this.heartLit = !!o.heartLit;
@@ -734,6 +782,8 @@ export class Quests implements QuestSystem {
     if (Array.isArray(o.bestiaryPaid)) for (const n of o.bestiaryPaid) if (typeof n === 'number') this.bestiaryPaid.add(n);
     if (Array.isArray(o.feats)) for (const f of o.feats) if (typeof f === 'string') this.feats.add(f);
     if (Array.isArray(o.gatesOpened)) for (const n of o.gatesOpened) if (typeof n === 'number') this.gatesOpened.add(n);
+    this.companionLevel = typeof o.companion === 'number' && Number.isFinite(o.companion) ? Math.max(0, Math.floor(o.companion)) : 0;
+    this.elites = typeof o.elites === 'number' && Number.isFinite(o.elites) ? Math.max(0, Math.floor(o.elites)) : 0;
     this.applyMilestones(this.bestiaryPaid.size);
     this.dirty = true;
     if (!this.tutorialDone) this.emitTutorial();

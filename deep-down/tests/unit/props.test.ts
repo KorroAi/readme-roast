@@ -60,6 +60,8 @@ const SIZE: Partial<Record<PropKind, [[number, number], [number, number], [numbe
 /** Variants to check per kind: all of them, but a few masks of the Relic Shelf's 256. */
 function variantsOf(kind: PropKind): number[] {
   if (kind === 'relicShelf') return [0, 1, 0x55, 0xaa, 0xff];
+  // Round 3: the trophy wall's 4096 masks: none, each head alone, alternate ones, all of them.
+  if (kind === ('trophyWall' as PropKind)) return [0, ...Array.from({ length: 12 }, (_, i) => 1 << i), 0x555, 0xaaa, 0xfff];
   return Array.from({ length: PROP_VARIANTS[kind] }, (_, i) => i);
 }
 

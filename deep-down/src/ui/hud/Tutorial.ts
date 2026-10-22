@@ -11,6 +11,11 @@ import type { TutorialView } from '../types';
 
 const TIPS_KEY = 'deepdown.tips';
 
+/** Where the ring goes while a step's own control is hidden (a selector for what reveals it). */
+const TARGET_VIA: Partial<Record<UiTargetId, string>> = {
+  place: '.dd-hslot[data-placeable="1"]',
+};
+
 function loadTips(): Set<string> {
   try {
     const raw = globalThis.localStorage?.getItem(TIPS_KEY);
@@ -52,12 +57,19 @@ export class TutorialOverlay implements UiHighlighter {
   private readonly skipBtn: HTMLButtonElement;
   private readonly tipEl: HTMLElement;
   private target: UiTargetId | null = null;
+  /** The element the ring is on now (its class marks it; it may be a stand-in, see TARGET_VIA). */
+  private ringedEl: HTMLElement | null = null;
   private stepKey = '';
   private placedFor = '';
   private placedAt = 0;
   private tipTimer = 0;
   private tipFor: string | null = null;
   private readonly tips = loadTips();
+  /** The ghost finger that shows a gesture with no control of its own (look: drag on the view). */
+  private readonly swipe: HTMLElement;
+  /** performance.now() until which the bubble steps aside (a biome arrival card is up). */
+  private heldUntil = 0;
+  private held = false;
 
   constructor(private readonly scope: HTMLElement, onSkip: () => void) {
     this.ring = h('div', { class: 'dd-tut-ring', 'aria-hidden': 'true' });
@@ -65,9 +77,10 @@ export class TutorialOverlay implements UiHighlighter {
     this.countEl = h('span', { class: 'dd-tut-count' });
     this.skipBtn = h('button', { class: 'dd-tut-skip', type: 'button', text: t('tut.skip') });
     this.skipBtn.addEventListener('click', () => onSkip());
-    this.bubble = h('div', { class: 'dd-tut-bubble', role: 'status', 'aria-live': 'polite' }, h('div', { class: 'dd-tut-head' }, this.countEl, this.skipBtn), this.lineEl);
+    this.bubble = h('div', { class: 'dd-tut-bubble', role: 'status', 'aria-live': 'polite', 'data-touch-ignore': '' }, h('div', { class: 'dd-tut-head' }, this.countEl, this.skipBtn), this.lineEl);
     this.tipEl = h('div', { class: 'dd-tip', role: 'status' });
-    this.el = h('div', { class: 'dd-tut' }, this.ring, this.bubble, this.tipEl);
+    this.swipe = h('div', { class: 'dd-tut-swipe', 'aria-hidden': 'true' }, h('span', { class: 'dd-tut-finger' }), h('span', { class: 'dd-tut-trail' }));
+    this.el = h('div', { class: 'dd-tut' }, this.ring, this.swipe, this.bubble, this.tipEl);
   }
 
   /** UiHighlighter: ring one control (null clears), with its line. */
@@ -75,8 +88,27 @@ export class TutorialOverlay implements UiHighlighter {
     this.show(target === null && !line ? null : { target, line: line ?? '', step: 0, total: 0 });
   }
 
+  /**
+   * Step aside for `ms` (a biome arrival card is up: the card first, then the step). 0 ends a
+   * hold at once (the card was dismissed).
+   */
+  suspend(ms: number): void {
+    this.heldUntil = ms > 0 ? performance.now() + ms : 0;
+    this.updateHeld();
+  }
+
+  private updateHeld(): void {
+    const held = performance.now() < this.heldUntil;
+    if (held === this.held) return;
+    this.held = held;
+    this.el.classList.toggle('held', held);
+    // Back from a hold: measure again (the layout may have moved meanwhile).
+    if (!held) this.placedFor = '';
+  }
+
   /** The tutorial step to show (from the HUD snapshot), or null. Cheap when unchanged. */
   show(v: TutorialView | null): void {
+    this.updateHeld();
     const key = v ? `${v.target}|${v.line}|${v.step}|${v.total}` : '';
     if (key === this.stepKey) {
       // The target can move (a button appears, the layout mirrors): re-measure 4 times a second.
@@ -89,10 +121,16 @@ export class TutorialOverlay implements UiHighlighter {
     }
     this.stepKey = key;
     this.placedFor = '';
-    if (this.target) this.targetEl(this.target)?.classList.remove('dd-tut-on');
+    this.ringedEl?.classList.remove('dd-tut-on');
+    this.ringedEl = null;
     this.target = v?.target ?? null;
     this.el.classList.toggle('on', !!v);
+    // The look step has no button: a ghost finger drags across the view instead.
+    this.swipe.classList.toggle('on', v?.target === 'look');
     if (!v) return;
+    this.bubble.classList.remove('fresh');
+    void this.bubble.offsetWidth;
+    this.bubble.classList.add('fresh');
     this.lineEl.textContent = v.line;
     this.countEl.textContent = v.total > 0 ? t('tut.step', { n: v.step, total: v.total }) : '';
     this.skipBtn.hidden = v.total <= 0;
@@ -107,9 +145,13 @@ export class TutorialOverlay implements UiHighlighter {
     const r = el?.getBoundingClientRect();
     const visible = !!r && r.width > 0 && r.height > 0;
     const key = visible ? `${Math.round(r!.left)},${Math.round(r!.top)},${Math.round(r!.width)},${Math.round(r!.height)},${view.width},${view.height}` : `none,${view.width},${view.height}`;
-    if (key === this.placedFor) return;
+    if (key === this.placedFor && el === this.ringedEl) return;
     this.placedFor = key;
-    if (el) el.classList.add('dd-tut-on');
+    if (el !== this.ringedEl) {
+      this.ringedEl?.classList.remove('dd-tut-on');
+      this.ringedEl = el;
+      el?.classList.add('dd-tut-on');
+    }
     this.ring.style.display = visible ? '' : 'none';
     const bw = Math.min(300, view.width - 24);
     this.bubble.style.width = `${bw}px`;
@@ -134,7 +176,7 @@ export class TutorialOverlay implements UiHighlighter {
    * control it points at. @returns true when it showed.
    */
   tip(id: string, target: UiTargetId, text: string, ms = 4200): boolean {
-    if (this.tips.has(id) || this.el.classList.contains('on') || this.tipFor) return false;
+    if (this.tips.has(id) || this.el.classList.contains('on') || this.tipFor || this.held) return false;
     const el = this.targetEl(target);
     const r = el?.getBoundingClientRect();
     if (!r || r.width <= 0) return false;
@@ -168,6 +210,13 @@ export class TutorialOverlay implements UiHighlighter {
   private targetEl(id: UiTargetId): HTMLElement | null {
     const list = this.scope.querySelectorAll<HTMLElement>(`[data-ui-target="${id}"]`);
     for (const el of list) if (!el.hidden && el.offsetParent !== null) return el;
+    // A control that is not shown yet points the way to what shows it: Place appears once a
+    // placeable item (a torch) is picked on the hotbar, so the ring goes to that slot first.
+    const via = TARGET_VIA[id];
+    if (via) {
+      const alt = this.scope.querySelector<HTMLElement>(via);
+      if (alt && !alt.hidden && alt.offsetParent !== null) return alt;
+    }
     return list[0] ?? null;
   }
 }

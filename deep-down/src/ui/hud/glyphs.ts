@@ -31,6 +31,9 @@ const P: Record<string, string> = {
   menu: '<path d="M5 7h14M5 12h14M5 17h14" stroke-width="2.2"/>',
   help: '<circle cx="12" cy="12" r="9" stroke-width="1.8"/><path d="M9.5 9.5a2.6 2.6 0 1 1 3.6 2.4c-.8.4-1.1.9-1.1 1.8" stroke-width="1.9"/><circle cx="12" cy="17" r="1.1" fill="currentColor" stroke="none"/>',
   close: '<path d="M6 6l12 12M18 6 6 18" stroke-width="2.2"/>',
+  lampling: '<path d="M12 4c3.6 0 6 2.9 6 6.6 0 3.8-2.4 6.9-6 6.9s-6-3.1-6-6.9C6 6.9 8.4 4 12 4z" stroke-width="1.8"/><circle cx="9.8" cy="10.4" r="1.2" fill="currentColor" stroke="none"/><circle cx="14.2" cy="10.4" r="1.2" fill="currentColor" stroke="none"/><path d="M10.2 13.6c1.1.8 2.5.8 3.6 0M12 2v2M8.5 19.5 7.6 21.5M15.5 19.5l.9 2" stroke-width="1.6"/>',
+  medal: '<path d="M8 3l4 6 4-6" stroke-width="1.8"/><circle cx="12" cy="15" r="5.5" stroke-width="1.9"/><path d="M12 12.2l.9 1.9 2 .3-1.5 1.4.4 2-1.8-1-1.8 1 .4-2-1.5-1.4 2-.3z" fill="currentColor" stroke="none"/>',
+  compassMe: '<circle cx="12" cy="12" r="6.5" stroke-width="1.9"/><circle cx="12" cy="12" r="2" fill="currentColor" stroke="none"/><path d="M12 2.5v3.5M12 18v3.5M2.5 12H6M18 12h3.5" stroke-width="1.9"/>',
   // Markers and states
   camp: '<path d="M4 20 12 6l8 14z" stroke-width="1.9"/><path d="M10 20l2-4 2 4" stroke-width="1.6"/>',
   lair: '<path d="M4 18c2-6 4-9 8-9s6 3 8 9" stroke-width="1.9"/><path d="M8 14l1.5 2M16 14l-1.5 2" stroke-width="1.8"/>',

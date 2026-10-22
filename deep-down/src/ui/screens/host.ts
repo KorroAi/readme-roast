@@ -27,6 +27,8 @@ export interface ScreenState {
   loadingProgress: number;
   loadingLabel: string;
   deathLost: ItemCounts;
+  /** Round 3: the black-out's story (null: the first version's card). */
+  deathInfo: import('../types').BlackoutInfo | null;
   /** Upgrade tree: the open tab and the selected node (null: pick one when the screen opens). */
   treeTab: TreeTab;
   treeSel: NodeId | null;
@@ -39,15 +41,21 @@ export interface ScreenState {
   // Round 3 (UI): the menus' remembered tabs and selections.
   bagTab: import('./r3/bag').BagTab;
   bagSel: string | null;
+  /** The piece whose gem picker is open in the Bag (null: none). */
+  bagSocket: string | null;
   /** A long-press on a hotbar slot opened the Bag to fill this slot (-1: none). */
   assignSlot: number;
   craftTab: string | null;
+  /** The Craft menu shows only this station's recipes (a placed station's Interact), null: all. */
+  craftStation: string | null;
   /** The recipe just made (its card flashes once). */
   craftFlash: string | null;
   questsTab: import('./r3/quests').QuestsTab;
   bestiaryBiome: string | null;
   /** The menu whose "?" help card is open (null: none). */
   help: string | null;
+  /** The Map's pan and zoom while it stays open (reset when it opens). */
+  mapCamera: import('./r3/map').MapCamera | null;
 }
 
 /** What screen builders may use. Implemented by UI. */

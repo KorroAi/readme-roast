@@ -57,9 +57,11 @@ in float iRow;
 in vec4 iA;
 in vec4 iHi;
 in float iSel;
+in vec4 iFx;
 out vec4 vA;
 out vec4 vHi;
 out float vSel;
+out vec4 vFx;
 mat4 boneMat(int bone, int row) {
   vec4 a = texelFetch(uBoneTex, ivec2(bone * 3 + 0, row), 0);
   vec4 b = texelFetch(uBoneTex, ivec2(bone * 3 + 1, row), 0);
@@ -77,6 +79,7 @@ void main() {
   vA = iA;
   vHi = iHi;
   vSel = iSel;
+  vFx = iFx;
 #else
   mat4 b = uBones[int(aBone + 0.5)];
   vec4 lp = b * vec4(position, 1.0);
@@ -109,6 +112,7 @@ uniform vec3 uGlowTint;
 in vec4 vA;
 in vec4 vHi;
 in float vSel;
+in vec4 vFx;
 #define M_FLASH vA.x
 #define M_FADE vA.y
 #define M_GLOW vA.z
@@ -181,6 +185,15 @@ void main() {
 
   // Albedo, mottled by the same noise (no two creatures alike).
   vec3 albedo = vColor.rgb * (0.7 + 0.18 * h);
+#ifdef INSTANCED
+  // Elites (round 3): an armoured one wears steel plates (darker, glossier, with seams).
+  int fxBits = int(vFx.x + 0.5);
+  if ((fxBits & 2) != 0 && emit < 0.5) {
+    float plateSeam = 1.0 - smoothstep(0.0, 0.035, abs(fract(vLocal.y * 6.0 + vLocal.x * 1.7 + vLocal.z * 0.8) - 0.5) - 0.43);
+    albedo = mix(albedo, vec3(0.30, 0.34, 0.38) * (0.85 + 0.3 * h), 0.6) * (1.0 - 0.45 * plateSeam);
+    gloss = max(gloss, 0.8);
+  }
+#endif
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   vec3 lantern = lanternLight(samplePos, vWorldPos, n, max(ls.a, 0.3), 0.0);
@@ -218,6 +231,23 @@ void main() {
   color += M_HICOL * (fres * 0.9 + 0.08) * (M_HIAMB * 0.55 + M_HISEL * 1.1);
   // The dissolve seam glows faintly in the creature's own colour.
   color += (uGlowTint * 0.6 + vec3(0.4)) * seam * 0.6;
+#ifdef INSTANCED
+  // Elites: radiant (a warm gold aura), armoured (a cold steel rim), swift (cyan streaks flowing
+  // back along the body), splitting (magenta veins that pulse). One look a creature reads by.
+  if (fxBits != 0) {
+    float fxk = vFx.y * M_FADE * uAtmos.w;
+    if ((fxBits & 1) != 0) color += vec3(1.0, 0.76, 0.36) * (fres * 1.5 + 0.1) * (0.85 + 0.15 * sin(uTime * 3.0 + M_SEED * 6.0)) * fxk;
+    if ((fxBits & 2) != 0) color += vec3(0.62, 0.74, 0.86) * fres * 0.55 * fxk;
+    if ((fxBits & 4) != 0) {
+      float streak = smoothstep(0.82, 1.0, sin(vLocal.z * 10.0 + uTime * 7.0 + vnoise(vLocal * 6.0 + M_SEED) * 3.0));
+      color += vec3(0.45, 0.9, 1.0) * (streak * 0.7 + fres * 0.5) * fxk;
+    }
+    if ((fxBits & 8) != 0) {
+      float vein = 1.0 - smoothstep(0.0, 0.05, abs(fbm(vLocal * 4.5 + M_SEED * 3.0) - 0.5));
+      color += vec3(0.9, 0.42, 1.0) * vein * (0.55 + 0.45 * sin(uTime * 4.0 + vLocal.y * 7.0)) * 1.1 * fxk;
+    }
+  }
+#endif
   // A hit flash on the mob only (warm white), never the screen.
   color = mix(color, vec3(1.25, 1.08, 0.9), M_FLASH * 0.55);
 

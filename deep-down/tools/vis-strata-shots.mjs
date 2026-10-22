@@ -4,6 +4,7 @@
 // Usage: node tools/vis-strata-shots.mjs [--out artifacts/r3/vis] [--seed 7] [--q balanced]
 //          [--targets amberHollows,mushroomForest,lair:amberHollows,gate:1,torch:amberHollows]
 //          [--views 2] [--size 390x844] [--dpr 2] [--port 4175] [--hud 1] [--sonar 0] [--prod 0]
+//          [--eval "<js run in the page after each view; its JSON result is printed>"]
 //
 // A target is a biome id (WORLD's `__DD__.goto`: a cavern of that biome, then for view 2 a spawn
 // point of the same biome at least 20 m away), `lair:<biome>` (the lair's entrance, facing its
@@ -16,7 +17,7 @@ import { createServer, preview } from 'vite';
 import { mkdirSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const opt = { out: 'artifacts/r3/vis', seed: '7', q: 'balanced', targets: 'amberHollows,mushroomForest,rootGalleries,floodedGrottoes', views: '2', size: '390x844', dpr: '2', port: '4175', hud: '1', sonar: '0', prod: '0', wait: '1500' };
+const opt = { eval: '', blockmap: '0', calls: '0', out: 'artifacts/r3/vis', seed: '7', q: 'balanced', targets: 'amberHollows,mushroomForest,rootGalleries,floodedGrottoes', views: '2', size: '390x844', dpr: '2', port: '4175', hud: '1', sonar: '0', prod: '0', wait: '1500' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 mkdirSync(opt.out, { recursive: true });
@@ -33,8 +34,14 @@ try {
   const logs = [];
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(`[${m.type()}] ${m.text()}`); });
   page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}`));
+  page.on('pageerror', (e) => console.log(`[pageerror] ${e.message}`));
   await page.goto(`${url}index.html?gen=strata`);
-  await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: 240000, polling: 250 });
+  try {
+    await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: 420000, polling: 500 });
+  } catch (e) {
+    console.log('boot timed out; logs:\n' + logs.slice(0, 20).join('\n'));
+    throw e;
+  }
   await page.evaluate(async ({ q, hud, seed }) => {
     const st = document.createElement('style');
     st.textContent = '.dd-discovery,.dd-hint,.dd-toasts,.dd-toast,.dd-tutorial,.dd-arrival{display:none!important}' + (hud === '1' ? '' : '.dd-ui{display:none!important}');
@@ -47,27 +54,49 @@ try {
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 
+  // A target may carry its own view count: `amberHollows*2`.
   const targets = opt.targets.split(',').filter(Boolean);
-  for (const target of targets) {
-    for (let view = 1; view <= Number(opt.views); view++) {
+  for (const spec of targets) {
+    const [target, nViews] = spec.split('*');
+    for (let view = 1; view <= Number(nViews ?? opt.views); view++) {
       const name = `${target.replace(':', '-')}-${view}`;
       const res = await page.evaluate(async ({ target, view }) => {
         const D = window.__DD__;
         const g = D.game;
         const [kind, arg] = target.includes(':') ? target.split(':') : ['biome', target];
         let look = null;
-        if (kind === 'biome' || kind === 'torch') {
+        // A standable cell near (x, y, z): the floor under it (down to 14 m) in a small spiral.
+        const stand = (x, y, z) => {
+          for (let r = 0; r <= 5; r++)
+            for (let dz = -r; dz <= r; dz++)
+              for (let dx = -r; dx <= r; dx++) {
+                if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+                const cx = Math.floor(x) + dx, cz = Math.floor(z) + dz;
+                for (let dy = 6; dy >= -14; dy--) {
+                  const cy = Math.floor(y) + dy;
+                  if (!D.isSolid(cx, cy, cz) && !D.isSolid(cx, cy + 1, cz) && D.isSolid(cx, cy - 1, cz)) return [cx + 0.5, cy, cz + 0.5];
+                }
+              }
+          return null;
+        };
+        if (kind === 'biome' || kind === 'torch' || kind === 'stations' || kind === 'climb') {
           const p = await D.goto(arg);
           if (!p) return { err: `goto ${arg} failed` };
-          if (view > 1) {
-            const L = g.strata.layout;
+          const L = g.strata.layout;
+          // A cavern of the biome that is not its lair (view 1, 3...), else a spawn point far off.
+          const lairs = L.lairs.filter((l) => l.biome === arg);
+          const cav = L.caverns.filter((c) => c.biome === arg && !lairs.some((l) => Math.hypot(l.centre[0] - c.centre[0], l.centre[2] - c.centre[2]) < l.radius + 3));
+          let at = null;
+          if (view % 2 === 1 && cav.length) {
+            const c = cav[((view - 1) / 2) % cav.length];
+            at = stand(c.centre[0], c.centre[1], c.centre[2]);
+          }
+          if (!at) {
             const far = L.spawnPoints.filter((s) => s.biome === arg && Math.hypot(s.p[0] - p[0], s.p[2] - p[2]) > 20 + view * 6);
             const pick = far[(view * 7919) % Math.max(1, far.length)];
-            if (pick) {
-              const at = D.standableNear(pick.p[0], pick.p[1], pick.p[2]);
-              if (at) D.teleport(at[0], at[1], at[2]);
-            }
+            if (pick) at = stand(pick.p[0], pick.p[1] + 1, pick.p[2]);
           }
+          if (at) D.teleport(at[0], at[1], at[2]);
         } else if (kind === 'lair') {
           const p = await D.goto('lair', arg);
           if (!p) return { err: `no lair ${arg}` };
@@ -106,6 +135,34 @@ try {
             }
           }
         }
+        if (kind === 'stations') {
+          // LOOP's stations and an outpost in an arc 3-5 m ahead (the models as placed in play).
+          const dx = -Math.sin(yaw), dz = -Math.cos(yaw);
+          const kinds = ['furnace', 'forge', 'alchemyTable', 'outpost'];
+          kinds.forEach((st, i) => {
+            const side = (i - 1.5) * 1.9;
+            const at = stand(eye[0] + dx * (3.6 + Math.abs(side) * 0.3) + dz * side, py + 1, eye[2] + dz * (3.6 + Math.abs(side) * 0.3) - dx * side);
+            if (!at) return;
+            if (st === 'outpost') g.loop.placeOutpost({ x: at[0], y: at[1], z: at[2] });
+            else g.loop.placeStation(st, { x: at[0], y: at[1], z: at[2] });
+          });
+          pitch = -0.2;
+        }
+        if (kind === 'climb') {
+          // A ladder up the nearest wall ahead and a rope down beside it (the placed climbables).
+          const dx = -Math.sin(yaw), dz = -Math.cos(yaw);
+          for (let d = 2; d < 12; d += 0.5) {
+            const x = Math.floor(eye[0] + dx * d), z = Math.floor(eye[2] + dz * d);
+            if (D.isSolid(x, Math.floor(py) + 1, z)) {
+              const lx = Math.floor(eye[0] + dx * (d - 1)), lz = Math.floor(eye[2] + dz * (d - 1));
+              for (let y = Math.floor(py); y < Math.floor(py) + 5; y++) D.setBlock(lx, y, lz, 113 /* B.LADDER */);
+              const rx = lx + (Math.abs(dz) > Math.abs(dx) ? 2 : 0), rz = lz + (Math.abs(dx) >= Math.abs(dz) ? 2 : 0);
+              for (let y = Math.floor(py); y < Math.floor(py) + 5; y++) if (!D.isSolid(rx, y, rz)) D.setBlock(rx, y, rz, 114 /* B.ROPE */);
+              break;
+            }
+          }
+          pitch = 0.12;
+        }
         if (kind === 'torch') {
           // Three torches by the walls round the eye, ~4-8 m ahead: the placed-torch light.
           const dx = -Math.sin(yaw), dz = -Math.cos(yaw);
@@ -139,11 +196,82 @@ try {
         return { calls: r.render.calls, tris: Math.round(r.render.triangles / 1000) + 'k', vis: g.vis.report() };
       });
       console.log(`[${name}] ${file} ${JSON.stringify(res)} calls=${r.calls} tris=${r.tris} look=${r.vis.biome} w=${JSON.stringify(r.vis.weights)} torches=${r.vis.torches}`);
+      if (opt.calls === '1') {
+        // Draw calls and triangles per scene group: each hidden in turn and the frame re-rendered.
+        const parts = await page.evaluate(() => {
+          const g = window.__DD__.game;
+          const r = g.renderer;
+          const cam = g.cameraRig.camera;
+          const info = r.gl.info;
+          const measure = () => {
+            r.render(g.scene, cam, g.time);
+            return [info.render.calls, info.render.triangles];
+          };
+          const [c0, t0] = measure();
+          const out = { total: `${c0}/${Math.round(t0 / 1000)}k` };
+          const visit = (list, prefix) => {
+            for (const c of list) {
+              if (!c.visible) continue;
+              c.visible = false;
+              const [c1, t1] = measure();
+              c.visible = true;
+              const dc = c0 - c1;
+              if (dc <= 0) continue;
+              const key = `${prefix}${c.name || c.type}`;
+              out[key] = `${dc}/${Math.round((t0 - t1) / 1000)}k`;
+              if (dc >= 12 && c.children.length > 1 && c.children.length <= 40 && prefix.length < 8) visit(c.children, `${key}>`);
+            }
+          };
+          visit(g.scene.children, '');
+          // The props: baked decor cells vs single props.
+          const pr = g.session.props;
+          const decor = pr.decor.group;
+          decor.visible = false;
+          const [c2, t2] = measure();
+          decor.visible = true;
+          out['props>decor'] = `${c0 - c2}/${Math.round((t0 - t2) / 1000)}k (${pr.decor.drawnCells} cells, ${pr.decor.count} baked)`;
+          let roots = 0;
+          for (const ch of pr.group.children) if (ch !== decor && ch.visible) roots++;
+          out['props>single'] = `${roots} visible`;
+          return out;
+        });
+        console.log(`[${name}] calls: ${JSON.stringify(parts)}`);
+      }
+      if (opt.blockmap === '1') {
+        // The first solid block (id) and its distance (m) under a 10 x 20 grid of screen points.
+        const rows = await page.evaluate(() => {
+          const g = window.__DD__.game;
+          const c = g.cameraRig.camera;
+          c.updateMatrixWorld(true);
+          const w = g.session.world;
+          const V = c.position.constructor;
+          const out = [];
+          for (let j = 0; j < 20; j++) {
+            const row = [];
+            for (let i = 0; i < 10; i++) {
+              const v = new V((i + 0.5) / 5 - 1, 1 - (j + 0.5) / 10, 0.5).unproject(c).sub(c.position).normalize();
+              let hit = '  .  ';
+              for (let d = 0.1; d < 70; d += 0.05) {
+                const id = w.get(Math.floor(c.position.x + v.x * d), Math.floor(c.position.y + v.y * d), Math.floor(c.position.z + v.z * d));
+                if (window.__DD__.isSolid(Math.floor(c.position.x + v.x * d), Math.floor(c.position.y + v.y * d), Math.floor(c.position.z + v.z * d))) {
+                  hit = `${String(id).padStart(3)}@${String(Math.round(d)).padStart(2)}`;
+                  break;
+                }
+              }
+              row.push(hit);
+            }
+            out.push(row.join(' '));
+          }
+          return out;
+        });
+        console.log(rows.map((r) => `   ${r}`).join('\n'));
+      }
+      if (opt.eval) console.log(`[${name}] eval: ${await page.evaluate((src) => { try { return JSON.stringify((0, eval)(src)); } catch (e) { return 'error ' + e.message; } }, opt.eval)}`);
       if (opt.sonar === '1') {
         await page.evaluate(() => {
           const g = window.__DD__.game;
           g.vis.sonar({ x: g.player.x, y: g.player.y + 1.2, z: g.player.z });
-          window.__DD__.step(14);
+          window.__DD__.step(8);
         });
         await page.waitForTimeout(600);
         const sf = `${opt.out}/${name}-sonar.png`;

@@ -3,15 +3,18 @@ import { saturate } from '../core/math';
 import type { MusicNote } from './MusicScheduler';
 import { Voice, type NoiseColor, type SynthTarget } from './synth';
 import { midiToHz } from './theory';
+import { CALIBRATION, TIMBRES, TIMBRE_NAMES, timbreOf, type Timbre } from './instruments';
 import { EVENT_SFX } from './eventSfx';
 import { MOB_SFX } from './mobSfx';
 import { LOOP_SFX } from './loopSfx';
+import { ACTION_SFX } from './actionSfx';
+import { AMBIENCE_SFX } from './ambienceSfx';
 
 // Every one-shot sound in the game, synthesized from oscillators, the shared noise buffers
 // and envelopes. Recipes only talk to a Voice, so the same code plays live through the mix
 // graph or renders into an OfflineAudioContext for tests.
 
-export type StepKind = 'stone' | 'soil' | 'wood' | 'ancient';
+export type StepKind = 'stone' | 'soil' | 'wood' | 'ancient' | 'snow' | 'ice' | 'moss' | 'mud' | 'ash' | 'glass' | 'crystal' | 'metal' | 'sand' | 'fungus' | 'water' | 'root';
 export type BusName = 'music' | 'sfx' | 'ambience';
 
 /** Reverb send every voice of a category gets on top of its own (music sits further back). */
@@ -287,31 +290,139 @@ const BREAK: Record<SoundKind, (v: Voice) => void> = {
   },
 };
 
-const STEP: Record<StepKind, (v: Voice, t: number) => void> = {
-  stone(v, t) {
-    const k = v.vary(0.1);
-    burst(v, t, 'white', 'lowpass', 1400 * v.vary(0.2), 0.8, 0.3, 0.045);
-    thump(v, t, 95 * k, 60 * k, 0.22, 0.05);
+/** Footsteps by floor. `k` 0..1 is the pace: a sprint lands heavier and scuffs. */
+const STEP: Record<StepKind, (v: Voice, t: number, k: number) => void> = {
+  stone(v, t, k) {
+    const s = v.vary(0.1);
+    burst(v, t, 'white', 'lowpass', 1400 * v.vary(0.2), 0.8, 0.3 + 0.15 * k, 0.045);
+    thump(v, t, 95 * s, 60 * s, 0.22 + 0.1 * k, 0.05);
     grains(v, t, 0.06, 'bandpass', 2600 * v.vary(0.2), 1.2, 0.12, 1, v.rand(0, 0.3));
+    scuff(v, t, k);
   },
-  soil(v, t) {
-    const k = v.vary(0.1);
-    grains(v, t, 0.12, 'lowpass', 750 * v.vary(0.2), 0.8, 0.4, v.rand(0.6, 0.85), v.rand(0, 0.25));
-    thump(v, t, 70 * k, 45 * k, 0.18, 0.06);
+  soil(v, t, k) {
+    const s = v.vary(0.1);
+    grains(v, t, 0.12, 'lowpass', 750 * v.vary(0.2), 0.8, 0.4 + 0.15 * k, v.rand(0.6, 0.85), v.rand(0, 0.25));
+    thump(v, t, 70 * s, 45 * s, 0.18 + 0.08 * k, 0.06);
+    burst(v, t, 'pink', 'bandpass', 900, 1, 0.12, 0.04);
+    scuff(v, t, k);
   },
-  wood(v, t) {
-    const k = v.vary(0.08);
-    thump(v, t, 185 * k, 150 * k, 0.3, 0.07, 'triangle');
-    burst(v, t, 'white', 'bandpass', 620 * v.vary(0.1), 4, 0.25, 0.04);
+  wood(v, t, k) {
+    const s = v.vary(0.08);
+    thump(v, t, 185 * s, 150 * s, 0.3 + 0.1 * k, 0.07, 'triangle');
+    burst(v, t, 'white', 'bandpass', 620 * v.vary(0.1), 4, 0.25 + 0.1 * k, 0.04);
   },
-  ancient(v, t) {
-    const k = v.vary(0.08);
-    burst(v, t, 'white', 'bandpass', 1800 * v.vary(0.15), 1.5, 0.28, 0.035);
-    thump(v, t, 125 * k, 80 * k, 0.24, 0.05);
+  ancient(v, t, k) {
+    const s = v.vary(0.08);
+    burst(v, t, 'white', 'bandpass', 1800 * v.vary(0.15), 1.5, 0.28 + 0.1 * k, 0.035);
+    thump(v, t, 125 * s, 80 * s, 0.24, 0.05);
+    scuff(v, t, k);
+  },
+  /** Snow: a crisp crunch. */
+  snow(v, t, k) {
+    grains(v, t, 0.12, 'bandpass', 2000 * v.vary(0.15), 0.9, 0.35 + 0.15 * k, v.rand(1.1, 1.4), v.rand(0, 0.2));
+    burst(v, t, 'white', 'highpass', 3200, 0, 0.12, 0.03);
+    thump(v, t, 80, 55, 0.12, 0.05);
+  },
+  /** Ice: a hard click, and a little slide at a run. */
+  ice(v, t, k) {
+    burst(v, t, 'white', 'highpass', 3000, 0, 0.3, 0.015);
+    v.osc('sine', 2400 * v.vary(0.08), t, t + 0.05).connect(v.perc(t, 0.001, 0.06, 0.03)).connect(v.out);
+    thump(v, t, 140, 95, 0.18, 0.04);
+    if (k > 0.5) burst(v, t + 0.02, 'pink', 'bandpass', 1800, 1.5, 0.12 * k, 0.08, 0.02);
+  },
+  /** Moss: soft and muffled. */
+  moss(v, t, k) {
+    thump(v, t, 90, 60, 0.2 + 0.08 * k, 0.07);
+    burst(v, t, 'pink', 'lowpass', 600, 0, 0.25 + 0.1 * k, 0.07, 0.005);
+    burst(v, t, 'pink', 'bandpass', 1100, 1, 0.08, 0.04);
+  },
+  /** Mud and bog crust: a wet squelch and its suck. */
+  mud(v, t, k) {
+    burst(v, t, 'pink', 'lowpass', 650, 0, 0.3 + 0.1 * k, 0.08, 0.01);
+    const o = v.osc('sine', 380, t + 0.03, t + 0.1);
+    o.frequency.setValueAtTime(380, t + 0.03);
+    o.frequency.exponentialRampToValueAtTime(720, t + 0.07);
+    o.connect(v.perc(t + 0.03, 0.002, 0.1, 0.04)).connect(v.out);
+    burst(v, t + 0.06, 'white', 'bandpass', 1300, 2, 0.1 + 0.06 * k, 0.05);
+  },
+  /** Ash: a soft gritty crunch. */
+  ash(v, t, k) {
+    grains(v, t, 0.1, 'lowpass', 1500 * v.vary(0.15), 0.7, 0.32 + 0.12 * k, v.rand(0.8, 1), v.rand(0, 0.25));
+    thump(v, t, 85, 55, 0.16, 0.05);
+    burst(v, t, 'pink', 'bandpass', 900, 1, 0.1, 0.04);
+  },
+  /** Obsidian glass: a glassy tick over a hard body. */
+  glass(v, t, k) {
+    burst(v, t, 'white', 'highpass', 4500, 0, 0.2, 0.01);
+    for (const [r, a] of [[1, 0.07], [2.3, 0.03]] as const) v.osc('sine', 3200 * r * v.vary(0.05), t, t + 0.12).connect(v.perc(t, 0.001, a, 0.09)).connect(v.out);
+    thump(v, t, 130, 85, 0.2 + 0.08 * k, 0.04);
+    scuff(v, t, k);
+  },
+  /** The geode's floor: a tick and the faintest chime. */
+  crystal(v, t, k) {
+    burst(v, t, 'white', 'highpass', 3000, 0, 0.18, 0.012);
+    v.osc('sine', v.rand(2600, 3400), t, t + 0.2).connect(v.perc(t, 0.001, 0.035, 0.15)).connect(v.out);
+    thump(v, t, 110, 75, 0.2 + 0.08 * k, 0.05);
+  },
+  /** Metal (rails, grates, the gate's seal): a short clank. */
+  metal(v, t, k) {
+    for (const [r, a, d] of [[1, 0.1, 0.12], [2.4, 0.05, 0.07]] as const) v.osc('sine', 900 * r * v.vary(0.05), t, t + d + 0.05).connect(v.perc(t, 0.001, a * (1 + k), d)).connect(v.out);
+    thump(v, t, 120, 80, 0.2, 0.05);
+    burst(v, t, 'white', 'bandpass', 2400, 1.2, 0.12, 0.02);
+  },
+  /** Sand (the amber floors): a dry shuffle. */
+  sand(v, t, k) {
+    grains(v, t, 0.09, 'bandpass', 2400 * v.vary(0.15), 0.9, 0.3 + 0.12 * k, v.rand(1, 1.3), v.rand(0, 0.25));
+    burst(v, t, 'pink', 'lowpass', 1600, 0, 0.15, 0.05);
+    thump(v, t, 80, 55, 0.14, 0.05);
+  },
+  /** Mycelium and fungus: a soft, spongy squish. */
+  fungus(v, t, k) {
+    thump(v, t, 150, 95, 0.22 + 0.08 * k, 0.07, 'triangle');
+    burst(v, t + 0.01, 'pink', 'lowpass', 800, 0, 0.22, 0.08, 0.01);
+    burst(v, t + 0.02, 'pink', 'bandpass', 1400, 1.5, 0.06, 0.05);
+  },
+  /** Wet stone in the grottoes: a small splash and drops. */
+  water(v, t, k) {
+    burst(v, t, 'white', 'bandpass', 1500, 0.8, 0.3 + 0.15 * k, 0.1, 0.004);
+    thump(v, t, 100, 65, 0.14, 0.05);
+    for (let i = 0; i < 2; i++) {
+      const at = t + 0.05 + v.rand(0, 0.08);
+      const o = v.osc('sine', v.rand(1100, 1500), at, at + 0.06);
+      o.frequency.setValueAtTime(v.rand(1100, 1500), at);
+      o.frequency.exponentialRampToValueAtTime(1900, at + 0.03);
+      o.connect(v.perc(at, 0.001, 0.05, 0.04)).connect(v.out);
+    }
+  },
+  /** Roots underfoot: a woody knock in earth. */
+  root(v, t, k) {
+    thump(v, t, 170 * v.vary(0.08), 130, 0.24 + 0.08 * k, 0.06, 'triangle');
+    grains(v, t, 0.1, 'lowpass', 900, 0.8, 0.25, v.rand(0.7, 0.9), v.rand(0, 0.25));
+    burst(v, t, 'white', 'bandpass', 700, 3, 0.12, 0.03);
   },
 };
 
+/** A sprint's scuff (the heel dragging) on hard floors. */
+function scuff(v: Voice, t: number, k: number): void {
+  if (k <= 0.55) return;
+  grains(v, t + 0.015, 0.08, 'bandpass', 2200 * v.vary(0.2), 1.2, 0.14 * k, 1.2, v.rand(0.1, 0.4));
+}
+
 const D_MAJOR_ADD9 = [293.66, 369.99, 440, 659.25];
+
+/** Every timbre as a sound ('music.<timbre>'), so the tests render and measure each instrument. */
+const MUSIC_SFX = Object.fromEntries(
+  TIMBRE_NAMES.map((name) => {
+    const d = TIMBRES[name];
+    const demo = CALIBRATION[name];
+    const length = demo.duration + d.tail + 0.5;
+    const entry: SfxDef = {
+      bus: 'music', gain: d.gain, wet: d.wet, priority: 1, length, minGap: 0,
+      build: (v) => d.build(v, v.t, midiToHz(demo.midi), { duration: demo.duration, velocity: 0.7, brightness: 1100 }),
+    };
+    return [`music.${name}`, entry];
+  }),
+) as Record<`music.${Timbre}`, SfxDef>;
 
 // ---------------------------------------------------------------------------------------
 // Registry
@@ -322,7 +433,7 @@ const def = (bus: BusName, gain: number, wet: number, priority: number, length: 
 
 const hit = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.75, wet, 2, length, HIT[kind], 0.04);
 const brk = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.8, wet, 2, length, BREAK[kind], 0.04);
-const step = (kind: StepKind) => def('sfx', 0.45, 0.08, 1, 0.2, (v) => STEP[kind](v, v.t), 0.06);
+const step = (kind: StepKind) => def('sfx', 0.45, 0.08, 1, 0.25, (v, p) => STEP[kind](v, v.t, saturate(p.intensity ?? 0.3)), 0.06);
 const pickup = (freqs: readonly number[], spacing: number, amp: number, decay: number, sparkle: number) => (v: Voice) => {
   freqs.forEach((f, i) => blip(v, v.t + i * spacing, f * v.vary(0.005), amp, decay));
   if (sparkle > 0) burst(v, v.t + 0.02, 'white', 'highpass', 7000, 0.7, sparkle, 0.08 + freqs.length * 0.03);
@@ -430,10 +541,26 @@ export const SFX = {
   'step.soil': step('soil'),
   'step.wood': step('wood'),
   'step.ancient': step('ancient'),
+  // Round 3 (AUDIO): every biome's floor.
+  'step.snow': step('snow'),
+  'step.ice': step('ice'),
+  'step.moss': step('moss'),
+  'step.mud': step('mud'),
+  'step.ash': step('ash'),
+  'step.glass': step('glass'),
+  'step.crystal': step('crystal'),
+  'step.metal': step('metal'),
+  'step.sand': step('sand'),
+  'step.fungus': step('fungus'),
+  'step.water': step('water'),
+  'step.root': step('root'),
 
-  jump: def('sfx', 0.7, 0.05, 1, 0.25, (v) => {
-    sweep(v, v.t, 500, 1300, 0.1, 1, 0.03, 0.18, 0.12);
-    thump(v, v.t, 90, 60, 0.12, 0.05);
+  // The push-off: a scuff of the boots, a breath of air, the coat (round 3: heard on a phone).
+  jump: def('sfx', 0.75, 0.05, 1, 0.35, (v) => {
+    sweep(v, v.t, 600, 1700, 0.12, 1, 0.03, 0.22, 0.14);
+    grains(v, v.t, 0.08, 'bandpass', 1500, 1.1, 0.25, 1.1, 0.2);
+    burst(v, v.t, 'pink', 'bandpass', 1100, 1, 0.12, 0.06);
+    thump(v, v.t, 110, 70, 0.14, 0.05);
   }, 0.1),
 
   // Heavier thud with fall speed, plus the surface the player lands on.
@@ -443,7 +570,7 @@ export const SFX = {
     thump(v, t, 100, 40, 0.35 + 0.55 * i, 0.12 + 0.12 * i);
     burst(v, t, 'pink', 'lowpass', 700 + 500 * i, 0.7, 0.25 + 0.4 * i, 0.08 + 0.1 * i);
     grains(v, t, 0.1 + 0.25 * i, 'bandpass', 1500, 0.9, 0.1 + 0.3 * i, 0.9);
-    STEP[p.material ?? 'stone'](v, t);
+    STEP[p.material ?? 'stone'](v, t, 0.4 + 0.6 * i);
   }, 0.1),
 
   // Grunt-like: a low hit plus a buzzy source through two vocal formants, muffled.
@@ -585,15 +712,17 @@ export const SFX = {
     for (let k = 0; k < 4; k++) grains(v, t + v.rand(1.2, 3), 0.25, 'bandpass', v.rand(900, 1600), 1, 0.08, 0.8, 0.2);
   }, 5),
 
-  // Score voices, registered so they render offline like any other sound.
-  'music.pad': def('music', 1, 0.5, 1, 9, (v) => buildMusicNote(v, { time: v.t, duration: 5, midi: 50, velocity: 0.7, voice: 'pad', brightness: 1100 }), 0),
-  'music.pluck': def('music', 1, 0.55, 1, 2.5, (v) => buildMusicNote(v, { time: v.t, duration: 2.2, midi: 74, velocity: 0.7, voice: 'pluck', brightness: 1100 }), 0),
+  // Round 3 (AUDIO): every instrument of the scores, registered so it renders offline like any other sound.
+  ...MUSIC_SFX,
   // Round 2 (MOBS): the creatures' voices, their strikes and the weapons (audio/mobSfx).
   ...MOB_SFX,
   // Polish 2 (FP): the world events (audio/eventSfx).
   ...EVENT_SFX,
   // Round 3 (LOOP): the loop's sounds (audio/loopSfx).
   ...LOOP_SFX,
+  // Round 3 (AUDIO): every new action and event (audio/actionSfx) and the beds' one-shots (audio/ambienceSfx).
+  ...ACTION_SFX,
+  ...AMBIENCE_SFX,
 } satisfies Record<string, SfxDef>;
 
 export type SfxName = keyof typeof SFX;
@@ -614,32 +743,12 @@ export function playSfx(target: SynthTarget, name: SfxName, params: SfxParams, t
   return v;
 }
 
-/** Pads: detuned saw + triangle through a slowly opening lowpass. Plucks: kalimba-like tines. */
-function buildMusicNote(v: Voice, note: MusicNote): void {
-  const t = v.t;
-  const f = midiToHz(note.midi);
-  if (note.voice === 'pluck') {
-    pluck(v, t, f, 0.2 * note.velocity, note.duration);
-    return;
-  }
-  const attack = Math.min(2.5, note.duration * 0.3);
-  const release = 3;
-  const b = note.brightness;
-  const lp = v.filter('lowpass', b * 0.6, 0.6);
-  lp.frequency.setValueAtTime(b * 0.6, t);
-  lp.frequency.linearRampToValueAtTime(b, t + attack);
-  lp.frequency.linearRampToValueAtTime(b * 0.7, t + note.duration + release);
-  lp.connect(v.swell(t, attack, 0.08 * note.velocity, Math.max(0, note.duration - attack), release)).connect(v.out);
-  const stop = t + note.duration + release + 0.05;
-  v.osc('sawtooth', f * 0.997, t, stop).connect(lp);
-  v.osc('triangle', f * 1.003, t, stop).connect(v.gain(1.6)).connect(lp);
-}
-
-/** Start one score note on `target` (gain and reverb as registered for music voices). */
-export function playMusicNote(target: SynthTarget, note: MusicNote): Voice {
-  const d = SFX[note.voice === 'pad' ? 'music.pad' : 'music.pluck'];
-  const v = new Voice(target, note.time, { gain: d.gain, wet: d.wet + BASE_SEND.music });
-  buildMusicNote(v, note);
+/** Start one score note on `target`: its timbre's voice, level, reverb send and stereo place. */
+export function playMusicNote(target: SynthTarget, note: MusicNote, level = 1): Voice {
+  const timbre = timbreOf(note.voice);
+  const d = TIMBRES[timbre];
+  const v = new Voice(target, note.time, { gain: d.gain * level, wet: d.wet + BASE_SEND.music, pan: note.pan });
+  d.build(v, note.time, midiToHz(note.midi), note);
   v.finish();
   return v;
 }

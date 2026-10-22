@@ -53,10 +53,35 @@ export function installStratumDebug(game: StratumDebugHost): void {
       return s().enter(n).then(() => s().current);
     },
     biomeHere: (): BiomeId | null => layout()?.biomeAt(game.player.x, game.player.y, game.player.z) ?? null,
-    goto: async (where: BiomeId | 'lair' | 'gate' | 'camp' | 'arrival', which?: string): Promise<[number, number, number] | null> => {
+    goto: async (where: BiomeId | 'lair' | 'gate' | 'camp' | 'arrival' | 'vista' | 'vistaFloor' | 'river' | 'works' | 'vault' | 'secret' | 'ravine' | 'site', which?: string): Promise<[number, number, number] | null> => {
       if (!allowed) return null;
       let l = layout();
       if (!l) return null;
+      // Round 3 (§6): the great structures, and any named site (`goto('site', 'geode')`).
+      const to = (p: readonly number[] | undefined | null, yaw?: number): [number, number, number] | null => {
+        if (!p) return null;
+        const w = game.session.world;
+        const x = Math.floor(p[0]);
+        const z = Math.floor(p[2]);
+        for (let dy = 0; dy < 8; dy++) for (const y of [Math.floor(p[1]) + dy, Math.floor(p[1]) - dy]) {
+          for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0], [0, -2]]) {
+            if (standable(w, x + dx, y, z + dz)) {
+              game.teleport(x + dx + 0.5, y, z + dz + 0.5, yaw);
+              return [x + dx + 0.5, y, z + dz + 0.5];
+            }
+          }
+        }
+        return null;
+      };
+      if (where === 'vista' && l.vista) return to(l.vista.balcony, Math.atan2(l.vista.centre[0] - l.vista.balcony[0], l.vista.centre[2] - l.vista.balcony[2]));
+      if (where === 'vistaFloor' && l.vista) return to(l.vista.rampFoot);
+      if (where === 'river' && l.rivers[0]) return to(l.rivers[0].spring);
+      if (where === 'works' && l.dungeon) return to(l.dungeon.entry);
+      if (where === 'vault' && l.dungeon) return to(l.dungeon.vault);
+      if (where === 'secret') return to(l.secrets.find((sc) => !which || sc.biome === which || sc.id === which)?.centre);
+      if (where === 'ravine') return to(l.ravines.find((r) => !which || r.id === which)?.top);
+      if (where === 'site') return to(l.sites.find((st) => st.name === which || st.id === which)?.centre);
+      if (['vista', 'vistaFloor', 'river', 'works', 'vault', 'secret', 'ravine', 'site'].includes(where)) return null;
       if ((BIOME_IDS as readonly string[]).includes(where)) {
         const b = where as BiomeId;
         const st = BIOMES[b].stratum;
@@ -112,6 +137,13 @@ export function installStratumDebug(game: StratumDebugHost): void {
         sites: l.sites,
         stats: l.stats,
         heart: l.heart,
+        vista: l.vista,
+        falls: l.falls,
+        rivers: l.rivers.map((r) => ({ id: r.id, kind: r.kind, points: r.points.length, spring: r.spring, mouth: r.mouth })),
+        dungeon: l.dungeon,
+        works: { set: s().works.setCount(), open: s().works.isOpen() },
+        ravines: l.ravines.map((r) => ({ id: r.id, biome: r.biome, top: r.top, bottom: r.bottom, rope: r.rope.length })),
+        secrets: l.secrets,
         explored: s().map?.fraction() ?? 0,
       };
     },

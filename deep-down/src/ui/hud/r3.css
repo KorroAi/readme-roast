@@ -618,6 +618,10 @@
   width: 22px;
   height: 22px;
 }
+.dd-hud.dd-r3 .dd-hslot.zero .dd-slot-icon {
+  opacity: 0.38;
+  filter: grayscale(0.85);
+}
 .dd-hud.dd-r3 .dd-slot-count {
   position: absolute;
   right: 5px;
@@ -912,6 +916,7 @@
 }
 .dd-tut.hud-off .dd-tut-ring,
 .dd-tut.hud-off .dd-tut-bubble,
+.dd-tut.hud-off .dd-tut-swipe,
 .dd-tut.hud-off .dd-tip {
   display: none !important;
 }
@@ -989,6 +994,149 @@
 .dd-tut-on {
   z-index: 1;
 }
+/* A step waits while a biome arrival card is up (the card first, then the step). */
+.dd-tut .dd-tut-ring,
+.dd-tut .dd-tut-bubble,
+.dd-tut .dd-tut-swipe {
+  transition: opacity 0.3s, visibility 0.3s;
+}
+.dd-tut.held :is(.dd-tut-ring, .dd-tut-bubble, .dd-tut-swipe, .dd-tip) {
+  opacity: 0 !important;
+  visibility: hidden;
+}
+/* A new step's bubble rises in. */
+.dd-tut .dd-tut-bubble.fresh {
+  animation: dd-tut-in 0.32s ease-out;
+}
+@keyframes dd-tut-in {
+  from {
+    opacity: 0;
+    margin-top: 8px;
+  }
+}
+/* The bubble's pointer toward its control. */
+.dd-tut .dd-tut-bubble::after {
+  content: '';
+  position: absolute;
+  left: calc(50% - 7px);
+  width: 12px;
+  height: 12px;
+  background: inherit;
+  border: 1px solid #7ef0c0;
+  transform: rotate(45deg);
+  display: none;
+}
+.dd-tut .dd-tut-bubble[data-side='above']::after {
+  display: block;
+  bottom: -7px;
+  border-top: 0;
+  border-left: 0;
+}
+.dd-tut .dd-tut-bubble[data-side='below']::after {
+  display: block;
+  top: -7px;
+  border-bottom: 0;
+  border-right: 0;
+}
+/* The look step: a ghost finger drags across the right of the view. */
+.dd-tut .dd-tut-swipe {
+  position: absolute;
+  left: 58%;
+  top: 56%;
+  width: 120px;
+  height: 60px;
+  margin-left: -60px;
+  opacity: 0;
+  visibility: hidden;
+}
+.dd-tut.on .dd-tut-swipe.on {
+  opacity: 1;
+  visibility: visible;
+}
+.dd-tut .dd-tut-finger {
+  position: absolute;
+  left: 18px;
+  top: 14px;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 2px solid rgba(126, 240, 192, 0.95);
+  background: radial-gradient(circle, rgba(126, 240, 192, 0.55), rgba(126, 240, 192, 0.12) 70%);
+  box-shadow: 0 0 14px rgba(126, 240, 192, 0.6);
+  animation: dd-tut-drag 2.2s ease-in-out infinite;
+}
+.dd-tut .dd-tut-trail {
+  position: absolute;
+  left: 30px;
+  top: 28px;
+  width: 64px;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(126, 240, 192, 0), rgba(126, 240, 192, 0.7));
+  transform-origin: 0 50%;
+  animation: dd-tut-trail 2.2s ease-in-out infinite;
+}
+@keyframes dd-tut-drag {
+  0%,
+  12% {
+    transform: translateX(0) scale(0.85);
+    opacity: 0;
+  }
+  22% {
+    transform: translateX(0) scale(1);
+    opacity: 1;
+  }
+  70% {
+    transform: translateX(64px) scale(1);
+    opacity: 1;
+  }
+  85%,
+  100% {
+    transform: translateX(64px) scale(0.85);
+    opacity: 0;
+  }
+}
+@keyframes dd-tut-trail {
+  0%,
+  22% {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  70% {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scaleX(1);
+    opacity: 0;
+  }
+}
+/* The move step: the stick's ghost comes forward and its knob nudges up (push). */
+.dd-touch.dd-r3 .dd-stick.idle.dd-tut-on {
+  opacity: 0.9;
+}
+.dd-touch.dd-r3 .dd-stick.idle.dd-tut-on .dd-stick-knob {
+  animation: dd-tut-nudge 1.6s ease-in-out infinite;
+}
+@keyframes dd-tut-nudge {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(0, -22px, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-tut .dd-tut-ring,
+  .dd-tut .dd-tut-finger,
+  .dd-tut .dd-tut-trail,
+  .dd-touch.dd-r3 .dd-stick.idle.dd-tut-on .dd-stick-knob {
+    animation: none;
+  }
+  .dd-tut .dd-tut-finger {
+    transform: translateX(32px);
+  }
+}
 
 /* ---------------------------------------------------------------- landscape */
 @media (orientation: landscape) {
@@ -1026,4 +1174,233 @@
 }
 .dd-hud.dd-r3 .dd-arrival.brief :is(.dd-arrival-desc, .dd-arrival-hazard, .dd-arrival-rumour) {
   display: none;
+}
+
+/* ---------------------------------------------------------------- the milestone card */
+/* Feats, Heart Shards, completed bestiary pages: one calm card under the top HUD (never the centre). */
+.dd-ui .dd-milestone {
+  position: absolute;
+  left: 50%;
+  top: calc(176px + var(--safe-top));
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 9px 14px 10px 10px;
+  border: 1px solid rgba(255, 210, 130, 0.9);
+  --cut: var(--cut-chip);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+  background: linear-gradient(180deg, rgba(48, 32, 12, 0.95), rgba(12, 14, 20, 0.95));
+  color: var(--bone-100);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, -10px) scale(0.97);
+  transition: opacity 0.3s, transform 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2), visibility 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-ui .dd-milestone.on {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0) scale(1);
+}
+.dd-ui .dd-milestone[data-kind='shard'] {
+  border-color: rgba(255, 120, 110, 0.95);
+  background: linear-gradient(180deg, rgba(60, 16, 16, 0.95), rgba(12, 14, 20, 0.95));
+}
+.dd-ui .dd-milestone[data-kind='bestiary'] {
+  border-color: rgba(143, 227, 238, 0.9);
+  background: linear-gradient(180deg, rgba(10, 40, 46, 0.95), rgba(12, 14, 20, 0.95));
+}
+.dd-ui .dd-milestone .dd-ms-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  color: #ffd28a;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 210, 138, 0.35), rgba(255, 179, 92, 0.08));
+  box-shadow: 0 0 0 1px rgba(255, 210, 138, 0.6), 0 0 14px rgba(255, 179, 92, 0.45);
+}
+.dd-ui .dd-milestone[data-kind='shard'] .dd-ms-glyph {
+  color: #ff8a7a;
+  box-shadow: 0 0 0 1px rgba(255, 138, 122, 0.6), 0 0 16px rgba(255, 90, 90, 0.55);
+}
+.dd-ui .dd-milestone[data-kind='bestiary'] .dd-ms-glyph {
+  color: var(--rune-200);
+  box-shadow: 0 0 0 1px rgba(143, 227, 238, 0.6), 0 0 14px rgba(82, 232, 245, 0.4);
+}
+.dd-ui .dd-milestone .dd-ms-glyph svg {
+  width: 24px;
+  height: 24px;
+}
+.dd-ui .dd-milestone.on .dd-ms-glyph {
+  animation: dd-ms-glint 1.2s ease-out 0.15s;
+}
+@keyframes dd-ms-glint {
+  30% {
+    transform: scale(1.18) rotate(-6deg);
+  }
+  60% {
+    transform: scale(0.96) rotate(3deg);
+  }
+}
+.dd-ui .dd-milestone .dd-ms-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.dd-ui .dd-milestone .dd-ms-kicker {
+  font: 800 calc(9.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-ui .dd-milestone .dd-ms-name {
+  font: 400 calc(17px * var(--s)) / 1.1 var(--font-lintel);
+  color: var(--amber-300);
+  letter-spacing: 0.03em;
+}
+.dd-ui .dd-milestone .dd-ms-line {
+  font: 600 calc(12px * var(--s)) / 1.25 var(--font);
+  color: var(--bone-100);
+}
+.dd-ui .dd-milestone .dd-ms-reward {
+  font: 800 calc(11.5px * var(--s)) / 1.2 var(--font);
+  color: #9ff0c8;
+}
+.dd-ui .dd-milestone [hidden] {
+  display: none;
+}
+@media (orientation: landscape) {
+  .dd-ui .dd-milestone {
+    top: calc(116px + var(--safe-top));
+    left: auto;
+    right: calc(12px + var(--safe-right));
+    transform: translate(0, -10px) scale(0.97);
+  }
+  .dd-ui .dd-milestone.on {
+    transform: translate(0, 0) scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-ui .dd-milestone,
+  .dd-ui .dd-milestone.on {
+    transition: opacity 0.2s, visibility 0.2s;
+  }
+  .dd-ui .dd-milestone.on .dd-ms-glyph {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- reduced motion (the setting) */
+/* Settings → Motion: Reduced. Every animation is cut to its end state and transitions shorten to
+   a fade, whatever the device says (the device's own setting is honoured by the media queries). */
+:root.dd-reduce-motion *,
+:root.dd-reduce-motion *::before,
+:root.dd-reduce-motion *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
+  transition-duration: 0.12s !important;
+  scroll-behavior: auto !important;
+}
+
+/* ---------------------------------------------------------------- the companion's chip */
+/* A tamed Lampling: its glyph glowing with its light, the level, a ring of progress to the next. */
+.dd-hud.dd-r3 .dd-pet {
+  --xp: 0;
+  --glow: 0.6;
+  pointer-events: auto;
+  color: #fff1c4;
+  --plate-rim: rgba(255, 214, 140, 0.8);
+}
+.dd-hud.dd-r3 .dd-pet[hidden] {
+  display: none;
+}
+.dd-hud.dd-r3 .dd-pet .dd-glyph {
+  width: 24px;
+  height: 24px;
+  filter: drop-shadow(0 0 calc(var(--glow) * 7px) rgba(255, 214, 140, 0.9));
+  animation: dd-pet-bob 2.4s ease-in-out infinite;
+}
+@keyframes dd-pet-bob {
+  50% {
+    transform: translateY(-2px);
+  }
+}
+.dd-hud.dd-r3 .dd-pet-level {
+  position: absolute;
+  right: 3px;
+  bottom: 2px;
+  min-width: 14px;
+  padding: 1px 3px;
+  border-radius: 6px;
+  background: rgba(255, 214, 140, 0.92);
+  color: #2a1a06;
+  font: 900 calc(9px * var(--s)) / 1 var(--font);
+  text-align: center;
+}
+.dd-hud.dd-r3 .dd-pet-ring {
+  position: absolute;
+  inset: 3px;
+  border-radius: 50%;
+  background: conic-gradient(rgba(255, 214, 140, 0.85) calc(var(--xp) * 360deg), rgba(255, 214, 140, 0.12) 0);
+  -webkit-mask: radial-gradient(circle, transparent 62%, #000 64%);
+  mask: radial-gradient(circle, transparent 62%, #000 64%);
+  pointer-events: none;
+}
+.dd-hud.dd-r3 .dd-pet[data-state='scout'] {
+  --plate-rim: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-pet[data-state='fight'] {
+  --plate-rim: #ff8a7a;
+}
+.dd-hud.dd-r3 .dd-pet.ping-ore {
+  animation: dd-pet-ping 0.5s ease-out 3;
+  --plate-rim: #ffd060;
+}
+.dd-hud.dd-r3 .dd-pet.ping-zap {
+  animation: dd-pet-ping 0.35s ease-out 2;
+  --plate-rim: #8fe3ee;
+}
+.dd-hud.dd-r3 .dd-pet.ping-level {
+  animation: dd-pet-ping 0.6s ease-out 3;
+  --plate-rim: #fff1c4;
+}
+@keyframes dd-pet-ping {
+  40% {
+    transform: scale(1.12);
+    filter: brightness(1.4);
+  }
+}
+
+/* The find under the reticle, named small beneath it (never on the centre itself). */
+.dd-hud.dd-r3 .dd-target3 {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 22px);
+  transform: translateX(-50%);
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(4, 7, 11, 0.55);
+  font: 700 calc(11px * var(--s)) / 1.2 var(--font);
+  color: var(--amber-300);
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.dd-hud.dd-r3 .dd-target3.on {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-target3.blocked {
+  color: #ff9a8e;
 }

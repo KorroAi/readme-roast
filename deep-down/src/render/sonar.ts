@@ -33,6 +33,8 @@ export const SONAR = {
   band: 1.3,
   /** At most this many marks (the rarest and nearest first). */
   maxMarks: 64,
+  /** How long glowing things keep the wave's light after the sweep (s). */
+  afterglow: 2.4,
 } as const;
 
 /** Something the sonar finds that is not a voxel or a prop (WORLD's lairs, the gate, pages, outposts). */
@@ -159,6 +161,11 @@ export class SonarPulse {
 
   /** The shell is still sweeping out. */
   get active(): boolean {
+    return this.t >= 0 && this.t * SONAR.speed <= this.radius * 1.15;
+  }
+
+  /** The sweep or its afterglow (the bioluminescence it wakes) is still on. */
+  get glowing(): boolean {
     return this.t >= 0;
   }
 
@@ -171,7 +178,7 @@ export class SonarPulse {
     const u = this.o.terrain.uniforms;
     this.radius = Math.max(4, radius);
     u.uSonar.value.set(origin.x, origin.y, origin.z, 0);
-    u.uSonarFx.value.set(SONAR.band, 1, this.radius, 0);
+    u.uSonarFx.value.set(SONAR.band, 1, this.radius, 1);
     this.t = 0;
     this.pings++;
     const cells = scanFinds(this.o.world(), origin.x, origin.y, origin.z, this.radius);
@@ -202,9 +209,16 @@ export class SonarPulse {
     const u = this.o.terrain.uniforms;
     const r = this.t * SONAR.speed;
     u.uSonar.value.w = r;
-    if (r > this.radius * 1.15) {
+    // Round 3: after the sweep, what glows by itself keeps the wave's light a little while
+    // (uSonarFx.w, 1 -> 0 over SONAR.afterglow s: the bioluminescence the pulse wakes). The rock's
+    // ring is gone by then (the terrain fades it with the shell's reach).
+    const sweep = (this.radius * 1.15) / SONAR.speed;
+    const k = (this.t - sweep) / SONAR.afterglow;
+    u.uSonarFx.value.w = k <= 0 ? 1 : Math.max(0, 1 - k * k * (3 - 2 * Math.min(1, k)));
+    if (this.t > sweep + SONAR.afterglow) {
       this.t = -1;
       u.uSonarFx.value.y = 0;
+      u.uSonarFx.value.w = 0;
     }
   }
 

@@ -59,12 +59,15 @@ export class WorldSession {
     this.props = new PropRenderer(this.rig.uniforms);
   }
 
-  /** Round 3: `stratum` is the stratum to boot into (WORLD_GEN 'strata'; the old world ignores it). */
-  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed, stratum = 1): Promise<WorldSession> {
+  /**
+   * Round 3: `stratum` is the stratum to boot into (WORLD_GEN 'strata'; the old world ignores it); `gen`
+   * picks the generator (default: worldGen(), i.e. WORLD_GEN or `?gen=`; tests pin one).
+   */
+  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed, stratum = 1, gen?: 'legacy' | 'strata'): Promise<WorldSession> {
     onProgress(0.02, 'carve');
     await yieldFrame();
     const t0 = performance.now();
-    const zone = await loadBootZone(seed, stratum, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));
+    const zone = await loadBootZone(seed, stratum, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase), gen);
     const atlas = generateTiles();
     const session = new WorldSession(zone.layout, atlas, zone.light, zone.materials ?? generateMaterials());
     Object.assign(session.timings, zone.timings, { zoneTotalMs: Math.round(performance.now() - t0), worker: zone.usedWorker ? 1 : 0 });
@@ -162,6 +165,15 @@ export class WorldSession {
     if (zw.sx !== w.sx || zw.sy !== w.sy || zw.sz !== w.sz) throw new Error(`zone size ${zw.sx}x${zw.sy}x${zw.sz} does not match the session's ${w.sx}x${w.sy}x${w.sz}`);
     w.blocks.set(zw.blocks);
     this.generated = zw.blocks.slice();
+    // The new stratum's own material layers (the worker painted its biomes'): upload them in place.
+    if (zone.materials) {
+      const tex = this.terrain.materialTex;
+      const img = tex.image as { data: Uint8Array };
+      if (img.data.length === zone.materials.data.length) {
+        img.data.set(zone.materials.data);
+        tex.needsUpdate = true;
+      }
+    }
     this.layout = { ...zone.layout, world: w } as WorldLayout;
     // The stratum's biomeAt closure (if any) reads only its own region map: it survives the spread.
     applyWorldEdits(w.blocks, edits);

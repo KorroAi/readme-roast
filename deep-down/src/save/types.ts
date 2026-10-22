@@ -129,6 +129,15 @@ export interface SaveData {
   /**
    * Save v4 (round 3, WORLD): the strata expedition (seed, current stratum, per-stratum edits, removed
    * props, explored maps, revealed lairs, outposts, Heart Shards). Absent in the old hand-made world.
+   * In a strata save the top-level worldEdits and removedProps stay empty: each stratum's live here.
    */
   strata?: StrataSave;
+  /** Save v4: MOBS' part (the bestiary and the guardians beaten: MobDirector.serialise()). */
+  mobs?: unknown;
+  /**
+   * Save v4: set by the v3 -> v4 migration. A 1.x save's world cannot map onto the strata: on
+   * Continue the game shows one calm card ("The deep has changed") and starts a new expedition that
+   * keeps the feats, the lifetime counters and the records (game/StratumFlow deepChanged).
+   */
+  changed?: boolean;
 }

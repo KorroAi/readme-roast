@@ -15,23 +15,24 @@ import type { WorldLayout } from '../../src/world/gen/types';
 describe('the pack left behind', () => {
   it('holds the pack minus the Sealed Pouch, plus loose drops (never key items)', () => {
     const b = new Backpack(10, 2);
-    for (let i = 0; i < 8; i++) b.add('stone', 30);
+    // Round 3 stacks: stone 60 a slot.
+    for (let i = 0; i < 8; i++) b.add('stone', 60);
     b.add('copperOre', 15); // slot 8: inside the pouch
     b.add('glimmerShard', 4); // slot 9: inside the pouch
     const cached = makeCache(b, { ironOre: 2, ancientTablet: 1, stone: 3 });
-    expect(cached).toEqual({ stone: 243, ironOre: 2 });
+    expect(cached).toEqual({ stone: 483, ironOre: 2 });
     expect(b.toJSON().slice(0, 8).every((s) => s === null)).toBe(true);
     expect(b.totals()).toEqual({ copperOre: 15, glimmerShard: 4 });
   });
 
   it('walking up to it returns everything that fits; the rest stays in the cache', () => {
-    const cache: CacheState = { x: 1, y: 2, z: 3, depth: 60, items: { stone: 40, copperOre: 6 } };
+    const cache: CacheState = { x: 1, y: 2, z: 3, depth: 60, items: { stone: 100, copperOre: 6 } };
     const b = new Backpack(2);
     expect(cacheFits(cache, b)).toBe(true);
     const r = recoverCache(cache, b);
-    // Two slots: the 40 stone fill both (30 + 10); the copper does not fit and stays.
-    expect(r).toEqual({ taken: { stone: 40 }, count: 40, left: 6 });
-    expect(b.count('stone')).toBe(40);
+    // Two slots: the 100 stone fill both (60 + 40); the copper does not fit and stays.
+    expect(r).toEqual({ taken: { stone: 100 }, count: 100, left: 6 });
+    expect(b.count('stone')).toBe(100);
     expect(cache.items).toEqual({ copperOre: 6 });
     expect(cacheFits(cache, b)).toBe(false);
     // Make room (bank at camp) and come back: the overflow is still there.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SAVE, WORLD } from '../../src/config/balance';
+import { SAVE, WORLD, packForTier } from '../../src/config/balance';
 import { ITEMS, type ItemId } from '../../src/config/items';
 import { MIGRATIONS, MemoryStore, SAVE_KEYS, SaveSystem, checksum, createNewSave, validateSaveData } from '../../src/save/SaveSystem';
 import { defaultProgression, normalizeSave, shiftWorldIfNeeded } from '../../src/save/saveData';
@@ -61,31 +61,43 @@ function v1Fixture(): Record<string, unknown> {
 }
 
 describe('save v2', () => {
-  it('is the current format, with migrations from v1 and v2', () => {
-    expect(SAVE.version).toBe(3);
+  it('is an older format (v4 is current), with migrations from v1, v2 and v3', () => {
+    expect(SAVE.version).toBe(4);
     expect(typeof MIGRATIONS[1]).toBe('function');
     expect(typeof MIGRATIONS[2]).toBe('function');
+    expect(typeof MIGRATIONS[3]).toBe('function');
     const d = createNewSave(SPAWN, WORLD.seed, 1);
     expect(d.genVersion).toBe(WORLD.genVersion);
     expect(d.progression).toEqual(defaultProgression());
     expect(validateSaveData(d)).toBe(true);
   });
 
-  it('a v1 save migrates to v3: oversized stacks move into storage and no item is lost', () => {
+  it('a v1 save migrates to v4: oversized stacks move into storage, no item is lost, and its old world is marked changed', () => {
     const old = v1Fixture();
     const before = totals(old as unknown as SaveData);
     const res = new SaveSystem(store(old)).load();
     expect(res.error).toBeUndefined();
     const d = res.data!;
-    expect(d.version).toBe(3);
+    expect(d.version).toBe(4);
+    // v4: a 1.x world cannot map onto the strata: its edits go, and Continue shows the card.
+    expect(d.changed).toBe(true);
+    expect(d.worldEdits).toEqual([]);
+    expect(d.removedProps).toEqual([]);
+    expect(d.strata).toBeUndefined();
     expect(totals(d)).toEqual(before);
-    // The Sturdy Pack now has 8 slots, and every stack is within the new stack sizes.
-    expect(d.backpack.length).toBe(8);
+    // The Sturdy Pack's slots (config/balance), and every stack is within the new stack sizes.
+    expect(d.backpack.length).toBe(packForTier(2).slots);
     for (const s of d.backpack) if (s) expect(s.count).toBeLessThanOrEqual(ITEMS[s.item].stackSize);
-    expect(d.backpack[0]).toEqual({ item: 'stone', count: 30 });
-    expect(d.backpack[1]).toEqual({ item: 'copperOre', count: 15 });
-    expect(d.storage.stone).toBe(120 + 10 + 9); // the 40-stack's extra 10 and slot 9's stack
-    expect(d.storage.copperOre).toBe(18 + 15 + 4); // the 30-stack's extra 15 and slot 8's stack
+    // Each old slot keeps what fits its stack (in a slot the pack still has); the rest goes to storage.
+    const slots = packForTier(2).slots;
+    const expectStorage: Record<string, number> = { ...(old.storage as Record<string, number>) };
+    (old.backpack as Array<{ item: ItemId; count: number } | null>).forEach((sl, i) => {
+      if (!sl) return;
+      const kept = i < slots ? Math.min(sl.count, ITEMS[sl.item].stackSize) : 0;
+      if (sl.count > kept) expectStorage[sl.item] = (expectStorage[sl.item] ?? 0) + sl.count - kept;
+      if (i < slots) expect(d.backpack[i]).toEqual(kept ? { item: sl.item, count: kept } : null);
+    });
+    expect(d.storage).toEqual(expectStorage);
     // Everything else is kept; the v1 world is unknown (genVersion 0), so its edits drop on load.
     expect(d.genVersion).toBe(0);
     // v3: the lifetime counters start from the old stats.
@@ -193,7 +205,7 @@ describe('save v2', () => {
     expect(shiftWorldIfNeeded(same, SPAWN)).toEqual({ data: same, shifted: false });
   });
 
-  it('a v2 save migrates to v3: nothing opened, nothing earned, lifetime counters from its stats; its world edits still apply', () => {
+  it('a v2 save migrates through v3 to v4: nothing opened, nothing earned, lifetime counters from its stats; marked changed', () => {
     const v2 = createNewSave(SPAWN, WORLD.seed, 9) as unknown as Record<string, unknown> & SaveData;
     v2.version = 2;
     v2.genVersion = 3;
@@ -206,14 +218,17 @@ describe('save v2', () => {
     const res = new SaveSystem(store(v2 as never)).load();
     expect(res.error).toBeUndefined();
     const d = res.data!;
-    expect(d.version).toBe(3);
+    expect(d.version).toBe(4);
     expect(d.progression.looted).toEqual([]);
     expect(d.progression.feats).toEqual([]);
     expect(d.progression.life.blocksMined).toBe(321);
     expect(d.progression.life.itemsBanked).toBe(99);
     expect(validateSaveData(d)).toBe(true);
-    // Generator 4 keeps generator 3's edits (it only adds rock-locked places, finds and secrets).
-    const shifted = shiftWorldIfNeeded(d, SPAWN);
+    // v4: the old world's edits cannot land in the strata (dropped), and Continue shows the card.
+    expect(d.changed).toBe(true);
+    expect(d.worldEdits).toEqual([]);
+    // The old world's generator rule still holds for a save of the old world (gen 4 keeps gen 3's edits).
+    const shifted = shiftWorldIfNeeded({ ...d, worldEdits: [12345, 0] }, SPAWN);
     expect(shifted.shifted).toBe(false);
     expect(shifted.data.worldEdits).toEqual([12345, 0]);
     expect(shifted.data.genVersion).toBe(WORLD.genVersion);

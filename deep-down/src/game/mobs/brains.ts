@@ -62,8 +62,9 @@ function backOff(m: SimMob, ctx: MobContext, d: number): { x: number; z: number 
   return away;
 }
 
+/** Its wind-up (s): a swift elite's is shorter, never under 0.35 s (every blow stays told). */
 function windupTime(m: SimMob): number {
-  return m.def.windup * (m.rank === 'minion' ? 1 : 1);
+  return Math.max(Math.min(m.def.windup, 0.35), m.def.windup * m.tempo);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -109,16 +110,28 @@ function pack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
     default: {
       if (m.state !== 'stalk') m.setState('stalk');
       const ring = Math.max(2.4, Math.min(5, bright * 0.6 + 1.6)) + m.seed;
-      const a = sim.clock * (0.55 + m.seed * 0.35) * (m.seed > 0.5 ? 1 : -1) + m.seed * 6.283 + m.group;
+      // A pack flanks: its members spread round the explorer in slots centred on the explorer's back
+      // (drifting slowly), a lone one circles. Far off, they come straight in.
+      const slot = sim.groupSlot(m);
+      const look = ctx.look ? Math.atan2(ctx.look.x, ctx.look.z) : null;
+      const a =
+        look !== null && slot.n > 1
+          ? look + Math.PI + (slot.i - (slot.n - 1) / 2) * Math.min((2 * Math.PI) / slot.n, 1.25) + Math.sin(sim.clock * 0.4 + m.group) * 0.35
+          : sim.clock * (0.55 + m.seed * 0.35) * (m.seed > 0.5 ? 1 : -1) + m.seed * 6.283 + m.group;
+      // Placed light (a torch) holds a pack off: they circle at its edge and do not come in.
+      const lit = !sim.brave(m) && sim.env.light(Math.floor(ctx.player.x), Math.floor(ctx.player.y + 0.5), Math.floor(ctx.player.z)) > MOBS_RULES.torchFear;
+      const rr = lit ? ring + 3.5 : ring;
       if (dp > 13) sim.walkToward(m, ctx.player.x, ctx.player.z, d.speed, dt);
-      else sim.walkToward(m, ctx.player.x + Math.sin(a) * ring, ctx.player.z + Math.cos(a) * ring, d.speed * 0.8, dt);
-      if (l.raised && dl < bright + 1) {
+      else sim.walkToward(m, ctx.player.x + Math.sin(a) * rr, ctx.player.z + Math.cos(a) * rr, d.speed * 0.8, dt);
+      if (lit) return;
+      if (l.raised && dl < bright + 1 && !sim.brave(m)) {
         sim.recoil(m, 1.8);
         return;
       }
       const token = sim.packNext.get(m.group) ?? 0;
       const bold = !l.lit ? 1.8 : l.flame < MOBS_RULES.dimFlame ? 1.4 : 1;
-      if (m.cooldown <= 0 && sim.clock >= token && dp < 7.5 && m.stateTime > 0.6 && (dp < 2.6 || sim.rng.next() < dt * 1.6 * bold) && sim.seesPlayer(m, ctx)) {
+      // They take turns; the one most to the explorer's side goes (a flank: its tell is heard on that side).
+      if (m.cooldown <= 0 && sim.clock >= token && dp < 7.5 && m.stateTime > 0.6 && (dp < 2.6 || sim.rng.next() < dt * 1.6 * bold) && sim.flanker(m, ctx) && sim.seesPlayer(m, ctx)) {
         m.setState('windup');
         m.landed = false;
         sim.packNext.set(m.group, sim.clock + 0.9 + sim.rng.range(0, 0.8));
@@ -167,7 +180,7 @@ function charge(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       return;
     }
     case 'attack': {
-      const rush = (d.rush ?? d.speed * 3) * m.scale ** 0.3;
+      const rush = (d.rush ?? d.speed * 3) * m.scale ** 0.3 * m.pace;
       const bx = m.foot.x;
       const bz = m.foot.z;
       const blocked = walkStep(sim.env.solid, m.foot, m.dir.x * rush, m.dir.z * rush, dt, d.height, m.bounds.radius);
@@ -404,7 +417,7 @@ function dive(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       const dy = m.target.y - m.position.y;
       const dz = m.target.z - m.position.z;
       const dd = Math.hypot(dx, dy, dz);
-      const rush = d.rush ?? 10;
+      const rush = (d.rush ?? 10) * m.pace;
       m.vel.x = (dx / Math.max(0.01, dd)) * rush;
       m.vel.y = (dy / Math.max(0.01, dd)) * rush;
       m.vel.z = (dz / Math.max(0.01, dd)) * rush;
@@ -442,7 +455,7 @@ function dive(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       const r = 4.5 + m.seed * 2;
       const a = sim.clock * (0.7 + m.seed * 0.3) * (m.seed > 0.5 ? 1 : -1) + m.seed * 6.283;
       sim.flyToward(m, ctx.player.x + Math.sin(a) * r, ctx.player.y + 3.4 + Math.sin(sim.clock + m.seed * 4) * 0.6, ctx.player.z + Math.cos(a) * r, d.speed, dt, 2.5);
-      if (l.raised && Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z) < bright + 1) {
+      if (l.raised && Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z) < bright + 1 && !sim.brave(m)) {
         sim.recoil(m, 2);
         return;
       }
@@ -472,7 +485,7 @@ function dig(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       const dx = ctx.player.x - m.foot.x;
       const dz = ctx.player.z - m.foot.z;
       const l = Math.max(0.01, Math.hypot(dx, dz));
-      const step = Math.min(l, d.speed * dt);
+      const step = Math.min(l, d.speed * m.pace * dt);
       m.foot.x += (dx / l) * step;
       m.foot.z += (dz / l) * step;
       m.foot.y += (ctx.player.y - m.foot.y) * Math.min(1, dt * 2);

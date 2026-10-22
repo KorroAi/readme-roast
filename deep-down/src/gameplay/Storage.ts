@@ -11,9 +11,21 @@ export class CampStorage {
   // No prototype, so a stray key such as "toString" reads as 0 instead of an inherited member.
   private readonly items: ItemCounts = Object.create(null) as ItemCounts;
 
-  /** Move the whole backpack into storage. @returns the counts moved. */
-  deposit(backpack: Backpack): ItemCounts {
-    const moved = backpack.takeAll();
+  /**
+   * Move the backpack into storage. Round 3 (LOOP): the items in `keep` (the hotbar's loadout:
+   * torches, food, bombs) stay in the bag. @returns the counts moved.
+   */
+  deposit(backpack: Backpack, keep?: ReadonlySet<ItemId>): ItemCounts {
+    let moved: ItemCounts;
+    if (keep && keep.size > 0) {
+      moved = {};
+      const totals = backpack.totals();
+      for (const id of Object.keys(totals) as ItemId[]) {
+        if (keep.has(id)) continue;
+        const n = backpack.remove(id, totals[id] ?? 0);
+        if (n > 0) moved[id] = n;
+      }
+    } else moved = backpack.takeAll();
     for (const id in moved) this.add(id as ItemId, moved[id as ItemId] ?? 0);
     return moved;
   }

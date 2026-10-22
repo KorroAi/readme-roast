@@ -15,7 +15,7 @@ export interface GameUi {
   showDiscovery(n: DiscoveryNotice): void;
   toast(text: string, tone?: 'info' | 'warn' | 'good'): void;
   hint(text: string, ms?: number): void;
-  showDeath(lost: ItemCounts): void;
+  showDeath(lost: ItemCounts, info?: import('../ui/types').BlackoutInfo): void;
   applySettings(s: Settings): void;
   refresh(): void;
   readonly touch: {
@@ -32,7 +32,11 @@ export interface GameUi {
   setMap?(src: MapSource | null): void;
   damageNumber?(sx: number, sy: number, amount: number, kind?: 'hit' | 'weak' | 'hurt'): void;
   tip?(id: string, target: UiTargetId, text: string): boolean;
-  setControlPrefs?(p: { scale: number; opacity: number }): void;
+  setControlPrefs?(p: import('../ui/controlPrefs').ControlPrefs): void;
+  /** Round 3: forget the first-time tips shown (they show again). */
+  replayTips?(): void;
+  /** Round 3: the Craft menu opens filtered to this station's recipes (null: all). */
+  focusCraft?(station: string | null): void;
   dispose(): void;
 }
 

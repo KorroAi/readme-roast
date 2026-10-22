@@ -14,6 +14,8 @@ export const loop3 = {
   'station.forge.desc': 'Weapons, armour and lanterns.',
   'station.alchemy': 'Alchemy Table',
   'station.alchemy.desc': 'Potions, tonics and bombs.',
+  'outpost3.label': 'Outpost',
+  'outpost3.rested': 'Rested at the outpost: your bed is here and the bag is banked.',
 
   // Crafting menu
   'craft3.title': 'Crafting',
@@ -140,7 +142,7 @@ export const loop3 = {
   'quest.heartPlace': 'the Heart',
 
   // Side tasks: biome tasks, the bestiary, orders
-  'task.mine': 'Mine {need} {item}',
+  'task.mine': 'Mine {need} veins in the {biome}',
   'task.hunt': 'Defeat {need} creatures in the {biome}',
   'task.scan': 'Record every creature of the {biome} ({have}/{need})',
   'task.pages': 'Find Halden\'s pages in the {biome} ({have}/{need})',
@@ -169,7 +171,8 @@ export const loop3 = {
   'tut.mine': 'Aim at a glowing vein and hold Action to mine it',
   'tut.pickup': 'Walk over what you mined: it flies into your bag',
   'tut.craft': 'Open Craft and make Torches (by hand: Fungal Wood + Coal)',
-  'tut.torch': 'Pick the torch slot, then Place it on a wall',
+  'tut.torch': 'Place the torch on a wall or the floor',
+  'tut.torch.pick': 'Tap the torch slot to hold a torch',
   'tut.fight': 'A creature! Aim and press Action to strike',
   'tut.sonar': 'Press Sonar: ores, chests and lairs show through the rock',
   'tut.bag': 'Open the Bag: your finds, gear and potions',
@@ -201,6 +204,7 @@ export const loop3 = {
   'tip.outpost': 'Outposts: bank, respawn bed, light, bench and fast travel.',
   'tip.furnace': 'The Furnace smelts ore into bars. It needs fuel.',
   'tip.shard': 'Heart Shards open the Gate of their stratum.',
+  'tip.item': 'New: {name}. {desc}',
 
   // Arrival cards
   'arrival.counter': 'Answer: {counter}',

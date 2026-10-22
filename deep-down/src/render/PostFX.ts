@@ -116,6 +116,10 @@ uniform vec3 uFlashColor;
 uniform vec3 uLift;
 uniform vec3 uGain;
 uniform float uSat;
+// Round 3 (VIS): the hazards on the screen's edge: x frost (rime creeping in from the corners),
+// y gas (a sickly green-yellow cast and haze), z heat (a shimmer low on the screen, a warm edge),
+// w the dark and the void (a deeper violet edge). 0 = off; each is calm and never covers the centre.
+uniform vec4 uHazard;
 in vec2 vUv;
 layout(location = 0) out highp vec4 fragColor;
 ${decodeGlsl}
@@ -148,8 +152,33 @@ float ign(vec2 p) {
   return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
+// Crystalline rime: the edges of a cell pattern, sharper where it is thick.
+float rimeCells(vec2 p) {
+  vec2 i = floor(p);
+  vec2 f = fract(p);
+  float d1 = 8.0;
+  float d2 = 8.0;
+  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
+    vec2 g = vec2(float(x), float(y));
+    vec2 o = fract(sin(vec2(dot(i + g, vec2(127.1, 311.7)), dot(i + g, vec2(269.5, 183.3)))) * 43758.5453);
+    float d = length(g + o - f);
+    if (d < d1) {
+      d2 = d1;
+      d1 = d;
+    } else if (d < d2) d2 = d;
+  }
+  return d2 - d1;
+}
+
 void main() {
-  vec3 hdr = sceneIn(texture(tScene, vUv).rgb);
+  vec2 uv = vUv;
+  // Heat shimmer: the lower part of the view wavers a little over lava (a few texels, slow).
+  if (uHazard.z > 0.001) {
+    float low = 1.0 - smoothstep(0.1, 0.65, uv.y);
+    uv.x += sin(uv.y * 70.0 + uTime * 5.0) * 0.0016 * uHazard.z * low;
+    uv.y += sin(uv.x * 50.0 - uTime * 3.5) * 0.0010 * uHazard.z * low;
+  }
+  vec3 hdr = sceneIn(texture(tScene, uv).rgb);
   #ifdef USE_BLOOM
   hdr += texture(tBloom, vUv).rgb * uBloomStrength;
   #endif
@@ -173,6 +202,28 @@ void main() {
   qa.x *= uResolution.x / max(uResolution.y, 1.0);
   c *= 1.0 - uVignette * smoothstep(0.25, 0.85, length(qa * vec2(1.25, 0.95)));
   c *= 1.0 - 0.2 * smoothstep(0.62, 1.0, vUv.y);
+  if (dot(uHazard, vec4(1.0)) > 0.001) {
+    float er = length(qa * vec2(1.25, 0.95));
+    // Frost: a pale blue rime grows in from the edges and the corners, crystal-edged.
+    if (uHazard.x > 0.001) {
+      float cells = rimeCells(qa * 9.0 + 3.7);
+      float reach = mix(0.95, 0.52, uHazard.x);
+      float frost = smoothstep(reach, reach + 0.25, er + (cells - 0.25) * 0.22);
+      vec3 rime = mix(vec3(0.55, 0.7, 0.82), vec3(0.88, 0.95, 1.0), smoothstep(0.0, 0.18, cells));
+      c = mix(c, rime, frost * 0.62 * min(1.0, uHazard.x * 1.4));
+      c = mix(c, c * vec3(0.92, 0.98, 1.06), uHazard.x * 0.5);
+    }
+    // Gas: a green-yellow cast that breathes, and a soft haze at the edges.
+    if (uHazard.y > 0.001) {
+      float breathe = 0.85 + 0.15 * sin(uTime * 0.9);
+      c = mix(c, c * vec3(0.96, 1.02, 0.72) + vec3(0.025, 0.03, 0.0), uHazard.y * 0.7);
+      c = mix(c, vec3(0.32, 0.36, 0.12), smoothstep(0.45, 1.05, er) * uHazard.y * 0.45 * breathe);
+    }
+    // Heat: a warm edge.
+    if (uHazard.z > 0.001) c += vec3(0.16, 0.05, 0.0) * smoothstep(0.4, 1.0, er) * uHazard.z * 0.6;
+    // The dark: the edge closes in, violet-black.
+    if (uHazard.w > 0.001) c = mix(c, vec3(0.02, 0.0, 0.04), smoothstep(0.3, 0.95, er) * uHazard.w * 0.65);
+  }
   c = toSrgb(clamp(c, 0.0, 1.0));
   // Triangular dither (+-1 LSB) against banding in the dark gradients.
   float n = ign(gl_FragCoord.xy + fract(uTime) * 61.0) + ign(gl_FragCoord.xy + 17.3) - 1.0;
@@ -298,6 +349,8 @@ export class PostFX {
     lift: new THREE.Color(0.0024, 0.0052, 0.0072),
     gain: new THREE.Color(1.05, 1.0, 0.93),
     saturation: 1.12,
+    /** Round 3: the hazards on the screen's edge (x frost, y gas, z heat, w dark), 0..1 each. */
+    hazard: new THREE.Vector4(0, 0, 0, 0),
   };
   private ldrRT: THREE.WebGLRenderTarget | null = null;
   private readonly fxaa: THREE.ShaderMaterial;
@@ -334,6 +387,7 @@ export class PostFX {
         uLift: { value: new THREE.Color() },
         uGain: { value: new THREE.Color(1, 1, 1) },
         uSat: { value: 1 },
+        uHazard: { value: new THREE.Vector4(0, 0, 0, 0) },
       },
       { ...enc, ...(options.bloom ? { USE_BLOOM: '' } : {}) },
     );
@@ -446,6 +500,7 @@ export class PostFX {
     u.uLift.value.copy(this.params.lift);
     u.uGain.value.copy(this.params.gain);
     u.uSat.value = this.params.saturation;
+    (u.uHazard.value as THREE.Vector4).copy(this.params.hazard);
     if (this.ldrRT) {
       this.pass(this.composite, this.ldrRT);
       this.pass(this.fxaa, null);

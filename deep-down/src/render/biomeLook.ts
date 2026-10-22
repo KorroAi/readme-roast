@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { registerAtmosphere, type AtmospherePreset, type LightingRig } from './lighting';
+import { DEFAULT_WATER, type WaterTint } from './water';
 
 /**
  * Round 3 (VIS seam): each biome's look, and the smooth blend between them.
@@ -36,7 +37,7 @@ export const LOOK_BIOMES = [
 export type LookBiomeId = (typeof LOOK_BIOMES)[number];
 
 /** Ambient effects a biome runs (game/effects: drips, spores, embers, snow, bubbles, motes). */
-export type BiomeFx = 'drips' | 'dust' | 'spores' | 'fireflies' | 'snow' | 'embers' | 'bubbles' | 'motes' | 'ash' | 'runeMotes' | 'voidMotes' | 'heartMotes';
+export type BiomeFx = 'drips' | 'dust' | 'spores' | 'fireflies' | 'mist' | 'snow' | 'embers' | 'bubbles' | 'motes' | 'ash' | 'runeMotes' | 'voidMotes' | 'heartMotes';
 
 /** The hazard's visual (game/effects/HazardFx): cold breath and rim frost, gas haze, heat glow. */
 export type HazardLook = 'none' | 'damp' | 'cold' | 'gas' | 'heat' | 'dark' | 'void';
@@ -84,11 +85,13 @@ const CAVERN: Partial<AtmospherePreset> = { density: 0.022, openGain: 0.95, pool
  */
 export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
   amberHollows: {
-    atmosphere: air({ fog: 0x221a12, fogLow: 0x16110c, ambient: 0x1c1610, open: 0x8a7a62, density: 0.038, lightGain: 1.9, ambientGain: 0.7, openGain: 0.85 }),
+    // Warm limestone under warm lights, its shade a cool dusk grey: the lantern and the amber pockets
+    // read warm against it (a monotone orange read as murk).
+    atmosphere: air({ fog: 0x1e1a16, fogLow: 0x14120f, ambient: 0x16171a, open: 0x6e7076, density: 0.036, lightGain: 1.95, ambientGain: 0.75, openGain: 0.9 }),
     open: CAVERN,
-    grade: { lift: [0.0036, 0.0034, 0.0042], gain: [1.06, 1.0, 0.92], saturation: 1.1 },
+    grade: { lift: [0.003, 0.0034, 0.0048], gain: [1.04, 1.0, 0.95], saturation: 1.06 },
     light: [1.0, 0.72, 0.4],
-    fx: ['drips', 'dust'],
+    fx: ['dust', 'drips'],
     hazard: 'none',
   },
   mushroomForest: {
@@ -100,19 +103,23 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     hazard: 'none',
   },
   rootGalleries: {
-    atmosphere: air({ fog: 0x1c2012, fogLow: 0x12140a, ambient: 0x141a0c, open: 0x7a8456, density: 0.042, lightGain: 1.9 }),
+    // Earth and old roots under green-gold light: the glow-worm ceilings and the glowroot pockets
+    // carry it (lights brighter than the first draft's, and a warmer open fill: it read as a void).
+    atmosphere: air({ fog: 0x1e2414, fogLow: 0x14170c, ambient: 0x1a2010, open: 0x8e9a66, density: 0.04, lightGain: 2.5, ambientGain: 0.78, openGain: 0.95 }),
     open: CAVERN,
-    grade: { lift: [0.0034, 0.0048, 0.0022], gain: [1.05, 1.03, 0.88], saturation: 1.08 },
+    grade: { lift: [0.004, 0.0052, 0.0028], gain: [1.05, 1.03, 0.9], saturation: 1.06 },
     light: [0.62, 0.6, 0.22],
     fx: ['dust', 'fireflies'],
     hazard: 'damp',
   },
   floodedGrottoes: {
-    atmosphere: air({ fog: 0x10243a, fogLow: 0x0a1a30, ambient: 0x0e1e34, open: 0x6a90b8, density: 0.032, lightGain: 2.1, poolDensity: 0.03, scatter: 0.14 }),
+    // Cold blue water and stone, but never one blue: the grade keeps some warmth in the highlights
+    // (the lantern's pool, the shore lamps) and the saturation down.
+    atmosphere: air({ fog: 0x12243a, fogLow: 0x0a1a30, ambient: 0x101e30, open: 0x7090b0, density: 0.032, lightGain: 2.2, poolDensity: 0.03, scatter: 0.14 }),
     open: { ...CAVERN, density: 0.018 },
-    grade: { lift: [0.001, 0.0042, 0.0092], gain: [1.0, 1.0, 1.03], saturation: 1.1 },
+    grade: { lift: [0.0016, 0.0042, 0.0084], gain: [1.03, 1.0, 0.99], saturation: 1.0 },
     light: [0.2, 0.5, 0.82],
-    fx: ['drips', 'bubbles'],
+    fx: ['mist', 'drips'],
     hazard: 'damp',
   },
   crystalGeode: {
@@ -152,7 +159,7 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     open: { ...CAVERN, density: 0.028, poolDensity: 0.04 },
     grade: { lift: [0.0046, 0.0056, 0.0012], gain: [1.04, 1.04, 0.84], saturation: 1.05 },
     light: [0.78, 0.85, 0.2],
-    fx: ['bubbles', 'motes'],
+    fx: ['motes', 'bubbles'],
     hazard: 'gas',
   },
   sunkenCity: {
@@ -189,6 +196,64 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
   },
 };
 
+/**
+ * Each biome's water (linear): the deep body, the shallows over the stone, the cave mirrored in it
+ * and its bioluminescence (specks, and a wave behind the sonar's shell). Limestone pools are a clear
+ * cool teal against the warm stone; the Flooded Grottoes are deep blue and glow the brightest.
+ */
+export const BIOME_WATER: Record<LookBiomeId, WaterTint> = {
+  amberHollows: { deep: [0.002, 0.007, 0.007], shallow: [0.02, 0.045, 0.04], sky: [0.012, 0.01, 0.008], glow: [0, 0, 0], glowAmount: 0 },
+  mushroomForest: { deep: [0.001, 0.006, 0.009], shallow: [0.008, 0.035, 0.04], sky: [0.004, 0.012, 0.016], glow: [0.2, 1.0, 0.85], glowAmount: 0.5 },
+  rootGalleries: { deep: [0.004, 0.004, 0.0015], shallow: [0.03, 0.028, 0.012], sky: [0.01, 0.011, 0.006], glow: [0.7, 0.9, 0.25], glowAmount: 0.15 },
+  floodedGrottoes: { deep: [0.0008, 0.005, 0.014], shallow: [0.008, 0.036, 0.065], sky: [0.004, 0.012, 0.026], glow: [0.25, 0.75, 1.0], glowAmount: 1 },
+  crystalGeode: { deep: [0.002, 0.003, 0.012], shallow: [0.02, 0.03, 0.07], sky: [0.008, 0.008, 0.022], glow: [0.5, 0.45, 1.0], glowAmount: 0.5 },
+  haldenMines: { deep: [0.004, 0.003, 0.002], shallow: [0.035, 0.022, 0.012], sky: [0.01, 0.008, 0.006], glow: [0, 0, 0], glowAmount: 0 },
+  frostCaverns: { deep: [0.003, 0.01, 0.018], shallow: [0.04, 0.075, 0.09], sky: [0.012, 0.02, 0.03], glow: [0.5, 0.8, 1.0], glowAmount: 0.2 },
+  glowrootJungle: { deep: [0.001, 0.006, 0.003], shallow: [0.012, 0.045, 0.02], sky: [0.004, 0.012, 0.006], glow: [0.35, 1.0, 0.4], glowAmount: 0.8 },
+  sulphurBog: { deep: [0.006, 0.006, 0.001], shallow: [0.05, 0.05, 0.01], sky: [0.012, 0.012, 0.004], glow: [0.8, 0.9, 0.2], glowAmount: 0.2 },
+  sunkenCity: { deep: [0.001, 0.006, 0.01], shallow: [0.012, 0.045, 0.05], sky: [0.008, 0.012, 0.018], glow: [1.0, 0.8, 0.35], glowAmount: 0.35 },
+  magmaVeins: { deep: [0.006, 0.002, 0.001], shallow: [0.04, 0.015, 0.006], sky: [0.03, 0.008, 0.002], glow: [0, 0, 0], glowAmount: 0 },
+  obsidianAbyss: { deep: [0.002, 0.0, 0.005], shallow: [0.02, 0.008, 0.04], sky: [0.008, 0.004, 0.016], glow: [0.6, 0.35, 1.0], glowAmount: 0.6 },
+  heart: { deep: [0.006, 0.001, 0.003], shallow: [0.05, 0.015, 0.03], sky: [0.02, 0.006, 0.012], glow: [1.0, 0.45, 0.6], glowAmount: 0.5 },
+};
+
+/** The water of a biome mix (pure: weights as BiomeLook.weights; none known = the old world's water). */
+export function waterTintFor(weights: ReadonlyMap<string, number>, out: WaterTint = { ...DEFAULT_WATER, deep: [0, 0, 0], shallow: [0, 0, 0], sky: [0, 0, 0], glow: [0, 0, 0] }): WaterTint {
+  let total = 0;
+  for (const [b, w] of weights) if (isLookBiome(b)) total += w;
+  if (total <= 1e-4) {
+    out.deep = [...DEFAULT_WATER.deep];
+    out.shallow = [...DEFAULT_WATER.shallow];
+    out.sky = null;
+    out.glow = [0, 0, 0];
+    out.glowAmount = 0;
+    return out;
+  }
+  const deep: [number, number, number] = [0, 0, 0];
+  const shallow: [number, number, number] = [0, 0, 0];
+  const sky: [number, number, number] = [0, 0, 0];
+  const glow: [number, number, number] = [0, 0, 0];
+  let amount = 0;
+  for (const [b, w0] of weights) {
+    if (!isLookBiome(b)) continue;
+    const t = BIOME_WATER[b];
+    const w = w0 / total;
+    for (let i = 0; i < 3; i++) {
+      deep[i] += t.deep[i] * w;
+      shallow[i] += t.shallow[i] * w;
+      sky[i] += (t.sky ?? [0, 0, 0])[i] * w;
+      glow[i] += t.glow[i] * t.glowAmount * w;
+    }
+    amount += t.glowAmount * w;
+  }
+  out.deep = deep;
+  out.shallow = shallow;
+  out.sky = sky;
+  out.glow = amount > 1e-4 ? [glow[0] / amount, glow[1] / amount, glow[2] / amount] : [0, 0, 0];
+  out.glowAmount = amount;
+  return out;
+}
+
 /** The atmosphere id a biome registers (and `<id>~open` for its caverns). */
 export const atmosphereId = (b: string): string => `biome:${b}`;
 
@@ -199,6 +264,53 @@ for (const b of LOOK_BIOMES) {
 }
 
 export const isLookBiome = (b: unknown): b is LookBiomeId => typeof b === 'string' && b in BIOME_LOOKS;
+
+/**
+ * The Heart relit (the main quest's end): its air turns from a dark rose to a warm clear gold, its
+ * lights burn brighter, its grade warms. `relightHeart(t)` (0 dark, 1 lit) re-registers the Heart's
+ * atmospheres and sets its grade between the two (the finale eases t over seconds; a save with the
+ * Heart lit sets 1 at once).
+ */
+const HEART_DARK = { atmosphere: { ...BIOME_LOOKS.heart.atmosphere }, grade: { ...BIOME_LOOKS.heart.grade, lift: [...BIOME_LOOKS.heart.grade.lift] as [number, number, number], gain: [...BIOME_LOOKS.heart.grade.gain] as [number, number, number] } };
+const HEART_LIT = {
+  atmosphere: air({ fog: 0x2a1e18, fogLow: 0x3a2214, ambient: 0x1e1812, open: 0xb08a62, density: 0.022, lightGain: 2.7, scatter: 0.24, poolDensity: 0.012, openGain: 1.05, ambientGain: 0.9 }),
+  grade: { lift: [0.006, 0.0044, 0.003] as [number, number, number], gain: [1.12, 1.03, 0.9] as [number, number, number], saturation: 1.1 },
+};
+let heartLit = 0;
+
+function mixHex(a: number, b: number, t: number): number {
+  const ch = (s: number) => Math.round(((a >> s) & 255) * (1 - t) + ((b >> s) & 255) * t);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
+export function relightHeart(t: number): void {
+  const k = Math.max(0, Math.min(1, t));
+  if (Math.abs(k - heartLit) < 1e-4) return;
+  heartLit = k;
+  const d = HEART_DARK.atmosphere;
+  const l = HEART_LIT.atmosphere;
+  const mixed: AtmospherePreset = { ...d };
+  for (const key of Object.keys(l) as Array<keyof AtmospherePreset>) {
+    const a = d[key];
+    const b = l[key];
+    if (typeof a !== 'number' || typeof b !== 'number') continue;
+    const colour = key === 'fog' || key === 'fogLow' || key === 'ambient' || key === 'open';
+    (mixed as unknown as Record<string, number>)[key] = colour ? mixHex(a, b, k) : a + (b - a) * k;
+  }
+  const def = BIOME_LOOKS.heart;
+  def.atmosphere = mixed;
+  const g = def.grade;
+  for (let i = 0; i < 3; i++) {
+    g.lift[i] = HEART_DARK.grade.lift[i] + (HEART_LIT.grade.lift[i] - HEART_DARK.grade.lift[i]) * k;
+    g.gain[i] = HEART_DARK.grade.gain[i] + (HEART_LIT.grade.gain[i] - HEART_DARK.grade.gain[i]) * k;
+  }
+  g.saturation = HEART_DARK.grade.saturation + (HEART_LIT.grade.saturation - HEART_DARK.grade.saturation) * k;
+  registerAtmosphere(atmosphereId('heart'), mixed);
+  registerAtmosphere(`${atmosphereId('heart')}~open`, { ...mixed, ...def.open });
+}
+
+/** How lit the Heart is (0..1). */
+export const heartLight = (): number => heartLit;
 
 /** What the look writes into the post chain (PostFX.params satisfies it). */
 export interface GradeTarget {

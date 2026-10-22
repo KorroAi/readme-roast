@@ -1,4 +1,4 @@
-// WORLD tool (round 3): boot ?gen=strata on a running preview (port 4176), New Game, switch to stratum 2, captures and timings.
+// WORLD tool (round 3): boot the game (strata by default) on a running preview (port 4176), New Game, switch to stratum 2, captures and timings.
 // Usage: node tools/strata-smoke.mjs <outDir> [extra query]
 import { chromium } from '@playwright/test';
 const PORT = 4176;
@@ -9,7 +9,7 @@ const logs = [];
 page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
 page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
 const t0 = Date.now();
-await page.goto(`http://localhost:${PORT}/index.html?gen=strata${process.argv[3] ? '&' + process.argv[3] : ''}`);
+await page.goto(`http://localhost:${PORT}/index.html${process.argv[3] ? "?" + process.argv[3] : ""}`);
 await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 240000 });
 const tBoot = Date.now() - t0;
 const info = await page.evaluate(() => ({ strata: window.__DD__.strata?.(), report: window.__DD__.report?.() }));

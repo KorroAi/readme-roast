@@ -368,7 +368,7 @@ const actions: UiActions = {
   getBestiary: () => null,
   skipTutorial: () => undefined,
   getSeed: () => '1234',
-  getControlPrefs: () => ({ scale: 1, opacity: 0.86 }),
+  getControlPrefs: () => ({ scale: 1, opacity: 0.86, patterns: false, motion: 'auto' }),
   setControlPrefs: () => undefined,
 };
 

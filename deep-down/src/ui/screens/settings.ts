@@ -95,6 +95,28 @@ export function buildSettings(host: ScreenHost): HTMLElement {
             'textSize',
           ),
           toggle(t('settings.highContrast'), s.highContrast, (highContrast) => set({ highContrast }), 'contrast', on, off),
+          // Round 3: rarity by pattern and letter (colour-blind players), and reduced motion.
+          toggle(t('set3.patterns'), prefs.patterns, (patterns) => {
+            a.setControlPrefs({ patterns });
+            host.rerender();
+          }, 'patterns', on, off),
+          segmented(
+            t('set3.motion'),
+            [
+              { value: 'auto', text: t('set3.motion.auto') },
+              { value: 'reduce', text: t('set3.motion.reduce') },
+            ],
+            prefs.motion,
+            (motion) => {
+              a.setControlPrefs({ motion });
+              host.rerender();
+            },
+            'motion',
+          ),
+          btn(t('set3.replayTips'), () => {
+            a.replayTips?.();
+            host.toast(t('set3.tipsReset'), 'info');
+          }, { key: 'replayTips' }),
         ),
         seed ? section(t('set3.expedition'), h('p', { class: 'dd-settings-seed', text: t('set3.seed', { seed }) })) : null,
         h(

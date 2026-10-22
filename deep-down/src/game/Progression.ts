@@ -450,16 +450,24 @@ export class Progression {
     ec.depth = WORLD.depthOffset - p.y;
     this.events.update(dt, ec);
     if (g.health.dead) return true;
-    this.stations.update(dt);
-    this.runes.update(dt);
+    // LOOP (round 3): the hand-made world's systems (its camp stations, the runes, the 1.x tutorial,
+    // stuck hints, feats and Next line) run only there; the strata have the loop's quests, guidance
+    // and feats (game/quests) instead.
+    const legacy = this.strata === null;
+    if (legacy) {
+      this.stations.update(dt);
+      this.runes.update(dt);
+    }
 
     const walked = this.updateWalk();
-    this.updateTutorial(dt, walked);
-    this.updateFeats(dt);
+    if (legacy) {
+      this.updateTutorial(dt, walked);
+      this.updateFeats(dt);
+    }
 
     this.rumourTimer -= dt;
     this.nextTimer -= dt;
-    if (this.nextTimer <= 0) this.refreshNext();
+    if (legacy && this.nextTimer <= 0) this.refreshNext();
     return false;
   }
 
@@ -505,7 +513,8 @@ export class Progression {
     out.newBest = this.records.newBest;
     out.packFull = g.backpack.usedSlots >= g.backpack.slotCount;
     out.pouchSlots = g.backpack.pouchSlots;
-    out.objectiveText = this.next.text;
+    // LOOP (round 3): in the strata the line is the main quest's step (the tracker shows it too).
+    out.objectiveText = this.strata ? g.quests.main().text : this.next.text;
   }
 
   /** The Next line currently on the pill. */
@@ -577,11 +586,15 @@ export class Progression {
   interactLabel(spec: PropSpec): string {
     switch (spec.interact) {
       case 'craft':
+        // LOOP (round 3): a placed Furnace, Forge or Alchemy Table names itself.
+        if (spec.kind === 'furnace') return t('station.furnace');
+        if (spec.kind === 'forge' && spec.id.startsWith('station:')) return t('station.forge');
+        if ((spec.kind as string) === 'alchemyTable') return t('station.alchemy');
         return t('hint.interactWorkbench');
       case 'storage':
         return t('hint.interactChest');
       case 'rest':
-        return t('hint.interactCampfire');
+        return spec.id.startsWith('outpost:') ? t('outpost3.label') : t('hint.interactCampfire');
       case 'relic':
         return t('hint.interactTablet');
       case 'feature':
@@ -608,7 +621,10 @@ export class Progression {
         g.health.heal(g.health.max);
         g.lanternFuel.refill(lanternForTier(g.equipment.tiers.lantern));
         this.cold.reset();
-        g.ui.toast(t('toast.rested'), 'good');
+        // LOOP (round 3): the fire also warms the hazards' meter away; an outpost's bed becomes the
+        // respawn point and its chest takes the bag (the hotbar's loadout stays).
+        g.loop.hazards.reset();
+        if (!(spec.id.startsWith('outpost:') && g.loop.restAtOutpost(spec.id))) g.ui.toast(t('toast.rested'), 'good');
         g.saveNow('rest');
         break;
       case 'relic':

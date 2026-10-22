@@ -1,8 +1,15 @@
 /**
- * Round 3 (UI): the minimap (top right of the HUD) and the Map screen's drawing, both from one
- * MapSource (ui/types: WORLD's explored stratum, the markers). The minimap turns with the view (up
- * is where the explorer looks) and shows about 40 m around; it redraws only when the source's
- * revision changes, the explorer moves 0.5 m or turns 3 degrees, at most 10 times a second.
+ * Round 3 (UI): the minimap (top right of the HUD) and the Map screen's picture, both from one
+ * MapSource (ui/types: WORLD's explored stratum, the markers).
+ *
+ * The explored stratum is first painted into a column image (MapRaster: one RGBA texel per column,
+ * rebuilt only when the source's revision moves): the floor in its biome's tint with a hill-shade
+ * from the recorded heights (higher ground lit from the north-west), the cave walls drawn as a pale
+ * rim where explored floor meets rock or the unknown, hazards (lava, toxic pools) in their own
+ * colour, explored rock dark, and the fog of war transparent. The minimap samples that image turned
+ * with the view (up is where the explorer looks, about 28 m round); the Map draws it whole, panned
+ * and zoomed. The minimap redraws when the source's revision changes, the explorer moves 0.5 m or
+ * turns 3 degrees, at most 10 times a second.
  */
 import type { MapMarker, MapSource } from '../types';
 import { iconSvg } from './glyphs';
@@ -10,11 +17,13 @@ import { iconSvg } from './glyphs';
 /** Colours of the drawn cells: 0 unexplored, 1 rock, 2 floor, 3 water, 4 hazard. */
 const CELL_RGB: ReadonlyArray<readonly [number, number, number]> = [
   [0, 0, 0],
-  [38, 34, 31],
-  [128, 112, 92],
+  [40, 35, 31],
+  [122, 108, 90],
   [52, 104, 150],
-  [176, 92, 44],
+  [196, 98, 44],
 ];
+/** The pale rim of the cave walls. */
+const RIM: readonly [number, number, number] = [232, 214, 178];
 
 export const MARKER_COLOR: Record<MapMarker['kind'], string> = {
   camp: '#ffd29a',
@@ -29,49 +38,111 @@ export const MARKER_COLOR: Record<MapMarker['kind'], string> = {
   nest: '#c86a5a',
 };
 
-/** The tint of a floor cell by biome: the biome colour over the floor tone. */
-function floorRgb(src: MapSource, x: number, z: number, out: number[]): void {
-  const c = src.cell(x, z);
-  const base = CELL_RGB[c] ?? CELL_RGB[0];
-  if (c !== 2) {
-    out[0] = base[0];
-    out[1] = base[1];
-    out[2] = base[2];
-    return;
+/** The glyph (ui/hud/glyphs) of each marker kind on the Map. */
+export const MARKER_GLYPH: Record<MapMarker['kind'], string> = {
+  camp: 'camp',
+  outpost: 'outpost',
+  lair: 'lair',
+  gate: 'gate',
+  page: 'page',
+  chest: 'chest',
+  objective: 'quests',
+  cache: 'bag',
+  shrine: 'other',
+  nest: 'being',
+};
+
+/**
+ * The stratum painted column by column (see the file comment). `rgba` has one texel per column of
+ * the source (x + z * width); alpha 0 is the fog of war.
+ */
+export class MapRaster {
+  rgba: Uint8ClampedArray = new Uint8ClampedArray(4);
+  width = 1;
+  depth = 1;
+  private src: MapSource | null = null;
+  private rev = -1;
+  /** Bumps whenever the picture changed (the Map screen re-uploads its canvas then). */
+  version = 0;
+
+  /** Repaint when the source or its revision changed. @returns true when it did. */
+  update(src: MapSource): boolean {
+    if (src === this.src && src.revision === this.rev) return false;
+    this.src = src;
+    this.rev = src.revision;
+    this.paint(src);
+    this.version++;
+    return true;
   }
-  const tint = src.biomeColors[src.biome(x, z)] ?? 0x807060;
-  out[0] = Math.round(base[0] * 0.55 + ((tint >> 16) & 255) * 0.45);
-  out[1] = Math.round(base[1] * 0.55 + ((tint >> 8) & 255) * 0.45);
-  out[2] = Math.round(base[2] * 0.55 + (tint & 255) * 0.45);
+
+  private paint(src: MapSource): void {
+    const w = Math.max(1, src.width | 0);
+    const d = Math.max(1, src.depth | 0);
+    if (this.width !== w || this.depth !== d || this.rgba.length !== w * d * 4) {
+      this.width = w;
+      this.depth = d;
+      this.rgba = new Uint8ClampedArray(w * d * 4);
+    } else this.rgba.fill(0);
+    const px = this.rgba;
+    // Classify every column once (the rim and the hill-shade read the neighbours).
+    const cls = new Uint8Array(w * d);
+    const hts = new Float32Array(w * d);
+    for (let z = 0; z < d; z++)
+      for (let x = 0; x < w; x++) {
+        const c = src.cell(src.originX + x, src.originZ + z);
+        cls[x + z * w] = c;
+        if (c !== 0 && src.height) hts[x + z * w] = src.height(src.originX + x, src.originZ + z);
+      }
+    const at = (x: number, z: number) => (x < 0 || z < 0 || x >= w || z >= d ? 0 : cls[x + z * w]);
+    const ht = (x: number, z: number, fallback: number) => (x < 0 || z < 0 || x >= w || z >= d || cls[x + z * w] !== 2 ? fallback : hts[x + z * w]);
+    for (let z = 0; z < d; z++)
+      for (let x = 0; x < w; x++) {
+        const i = x + z * w;
+        const c = cls[i];
+        if (c === 0) continue;
+        const o = i * 4;
+        if (c !== 2) {
+          const base = CELL_RGB[c] ?? CELL_RGB[1];
+          px[o] = base[0];
+          px[o + 1] = base[1];
+          px[o + 2] = base[2];
+          px[o + 3] = c === 1 ? 225 : 245;
+          continue;
+        }
+        // Floor: the biome's tint over the floor tone, hill-shaded from the north-west.
+        const tint = src.biomeColors[src.biome(src.originX + x, src.originZ + z)] ?? 0x807060;
+        const h0 = hts[i];
+        const slope = (h0 - ht(x - 1, z, h0)) + (h0 - ht(x, z - 1, h0));
+        const shade = Math.max(0.68, Math.min(1.32, 1 + slope * 0.09));
+        // A mid-dark ground (the walls' rim is the brightest thing on the map).
+        let r = (CELL_RGB[2][0] * 0.42 + ((tint >> 16) & 255) * 0.3) * shade;
+        let g = (CELL_RGB[2][1] * 0.42 + ((tint >> 8) & 255) * 0.3) * shade;
+        let b = (CELL_RGB[2][2] * 0.42 + (tint & 255) * 0.3) * shade;
+        // A wall rim where the floor meets rock or the unknown.
+        const edge = at(x - 1, z) !== 2 || at(x + 1, z) !== 2 || at(x, z - 1) !== 2 || at(x, z + 1) !== 2;
+        if (edge) {
+          r = r * 0.45 + RIM[0] * 0.55;
+          g = g * 0.45 + RIM[1] * 0.55;
+          b = b * 0.45 + RIM[2] * 0.55;
+        }
+        px[o] = r;
+        px[o + 1] = g;
+        px[o + 2] = b;
+        px[o + 3] = 255;
+      }
+  }
 }
 
 /**
- * Draw a whole stratum (the Map screen): one pixel per column at `scale`, fog of war black, the
- * floor tinted by biome. Returns the ImageData written (for tests).
+ * Draw a whole stratum as ImageData (the Map screen's picture; tests read it): one pixel per
+ * column, fog of war transparent.
  */
 export function renderMapImage(src: MapSource): ImageData | null {
   if (typeof ImageData === 'undefined') return null;
-  const w = Math.max(1, src.width | 0);
-  const d = Math.max(1, src.depth | 0);
-  const img = new ImageData(w, d);
-  const px = img.data;
-  const rgb = [0, 0, 0];
-  for (let z = 0; z < d; z++) {
-    for (let x = 0; x < w; x++) {
-      const wx = src.originX + x;
-      const wz = src.originZ + z;
-      const i = (z * w + x) * 4;
-      if (src.cell(wx, wz) === 0) {
-        px[i + 3] = 0;
-        continue;
-      }
-      floorRgb(src, wx, wz, rgb);
-      px[i] = rgb[0];
-      px[i + 1] = rgb[1];
-      px[i + 2] = rgb[2];
-      px[i + 3] = 255;
-    }
-  }
+  const r = new MapRaster();
+  r.update(src);
+  const img = new ImageData(r.width, r.depth);
+  img.data.set(r.rgba);
   return img;
 }
 
@@ -81,14 +152,15 @@ export class Minimap {
   private readonly ctx: CanvasRenderingContext2D | null;
   private readonly arrow: HTMLElement;
   private src: MapSource | null = null;
-  private lastRev = -1;
+  private readonly raster = new MapRaster();
+  private lastVersion = -1;
   private lastX = NaN;
   private lastZ = NaN;
   private lastYaw = NaN;
   private lastAt = 0;
   private img: ImageData | null = null;
   /** Metres shown from the centre to the edge. */
-  readonly range = 40;
+  readonly range = 28;
   private readonly size: number;
 
   constructor(cssSize = 92) {
@@ -112,7 +184,7 @@ export class Minimap {
   setSource(src: MapSource | null): void {
     if (src === this.src) return;
     this.src = src;
-    this.lastRev = -1;
+    this.lastVersion = -1;
     this.el.classList.toggle('empty', !src);
   }
 
@@ -120,11 +192,12 @@ export class Minimap {
   update(now: number, label: string): void {
     const s = this.src;
     if (!s || !this.ctx) return;
-    const moved = Math.hypot(s.playerX - this.lastX, s.playerZ - this.lastZ) > 0.5 || !(Math.abs(s.yaw - this.lastYaw) < 0.05);
-    if (s.revision === this.lastRev && !moved) return;
     if (now - this.lastAt < 100) return;
+    const repainted = this.raster.update(s);
+    const moved = Math.hypot(s.playerX - this.lastX, s.playerZ - this.lastZ) > 0.5 || !(Math.abs(s.yaw - this.lastYaw) < 0.05);
+    if (!repainted && !moved && this.raster.version === this.lastVersion) return;
     this.lastAt = now;
-    this.lastRev = s.revision;
+    this.lastVersion = this.raster.version;
     this.lastX = s.playerX;
     this.lastZ = s.playerZ;
     this.lastYaw = s.yaw;
@@ -142,39 +215,46 @@ export class Minimap {
     // Up on the map is the view direction: the camera's forward is (-sin yaw, -cos yaw).
     const cs = Math.cos(s.yaw);
     const sn = Math.sin(s.yaw);
-    const rgb = [0, 0, 0];
     const r2 = half * half;
+    const R = this.raster;
+    const rw = R.width;
+    const rd = R.depth;
+    const col = R.rgba;
     for (let py = 0; py < n; py++) {
       const vy = py + 0.5 - half;
       for (let pxi = 0; pxi < n; pxi++) {
         const vx = pxi + 0.5 - half;
         const i = (py * n + pxi) * 4;
-        if (vx * vx + vy * vy > r2) {
+        const rr = vx * vx + vy * vy;
+        if (rr > r2) {
           px[i + 3] = 0;
           continue;
         }
         // Screen right = camera right (cos yaw, -sin yaw); screen up = forward.
         const fwd = -vy * mPerPx;
         const right = vx * mPerPx;
-        const wx = Math.floor(s.playerX - sn * fwd + cs * right);
-        const wz = Math.floor(s.playerZ - cs * fwd - sn * right);
-        const c = s.cell(wx, wz);
-        if (c === 0) {
-          px[i] = 6;
-          px[i + 1] = 8;
-          px[i + 2] = 12;
-          px[i + 3] = 150;
+        const cx = Math.floor(s.playerX - sn * fwd + cs * right) - s.originX;
+        const cz = Math.floor(s.playerZ - cs * fwd - sn * right) - s.originZ;
+        const a = cx >= 0 && cz >= 0 && cx < rw && cz < rd ? col[(cx + cz * rw) * 4 + 3] : 0;
+        // The rim of the window darkens a little (a lens, not a cut-out).
+        const vig = rr > r2 * 0.72 ? 0.78 : 1;
+        if (a === 0) {
+          px[i] = 7;
+          px[i + 1] = 9;
+          px[i + 2] = 13;
+          px[i + 3] = 160;
           continue;
         }
-        floorRgb(s, wx, wz, rgb);
-        px[i] = rgb[0];
-        px[i + 1] = rgb[1];
-        px[i + 2] = rgb[2];
-        px[i + 3] = 235;
+        const o = (cx + cz * rw) * 4;
+        px[i] = col[o] * vig;
+        px[i + 1] = col[o + 1] * vig;
+        px[i + 2] = col[o + 2] * vig;
+        px[i + 3] = 240;
       }
     }
     ctx.putImageData(this.img, 0, 0);
     // Markers inside the range (dimmed when done), clamped to the rim when beyond it.
+    const k = n / 92;
     for (const m of s.markers) {
       const dx = m.x - s.playerX;
       const dz = m.z - s.playerZ;
@@ -183,24 +263,26 @@ export class Minimap {
       let mx = right / mPerPx;
       let my = -fwd / mPerPx;
       const l = Math.hypot(mx, my);
-      const edge = half - 5;
+      const edge = half - 5 * k;
       const beyond = l > edge;
       if (beyond) {
-        if (m.kind !== 'objective' && m.kind !== 'camp' && m.kind !== 'gate') continue;
+        if (m.kind !== 'objective' && m.kind !== 'camp' && m.kind !== 'gate' && m.kind !== 'outpost') continue;
         mx = (mx / l) * edge;
         my = (my / l) * edge;
       }
       ctx.globalAlpha = m.done ? 0.45 : 1;
       ctx.fillStyle = MARKER_COLOR[m.kind] ?? '#fff';
-      ctx.strokeStyle = 'rgba(5,8,13,0.9)';
-      ctx.lineWidth = Math.max(1, n / 92);
-      const r = (m.kind === 'objective' ? 4 : 3) * (n / 92);
+      ctx.strokeStyle = 'rgba(5,8,13,0.92)';
+      ctx.lineWidth = Math.max(1, 1.2 * k);
+      const r = (m.kind === 'objective' ? 4 : 3.2) * k;
       ctx.beginPath();
       if (m.kind === 'lair' || m.kind === 'gate' || m.kind === 'objective') {
         ctx.moveTo(half + mx, half + my - r * 1.3);
         ctx.lineTo(half + mx + r * 1.2, half + my + r);
         ctx.lineTo(half + mx - r * 1.2, half + my + r);
         ctx.closePath();
+      } else if (m.kind === 'camp' || m.kind === 'outpost') {
+        ctx.rect(half + mx - r, half + my - r, r * 2, r * 2);
       } else ctx.arc(half + mx, half + my, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();

@@ -4,12 +4,14 @@ import { ITEM_IDS, ITEMS } from '../../src/config/items';
 import { EventBus, type GameEvents } from '../../src/core/events';
 import { Rng } from '../../src/core/rng';
 import { activeDuration, peakOf, rmsOf, spectralCentroid } from '../../src/audio/analysis';
-import { AudioSystem, renderSfxOffline, type AudioWorldState } from '../../src/audio/AudioSystem';
+import { AudioSystem, LISTENED_EVENTS, renderSfxOffline, type AudioWorldState } from '../../src/audio/AudioSystem';
 import { brownNoise, crackleTexture, crumbleTexture, impulseResponse, pinkNoise } from '../../src/audio/buffers';
 import { AUDIBLE_EVENTS, sfxForEvent, stepKindOf } from '../../src/audio/eventMap';
-import { MusicScheduler, type MusicNote } from '../../src/audio/MusicScheduler';
+import { CALM_MIX, MusicScheduler, type LayerMix, type MusicNote } from '../../src/audio/MusicScheduler';
+import { TIMBRES } from '../../src/audio/instruments';
+import { BIOME_SCORES, SCORES, SCORE_IDS, guardianScoreFor } from '../../src/audio/scores';
 import { SFX, SFX_NAMES, isSfxName } from '../../src/audio/sfx';
-import { MODES, MOODS, degreeToMidi, inMode, midiToHz, moodFor, volumeToGain, type MoodName } from '../../src/audio/theory';
+import { MODES, MOODS, degreeToMidi, inMode, midiToHz, moodFor, volumeToGain } from '../../src/audio/theory';
 import { RateGate, VoiceLimiter } from '../../src/audio/voices';
 
 const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
@@ -75,6 +77,10 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'world:biome': { biome: 'mushroomForest', from: 'amberHollows', stratum: 1, first: true },
   'world:lairRevealed': { id: 'lair_amberHollows', biome: 'amberHollows', how: 'page' },
   'world:gateOpened': { stratum: 1 },
+  'world:site': { id: 'vista_1', kind: 'vista', name: 'amberVista', biome: 'amberHollows', stratum: 1 },
+  'world:lever': { id: 'works_3', k: 1, set: 2, total: 3 },
+  'world:plate': { k: 0, set: 1, total: 4, ok: true },
+  'world:worksOpened': { id: 'works_3' },
   // FP (round 2): the feel events (src/game/fp/events.ts augments GameEvents).
   'block:tunk': { x: 1, y: 2, z: 3, block: B.SLATE, px: 1.5, py: 2.5, pz: 3 },
   'weapon:swing': { weapon: 'machete', ranged: false },
@@ -98,6 +104,13 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'mob:guardianDefeated': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', shard: 'amberHollows', x: 0, y: 0, z: 0 },
   'mob:scanned': { id: 3, kind: 'capSpitter', first: true },
   'mob:bestiary': { kind: 'capSpitter', page: 'new', found: 1, total: 61 },
+  'mob:elite': { id: 4, kind: 'gritBoar', affixes: ['swift'], name: 'Swift Grit Boar' },
+  'companion:trust': { kind: 'lampling', trust: 1, need: 3 },
+  'companion:tamed': { kind: 'lampling', name: 'Lampling' },
+  'companion:fed': { kind: 'lampling', xp: 3, total: 3, next: 5 },
+  'companion:level': { kind: 'lampling', level: 2 },
+  'companion:ore': { x: 1, y: 2, z: 3, block: B.COPPER_ORE, rarity: 'rare' },
+  'companion:zap': { target: 4, kind: 'amberTick', damage: 2, killed: true },
   // UI (round 3): the action layout's events (game/fp/events).
   'ui:used': { control: 'sonar' },
   'ui:opened': { screen: 'map' },
@@ -106,6 +119,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'player:placed': { item: 'torch', block: 0, x: 1, y: 2, z: 3 },
   'hotbar:selected': { slot: 3, item: 'torch' },
   'mine:combo': { count: 2, x: 0, y: 0, z: 0 },
+  'player:travelled': { to: 'camp', stratum: 1 },
   // LOOP (round 3): crafting, gear, stations, quests, guidance, hazards, rewards.
   'craft:made': { recipe: 'torch', item: 'torch', times: 1, count: 4 },
   'item:used': { item: 'bandage' },
@@ -125,6 +139,19 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'bestiary:reward': { kind: 'crawler', text: '+2 Chitin' },
   'hazard:changed': { kind: 'cold', level: 0.5 },
   'reward:paid': { items: { torch: 4 }, reason: 'order' },
+  // LOOP (round 3 stretch, declared optional): the camp, the trader, sockets, the trip, the companion's treats, the daily.
+  'camp:upgraded': { id: 'tents', level: 1 },
+  'trade:done': { id: 'trade:1', times: 1, item: 'torch', recipe: null },
+  'gem:socketed': { gem: 'gem', item: 'sword', socket: 0 },
+  'trip:summary': {
+    summary: {
+      n: 1, outcome: 'returned', seconds: 600, deepest: 80, stratum: 1, biomes: ['amberHollows'], finds: { common: 9, uncommon: 2, rare: 1, epic: 0, legendary: 0 },
+      rarest: 'amber', kills: 3, crafted: 2, torches: 4, shards: [], orders: 1, pages: 1, bestiary: 2, banked: 12, records: [], next: 'Find the lairs', lines: [], title: 'Trip 1',
+    },
+  },
+  'companion:lure': { x: 1, y: 2, z: 3, radius: 6 },
+  'companion:feed': { item: 'glowcap', xp: 2, heal: 10 },
+  'daily:done': { day: 3, goal: 'depth', seconds: 900, best: true },
 };
 
 const WORLD_STATE: AudioWorldState = {
@@ -147,7 +174,8 @@ describe('music theory', () => {
     expect(degreeToMidi(57, 'phrygian', 1)).toBe(58);
     expect(inMode(66, 62, 'ionian')).toBe(true); // F# in D major
     expect(inMode(65, 62, 'ionian')).toBe(false); // F natural
-    for (const steps of Object.values(MODES)) expect(steps).toHaveLength(7);
+    for (const [name, steps] of Object.entries(MODES)) expect(steps.length, name).toBe(name === 'wholeTone' ? 6 : 7);
+    expect(degreeToMidi(60, 'wholeTone', 6)).toBe(72);
   });
 
   it('uses a perceptual, clamped volume curve', () => {
@@ -225,66 +253,134 @@ describe('VoiceLimiter', () => {
 });
 
 /** Drive a scheduler with a fake 60 fps clock, recording each note with the time it was handed out. */
-function run(s: MusicScheduler, from: number, to: number, mood: (t: number) => MoodName, lookahead = 0.35) {
+function run(s: MusicScheduler, from: number, to: number, mix: (t: number) => LayerMix = () => CALM_MIX, lookahead = 0.35) {
   const out: MusicNote[] = [];
-  const got: Array<{ note: MusicNote; at: number; mood: MoodName }> = [];
+  const got: Array<{ note: MusicNote; at: number }> = [];
   for (let t = from; t < to; t += 1 / 60) {
-    const m = mood(t);
-    const n = s.advance(t, t + lookahead, m, out);
-    for (let i = 0; i < n; i++) got.push({ note: out[i], at: t, mood: m });
+    const n = s.advance(t, t + lookahead, mix(t), out);
+    for (let i = 0; i < n; i++) got.push({ note: out[i], at: t });
   }
   return got;
 }
 
-describe('MusicScheduler', () => {
-  it('hands out every note once, inside the lookahead window, in time order', () => {
-    const got = run(new MusicScheduler(7), 0, 400, () => 'shallow');
-    expect(got.length).toBeGreaterThan(20);
-    expect(new Set(got.map((g) => g.note)).size).toBe(got.length);
-    for (const g of got) {
-      expect(g.note.time).toBeGreaterThanOrEqual(g.at - 0.05);
-      expect(g.note.time).toBeLessThan(g.at + 0.35 + 1e-9);
+const TENSE: LayerMix = { bed: 0.8, motif: 0.5, tension: 1, combat: 0 };
+const FIGHT: LayerMix = { bed: 0.65, motif: 0.75, tension: 0.7, combat: 1 };
+const pitched = (n: MusicNote) => TIMBRES[n.voice].family !== 'drum';
+
+describe('MusicScheduler (the biome scores)', () => {
+  it('hands out every note once, inside the lookahead window, in time order, for every score', () => {
+    for (const id of SCORE_IDS) {
+      const got = run(new MusicScheduler(id, 7), 0, 120, () => (id.startsWith('guardian') || id === 'heartBoss' ? FIGHT : CALM_MIX));
+      expect(got.length, id).toBeGreaterThan(10);
+      expect(new Set(got.map((g) => g.note)).size, id).toBe(got.length);
+      for (const g of got) {
+        expect(g.note.time, id).toBeGreaterThanOrEqual(g.at - 0.05);
+        expect(g.note.time, id).toBeLessThan(g.at + 0.35 + 1e-9);
+        expect(Number.isFinite(g.note.midi) && Number.isFinite(g.note.velocity) && g.note.velocity > 0 && g.note.velocity <= 1, id).toBe(true);
+      }
+      for (let i = 1; i < got.length; i++) expect(got[i].note.time, id).toBeGreaterThanOrEqual(got[i - 1].note.time);
     }
-    for (let i = 1; i < got.length; i++) expect(got[i].note.time).toBeGreaterThanOrEqual(got[i - 1].note.time);
   });
 
-  it('stays in the mood mode and leaves long silences between varied phrases', () => {
-    const got = run(new MusicScheduler(3), 0, 600, () => 'deep');
-    const { tonic, mode } = MOODS.deep;
-    for (const g of got) expect(inMode(g.note.midi, tonic, mode)).toBe(true);
-    const onsets = got.map((g) => g.note.time);
-    const gaps = onsets.slice(1).map((t, i) => t - onsets[i]);
-    expect(gaps.filter((g) => g > 8).length).toBeGreaterThan(3);
-    const pads = got.filter((g) => g.note.voice === 'pad').map((g) => g.note.duration.toFixed(2));
-    expect(new Set(pads).size).toBeGreaterThan(5);
+  it('keeps each biome in its own mode (every pitched note while exploring)', () => {
+    for (const id of BIOME_SCORES) {
+      const { tonic, mode } = SCORES[id];
+      const got = run(new MusicScheduler(id, 3), 0, 240);
+      for (const g of got) if (pitched(g.note)) expect(inMode(g.note.midi, tonic, mode), `${id} ${g.note.midi}`).toBe(true);
+    }
+  });
+
+  it('gives every biome its own identity (mode, tempo, metre, timbres and motif together)', () => {
+    const keys = BIOME_SCORES.map((id) => {
+      const s = SCORES[id];
+      return `${s.mode}|${s.bpm}|${s.meter}x${s.sub}|${s.bed}|${s.lead}|${s.motif.map((m) => m.d).join(',')}`;
+    });
+    expect(new Set(keys).size).toBe(BIOME_SCORES.length);
+    // No two biomes share the same lead and bed pair, nor the same motif contour.
+    expect(new Set(BIOME_SCORES.map((id) => `${SCORES[id].lead}+${SCORES[id].bed}`)).size).toBe(BIOME_SCORES.length);
+    expect(new Set(BIOME_SCORES.map((id) => SCORES[id].motif.map((m) => m.d).join(','))).size).toBeGreaterThanOrEqual(BIOME_SCORES.length - 1);
+  });
+
+  it('states the motif plainly first, on the lead, then varies it', () => {
+    for (const id of BIOME_SCORES) {
+      const s = SCORES[id];
+      const got = run(new MusicScheduler(id, 5), 0, 200).filter((g) => g.note.layer === 'motif' && g.note.voice === s.lead);
+      expect(got.length, id).toBeGreaterThanOrEqual(s.motif.length);
+      const first = got.slice(0, s.motif.length).map((g) => g.note.midi);
+      const base = s.tonic + 12 * (s.leadOctave ?? 0);
+      const expected = s.motif.map((m) => {
+        let midi = degreeToMidi(base, s.mode, m.d);
+        while (midi > 88) midi -= 12;
+        while (midi < 55) midi += 12;
+        return midi;
+      });
+      expect(first, id).toEqual(expected);
+    }
   });
 
   it('is deterministic per seed', () => {
-    const a = run(new MusicScheduler(11), 0, 120, () => 'mid').map((g) => [g.note.time, g.note.midi]);
-    const b = run(new MusicScheduler(11), 0, 120, () => 'mid').map((g) => [g.note.time, g.note.midi]);
-    const c = run(new MusicScheduler(12), 0, 120, () => 'mid').map((g) => [g.note.time, g.note.midi]);
+    const a = run(new MusicScheduler('crystalGeode', 11), 0, 120).map((g) => [g.note.time, g.note.midi]);
+    const b = run(new MusicScheduler('crystalGeode', 11), 0, 120).map((g) => [g.note.time, g.note.midi]);
+    const c = run(new MusicScheduler('crystalGeode', 12), 0, 120).map((g) => [g.note.time, g.note.midi]);
     expect(a).toEqual(b);
     expect(a).not.toEqual(c);
   });
 
-  it('switches to the warm camp score quickly and abandons the old phrase', () => {
-    const s = new MusicScheduler(5);
-    const enterAt = 40;
-    const got = run(s, 0, 120, (t) => (t < enterAt ? 'mid' : 'camp'));
-    expect(s.generation).toBe(1);
-    const after = got.filter((g) => g.at >= enterAt);
-    expect(after.length).toBeGreaterThan(0);
-    expect(after[0].note.time - enterAt).toBeLessThan(1.6);
-    for (const g of after) expect(inMode(g.note.midi, MOODS.camp.tonic, MOODS.camp.mode)).toBe(true);
+  it('follows the danger: tension within a beat of monsters coming near, drums within a beat of a fight', () => {
+    for (const id of BIOME_SCORES) {
+      const s = new MusicScheduler(id, 9);
+      const beat = s.beatDur;
+      const got = run(s, 0, 90, (t) => (t < 30 ? CALM_MIX : t < 60 ? TENSE : FIGHT));
+      const calm = got.filter((g) => g.at < 30);
+      expect(calm.some((g) => g.note.layer === 'tension' || g.note.layer === 'combat'), id).toBe(false);
+      const firstTension = got.find((g) => g.note.layer === 'tension');
+      expect(firstTension, id).toBeDefined();
+      expect(firstTension!.note.time - 30, id).toBeLessThan(beat * 1.05 + 0.36);
+      expect(got.some((g) => g.at >= 30 && g.at < 60 && g.note.layer === 'combat'), id).toBe(false);
+      const firstDrum = got.find((g) => g.note.layer === 'combat');
+      expect(firstDrum, id).toBeDefined();
+      expect(firstDrum!.note.time - 60, id).toBeLessThan(beat * 1.05 + 0.36);
+    }
+  });
+
+  it('breathes while exploring: rests between phrases and longer silences now and then', () => {
+    const s = new MusicScheduler('amberHollows', 3);
+    const got = run(s, 0, 900).filter((g) => g.note.layer === 'bed' || g.note.layer === 'motif');
+    const onsets = got.map((g) => g.note.time);
+    const gaps = onsets.slice(1).map((t, i) => t - onsets[i]);
+    expect(Math.max(...gaps)).toBeGreaterThan(18);
+    expect(s.phraseCount).toBeGreaterThan(20);
   });
 
   it('never plays a burst of stale notes after a stall', () => {
-    const s = new MusicScheduler(9);
-    run(s, 0, 30, () => 'shallow');
+    const s = new MusicScheduler('mushroomForest', 9);
+    run(s, 0, 30);
     const out: MusicNote[] = [];
-    const n = s.advance(500, 500.35, 'shallow', out);
+    const n = s.advance(500, 500.35, CALM_MIX, out);
     for (let i = 0; i < n; i++) expect(out[i].time).toBeGreaterThanOrEqual(500 - 0.05);
-    expect(s.nextPhraseTime).toBeGreaterThan(499);
+    expect(s.nextBeatTime).toBeGreaterThan(499.9);
+  });
+
+  it('plays stingers in the score\'s key and holds the motif until they end', () => {
+    const s = new MusicScheduler('frostCaverns', 4);
+    run(s, 0, 10);
+    const len = s.sting('arrival', 10.2);
+    expect(len).toBeCloseTo(s.barDur * 2, 5);
+    const got = run(s, 10, 30);
+    const sting = got.filter((g) => g.note.layer === 'sting');
+    expect(sting.filter((g) => g.note.voice === SCORES.frostCaverns.lead)).toHaveLength(SCORES.frostCaverns.motif.length);
+    const motif = got.filter((g) => g.note.layer === 'motif' && g.note.voice === SCORES.frostCaverns.lead);
+    if (motif.length) expect(motif[0].note.time).toBeGreaterThanOrEqual(10.2 + len - 1e-6);
+    for (const kind of ['victory', 'heartLit', 'descent', 'phase'] as const) expect(new MusicScheduler('guardian3', 1).sting(kind, 0)).toBeGreaterThan(1);
+  });
+
+  it('names a guardian theme per stratum and the Heart\'s boss', () => {
+    expect([1, 2, 3, 4, 5, 6].map((n) => guardianScoreFor(n))).toEqual(['guardian1', 'guardian2', 'guardian3', 'guardian4', 'guardian5', 'guardian6']);
+    expect(guardianScoreFor(6, true)).toBe('heartBoss');
+    const keys = [1, 2, 3, 4, 5, 6].map((n) => SCORES[guardianScoreFor(n)]).map((g) => `${g.tonic}|${g.mode}|${g.bpm}|${g.bed}|${g.lead}`);
+    expect(new Set(keys).size).toBe(6);
+    // The same motif in every lair: the guardians are related.
+    for (let n = 2; n <= 6; n++) expect(SCORES[guardianScoreFor(n)].motif).toBe(SCORES.guardian1.motif);
   });
 });
 
@@ -434,7 +530,8 @@ describe('AudioSystem without Web Audio', () => {
   it('constructs, handles every event and every call as a no-op without throwing', async () => {
     const bus = new CountingBus();
     const audio = new AudioSystem(bus);
-    expect(bus.subscribed).toBe(AUDIBLE_EVENTS.length);
+    expect(bus.subscribed).toBe(LISTENED_EVENTS.length);
+    expect(LISTENED_EVENTS.length).toBeGreaterThanOrEqual(AUDIBLE_EVENTS.length);
     expect(audio.unlocked).toBe(false);
     await expect(audio.unlock()).resolves.toBeUndefined();
     expect(audio.unlocked).toBe(false);

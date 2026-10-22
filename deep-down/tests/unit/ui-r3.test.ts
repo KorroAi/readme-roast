@@ -11,7 +11,8 @@ import { bearingTo } from '../../src/game/fp/ActionLayer';
 import { firstFreeSlot } from '../../src/ui/screens/r3/bag';
 import { pickCategory } from '../../src/ui/screens/r3/craft';
 import { groupByBiome } from '../../src/ui/screens/r3/bestiary';
-import { mapToCanvas } from '../../src/ui/screens/r3/map';
+import { clampZoom, homeCamera, mapToView, scaleBarMetres, viewToMap, zoomAbout } from '../../src/ui/screens/r3/map';
+import { MapRaster } from '../../src/ui/hud/Minimap';
 import { sanitizeControlPrefs, DEFAULT_CONTROL_PREFS } from '../../src/ui/controlPrefs';
 import { GLYPH_NAMES, iconSvg } from '../../src/ui/hud/glyphs';
 import { en } from '../../src/i18n/en';
@@ -252,10 +253,42 @@ describe('round 3 HUD and menu helpers', () => {
     ]);
   });
 
-  it('maps a stratum onto the square map canvas', () => {
-    const v = { originX: 0, originZ: 0, width: 256, depth: 256 };
-    expect(mapToCanvas(v, 128, 64, 512)).toEqual([256, 128]);
-    expect(mapToCanvas({ ...v, width: 128 }, 128, 256, 512)).toEqual([256, 512]);
+  it('pans and zooms the Map about a point, within the stratum and the zoom limits', () => {
+    const src = { width: 256, depth: 256, playerX: 100, playerZ: 60 };
+    const cam = homeCamera(src, 320);
+    // Centred on the explorer, about 56 m across.
+    expect(mapToView(cam, 100, 60, 320)).toEqual([160, 160]);
+    expect(cam.zoom).toBeCloseTo(320 / 56, 5);
+    const [wx, wz] = viewToMap(cam, 40, 300, 320);
+    expect(mapToView(cam, wx, wz, 320).map((n) => Math.round(n))).toEqual([40, 300]);
+    // A pinch keeps the point under the fingers still.
+    const z = zoomAbout(cam, 2, 40, 300, 320, src);
+    expect(z.zoom).toBeCloseTo(cam.zoom * 2, 5);
+    expect(mapToView(z, wx, wz, 320).map((n) => Math.round(n))).toEqual([40, 300]);
+    // Never past the whole stratum or the close limit.
+    expect(clampZoom(0.01, 320, src)).toBeCloseTo((320 / 256) * 0.9, 5);
+    expect(clampZoom(99, 320, src)).toBe(14);
+    expect(scaleBarMetres(5.7)).toBe(10);
+    expect(scaleBarMetres(1.4)).toBe(50);
+  });
+
+  it('paints the explored stratum: fog transparent, floor tinted, walls rimmed, rock dark', () => {
+    // A 6 x 6 stratum: a 4 x 4 explored floor room with one rock column in it.
+    const cell = (x: number, z: number) => (x >= 1 && x <= 4 && z >= 1 && z <= 4 ? (x === 3 && z === 3 ? 1 : 2) : 0);
+    const src = { width: 6, depth: 6, originX: 0, originZ: 0, revision: 1, cell, biome: () => 0, biomeColors: [0x40a0ff], markers: [], playerX: 0, playerZ: 0, yaw: 0 };
+    const r = new MapRaster();
+    expect(r.update(src)).toBe(true);
+    expect(r.update(src)).toBe(false);
+    const px = (x: number, z: number) => Array.from(r.rgba.slice((x + z * 6) * 4, (x + z * 6) * 4 + 4));
+    expect(px(0, 0)[3]).toBe(0);
+    // An inner floor column (2,2) is tinted toward the biome's blue; a border one (1,1) is the pale rim.
+    const inner = px(2, 2);
+    const rim = px(1, 1);
+    expect(inner[3]).toBe(255);
+    expect(inner[2]).toBeGreaterThan(inner[0]);
+    expect(rim[0] + rim[1] + rim[2]).toBeGreaterThan(inner[0] + inner[1] + inner[2]);
+    const rock = px(3, 3);
+    expect(rock[0] + rock[1] + rock[2]).toBeLessThan(inner[0] + inner[1] + inner[2]);
   });
 
   it('keeps the control preferences in range', () => {
@@ -273,6 +306,94 @@ describe('round 3 HUD and menu helpers', () => {
     for (const [k, v] of Object.entries(controls)) {
       expect(en[k as keyof typeof en]).toBe(v);
       expect(v.trim().length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('round 3 UI, after the resume', () => {
+  it('reads a New Game seed: digits as the number, any word hashed, blank as none', async () => {
+    const { seedFromText } = await import('../../src/ui/seed');
+    expect(seedFromText('')).toBeUndefined();
+    expect(seedFromText('   ')).toBeUndefined();
+    expect(seedFromText('12345')).toBe(12345);
+    expect(seedFromText(' 42 ')).toBe(42);
+    const a = seedFromText('lantern');
+    expect(a).toBeGreaterThan(0);
+    expect(seedFromText('LANTERN')).toBe(a);
+    expect(seedFromText('lanterns')).not.toBe(a);
+    // Too big for 32 bits: hashed, not wrapped.
+    expect(seedFromText('99999999999')).toBeGreaterThan(0);
+  });
+
+  it('frames the title over a stratum: the hall\'s longest view, from its far side, never inside rock', async () => {
+    const { findMenuShot, shotPose } = await import('../../src/game/MenuCamera');
+    // A long hall along +x (40 m), 8 m wide, 6 m high, the fire 6 m from the west wall.
+    const w = new VoxelWorld(64, 32, 32);
+    w.fill(0, 0, 0, 63, 31, 31, B.SLATE);
+    w.fill(4, 5, 12, 44, 10, 19, B.AIR);
+    const shot = findMenuShot(w, [10, 5, 15]);
+    // It looks down the hall (+x: forward = (-sin yaw, -cos yaw) has a positive x).
+    expect(-Math.sin(shot.yaw)).toBeGreaterThan(0.8);
+    // It stands west of the fire with room behind it, in air.
+    expect(shot.x).toBeLessThan(10.5);
+    expect(shot.x).toBeGreaterThan(4 + 1.2);
+    expect(w.isSolid(Math.floor(shot.x), Math.floor(shot.y), Math.floor(shot.z))).toBe(false);
+    for (let t = 0; t < 120; t += 7) {
+      const p = shotPose(t, shot);
+      expect(w.isSolid(Math.floor(p.x), Math.floor(p.y), Math.floor(p.z))).toBe(false);
+    }
+    // The explorer (the title's lantern) waits on the floor just ahead.
+    expect(shot.explorer.x).toBeGreaterThan(shot.x);
+    expect(shot.explorer.y).toBe(5);
+  });
+
+  it('gives every round 3 action its own short haptic, rate-limited where it repeats', async () => {
+    const { EventBus } = await import('../../src/core/events');
+    const { Haptics, HAPTIC_PATTERNS } = await import('../../src/ui/haptics');
+    const bus = new EventBus<import('../../src/core/events').GameEvents>();
+    const calls: Array<number | readonly number[]> = [];
+    let now = 0;
+    const hp = new Haptics(bus, () => true, (p) => (calls.push(p), true), () => now);
+    bus.emit('player:dash', { x: 0, y: 0, z: 0, iframes: 0.3 });
+    bus.emit('player:sonar', { x: 0, y: 0, z: 0, radius: 26, seconds: 2 });
+    bus.emit('player:placed', { item: 'torch', block: B.TORCH, x: 0, y: 0, z: 0 });
+    bus.emit('quest:shard', { biome: 'amberHollows', count: 1 });
+    expect(calls).toEqual([HAPTIC_PATTERNS.dash, HAPTIC_PATTERNS.sonar, HAPTIC_PATTERNS.place, HAPTIC_PATTERNS.shard]);
+    bus.emit('hotbar:selected', { slot: 1, item: null });
+    bus.emit('hotbar:selected', { slot: 2, item: null });
+    expect(calls.length).toBe(5);
+    now = 500;
+    bus.emit('hotbar:selected', { slot: 3, item: null });
+    expect(calls.length).toBe(6);
+    // Every pattern stays short (no buzzer): under half a second in all.
+    for (const p of Object.values(HAPTIC_PATTERNS)) expect(typeof p === 'number' ? p : p.reduce((a, b) => a + b, 0)).toBeLessThan(500);
+    hp.dispose();
+  });
+
+  it('queues milestone cards without duplicates, keeping the newest few', async () => {
+    const { enqueue } = await import('../../src/ui/hud/Milestones');
+    const f = (name: string) => ({ kind: 'feat' as const, name, line: '', reward: '' });
+    let q = enqueue([], f('Maker'));
+    q = enqueue(q, f('Maker'));
+    expect(q.length).toBe(1);
+    for (const n of ['A', 'B', 'C', 'D', 'E']) q = enqueue(q, f(n));
+    expect(q.map((m) => m.name)).toEqual(['B', 'C', 'D', 'E']);
+  });
+
+  it('draws every item of LOOP\'s table with its own art (no pebble fallbacks), within a 16 x 16 frame', async () => {
+    const { ITEM_IDS, ITEMS } = await import('../../src/config/items');
+    const { itemArt, itemTemplates } = await import('../../src/ui/itemArt');
+    for (const rows of Object.values(itemTemplates())) {
+      expect(rows.length).toBe(16);
+      for (const r of rows) expect(r.length).toBe(16);
+    }
+    const legacy = (id: string) => /^rune[A-Z]/.test(id) || ITEMS[id as keyof typeof ITEMS].icon.kind === 'tablet';
+    for (const id of ITEM_IDS) {
+      if (legacy(id)) continue;
+      const art = itemArt(id);
+      expect(art, id).not.toBeNull();
+      // Every glyph of the template has a colour in the palette.
+      for (const row of art!.rows) for (const ch of row) if (ch !== '.') expect(art!.palette[ch], `${id} '${ch}'`).toBeDefined();
     }
   });
 });

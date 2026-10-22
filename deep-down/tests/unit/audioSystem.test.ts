@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { B } from '../../src/config/blocks';
 import { EventBus, type GameEvents } from '../../src/core/events';
 import { AudioSystem, SFX_VOICES, type AudioWorldState } from '../../src/audio/AudioSystem';
-import { MUSIC_PRIORITY, MUSIC_VOICES } from '../../src/audio/MusicPlayer';
+import { MUSIC_VOICES, musicPriority } from '../../src/audio/MusicPlayer';
 import { MusicScheduler, type MusicNote } from '../../src/audio/MusicScheduler';
+import { TIMBRES } from '../../src/audio/instruments';
 import { VoiceLimiter } from '../../src/audio/voices';
 
 // A minimal stand-in for the Web Audio API, strict where browsers are strict (non-finite
@@ -294,26 +295,39 @@ describe('AudioSystem on a (fake) Web Audio context', () => {
 });
 
 describe('music polyphony', () => {
-  it('lets plucks steal old plucks, never the pad chord under them', () => {
-    let padsStolen = 0;
-    let pads = 0;
-    for (let seed = 1; seed <= 6; seed++) {
-      const scheduler = new MusicScheduler(seed);
-      const voices = new VoiceLimiter<MusicNote>(MUSIC_VOICES, (n) => n.voice === 'pad' && padsStolen++);
+  it('lets drums and counter-lines steal first, never a chord while it is held (only release tails)', () => {
+    let heldStolen = 0;
+    let tailsStolen = 0;
+    let bed = 0;
+    let leadStolen = 0;
+    let lead = 0;
+    let t = 0;
+    for (const id of ['amberHollows', 'glowrootJungle', 'magmaVeins', 'sunkenCity', 'guardian6', 'heartBoss'] as const) {
+      const scheduler = new MusicScheduler(id, 3);
+      const fight = { bed: 0.65, motif: 0.75, tension: 0.7, combat: 1 };
+      const voices = new VoiceLimiter<MusicNote>(MUSIC_VOICES, (n) => {
+        const held = n.time + n.duration > t;
+        if (n.layer === 'bed') held ? heldStolen++ : tailsStolen++;
+        if (n.layer === 'motif' && n.voice === scheduler.score.lead && held) leadStolen++;
+      });
       const out: MusicNote[] = [];
-      for (let t = 0; t < 600; t += 1 / 30) {
-        const n = scheduler.advance(t, t + 0.35, 'camp', out);
+      for (t = 0; t < 300; t += 1 / 30) {
+        const n = scheduler.advance(t, t + 0.35, fight, out);
         for (let i = 0; i < n; i++) {
           const note = out[i];
-          const priority = MUSIC_PRIORITY[note.voice];
-          if (note.voice === 'pad') pads++;
+          const priority = musicPriority(note, scheduler.score.lead);
+          if (note.layer === 'bed') bed++;
+          if (note.layer === 'motif' && note.voice === scheduler.score.lead) lead++;
           if (!voices.admit(t, priority)) continue;
-          // Pads ring through their 3 s release; plucks decay over their duration.
-          voices.add(note, note.time, note.time + note.duration + (note.voice === 'pad' ? 3.05 : 0.05), priority);
+          voices.add(note, note.time, note.time + note.duration + TIMBRES[note.voice].tail, priority);
+          expect(voices.size).toBeLessThanOrEqual(MUSIC_VOICES);
         }
       }
     }
-    expect(pads).toBeGreaterThan(100);
-    expect(padsStolen / pads).toBeLessThan(0.01);
+    expect(bed).toBeGreaterThan(100);
+    expect(lead).toBeGreaterThan(100);
+    expect(heldStolen / bed).toBeLessThan(0.01);
+    expect(leadStolen / lead).toBeLessThan(0.01);
+    void tailsStolen;
   });
 });

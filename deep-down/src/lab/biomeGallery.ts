@@ -3,6 +3,7 @@ import { BIOMES, BIOME_IDS, type BiomeId } from '../config/biomes';
 import type { PropKind, PropSpec } from '../world/gen/types';
 import type { VoxelWorld } from '../world/VoxelWorld';
 import { HANGING_KINDS } from '../render/props/biomeModels';
+import { pocketKind } from '../render/props/pocketModels';
 
 /**
  * Round 3 (VIS): the Visual Lab's biome gallery (?view=biomes&bay=0..12). One bay per biome (and the
@@ -16,6 +17,8 @@ const ROW_Z = [66, 98] as const;
 
 export interface Bay {
   biome: BiomeId;
+  /** Round 3: the 14th bay is the workshop (the stations, the camp's upgrades, a guardian's arena set). */
+  workshop?: boolean;
   x0: number;
   z0: number;
   /** Camera and target for the bay's shot (the floor props and the back wall in frame). */
@@ -25,14 +28,29 @@ export interface Bay {
 }
 
 export function bays(): Bay[] {
-  return BIOME_IDS.map((biome, i) => {
+  const list: Array<{ biome: BiomeId; workshop?: boolean }> = [...BIOME_IDS.map((biome) => ({ biome })), { biome: 'amberHollows' as BiomeId, workshop: true }];
+  return list.map(({ biome, workshop }, i) => {
     const row = i < 7 ? 0 : 1;
     const col = i % 7;
     const x0 = 2 + col * BAY_W;
     const z0 = ROW_Z[row];
     const cx = x0 + BAY_W / 2;
-    return { biome, x0, z0, cam: [cx, 3.4, z0 + 5], target: [cx, 2.6, z0 + 18], lantern: [cx, 3.2, z0 + 9] };
+    return { biome, workshop, x0, z0, cam: [cx, 3.4, z0 + 5], target: [cx, 2.6, z0 + 18], lantern: [cx, 3.2, z0 + 9] };
   });
+}
+
+/** The workshop bay's props: LOOP's stations, the camp's upgrades, a guardian's arena set. */
+function workshopProps(bay: Bay, back: number): PropSpec[] {
+  const out: PropSpec[] = [];
+  const row = (kinds: Array<[string, number?]>, z: number, x0: number, step: number) =>
+    kinds.forEach(([kind, variant], i) => {
+      const x = bay.x0 + x0 + i * step;
+      out.push({ id: `lab_ws_${kind}_${i}_${z}`, kind: kind as PropKind, x, y: 2, z, rotY: Math.PI, scale: 1, anchor: [Math.floor(x), 1, Math.floor(z)], emitters: [], seed: 31 + i, modelVariant: variant });
+    });
+  row([['furnace'], ['forge'], ['alchemyTable'], ['workbench'], ['outpost']], back - 4, 2.5, 3.1);
+  row([['campTent'], ['forgeChimney'], ['trophyWall', 0xfff]], back - 1.2, 3, 5);
+  row([['lairPillar', 0], ['lairBrazier'], ['lairRune', 0], ['lairRune', 1], ['lairPillar', 1]], back - 8, 2.5, 3.1);
+  return out;
 }
 
 /** Fill the gallery's voxels and return its props. */
@@ -44,6 +62,19 @@ export function buildBiomeGallery(w: VoxelWorld): PropSpec[] {
   let seed = 1;
   for (const bay of bays()) {
     const def = BIOMES[bay.biome];
+    if (bay.workshop) {
+      // Floor and back wall only: the props are the point.
+      const back = bay.z0 + 21;
+      for (let x = bay.x0; x <= bay.x0 + BAY_W - 1; x++)
+        for (let z = bay.z0; z <= back; z++) {
+          set(x, 0, z, def.hosts[0]);
+          set(x, 1, z, def.floor);
+        }
+      for (let x = bay.x0; x <= bay.x0 + BAY_W - 1; x++) for (let y = 2; y < 10; y++) for (let z = back; z < back + 2; z++) set(x, y, z, def.hosts[1]);
+      for (const x of [bay.x0 + 3, bay.x0 + BAY_W - 4]) set(x, 6, back - 1, B.LIGHT_LAMP);
+      props.push(...workshopProps(bay, back));
+      continue;
+    }
     const [hostA, hostB] = def.hosts;
     const floor = def.floor;
     const { x0, z0 } = bay;
@@ -79,6 +110,9 @@ export function buildBiomeGallery(w: VoxelWorld): PropSpec[] {
     // on the left (every cold space has a human flame).
     set(x1 - 2, 6, back - 1, def.lightBlock);
     set(x0 + 2, 4, back - 1, B.LIGHT_LAMP);
+    // Round 3: what glows in the biome's light pockets, under the shelf at the right.
+    const pk = pocketKind(bay.biome, def.lightBlock);
+    if (pk) for (const [k, dx] of [[0, 3], [1, 6]] as const) props.push({ id: `lab_${bay.biome}_pocket_${k}`, kind: pk, x: x1 - dx + 0.5, y: 8, z: back - 1.5, rotY: k * 1.7, scale: 1, anchor: [x1 - dx, 8, back - 2], emitters: [], seed: 900 + k, modelVariant: k });
     // Props: ground ones in a row across the floor, hanging ones under the shelf.
     const kinds = def.props;
     let gi = 0;

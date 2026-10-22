@@ -40,5 +40,7 @@ declare module '../../core/events' {
     'mine:combo': { count: number; x: number; y: number; z: number };
     /** A hotbar slot was selected (0-based) and what it holds (null: empty). */
     'hotbar:selected': { slot: number; item: string | null };
+    /** Fast travel arrived (the camp id 'camp', or an outpost's id) in `stratum`. */
+    'player:travelled': { to: string; stratum: number };
   }
 }
