@@ -481,3 +481,41 @@ describe('the explorer is kept out of a big body', () => {
     expect(Math.hypot(s.x, s.z)).toBeGreaterThan(1);
   });
 });
+
+describe("a long guardian's charge lands at its front (the explorer is kept out of its bulk)", () => {
+  it('the Magma Behemoth (3.2 m of body ahead of its centre) still lands its charges on an explorer it shoves', async () => {
+    const { bodyExtent, mobModel } = await import('../../src/render/mobs/models');
+    const { bodyPush } = await import('../../src/game/mobs/bodyPush');
+    const e = bodyExtent(mobModel('magmaBehemoth'));
+    const charges = (useBulk: boolean): number => {
+      const sim = new MobSim(env(), 91);
+      sim.spawning = false;
+      sim.lairs = [lairOf('magmaBehemoth', 40, 22, 20)];
+      const c = ctx({ x: 40, z: 36 });
+      let landed = 0;
+      let g: SimMob | undefined;
+      sim.on((ev) => {
+        if (ev.type === 'attack' && ev.landed && ev.mob === g && ev.mob.pattern === 'charge') landed++;
+      });
+      for (let t = 0; t < 120; t += 1 / 30) {
+        sim.update(1 / 30, c);
+        g ??= sim.mobs.find((m) => m.kind === 'magmaBehemoth');
+        if (!g || g.dying) continue;
+        // What the director does each frame (MobDirector.keepExplorerOut).
+        g.bulk = useBulk ? e.front * g.scale : 0;
+        const p = bodyPush(c.player.x, c.player.z, g.position.x, g.position.z, g.yaw, { front: e.front * g.scale, back: e.back * g.scale, side: e.side * g.scale }, 0.43);
+        if (p) {
+          c.player.x += p.x;
+          c.player.z += p.z;
+          c.eye.x = c.player.x;
+          c.eye.z = c.player.z;
+        }
+      }
+      return landed;
+    };
+    const withBulk = charges(true);
+    const capsuleOnly = charges(false);
+    expect(withBulk, 'charges that land').toBeGreaterThan(0);
+    expect(capsuleOnly, 'charges landing with the capsule-only contact').toBeLessThan(withBulk);
+  }, 60_000);
+});

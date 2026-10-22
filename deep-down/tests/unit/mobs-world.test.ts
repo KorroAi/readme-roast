@@ -156,3 +156,33 @@ describe("the tutorial's first fight, called from the camp", () => {
     expect(seen, 'it fights').toContain('attack');
   }, 30_000);
 });
+
+describe('a blow never knocks a monster into the camp (QA 22:25: the Tick faded at the edge)', () => {
+  const FLOOR = 10;
+  const solid = (x: number, y: number, z: number): boolean => y < FLOOR || y >= 24 || x < 0 || x >= 96 || z < 0 || z >= 96;
+  const inCamp = (x: number, y: number, z: number): boolean => x >= 26 && x <= 54 && z >= 26 && z <= 54 && y >= FLOOR - 4 && y <= FLOOR + 10;
+  it('struck from the field side at the camp edge, a monster stops at the edge, alive', () => {
+    const sim = new MobSim({ solid, light: () => 0, inCamp, depthOf: (y) => 300 - y }, 5);
+    sim.spawning = false;
+    const c: MobContext = {
+      time: 0,
+      player: { x: 60.5, y: FLOOR, z: 40.5, vx: 0, vz: 0 },
+      eye: { x: 60.5, y: FLOOR + 1.62, z: 40.5 },
+      lantern: { x: 60.2, y: FLOOR + 1.2, z: 40.8, radius: 11, flame: 1, lit: true, raised: false },
+      depth: 200,
+      atCamp: false,
+      active: true,
+      airborne: false,
+    };
+    const m = sim.spawn('gritBoar', 54.6, FLOOR, 40.5, { asleep: false })!;
+    expect(m).toBeTruthy();
+    // (Its brain held: only the blow moves it.)
+    sim.brains = false;
+    sim.update(1 / 30, c);
+    // A great axe's blow from the explorer's side (east), toward the camp (west).
+    sim.hit(m, 1, { weapon: 'greatAxe', from: { x: 60.5, y: FLOOR + 1.6, z: 40.5 }, knock: 2 });
+    for (let t = 0; t < 1; t += 1 / 30) sim.update(1 / 30, c);
+    expect(inCamp(m.foot.x, m.foot.y + 0.5, m.foot.z), 'not knocked in').toBe(false);
+    expect(sim.mobs.includes(m) && !m.dying, 'not put away').toBe(true);
+  });
+});

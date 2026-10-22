@@ -79,12 +79,19 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   const outpost = outposts[0];
 
   await mark(page, 'travel rest');
-  // Its Interact chip rests there (the bed becomes the respawn point, the bag is banked).
+  // Its Interact chip rests there (the bed becomes the respawn point) and opens the Bag on the
+  // outpost's bank.
   expect(await untilGame(page, async () => (await hud(page)).interact?.icon === 'outpost', 6), 'the outpost chip').toBe(true);
   await tapControl(page, touch, 'interact');
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.loop.bed)) === outpost.id, 6), 'rested: the bed is the outpost').toBe(true);
-  // A rest ends the trip there (LOOP): its card may come up first.
+  // A rest ends the trip there (LOOP): its card may come up first, or once the Bag is closed.
   await closeTripCard(page, touch);
+  if (await waitScreen(page, 'inventory', 4)) {
+    await expect(page.locator('.dd-menu3 .dd-m3-meta .dd-m3-good'), 'the Bag opened on the outpost bank').toBeVisible();
+    await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
+    expect(await waitScreen(page, 'none'), 'the Bag closed').toBe(true);
+    await closeTripCard(page, touch, 3);
+  }
 
   await mark(page, 'travel to camp');
   // The Map: from the outpost, travel to the camp.

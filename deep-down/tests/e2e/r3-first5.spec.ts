@@ -150,29 +150,82 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   // 7. Fight: one gentle Amber Tick comes (MOBS's first fight: out of the camp's light, QA 21:29); aim
   // at it and strike with Action. The tutorial never blocks: with no creature the step moves on by
   // its own timeout, which the spec reports rather than fails (the strike is what the UI owns).
-  const foe = () => page.evaluate(() => window.__DD__.mobs.list().find((m: { family: string; state: string }) => m.family !== 'being' && m.state !== 'dying') ?? null) as Promise<{ x: number; y: number; z: number } | null>;
+  // The nearest creature (not a being) and its distance on the floor plan.
+  const foe = () =>
+    page.evaluate(() => {
+      const dd = window.__DD__;
+      const p = dd.game.player;
+      let best: { id: number; kind: string; x: number; y: number; z: number; d: number } | null = null;
+      for (const m of dd.mobs.list() as Array<{ id: number; kind: string; family: string; state: string; x: number; y: number; z: number }>) {
+        if (m.family === 'being' || m.state === 'dying') continue;
+        const d = Math.hypot(m.x - p.x, m.z - p.z);
+        if (!best || d < best.d) best = { id: m.id, kind: m.kind, x: m.x, y: m.y, z: m.z, d };
+      }
+      return best;
+    });
+  type Foe = NonNullable<Awaited<ReturnType<typeof foe>>>;
+  /** The explorer a step short of the creature, on its side of the rock (it stayed out of sight). */
+  const besideFoe = (t: Foe) =>
+    page.evaluate(([x, y, z]) => {
+      const dd = window.__DD__;
+      const p = dd.game.player;
+      const d = Math.hypot(x - p.x, z - p.z) || 1;
+      for (const back of [1.8, 2.4, 1.3, 3]) {
+        const s = dd.standableNear(Math.floor(x - ((x - p.x) / d) * back), Math.floor(y), Math.floor(z - ((z - p.z) / d) * back));
+        if (s) {
+          dd.teleport(s[0] + 0.5, s[1], s[2] + 0.5);
+          return true;
+        }
+      }
+      return false;
+    }, [t.x, t.y, t.z] as const);
+  /** One Amber Tick 2.2 m ahead, turned to open floor (the creatures' debug hook). */
+  const tickInSight = () =>
+    page.evaluate(() => {
+      const dd = window.__DD__;
+      const g = dd.game;
+      const p = g.player;
+      const yaw0 = g.cameraRig.yaw;
+      for (let k = 0; k < 8; k++) {
+        const yaw = yaw0 + (k * Math.PI) / 4;
+        dd.aimAt(p.x - Math.sin(yaw) * 2.2, p.y + 0.4, p.z - Math.cos(yaw) * 2.2, 0, 0);
+        if (!dd.ui.ray(0, 0, 2.6)) return dd.mobs.spawnAhead('amberTick', 2.2);
+      }
+      return dd.mobs.spawnAhead('amberTick', 2.2);
+    });
   let came = await untilGame(page, async () => (await foe()) !== null, 5);
   if (!came) {
     const out = await awayFromCamp(page);
     if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), out);
     came = await untilGame(page, async () => (await foe()) !== null || (await step(page)) !== 'fight', 6);
-    // Still none (MOBS's first fight did not find a spot in time): one Amber Tick a few metres ahead,
-    // through the creatures' debug hook, so the strike itself is still tested.
-    if (!came) console.log(`[e2e] no creature came for the fight step: a tick is placed ahead (${await page.evaluate(() => window.__DD__.mobs.spawnAhead('amberTick', 3))})`);
+    // Still none (MOBS's first fight did not find a spot in time): the strike itself is still tested.
+    if ((await foe()) === null && (await step(page)) === 'fight') console.log(`[e2e] no creature came for the fight step: a tick placed in sight (${await tickInSight()})`);
   }
   if ((await foe()) !== null) {
-    const fought = await untilGame(
-      page,
-      async () => {
-        const t = await foe();
-        if (!t) return true;
-        await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), [t.x, t.y + 0.2, t.z]);
-        await holdControl(page, touch, 'action', 700);
-        return (await step(page)) !== 'fight';
-      },
-      30,
-    );
-    expect(fought, 'the creature was struck').toBe(true);
+    const hits0 = (await uiEvents(page, 'mob:hit')).length;
+    const struck = async () => (await uiEvents(page, 'mob:hit')).length > hits0;
+    // The one that came first; if it keeps out of sight, the explorer is brought beside it; then a tick
+    // placed in sight. Each round aims at it and holds Action while the reticle reads "attack".
+    for (let round = 0; round < 3 && !(await struck()); round++) {
+      const t = await foe();
+      if (round === 1 && t) await besideFoe(t);
+      if (round === 2 || !t) console.log(`[e2e] the fight: a tick placed in sight (${await tickInSight()})`);
+      await untilGame(
+        page,
+        async () => {
+          const f = await foe();
+          if (!f) return struck();
+          await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), [f.x, f.y, f.z] as const);
+          if (!(await untilGame(page, async () => (await hud(page)).reticle === 'attack', 1))) return false;
+          await holdControl(page, touch, 'action', 900);
+          return struck();
+        },
+        round === 0 ? 8 : 14,
+      );
+      const f = await foe();
+      console.log(`[e2e] the fight, round ${round}: ${(await struck()) ? 'struck' : 'not struck'} (${f ? `${f.kind} ${f.d.toFixed(1)} m` : 'none left'}, reticle ${(await hud(page)).reticle})`);
+    }
+    expect(await struck(), 'the creature was struck').toBe(true);
     expect((await uiEvents(page, 'weapon:swing')).length, 'Action swung at it').toBeGreaterThan(0);
   } else console.log('[e2e] no creature came for the fight step: it moved on by its timeout (MOBS/LOOP, QA 21:29)');
   expect(await waitStep(page, 'sonar', 60), 'the fight step was taken').toBe(true);

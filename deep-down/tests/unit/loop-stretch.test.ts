@@ -317,7 +317,9 @@ describe('the trip summary', () => {
     expect(s.finds.common).toBe(12);
     expect(s.seconds).toBeCloseTo(30.1, 6);
     expect(s.lines.find((l) => l.label === en['trip3.deepest'])!.value).toBe('60 m');
-    expect(s.lines.at(-1)!.label).toBe(en['trip3.nextLabel']);
+    // The next step and the records are the card's own parts, not ledger rows (shown once each).
+    expect(s.next.length).toBeGreaterThan(5);
+    expect(s.lines.some((l) => l.label === en['trip3.nextLabel'])).toBe(false);
     expect(loop.lastTrip()).toBe(s);
   });
 

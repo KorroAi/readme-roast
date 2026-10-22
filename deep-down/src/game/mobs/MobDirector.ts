@@ -349,6 +349,7 @@ export class MobDirector implements MobSystem {
       if (!m.guardian && m.def.size !== 'large' && m.def.size !== 'huge') continue;
       const e = bodyExtent(mobModel(m.kind, m.brain === 'thief' && m.treasure ? 1 : 0));
       const sc = m.scale;
+      m.bulk = e.front * sc;
       if (p.y > m.position.y + e.top * sc || p.y + PLAYER.height < m.position.y + e.bottom * sc) continue;
       const push = bodyPush(p.x, p.z, m.position.x, m.position.z, m.yaw, { front: e.front * sc, back: e.back * sc, side: e.side * sc }, hw + 0.12);
       if (!push) continue;

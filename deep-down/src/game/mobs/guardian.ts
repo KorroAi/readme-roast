@@ -409,7 +409,8 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
         }
       }
       m.yaw = Math.atan2(m.dir.x, m.dir.z);
-      if (!m.landed && sim.flatDist(m, ctx) <= m.bounds.radius + 1.1 && Math.abs(ctx.player.y - foot.y) < 2.5) {
+      // (Contact at its front: a long body keeps the explorer farther off than its capsule.)
+      if (!m.landed && sim.flatDist(m, ctx) <= Math.max(m.bounds.radius, m.bulk) + 1.1 && Math.abs(ctx.player.y - foot.y) < 2.5) {
         m.landed = true;
         sim.strikePlayer(m, def.damage);
       }

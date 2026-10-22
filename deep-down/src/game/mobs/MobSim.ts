@@ -255,6 +255,11 @@ export class SimMob implements Mob {
    * monster is put away then), so the step's "A creature!" always has one to show.
    */
   tutorial = false;
+  /**
+   * How far its drawn body reaches ahead of its centre (m; 0 until the director reads its model): the
+   * explorer is kept out of that bulk, so a guardian's charge makes contact at its front, not its capsule.
+   */
+  bulk = 0;
   // ---- Round 3: the feel of a fight (hit reactions and deaths read on the body)
   /** A blow's flinch 0..1 (it decays in a quarter second), and the way the blow pushed it (unit, world xz). */
   hurt = 0;

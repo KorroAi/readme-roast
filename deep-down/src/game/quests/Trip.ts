@@ -286,7 +286,7 @@ function linesOf(s: TripSummary): Array<{ label: string; value: string }> {
   add('trip3.pages', s.pages, s.pages > 0);
   add('trip3.bestiary', s.bestiary, s.bestiary > 0);
   add('trip3.banked', s.banked, s.banked > 0);
-  for (const r of s.records) out.push({ label: t('trip3.record', { what: t(`trip3.rec.${r}` as TextKey) }), value: '★' });
-  if (s.next) out.push({ label: t('trip3.nextLabel'), value: s.next });
+  // The records and the next step are not ledger rows: the card shows them apart (UI: a star list
+  // above the ledger, the "Next" bar under it), so the real game showed each twice.
   return out;
 }
