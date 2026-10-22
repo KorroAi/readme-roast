@@ -91,6 +91,16 @@ export function t(key: TextKey, params?: Record<string, string | number>): strin
   return s;
 }
 
+/** A number in the active language's notation ("3.5" in English, "3,5" in French), at most `digits` decimals. */
+export function formatNumber(n: number, digits = 1): string {
+  if (!Number.isFinite(n)) return String(n);
+  try {
+    return new Intl.NumberFormat(activeCode === 'fr' ? 'fr-FR' : 'en-GB', { maximumFractionDigits: digits }).format(n);
+  } catch {
+    return String(Math.round(n * 10 ** digits) / 10 ** digits);
+  }
+}
+
 export function hasText(key: string): key is TextKey {
   return key in en;
 }

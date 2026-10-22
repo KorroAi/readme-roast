@@ -15,7 +15,7 @@ import { Guide } from '../quests/Guide';
 import type { LoopHud } from '../quests/types';
 import type { StratumLayout } from '../../world/gen/strata/types';
 import type { EventBus, GameEvents } from '../../core/events';
-import { t, type TextKey } from '../../i18n';
+import { formatNumber, t, type TextKey } from '../../i18n';
 import { Gear, EQUIP_SLOTS, type GearSave } from '../../gameplay/Gear';
 import type { Backpack } from '../../gameplay/Inventory';
 import type { CampStorage } from '../../gameplay/Storage';
@@ -68,7 +68,12 @@ interface CompanionHooks {
   feedCompanion?(xp: number, heal: number): boolean;
   /** UI's chip view: null before one is tamed. */
   companion?(): unknown;
+  /** Every creature about (MobDirector.list): the tutorial's fight step points the compass at the nearest monster. */
+  list?(): ReadonlyArray<{ readonly position: { x: number; y: number; z: number }; readonly hostile: boolean; readonly state: string }>;
 }
+
+/** Metres within which the tutorial's fight step points the compass at a monster. */
+const FOE_RANGE = 40;
 
 /** Is a Lampling following the explorer (MOBS' hasCompanion, else its chip view)? */
 function companionFollows(m: CompanionHooks | null): boolean {
@@ -1003,7 +1008,7 @@ export class Loop implements LoopActions {
     if (d.equip === 'pack') return t('craft3.stat.pack', { slots: packForTier(d.tier ?? 1).slots });
     if (d.equip === 'weapon') {
       const w = WEAPONS[item as WeaponId];
-      return w ? t('craft3.stat.weapon', { damage: w.damage, reach: w.reach }) : null;
+      return w ? t('craft3.stat.weapon', { damage: formatNumber(w.damage), reach: formatNumber(w.reach) }) : null;
     }
     if (d.equip === 'head' || d.equip === 'chest' || d.equip === 'feet') {
       const piece = armourPiece(item);
@@ -1558,6 +1563,7 @@ export class Loop implements LoopActions {
         return loop.placesOf(layout());
       },
       nearestVein: () => loop.nearestVein(),
+      foe: () => loop.nearestFoe(),
       advice: () => loop.advice(),
       legacyFeats: () => {
         const f = (loop.host as { progression?: { extra?: { feats?: unknown } } }).progression?.extra?.feats;
@@ -1614,6 +1620,24 @@ export class Loop implements LoopActions {
   }
 
   private veinCache: { t: number; x: number; y: number; z: number; at: { x: number; y: number; z: number } | null } = { t: -Infinity, x: 0, y: 0, z: 0, at: null };
+
+  /** The nearest monster within FOE_RANGE m (MOBS' list), for the tutorial's fight step; null when none. */
+  nearestFoe(): { x: number; y: number; z: number } | null {
+    const mobs = (this.host.mobs ?? null) as CompanionHooks | null;
+    if (!mobs || typeof mobs.list !== 'function') return null;
+    const p = this.host.player;
+    let best: { x: number; y: number; z: number } | null = null;
+    let bd = FOE_RANGE * FOE_RANGE;
+    for (const m of mobs.list()) {
+      if (!m.hostile || m.state === 'dying') continue;
+      const d = (m.position.x - p.x) ** 2 + (m.position.y - p.y) ** 2 + (m.position.z - p.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = { x: m.position.x, y: m.position.y, z: m.position.z };
+      }
+    }
+    return best;
+  }
 
   /**
    * The nearest vein (an ore block with an open face) the pick can break within VEIN_RANGE m: the

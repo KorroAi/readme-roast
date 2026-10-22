@@ -7,14 +7,14 @@ import { majorKeyOf, shiftTo } from '../../src/audio/harmony';
 import { MUSIC_VOICES } from '../../src/audio/MusicPlayer';
 import { CATEGORY_CAP, DUCKS, Ducker, categoryOf, densityDuck } from '../../src/audio/mixer';
 import { EMITTER_KINDS, EmitterIndex, PROP_EMITTERS, dangerOf, occlusionOf, scanVoxels } from '../../src/audio/probe';
-import { SCORES, type ScoreId } from '../../src/audio/scores';
+import { BIOME_SCORES, SCORES, type ScoreId } from '../../src/audio/scores';
 import { SFX_NAMES, playSfx } from '../../src/audio/sfx';
 import { Voice } from '../../src/audio/synth';
 import { DEFAULT_VOLUMES } from '../../src/audio/sim/scenes';
 import { SYSTEM_SCENES, systemRig, type SystemRig } from '../../src/audio/sim/system';
 import { SimAudioContext, SimOscillator } from '../../src/audio/sim/webAudioSim';
 import { busTarget, createMixGraph } from '../../src/audio/graph';
-import { maxMomentaryLoudness, phoneFilter, spectralCentroid, truePeakOf } from '../../src/audio/analysis';
+import { bandShares, integratedLoudness, maxMomentaryLoudness, phoneFilter, spectralCentroid, truePeakOf } from '../../src/audio/analysis';
 import { sfxForEvent } from '../../src/audio/eventMap';
 import { MINE_KINDS } from '../../src/audio/mineSfx';
 import { renderSfxOfflineChannels } from '../../src/audio/offline';
@@ -136,6 +136,32 @@ describe('mining every biome\'s rock', () => {
       expect(Math.min(m.ice.centroid, m.glass.centroid)).toBeGreaterThan(Math.max(m.fungus.centroid, m.mud.centroid) * 1.4);
     } finally {
       sim.restore();
+    }
+  });
+});
+
+describe("each biome's bed on a phone", () => {
+  it('reaches a phone speaker (its wind, hum, roar or drone in the band a phone plays), never hissy, never jumping out', () => {
+    const rate = 8000;
+    for (const biome of BIOME_SCORES) {
+      const rig = systemRig({ sampleRate: rate, volumes: { ...DEFAULT_VOLUMES, music: 0, sfx: 0 } });
+      try {
+        rig.game.strata.biomeHere = biome;
+        rig.run(3);
+        rig.take();
+        rig.run(9);
+        const [l, r] = rig.take();
+        const mono = new Float32Array(l.length);
+        for (let i = 0; i < l.length; i++) mono[i] = (l[i] + r[i]) / 2;
+        const phone = integratedLoudness([phoneFilter(l, rate), phoneFilter(r, rate)], rate);
+        // A texture ~10-16 dB under the explore score on a phone (round 2's beds sat at -46..-48 there).
+        expect(phone, `${biome} phone ${phone.toFixed(1)} LUFS`).toBeGreaterThan(-48);
+        expect(phone, `${biome} phone ${phone.toFixed(1)} LUFS`).toBeLessThan(-37);
+        expect(bandShares(mono, rate)[2], `${biome} above 2 kHz`).toBeLessThan(0.2);
+        expect(Math.max(truePeakOf(l), truePeakOf(r)), biome).toBeLessThan(0.25);
+      } finally {
+        rig.close();
+      }
     }
   });
 });

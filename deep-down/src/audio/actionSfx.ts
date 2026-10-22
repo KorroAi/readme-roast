@@ -542,10 +542,13 @@ export const ACTION_SFX = {
     f.frequency.exponentialRampToValueAtTime(4200, t + 0.2);
     burst(v, t + 0.17, 'pink', 'bandpass', 900, 1, 0.08, 0.04);
   }, 0.08),
-  /** The bag opened: leather and a buckle. */
+  /** The bag opened: its leather flap thrown back and the buckle's clink (as loud as a page turned). */
   'ui.bag': sound('sfx', 0.65, 0.1, 3, 0.5, (v) => {
-    burst(v, v.t, 'pink', 'bandpass', 1100, 1.1, 0.25, 0.1);
-    v.osc('sine', 2800, v.t + 0.08, v.t + 0.13).connect(v.perc(v.t + 0.08, 0.001, 0.06, 0.035)).connect(v.out);
+    const t = v.t;
+    burst(v, t, 'pink', 'bandpass', 1100, 1.1, 0.6, 0.09);
+    burst(v, t + 0.05, 'pink', 'bandpass', 1600, 1.3, 0.35, 0.07);
+    v.osc('sine', 2800, t + 0.08, t + 0.16).connect(v.perc(t + 0.08, 0.001, 0.14, 0.05)).connect(v.out);
+    v.osc('sine', 4100, t + 0.085, t + 0.14).connect(v.perc(t + 0.085, 0.001, 0.05, 0.03)).connect(v.out);
   }, 0.08),
   /** A biome's arrival card sliding in: a soft airy swell and a bell. */
   'ui.card': sound('sfx', 0.55, 0.5, 2, 1.6, (v) => {

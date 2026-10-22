@@ -151,6 +151,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'm3.quests.payAtCamp': 'Fait : récupérez {reward} au camp',
   'm3.quests.shards': 'Éclats de Cœur {have}/{total}',
   'm3.quests.free': 'Le Cœur brûle de nouveau : partie libre.',
+  'm3.quests.sealed': 'Au-delà de la prochaine Porte : ses étapes apparaîtront à votre arrivée.',
   'm3.quests.track': 'Suivre',
   'm3.quests.tracked': 'Suivi',
   'm3.quests.daily': 'Commande du jour',
@@ -215,8 +216,8 @@ export const controls: Partial<Record<TextKey, string>> = {
 
   // La carte d'évanouissement
   'bo3.title': 'La lanterne s’est éteinte',
-  'bo3.cause.mob': 'Terrassé : {name}',
-  'bo3.cause.creature': 'Terrassé par une créature',
+  'bo3.cause.mob': 'Coup fatal : {name}',
+  'bo3.cause.creature': 'Une créature a eu le dessus',
   'bo3.cause.fall': 'Une chute de trop',
   'bo3.cause.cold': 'Le froid a pris la dernière chaleur',
   'bo3.cause.gas': 'Le gaz était trop épais',

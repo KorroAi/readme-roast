@@ -35,11 +35,14 @@ export function installStratumDebug(game: StratumDebugHost): void {
     if (!l) return null;
     const world = game.session.world;
     const cands: Array<[number, number, number]> = [];
-    // Prefer the biome's caverns and outpost sites (open, safe ground), then any floor in it.
+    // Prefer the biome's caverns and outpost sites (open, safe ground), then any floor in it; never a
+    // lair (its sleeping guardian would fill the view and wake: MOBS 21:42).
+    const inLair = (p: readonly number[]) => l.lairs.some((a) => Math.hypot(p[0] - a.centre[0], p[2] - a.centre[2]) < a.radius + 6 && Math.abs(p[1] - a.centre[1]) < 12);
     for (const c of l.caverns) if (c.biome === b) cands.push(c.centre);
     for (const o of l.outpostSites) if (o.biome === b) cands.push(o.p);
     for (const p of l.spawnPoints) if (p.biome === b) cands.push(p.p);
     for (const c of cands) {
+      if (inLair(c)) continue;
       const x = Math.floor(c[0]);
       const z = Math.floor(c[2]);
       for (let dy = 0; dy < 12; dy++) for (const y of [Math.floor(c[1]) + dy, Math.floor(c[1]) - dy]) if (standable(world, x, y, z) && l.biomeAt(x, y, z) === b) return [x + 0.5, y, z + 0.5];

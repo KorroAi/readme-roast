@@ -149,6 +149,7 @@ export const controls = {
   'm3.quests.payAtCamp': 'Done: collect {reward} at camp',
   'm3.quests.shards': 'Heart Shards {have}/{total}',
   'm3.quests.free': 'The Heart burns again: free play.',
+  'm3.quests.sealed': 'Below the next Gate: its steps show when you reach it.',
   'm3.quests.track': 'Track',
   'm3.quests.tracked': 'Tracking',
   'm3.quests.daily': 'Daily order',

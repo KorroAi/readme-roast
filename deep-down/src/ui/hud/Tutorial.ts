@@ -40,12 +40,43 @@ export function bubblePlacement(
   bubble: { width: number; height: number },
   view: { width: number; height: number },
   margin = 10,
-): { x: number; y: number; side: 'above' | 'below' } {
+  cluster?: { left: number; top: number; width: number; height: number },
+): { x: number; y: number; side: 'above' | 'below' | 'left' | 'right'; tip: number } {
+  // A control in the action pads (`cluster`: their bounds): the bubble clears the whole cluster, so
+  // it never sits on the other pads the player is about to need.
+  const a = cluster ?? rect;
   const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
   const x = Math.max(margin, Math.min(view.width - bubble.width - margin, cx - bubble.width / 2));
-  const above = rect.top - bubble.height - margin;
-  if (above >= margin + 40) return { x, y: above, side: 'above' };
-  return { x, y: Math.min(view.height - bubble.height - margin, rect.top + rect.height + margin), side: 'below' };
+  // The pointer aims at the control even when the bubble is pushed along the edge.
+  const tipX = Math.max(14, Math.min(bubble.width - 14, cx - x));
+  const above = a.top - bubble.height - margin;
+  if (above >= margin + 40) return { x, y: above, side: 'above', tip: tipX };
+  if (cluster) {
+    // No room above the pads (a landscape phone): beside them, on the open side of the screen.
+    const y = Math.max(margin, Math.min(view.height - bubble.height - margin, cy - bubble.height / 2));
+    const tipY = Math.max(14, Math.min(bubble.height - 14, cy - y));
+    if (a.left - bubble.width - margin >= margin) return { x: a.left - bubble.width - margin, y, side: 'left', tip: tipY };
+    if (a.left + a.width + margin + bubble.width <= view.width - margin) return { x: a.left + a.width + margin, y, side: 'right', tip: tipY };
+  }
+  return { x, y: Math.min(view.height - bubble.height - margin, a.top + a.height + margin), side: 'below', tip: tipX };
+}
+
+/** The bounds of the visible action pads (Action, Jump, Dash, Sonar, Place), or null. */
+function padCluster(scope: ParentNode): { left: number; top: number; width: number; height: number } | null {
+  let l = Infinity;
+  let t = Infinity;
+  let r = -Infinity;
+  let b = -Infinity;
+  for (const el of scope.querySelectorAll<HTMLElement>('.dd-pad-btn')) {
+    const pr = el.getBoundingClientRect();
+    if (pr.width <= 0 || pr.height <= 0 || el.hidden) continue;
+    l = Math.min(l, pr.left);
+    t = Math.min(t, pr.top);
+    r = Math.max(r, pr.right);
+    b = Math.max(b, pr.bottom);
+  }
+  return l < r ? { left: l, top: t, width: r - l, height: b - t } : null;
 }
 
 export class TutorialOverlay implements UiHighlighter {
@@ -177,8 +208,11 @@ export class TutorialOverlay implements UiHighlighter {
       this.ring.style.transform = `translate3d(${r!.left - pad}px, ${r!.top - pad}px, 0)`;
       this.ring.style.width = `${r!.width + pad * 2}px`;
       this.ring.style.height = `${r!.height + pad * 2}px`;
-      const p = bubblePlacement(r!, { width: bw, height: bh }, view);
+      // A pad or a hotbar slot (the pads stand over the hotbar): the bubble clears the pad cluster.
+      const cluster = el && (el.classList.contains('dd-pad-btn') || el.classList.contains('dd-hslot')) ? padCluster(this.scope) ?? undefined : undefined;
+      const p = bubblePlacement(r!, { width: bw, height: bh }, view, 10, cluster);
       this.bubble.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
+      this.bubble.style.setProperty('--tip', `${Math.round(p.tip)}px`);
       this.bubble.dataset.side = p.side;
     } else {
       // No control to point at (a "walk there" step): the bubble sits under the top HUD.

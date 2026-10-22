@@ -221,6 +221,27 @@ describe('the strata generator (round 3)', () => {
     expect(springs).toBeGreaterThanOrEqual(4);
   });
 
+  it('keeps its hazard pockets where the hazard is, and off the places the explorer must use', () => {
+    for (let n = 1; n <= 6; n++) {
+      const l = L(n);
+      const places: [string, readonly number[], number][] = [
+        ['arrival', arrivalOf(l), 3],
+        ['gate stand', l.gate.stand, 2],
+        ...l.outpostSites.map((o): [string, readonly number[], number] => [o.id, o.p, 2]),
+        ...l.lairs.map((a): [string, readonly number[], number] => [`lair ${a.biome}`, a.centre, 4]),
+      ];
+      for (const h of l.hazards.filter((z) => z.kind === 'gas' || z.kind === 'lava')) {
+        for (const [id, p, r] of places) expect(Math.hypot(p[0] - h.centre[0], (p[1] - h.centre[1]) * 1.5, p[2] - h.centre[2]), `${id} in ${h.kind} ${h.id}`).toBeGreaterThanOrEqual(h.radius + r);
+        // A gas pocket over a toxic pool, a lava zone over lava.
+        const want = h.kind === 'lava' ? B.LAVA : B.TOXIC_POOL;
+        let real = 0;
+        const R = Math.ceil(h.radius);
+        for (let dz = -R; dz <= R && !real; dz++) for (let dx = -R; dx <= R; dx++) for (let dy = -4; dy <= 2; dy++) if (dx * dx + dz * dz <= R * R && l.world.get(Math.floor(h.centre[0]) + dx, Math.floor(h.centre[1]) + dy, Math.floor(h.centre[2]) + dz) === want) real++;
+        expect(real, `${h.id} ${h.kind} has its ${h.kind}`).toBeGreaterThan(0);
+      }
+    }
+  });
+
   it('dresses the Halden Mines\' drifts with mine sets across the passage, and lays its rails along the walls', () => {
     const l = L(3);
     const sets = l.props.filter((p) => p.kind === 'mineSet');

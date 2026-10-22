@@ -230,6 +230,7 @@ export const loop3 = {
   'tut.torch': 'Place the torch on a wall or the floor',
   'tut.torch.pick': 'Tap the torch slot to hold a torch',
   'tut.fight': 'A creature! Aim and press Action to strike',
+  'tut.fightOut': 'Creatures shun the camp light: step out to find one',
   'tut.sonar': 'Press Sonar: ores, chests and lairs show through the rock',
   'tut.bag': 'Open the Bag: your finds, gear and potions',
   'tut.map': 'Open the Map: the caves you have seen, and your markers',

@@ -20,6 +20,17 @@ function progress(have: number, need: number): HTMLElement {
 }
 
 /**
+ * The stratum under way in the main chain (pure): the one holding the current step, else the first
+ * with a step left (0 when every step is done).
+ */
+export function openStratum(main: ReadonlyArray<{ steps: ReadonlyArray<{ done: boolean; current: boolean }> }>): number {
+  const cur = main.findIndex((s) => s.steps.some((x) => x.current));
+  if (cur >= 0) return cur;
+  const left = main.findIndex((s) => s.steps.some((x) => !x.done));
+  return left >= 0 ? left : main.length - 1;
+}
+
+/**
  * Quests (BRIEF §0.3): the main chain "Relight the Heart" (the current step, the shards, each
  * stratum's steps), the biome tasks and the camp's orders (track one on the HUD), the feats and
  * Halden's journal pages.
@@ -50,13 +61,17 @@ export function buildQuests(host: ScreenHost): HTMLElement {
       ),
       h('p', { class: 'dd-m3-shards' }, t('m3.quests.shards', { have: v.shards.have, total: v.shards.total }), ...Array.from({ length: v.shards.total }, (_, i) => h('span', { class: `dd-m3-shard${i < v.shards.have ? ' on' : ''}`, 'aria-hidden': 'true' }))),
       v.free ? h('p', { class: 'dd-m3-good', text: t('m3.quests.free') }) : null,
-      ...v.main.map((s) =>
-        h(
-          'section',
-          { class: 'dd-m3-stratum' },
-          h('h4', { text: s.name }),
-          h('ol', { class: 'dd-m3-steps' }, ...s.steps.map((x) => h('li', { class: x.done ? 'done' : x.current ? 'current' : '' }, x.text))),
-        ),
+      ...v.main.map((s, i) =>
+        // The deep keeps its secrets: a stratum below the one under way shows only its name until
+        // the explorer gets there (its guardians are met, not read about); free play shows them all.
+        !v.free && i > openStratum(v.main)
+          ? h('section', { class: 'dd-m3-stratum sealed' }, h('h4', { text: s.name }), h('p', { class: 'dd-m3-sealed', text: t('m3.quests.sealed') }))
+          : h(
+              'section',
+              { class: 'dd-m3-stratum' },
+              h('h4', { text: s.name }),
+              h('ol', { class: 'dd-m3-steps' }, ...s.steps.map((x) => h('li', { class: x.done ? 'done' : x.current ? 'current' : '' }, x.text))),
+            ),
       ),
     );
   } else if (st.questsTab === 'tasks') {

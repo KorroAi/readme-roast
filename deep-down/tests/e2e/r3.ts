@@ -120,8 +120,9 @@ export async function holdControl(page: Page, touch: Touch, target: string, ms: 
 /**
  * Stand by an ore cell the pick really meets: prepareMining finds a vein near the explorer (trying a
  * few search centres round it), aimAt puts it at the screen point `ndc` (the reticle by default),
- * and the camera's own ray through that point must land on that very cell (a corner of rock in
- * between would only tunk). @returns the cell, or null.
+ * and the camera's own ray through that point must land on that ore (that cell, or a cell of the
+ * same ore in front of it: the one returned; a corner of rock in between would only tunk).
+ * @returns the cell the pick meets, or null.
  */
 export async function aimAtOre(page: Page, id: number, ndc: [number, number] = [0, 0]): Promise<[number, number, number] | null> {
   const p = await page.evaluate(() => ({ x: window.__DD__.game.player.x as number, y: window.__DD__.game.player.y as number, z: window.__DD__.game.player.z as number }));
@@ -131,7 +132,8 @@ export async function aimAtOre(page: Page, id: number, ndc: [number, number] = [
     const b = prep.block;
     await page.evaluate(([x, y, z, nx, ny]) => window.__DD__.aimAt(x + 0.5, y + 0.5, z + 0.5, nx, ny), [...b, ...ndc]);
     const hit = await page.evaluate(([nx, ny]) => window.__DD__.ui.ray(nx, ny, 6), ndc);
-    if (hit && hit[0] === b[0] && hit[1] === b[1] && hit[2] === b[2]) return b;
+    // The vein itself, or another cell of the same ore in front of it (what the pick meets first).
+    if (hit && hit[3] === id) return [hit[0], hit[1], hit[2]];
     console.log(`[e2e] vein ${JSON.stringify(b)} is behind ${JSON.stringify(hit)}: another`);
   }
   return null;

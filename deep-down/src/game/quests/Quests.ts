@@ -52,6 +52,8 @@ export interface QuestWorld {
   places?: ReadonlyArray<{ id: string; biome: BiomeKey }>;
   /** The nearest vein the pick can break, in view range (the tutorial's mining step points at it). */
   nearestVein?(): { x: number; y: number; z: number } | null;
+  /** The nearest monster in range (the tutorial's fight step points at it), or null. */
+  foe?(): { x: number; y: number; z: number } | null;
   /** A craft the descent needs now (Loop's gear advice: a weapon, a ward, a lantern, an outpost), or null. */
   advice?(): Advice | null;
   /** Feats earned in the 1.x deep (kept by the "deep has changed" card): shown earned in the Quests screen. */
@@ -71,6 +73,12 @@ export interface Advice {
  * hint comes (GUIDE.stuckSeconds), which tells of it.
  */
 export const RUMOUR_AFTER: number = GUIDE.stuckSeconds;
+
+/**
+ * The tutorial's fight step waits longer while the explorer stays in the camp (no creature comes into
+ * its light): its 45 s run at this rate there (2 minutes), at the full rate once outside.
+ */
+export const FIGHT_CAMP_RATE = 45 / 120;
 
 export interface QuestHost {
   readonly bus: EventBus<GameEvents>;
@@ -409,7 +417,9 @@ export class Quests implements QuestSystem {
     this.clock += dt;
     if (!this.tutorialDone) {
       const s = TUTORIAL[this.tutIndex];
-      this.tutTimer += dt;
+      // No creature comes into the camp's light (QA 21:29): while the fight step waits in the camp
+      // its clock runs at FIGHT_CAMP_RATE, so the explorer has time to walk out to the foe.
+      this.tutTimer += s?.id === 'fight' && this.host.atCamp?.() ? dt * FIGHT_CAMP_RATE : dt;
       if (s?.timeout && this.tutTimer >= s.timeout) this.flag(s.id);
     }
     // The Heart: standing in its chamber with all 12 shards lights it.
@@ -646,7 +656,7 @@ export class Quests implements QuestSystem {
     const w = this.host.world();
     const tut = !this.tutorialDone ? TUTORIAL[this.tutIndex] : undefined;
     return {
-      tutorialTarget: tut?.id === 'mine' ? w.nearestVein?.() ?? null : null,
+      tutorialTarget: tut?.id === 'mine' ? w.nearestVein?.() ?? null : tut?.id === 'fight' ? w.foe?.() ?? null : null,
       rumour: this.lairsT >= RUMOUR_AFTER && this.lairsStratum === w.deepest,
       tutorial: !this.tutorialDone,
       stratum: w.stratum,
@@ -809,6 +819,9 @@ export class Quests implements QuestSystem {
     if (!s) return null;
     // The torch step: first the torch slot, then Place.
     if (s.id === 'torch' && this.host.held && this.host.held() !== 'torch') return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.torch.pick'), highlight: 'hotbar:3' };
+    // The fight step in the camp: creatures keep out of its light, so the line sends the explorer out
+    // (the compass points at the nearest monster when one is about) and rings the stick.
+    if (s.id === 'fight' && this.host.atCamp?.()) return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t('tut.fightOut'), highlight: 'joystick' };
     return { id: s.id, index: this.tutIndex + 1, total: TUTORIAL.length, line: t(s.line), highlight: s.highlight };
   }
 

@@ -550,10 +550,16 @@ export function fixTraps(tw: TrapWorld, scratch: TrapScratch, opts: { modes?: Re
             const u = ux + sx * uy + sxy * uz;
             if (!from(u) || !isState(b, S, sx, u)) continue;
             if (rimY < 0 || uy < rimY) rimY = uy;
+            // In the worst case, a place to step off from that is one only once its ore is mined: when
+            // no ladder fits, that ore is sealed (plain rock), so mining it never opens this way in.
+            const carvedU = S === SOLID || isState(b, SOLID, sx, u);
+            if (!carvedU) for (const c of [u, u + sx]) if (OPENABLE[b[c]] && !openSet.has(c) && !tw.keep?.(c)) seal.push(c);
             // The fall column over v (v.y .. u.y + 1) is open in the world as it is (air, a light the
             // ladder replaces, a rope or ladder already there; nothing kept); breakable blocks in it
-            // (mined in the worst case) are the ones to seal instead.
-            let ok = dy >= 2;
+            // (mined in the worst case) are the ones to seal instead. In the worst case, the ladder's
+            // top must step off onto a place that is one in the world as it is too (else, with the
+            // ore still in place, the ladder would only lead up into the rock).
+            let ok = dy >= 2 && carvedU;
             for (let y = vy; y <= uy + 1; y++) {
               const c = vx + sx * y + sxy * vz;
               if (OPENABLE[b[c]] && !openSet.has(c) && !tw.keep?.(c)) seal.push(c);

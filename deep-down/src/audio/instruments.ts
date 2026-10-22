@@ -570,7 +570,7 @@ export const TIMBRES: Record<Timbre, TimbreDef> = {
   taiko: drum(DRUMS.taiko, 0.62, 0.35, 0.6),
   tom: drum(DRUMS.tom, 0.59, 0.3, 0.35),
   frame: drum(DRUMS.frame, 0.459, 0.3, 0.2),
-  shaker: drum(DRUMS.shaker, 0.087, 0.2, 0.1),
+  shaker: drum(DRUMS.shaker, 0.0525, 0.2, 0.1),
   rim: drum(DRUMS.rim, 0.172, 0.3, 0.08),
   clap: drum(DRUMS.clap, 0.422, 0.35, 0.12),
   anvil: drum(DRUMS.anvil, 0.069, 0.4, 0.5),

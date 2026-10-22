@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { MobSim, collapseOf, type MobEnv, type MobSimEvent } from '../../src/game/mobs/MobSim';
 import { SPECIES } from '../../src/game/mobs/species';
-import { guardianState } from '../../src/game/mobs/guardian';
+import { HEART_BEAT, guardianState } from '../../src/game/mobs/guardian';
 import type { Lair } from '../../src/game/mobs/spawner';
 import { WEAPONS } from '../../src/config/weapons';
 import { isSfxName } from '../../src/audio/sfx';
@@ -287,6 +287,20 @@ describe("the Dark Heart's beat", () => {
     const b3 = beats(3);
     expect(b1).toBeGreaterThanOrEqual(6);
     expect(b3).toBeGreaterThan(b1 * 1.5);
+  });
+
+  it("the Heart's beat is in its guardian state (period and phase: the relit Heart can pulse with it); a guardian has none", () => {
+    const sim = new MobSim(env(), 12);
+    sim.spawning = false;
+    sim.lairs = [lairOf('heartOfDark', 40, 20, 24), lairOf('rimeWyrm', 20, 60, 14)];
+    run(sim, ctx({ x: 40, z: 30 }), 2);
+    const h = sim.mobs.find((m) => m.kind === 'heartOfDark')!;
+    const s = guardianState(h);
+    expect(s.beat?.period).toBe(HEART_BEAT[h.state === 'sleep' ? 0 : Math.min(3, h.phase)]);
+    expect(s.beat!.phase).toBeGreaterThanOrEqual(0);
+    expect(s.beat!.phase).toBeLessThan(1);
+    const w = sim.mobs.find((m) => m.kind === 'rimeWyrm');
+    if (w) expect(guardianState(w).beat).toBeUndefined();
   });
 });
 

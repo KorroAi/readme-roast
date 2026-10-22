@@ -350,7 +350,7 @@ try {
           if (fx === 'geyser') D.step(4, 0.33);
           else D.step(fx.startsWith('weather') ? 12 : 6, 0.5);
         }
-        return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), biome: D.biomeHere(), stratum: g.strata.current, ...(fx ? { fx, report: g.vis.report().weather ?? null } : {}) };
+        return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), pitch: +pitch.toFixed(3), feet: [px, py, pz], biome: D.biomeHere(), stratum: g.strata.current, ...(fx ? { fx, report: g.vis.report().weather ?? null } : {}) };
       }, { target, view });
       if (res.err) {
         console.log(`[${name}] ${res.err}`);
@@ -360,13 +360,26 @@ try {
       // Every chunk round the view meshed and applied (the workers' meshes land asynchronously), a
       // frame for the cull and the light to follow, the meshes it asked for, then the frame the
       // screenshot shows.
-      await page.evaluate(async () => {
+      await page.evaluate(async ({ feet, yaw, pitch, fx }) => {
         const D = window.__DD__;
+        const g = D.game;
         await D.meshIdle?.();
         D.step(1, 0.05);
         await D.meshIdle?.();
+        if (!fx) {
+          // Back on the chosen spot and heading (the long settle steps can carry the explorer off
+          // it), the lantern's pendulum at rest (the turn to the view kicked it).
+          D.teleport(feet[0], feet[1], feet[2]);
+          g.player.yaw = yaw + Math.PI;
+          D.look(yaw, pitch);
+        }
+        const vm = g.viewmodel;
+        if (vm) {
+          vm.swayX = vm.swayZ = vm.swayVX = vm.swayVZ = 0;
+          vm.lastYaw = Number.NaN;
+        }
         D.step(1, 0.02);
-      });
+      }, { feet: res.feet, yaw: res.yaw, pitch: res.pitch, fx: !!res.fx });
       await page.waitForTimeout(300);
       const file = `${opt.out}/${name}.png`;
       const ts = Date.now();
@@ -382,9 +395,9 @@ try {
         const D = window.__DD__;
         const r = D.report();
         const g = D.game;
-        return { calls: r.render.calls, tris: Math.round(r.render.triangles / 1000) + 'k', vis: g.vis.report() };
+        return { calls: r.render.calls, tris: Math.round(r.render.triangles / 1000) + 'k', vis: g.vis.report(), now: [g.player.x, g.player.y, g.player.z].map((n) => +n.toFixed(1)), terrain: g.session.chunks.culledVisible };
       });
-      console.log(`[${name}] ${file} ${JSON.stringify(res)} calls=${r.calls} tris=${r.tris} look=${r.vis.biome} w=${JSON.stringify(r.vis.weights)} torches=${r.vis.torches}`);
+      console.log(`[${name}] ${file} ${JSON.stringify(res)} calls=${r.calls} tris=${r.tris} look=${r.vis.biome} w=${JSON.stringify(r.vis.weights)} torches=${r.vis.torches} now=${r.now} chunks=${r.terrain}`);
       if (opt.calls === '1') {
         // Draw calls and triangles per scene group: each hidden in turn and the frame re-rendered.
         const parts = await page.evaluate(() => {

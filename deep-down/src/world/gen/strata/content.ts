@@ -548,8 +548,11 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     const biome = plan.biomes[bi];
     const rooms = plan.nodes.filter((n) => n.kind === 'room' && n.biome === biome && n.role === null);
     const caverns = plan.nodes.filter((n) => n.kind === 'cavern' && n.biome === biome);
+    // An outpost is a safe rest: never a room with a gas or lava pool in it (while another room is free).
+    const pooled = (r: PlanNode) => decor.pools.some((pl) => Math.abs(pl.y - r.y) < 10 && Math.hypot(pl.x - r.x, pl.z - r.z) < pl.r + (pl.kind === 'gas' ? 3 : 1) + Math.max(r.rx, r.rz) + 3);
     const take = (role: string): PlanNode | null => {
-      const free = rooms.filter((r) => r.role === null);
+      let free = rooms.filter((r) => r.role === null);
+      if (role === 'outpost' && free.some((r) => !pooled(r))) free = free.filter((r) => !pooled(r));
       if (!free.length) return null;
       const r = free[rng.int(0, free.length - 1)];
       r.role = role;

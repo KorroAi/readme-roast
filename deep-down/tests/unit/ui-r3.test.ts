@@ -14,6 +14,7 @@ import { groupByBiome } from '../../src/ui/screens/r3/bestiary';
 import { clampZoom, homeCamera, mapToView, scaleBarMetres, viewToMap, zoomAbout } from '../../src/ui/screens/r3/map';
 import { MapRaster } from '../../src/ui/hud/Minimap';
 import { trackerText } from '../../src/ui/hud/Hud';
+import { openStratum } from '../../src/ui/screens/r3/quests';
 import { sanitizeControlPrefs, DEFAULT_CONTROL_PREFS, languageOf } from '../../src/ui/controlPrefs';
 import { GLYPH_NAMES, iconSvg } from '../../src/ui/hud/glyphs';
 import { en } from '../../src/i18n/en';
@@ -220,6 +221,19 @@ describe('round 3 HUD and menu helpers', () => {
     expect(below.side).toBe('below');
     expect(below.y).toBeGreaterThanOrEqual(56);
     expect(below.x).toBeGreaterThanOrEqual(10);
+    // The pointer aims at the control even with the bubble pushed against the edge.
+    expect(above.x + above.tip).toBeCloseTo(345, 0);
+    // A pad: the bubble clears the whole pad cluster (never on the other pads).
+    const cluster = { left: 200, top: 600, width: 180, height: 180 };
+    const pad = bubblePlacement({ left: 285, top: 690, width: 90, height: 90 }, { width: 300, height: 80 }, view, 10, cluster);
+    expect(pad.side).toBe('above');
+    expect(pad.y + 80).toBeLessThanOrEqual(600);
+    // A landscape phone: no room above the pads, so beside them on the open side.
+    const land = { width: 915, height: 412 };
+    const side = bubblePlacement({ left: 800, top: 300, width: 90, height: 90 }, { width: 300, height: 80 }, land, 10, { left: 690, top: 130, width: 215, height: 270 });
+    expect(side.side).toBe('left');
+    expect(side.x + 300).toBeLessThanOrEqual(690);
+    expect(side.y).toBeGreaterThanOrEqual(10);
   });
 
   it('gives the arrow a bearing relative to the view (+ right)', () => {
@@ -290,6 +304,15 @@ describe('round 3 HUD and menu helpers', () => {
     expect(rim[0] + rim[1] + rim[2]).toBeGreaterThan(inner[0] + inner[1] + inner[2]);
     const rock = px(3, 3);
     expect(rock[0] + rock[1] + rock[2]).toBeLessThan(inner[0] + inner[1] + inner[2]);
+  });
+
+  it('opens the main chain on the stratum under way (the deeper ones stay sealed)', () => {
+    const st = (...steps: Array<[boolean, boolean]>) => ({ steps: steps.map(([done, current]) => ({ done, current })) });
+    expect(openStratum([st([true, false], [false, true]), st([false, false]), st([false, false])])).toBe(0);
+    expect(openStratum([st([true, false]), st([true, false], [false, true]), st([false, false])])).toBe(1);
+    // No current step (the tutorial is under way): the first with a step left.
+    expect(openStratum([st([false, false]), st([false, false])])).toBe(0);
+    expect(openStratum([st([true, false]), st([true, false])])).toBe(1);
   });
 
   it("drops a tracker line's own count when the count column shows it", () => {

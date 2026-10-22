@@ -44,7 +44,7 @@ export class LoopGraph {
     if (pan) {
       const m = ctx.createBiquadFilter();
       m.type = 'lowpass';
-      m.frequency.value = OPEN_CUTOFF;
+      m.frequency.value = openCutoff(ctx);
       m.Q.value = 0;
       this.muffle = m;
       this.nodes.push(m);
@@ -89,7 +89,8 @@ export class LoopGraph {
   filter(type: BiquadFilterType, freq: number, q = Math.SQRT1_2): BiquadFilterNode {
     const f = this.ctx.createBiquadFilter();
     f.type = type;
-    f.frequency.value = freq;
+    // Never past the context's range (a 24 kHz context's filters stop at 12 kHz; Chromium warns and clamps).
+    f.frequency.value = Math.min(freq, this.ctx.sampleRate * 0.45);
     f.Q.value = q;
     this.nodes.push(f);
     return f;
@@ -121,6 +122,11 @@ const LINGER = 2.5;
 /** A positional layer's lowpass in the open, and behind rock (audio/probe occlusionOf). */
 export const OPEN_CUTOFF = 16000;
 export const MUFFLED_CUTOFF = 650;
+
+/** The open cutoff within the context's range (a low-rate context's filters stop below 16 kHz). */
+export function openCutoff(ctx: BaseAudioContext): number {
+  return Math.min(OPEN_CUTOFF, ctx.sampleRate * 0.45);
+}
 
 /**
  * A looping layer that is built when its level rises above silence and torn down after a
@@ -179,7 +185,8 @@ export abstract class LazyLayer {
   setOcclusion(occlusion: number, now: number): void {
     const o = Number.isFinite(occlusion) ? Math.max(0, Math.min(1, occlusion)) : 0;
     // Exponential between the two cutoffs: each step of rock darkens it by a similar ratio.
-    this.muffleTarget?.set(OPEN_CUTOFF * Math.pow(MUFFLED_CUTOFF / OPEN_CUTOFF, o), now);
+    const open = openCutoff(this.ctx);
+    this.muffleTarget?.set(open * Math.pow(MUFFLED_CUTOFF / open, o), now);
   }
 
   stop(): void {

@@ -46,7 +46,11 @@ async function boot(page: Page): Promise<void> {
   });
 }
 
-/** Into a biome (switching stratum if needed), out of the camp, the chunks round the explorer meshed. */
+/**
+ * Into a biome (switching stratum if needed), out of the camp, the chunks round the explorer meshed.
+ * WORLD's goto can land in a guardian's lair (its first cavern) or a lake: then on to open, dry floor
+ * of the same biome out of every lair, so a fight there is the creature's alone.
+ */
 async function goBiome(page: Page, biome: string): Promise<void> {
   const at = await page.evaluate((b) => (window.__DD__ as any).goto(b), biome);
   expect(at, `a spot in ${biome}`).not.toBeNull();
@@ -55,6 +59,8 @@ async function goBiome(page: Page, biome: string): Promise<void> {
   await page.evaluate(() => {
     const dd = window.__DD__ as any;
     dd.mobs.auto(false);
+    dd.step(4);
+    dd.mobs.dryGround();
     dd.mobs.clear();
     dd.step(10);
   });
@@ -343,8 +349,9 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
     const p = dd.game.player;
     const s = dd.standableNear(Math.floor(p.x + 4), Math.floor(p.y), Math.floor(p.z + 4));
     if (s) dd.teleport(s[0] + 0.5, s[1], s[2] + 0.5);
+    // 3 s of game time, undrawn (a loaded machine's frames would stretch it).
+    for (let k = 0; k < 90; k++) dd.game.step(1 / 30, false);
   });
-  await page.waitForTimeout(3000);
   const near = await page.evaluate(() => {
     const dd = window.__DD__ as any;
     const p = dd.game.player;

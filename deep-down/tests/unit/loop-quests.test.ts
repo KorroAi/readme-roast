@@ -788,6 +788,37 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     expect(loop.quests.main().target).toBeNull();
   });
 
+  it('the fight step in the camp sends the explorer out (creatures shun its light), waits longer there, and points at the nearest monster (QA 21:29)', () => {
+    const { h, loop } = game(true);
+    const q = loop.quests;
+    for (let i = 0; i < 3; i++) h.bus.emit('ui:used', { control: 'look' });
+    for (let i = 0; i < 4; i++) h.bus.emit('ui:used', { control: 'move' });
+    h.bus.emit('block:broken', { x: 0, y: 0, z: 0, block: 1 });
+    h.bus.emit('item:picked', { item: 'copperOre', count: 1 });
+    h.bus.emit('craft:made', { recipe: 'torch', item: 'torch', times: 1, count: 4 });
+    h.bus.emit('player:placed', { item: 'torch', block: 0, x: 0, y: 0, z: 0 });
+    h.inCamp = true;
+    expect(q.tutorialStep()).toMatchObject({ id: 'fight', line: en['tut.fightOut'], highlight: 'joystick' });
+    // Its 45 s take 2 minutes in the camp (the explorer has time to walk out), then it moves on.
+    for (let i = 0; i < 100; i++) loop.update(1);
+    expect(q.tutorialStep()?.id).toBe('fight');
+    // Out of the camp: the usual line, Action rung, and the compass on the nearest monster.
+    h.inCamp = false;
+    (h as { mobs: unknown }).mobs = {
+      list: () => [
+        { position: { x: 1, y: 10, z: 1 }, hostile: false, state: 'idle' },
+        { position: { x: 30, y: 10, z: 0 }, hostile: true, state: 'idle' },
+        { position: { x: 6, y: 10, z: -8 }, hostile: true, state: 'chase' },
+        { position: { x: 2, y: 10, z: 2 }, hostile: true, state: 'dying' },
+      ],
+    };
+    expect(q.tutorialStep()).toMatchObject({ id: 'fight', line: en['tut.fight'], highlight: 'action' });
+    loop.update(0.5);
+    expect(q.main().target).toMatchObject({ x: 6, y: 10, z: -8, kind: 'point' });
+    for (let i = 0; i < 10; i++) loop.update(1);
+    expect(q.tutorialStep()?.id).toBe('sonar');
+  });
+
   it('a step left alone moves on by itself (the tutorial never blocks), only while playing', () => {
     const { h, loop } = game(true);
     for (let i = 0; i < 3; i++) h.bus.emit('ui:used', { control: 'look' });

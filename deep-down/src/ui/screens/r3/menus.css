@@ -797,6 +797,14 @@
   text-transform: uppercase;
   color: var(--brass-300);
 }
+.dd-menu3 .dd-m3-stratum.sealed h4 {
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-sealed {
+  margin: 0;
+  font: italic 600 calc(12px * var(--s)) / 1.4 var(--font);
+  color: var(--bone-500);
+}
 .dd-menu3 .dd-m3-steps {
   margin: 0;
   padding-left: 20px;

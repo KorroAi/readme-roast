@@ -23,7 +23,7 @@ export default function hazards(args: string[]): void {
       { id: 'gateStand', p: l.gate.stand, r: 2 },
       ...l.outpostSites.map((o) => ({ id: o.id, p: o.p, r: 2 })),
       ...l.lairs.map((a) => ({ id: `lair_${a.biome}`, p: a.centre, r: 4 })),
-      ...l.pages.map((p) => ({ id: p.id, p: p.p, r: 1 })),
+      ...l.pages.map((p) => ({ id: p.id, p: p.p, r: 0 })),
     ];
     const harmful = l.hazards.filter((h) => h.kind === 'gas' || h.kind === 'lava');
     const issues: string[] = [];

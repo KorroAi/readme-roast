@@ -89,6 +89,19 @@ function badText(s: unknown): string | null {
   return null;
 }
 
+/**
+ * French grammar a filled-in template can break (names carry their article: "La Matriarche d’Ambre"):
+ * a capitalised article after a lowercase word ("vainquez La Matriarche", "de La Racine"), or two
+ * articles in a row ("vers la le Cœur"). A line that starts with the name, or puts it after ":" or "—",
+ * is fine.
+ */
+function frenchSlip(s: unknown): string | null {
+  if (typeof s !== 'string') return null;
+  if (/[a-zà-ÿ’,] (Le|La|Les|L’)\s?[A-ZÀ-Ý]/.test(s)) return `capital article mid-sentence: ${s}`;
+  if (/(?<![A-Za-zÀ-ÿ’-])(la|le|les|du|des|au|aux) (?:(?:le|la|les)(?![A-Za-zÀ-ÿ’])|l’)/i.test(s)) return `two articles: ${s}`;
+  return null;
+}
+
 /** Every string inside a value (objects, arrays), with its path. */
 function strings(v: unknown, path = '', out: Array<[string, string]> = []): Array<[string, string]> {
   if (typeof v === 'string') out.push([path, v]);
@@ -154,7 +167,7 @@ class World implements StrataLike {
   }
 }
 
-import { setLanguage, t, type TextKey } from '../../src/i18n';
+import { language, setLanguage, t, type TextKey } from '../../src/i18n';
 import { inSentence } from '../../src/game/quests/Quests';
 
 describe('the main tracker fits one row of the 390 px HUD', () => {
@@ -291,13 +304,18 @@ function expedition(): void {
     loop.use('lamplingLure' as ItemId);
     // Collect: every view's strings and everything said on the bus.
     const problems: string[] = [];
+    const fr = language() === 'fr';
     for (const [tag, v] of views) for (const [path, s] of strings(v)) {
+      const slip = fr ? frenchSlip(s) : null;
+      if (slip) problems.push(`${tag}.${path}: ${slip}`);
       const bad = badText(s);
       if (bad && !/(^|\.)(id|item|category|station|kind|recipe|gem|biome|slot|state|grade|highlight|target|goal|mods)$/.test(path) && !/\.(slots|equipped|shards|biomes|mods)\[/.test(path)) problems.push(`${tag}.${path}: ${bad}`);
     }
     for (const [type, p] of said) {
       if (!['toast', 'guide:hint', 'quest:step', 'quest:done', 'order:paid', 'bestiary:reward', 'tutorial:step', 'trip:summary', 'guide:arrival'].includes(type)) continue;
       for (const [path, s] of strings(p)) {
+        const slip = fr ? frenchSlip(s) : null;
+        if (slip) problems.push(`${type}.${path}: ${slip}`);
         const bad = badText(s);
         if (bad && !/(^|\.)(id|biome|kind|highlight|target|item|rarest|outcome)$/.test(path) && !/\.(biomes|shards|records)\[/.test(path)) problems.push(`${type}.${path}: ${bad}`);
       }
@@ -308,12 +326,16 @@ function expedition(): void {
     expect(new Set(steps).size).toBeGreaterThan(10);
     expect(steps.filter((line) => line.length > 34)).toEqual([]);
     expect(said.filter(([t]) => t === 'toast').length).toBeGreaterThan(40);
-    expect(problems.slice(0, 20)).toEqual([]);
+    expect(problems.slice(0, 40)).toEqual([]);
     // The checker itself catches what it is for, and it read a lot of text.
     expect(badText('craft3.missing')).not.toBeNull();
     expect(badText('Missing {items}')).not.toBeNull();
     expect(badText('3 undefined')).not.toBeNull();
     expect(badText('Missing 2 Coal')).toBeNull();
+    expect(frenchSlip('Vainquez La Matriarche d’Ambre')).not.toBeNull();
+    expect(frenchSlip('Descendez vers la le Cœur')).not.toBeNull();
+    expect(frenchSlip('Victoire ! La Matriarche d’Ambre tombe.')).toBeNull();
+    expect(frenchSlip('Éloignez-vous de la lave ; elle brûle la gorge.')).toBeNull();
     const total = views.reduce((a, [, v]) => a + strings(v).length, 0);
     expect(total).toBeGreaterThan(3000);
   }

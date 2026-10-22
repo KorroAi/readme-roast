@@ -429,6 +429,15 @@ export class SimPeriodicWave {
   }
 }
 
+/**
+ * Chromium's built-in sawtooth and square are wavetables normalised to the peak of their band-limited
+ * cycle, Gibbs overshoot included (PeriodicWave::CreateBandLimitedTables): 1 / 1.179 of a unit wave,
+ * -1.43 dB. The PolyBLEP waves here peak at 1, so they are scaled the same (the 21:34 cross-check found
+ * every saw voice 1.3-1.4 dB louder here than in Chromium). The triangle's series converges uniformly:
+ * no overshoot, no scale.
+ */
+const GIBBS = 1 / 1.17898;
+
 const SINE = (() => {
   const n = 4096;
   const t = new Float32Array(n + 1);
@@ -868,9 +877,9 @@ export class SimOscillator extends SimScheduledSource {
       } else if (type === 'sawtooth') {
         let t = ph + 0.5;
         if (t >= 1) t -= 1;
-        s = 2 * t - 1 - polyBlep(t, dt);
+        s = (2 * t - 1 - polyBlep(t, dt)) * GIBBS;
       } else if (type === 'square') {
-        s = (ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep((ph + 0.5) % 1, dt);
+        s = ((ph < 0.5 ? 1 : -1) + polyBlep(ph, dt) - polyBlep((ph + 0.5) % 1, dt)) * GIBBS;
       } else if (type === 'triangle') {
         // Naive triangle (its harmonics fall at 12 dB/octave, so aliasing stays far below the
         // fundamental): -1 at phase 0, +1 at half a cycle.
@@ -912,7 +921,11 @@ export class SimBufferSource extends SimScheduledSource {
   override start(when = 0, offset = 0, duration?: number): void {
     super.start(when);
     finiteOrThrow(offset);
-    this.offsetFrames = Math.max(0, offset) * (this.buffer?.sampleRate ?? this.context.sampleRate);
+    // Chromium rounds a start offset to the nearest frame (AudioUtilities::TimeToSampleFrame), so a
+    // buffer played at its own rate is read sample for sample, never interpolated: a fractional start
+    // here would low-pass every noise burst (up to -4.8 dB at Nyquist; the 21:34 cross-check found the
+    // emulator 3-4.5 dB under Chromium on the brightest hisses).
+    this.offsetFrames = Math.round(Math.max(0, offset) * (this.buffer?.sampleRate ?? this.context.sampleRate));
     if (duration !== undefined) {
       finiteOrThrow(duration);
       this.stopFrame = Math.min(this.stopFrame, this.startFrame + Math.round(duration * this.context.sampleRate));

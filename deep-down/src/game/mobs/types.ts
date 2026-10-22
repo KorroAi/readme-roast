@@ -191,6 +191,11 @@ export interface GuardianState {
   window: number;
   /** The attack it is winding up now (a text key, for an optional HUD line), or null. */
   telegraph: string | null;
+  /**
+   * The Dark Heart only: its beat now, the period (s: 2.0 asleep, 1.5 / 1.0 / 0.75 by phase, on the
+   * boss theme's 120 bpm grid) and how far into it (0..1; 0 is the lub, when 'guardian.heartbeat' plays).
+   */
+  beat?: { period: number; phase: number };
 }
 
 /** A bestiary page's data (static; what the explorer has done with it is in `BestiaryProgress`). */

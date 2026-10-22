@@ -5,6 +5,7 @@ import { EventBus, type GameEvents } from '../../src/core/events';
 import { EventSchedule } from '../../src/game/events/schedule';
 import { ROSTERS } from '../../src/game/mobs/rosters';
 import { StratumManager, type StratumHost } from '../../src/game/Stratum';
+import { installStratumDebug } from '../../src/game/StratumDebug';
 import type { WorldSession } from '../../src/game/WorldSession';
 import { t, type TextKey } from '../../src/i18n';
 import { ExploredMap } from '../../src/world/gen/strata/explored';
@@ -112,6 +113,29 @@ describe('the open gate\'s shaft is the way down (stratum I)', () => {
   beforeAll(() => {
     layout = generateStratum(4242, 1);
   }, 60_000);
+
+  it('the debug goto(biome) lands on open ground of that biome, never in a lair (MOBS 21:42)', async () => {
+    const g = globalThis as unknown as { window?: { __DD__?: Record<string, unknown> }; location?: { search: string } };
+    const had = { window: g.window, location: g.location };
+    g.window = { __DD__: {} };
+    g.location = { search: '?debug=1' };
+    try {
+      const player = { x: 0, y: 0, z: 0 };
+      const session = { layout, world: layout.world } as unknown as WorldSession;
+      const strata = { layout, current: 1, enter: async () => {} } as unknown as StratumManager;
+      installStratumDebug({ session, strata, player, teleport: (x, y, z) => Object.assign(player, { x, y, z }) });
+      const goto = g.window.__DD__!.goto as (b: BiomeId) => Promise<[number, number, number] | null>;
+      for (const b of STRATA[0].biomes) {
+        const p = await goto(b);
+        expect(p, b).not.toBeNull();
+        expect(layout.biomeAt(p![0], p![1], p![2])).toBe(b);
+        for (const a of layout.lairs) expect(Math.hypot(p![0] - a.centre[0], p![2] - a.centre[2]) >= a.radius + 6 || Math.abs(p![1] - a.centre[1]) >= 12, `${b} in ${a.biome}'s lair`).toBe(true);
+      }
+    } finally {
+      g.window = had.window;
+      g.location = had.location;
+    }
+  });
 
   it('stepping into the open shaft descends; standing on its rim or by a sealed one does not', async () => {
     const bus = new EventBus<GameEvents>();

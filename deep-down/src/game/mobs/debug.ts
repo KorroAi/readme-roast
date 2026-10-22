@@ -352,30 +352,36 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
     /** Whether a point lies under a lake's water (as the spawner sees it). */
     underwater: (x: number, y: number, z: number) => mobs.sim.submerged(x, y, z),
     /**
-     * For captures: when the explorer stands in water or in a cramped spot, move to the nearest dry,
-     * open floor within `radius` m (every cell of the 5×5 round it standable, none under water).
-     * @returns where, or null (already fine, or none found).
+     * For captures and tests: when the explorer stands in water, in a cramped spot or in a guardian's
+     * lair (WORLD's goto can land in one: its sleeper fills the view), move to the nearest dry, open
+     * floor of the same biome within `radius` m, out of every lair (every cell of the 5×5 round it
+     * standable, none under water). @returns where, or null (already fine, or none found).
      */
-    dryGround: gate((radius = 24) => {
+    dryGround: gate((radius = 48) => {
       const world = game.session.world;
+      const sim = mobs.sim;
       const solid = (x: number, y: number, z: number) => SOLID[world.get(x, y, z)] === 1;
-      const stand = (x: number, y: number, z: number) => !solid(x, y, z) && !solid(x, y + 1, z) && !solid(x, y + 2, z) && solid(x, y - 1, z) && !mobs.sim.submerged(x, y, z);
-      const open = (x: number, y: number, z: number) => {
-        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (!stand(x + dx, y, z + dz)) return false;
-        return true;
-      };
+      const stand = (x: number, y: number, z: number) => !solid(x, y, z) && !solid(x, y + 1, z) && !solid(x, y + 2, z) && solid(x, y - 1, z) && !sim.submerged(x, y, z);
+      const inLair = (x: number, y: number, z: number) => sim.lairs.some((l) => Math.hypot(x + 0.5 - l.x, z + 0.5 - l.z) < l.radius + 6 && Math.abs(y - l.y) < 12);
       const px = Math.floor(game.player.x);
       const py = Math.floor(game.player.y);
       const pz = Math.floor(game.player.z);
-      if (open(px, py, pz)) return null;
+      const biome = sim.env.biomeAt?.(px + 0.5, py + 0.5, pz + 0.5) ?? null;
+      const fine = (x: number, y: number, z: number) => {
+        if (inLair(x, y, z)) return false;
+        if (biome && sim.env.biomeAt?.(x + 0.5, y + 0.5, z + 0.5) !== biome) return false;
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) if (!stand(x + dx, y, z + dz)) return false;
+        return true;
+      };
+      if (fine(px, py, pz)) return null;
       for (let r = 1; r <= radius; r++)
         for (let k = 0; k < r * 8; k++) {
           const a = (k / (r * 8)) * Math.PI * 2;
           const x = px + Math.round(Math.sin(a) * r);
           const z = pz + Math.round(Math.cos(a) * r);
-          for (let dy = 0; dy <= 6; dy++) {
+          for (let dy = 0; dy <= 8; dy++) {
             const y = py + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
-            if (open(x, y, z)) {
+            if (fine(x, y, z)) {
               game.player.teleport(x + 0.5, y, z + 0.5, game.cameraRig.yaw);
               return [x + 0.5, y, z + 0.5] as [number, number, number];
             }

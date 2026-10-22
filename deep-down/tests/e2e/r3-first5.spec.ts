@@ -65,10 +65,12 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
     page.evaluate(([x, y, z]) => {
       const g = window.__DD__.game;
       const tg = g.mining.target;
-      return { b: window.__DD__.block(x, y, z), target: tg ? [tg.x, tg.y, tg.z, tg.block, tg.inReach] : null, action: g.input.action, mining: g.input.mining, broken: window.__DD__.ui.events('block:broken').map((e) => e.payload as { x: number; y: number; z: number; block: number }) };
+      return { b: window.__DD__.block(x, y, z), target: tg ? [tg.x, tg.y, tg.z, tg.block, tg.inReach] : null, action: g.input.actionHeld, mining: g.input.mining, broken: window.__DD__.ui.events('block:broken').map((e) => e.payload as { x: number; y: number; z: number; block: number }) };
     }, block);
-  console.log(`[e2e] vein ${JSON.stringify(block)} before the hold ${JSON.stringify(await aim())}`);
-  await page.evaluate(() => window.__DD__.ui.clear());
+  const before = await aim();
+  console.log(`[e2e] vein ${JSON.stringify(block)} before the hold ${JSON.stringify(before)}`);
+  // (The event log is not cleared: the tutorial's steps are read from it at the end.)
+  const brokenBefore = before.broken.length;
   const action = await centreOf(page, 'action');
   await touch.down(action, 8);
   let said = Date.now();
@@ -81,7 +83,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
         said = Date.now();
         console.log(`[e2e] holding ${JSON.stringify(a)}`);
       }
-      return a.b === AIR || a.broken.some((e: { block: number }) => e.block === COPPER);
+      return a.b === AIR || a.broken.slice(brokenBefore).some((e: { block: number }) => e.block === COPPER);
     },
     25,
   );

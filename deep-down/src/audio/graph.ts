@@ -58,7 +58,8 @@ export function createMixGraph(ctx: BaseAudioContext, destination: AudioNode, se
   const mix = ctx.createGain();
   const muffle = ctx.createBiquadFilter();
   muffle.type = 'lowpass';
-  muffle.frequency.value = 20000;
+  // Open (the hit's muffle closes it): 20 kHz, or as high as the context's rate allows.
+  muffle.frequency.value = Math.min(20000, ctx.sampleRate * 0.45);
   muffle.Q.value = 0.5;
   const master = ctx.createGain();
   // Limiter: transparent at normal levels, catches stacked hits before they clip.

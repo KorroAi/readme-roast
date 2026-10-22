@@ -804,7 +804,7 @@ export class AudioSystem {
     f.cancelScheduledValues(t);
     f.setValueAtTime(f.value, t);
     f.exponentialRampToValueAtTime(lerp(1400, 600, saturate(intensity)), t + 0.03);
-    f.setTargetAtTime(20000, t + 0.15, 0.35);
+    f.setTargetAtTime(Math.min(20000, live.ctx.sampleRate * 0.45), t + 0.15, 0.35);
   }
 
   private duckMusic(seconds: number): void {

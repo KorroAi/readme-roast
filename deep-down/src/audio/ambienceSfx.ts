@@ -10,8 +10,8 @@ export const AMBIENCE_SFX = {
   'amb.trickle': sound('ambience', 0.7, 0.6, 0, 1.6, (v) => {
     const t = v.t;
     const n = 6 + Math.floor(v.rand(0, 7));
-    for (let k = 0; k < n; k++) burst(v, t + (k / n) * v.rand(0.6, 1.1) + v.rand(0, 0.05), 'white', 'bandpass', v.rand(1800, 3600), 3, v.rand(0.05, 0.14), v.rand(0.01, 0.03));
-    grit(v, t + 0.1, 0.8, 'bandpass', 2200, 1.2, 0.1, v.rand(1.2, 1.5), 0.25);
+    for (let k = 0; k < n; k++) burst(v, t + (k / n) * v.rand(0.6, 1.1) + v.rand(0, 0.05), 'white', 'bandpass', v.rand(1800, 3600), 3, v.rand(0.09, 0.24), v.rand(0.01, 0.03));
+    grit(v, t + 0.1, 0.8, 'bandpass', 2200, 1.2, 0.17, v.rand(1.2, 1.5), 0.25);
   }, 1),
   /** A mushroom's spore puff: a soft breath and a glitter of motes. */
   'amb.spore': sound('ambience', 0.7, 0.7, 0, 2.0, (v, p) => {

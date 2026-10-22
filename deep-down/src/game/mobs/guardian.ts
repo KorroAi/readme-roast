@@ -609,5 +609,6 @@ export function guardianState(m: SimMob): GuardianState {
     vulnerable: m.vulnerable,
     window: m.vulnerable && m.openFor > 0 ? Math.max(0, Math.min(1, m.openLeft / m.openFor)) : 0,
     telegraph: m.state === 'windup' && m.pattern ? `mob.pattern.${m.pattern}` : null,
+    ...(m.brain === 'heart' ? { beat: { period: HEART_BEAT[m.state === 'sleep' ? 0 : Math.min(3, m.phase)], phase: m.beat % 1 } } : {}),
   };
 }

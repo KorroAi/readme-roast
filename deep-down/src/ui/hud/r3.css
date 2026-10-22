@@ -1021,7 +1021,8 @@
 .dd-tut .dd-tut-bubble::after {
   content: '';
   position: absolute;
-  left: calc(50% - 7px);
+  /* --tip: where the control is along the bubble's edge (Tutorial.place). */
+  left: calc(var(--tip, 50%) - 7px);
   width: 12px;
   height: 12px;
   background: inherit;
@@ -1039,6 +1040,21 @@
   display: block;
   top: -7px;
   border-bottom: 0;
+  border-right: 0;
+}
+.dd-tut .dd-tut-bubble:is([data-side='left'], [data-side='right'])::after {
+  display: block;
+  left: auto;
+  top: calc(var(--tip, 50%) - 7px);
+}
+.dd-tut .dd-tut-bubble[data-side='left']::after {
+  right: -7px;
+  border-bottom: 0;
+  border-left: 0;
+}
+.dd-tut .dd-tut-bubble[data-side='right']::after {
+  left: -7px;
+  border-top: 0;
   border-right: 0;
 }
 /* The look step: a ghost finger drags across the right of the view. */

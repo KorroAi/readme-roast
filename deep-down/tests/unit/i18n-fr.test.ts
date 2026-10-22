@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { EN_SECTIONS, en } from '../../src/i18n/en';
 import { FR_SECTIONS, fr, frenchSpacing } from '../../src/i18n/fr';
 import { FR_SOURCES } from '../../src/i18n/fr/sources';
-import { LANGUAGES, coverage, detectLanguage, language, onLanguage, setLanguage, t } from '../../src/i18n';
+import { LANGUAGES, coverage, detectLanguage, formatNumber, language, onLanguage, setLanguage, t } from '../../src/i18n';
 
 /**
  * Round 3 (LOOP): the languages. English is complete; French fills in at the end of the round and
@@ -79,6 +79,12 @@ describe('languages (English, French)', () => {
     expect(language()).toBe('en');
     off();
     expect(heard).toEqual(['fr', 'en']);
+    // Numbers in the language's notation: a decimal comma in French.
+    expect(formatNumber(3.5)).toBe('3.5');
+    setLanguage('fr');
+    expect(formatNumber(3.5)).toBe('3,5');
+    expect(formatNumber(2)).toBe('2');
+    setLanguage('en');
     expect(coverage('en')).toBe(1);
     expect(coverage('fr')).toBeGreaterThanOrEqual(0);
   });
