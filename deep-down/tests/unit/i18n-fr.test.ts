@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { en } from '../../src/i18n/en';
+import { EN_SECTIONS, en } from '../../src/i18n/en';
 import { FR_SECTIONS, fr } from '../../src/i18n/fr';
 import { FR_SOURCES } from '../../src/i18n/fr/sources';
 import { LANGUAGES, coverage, detectLanguage, language, onLanguage, setLanguage, t } from '../../src/i18n';
@@ -20,6 +20,16 @@ describe('languages (English, French)', () => {
       expect(typeof v === 'string' && v.trim().length > 0, k).toBe(true);
       expect(placeholders(v as string), k).toEqual(placeholders((en as Record<string, string>)[k]));
     }
+  });
+
+  it('every English key has its French line (the French pass covers every section, whoever writes the English)', () => {
+    const missing: Record<string, string[]> = {};
+    for (const [name, sec] of Object.entries(EN_SECTIONS)) {
+      const m = Object.keys(sec).filter((k) => typeof (fr as Record<string, string | undefined>)[k] !== 'string');
+      if (m.length) missing[name] = m;
+    }
+    const report = Object.entries(missing).map(([name, m]) => `${name}: ${m.length} missing (${m.slice(0, 4).join(', ')}${m.length > 4 ? ', …' : ''})`);
+    expect(report, 'English keys with no French line yet (write them in src/i18n/fr/, then run tools/loop-fr-sync.ts)').toEqual([]);
   });
 
   it('no French line is stale: its English source is the one it was translated from (tools/loop-fr-sync.ts)', () => {
