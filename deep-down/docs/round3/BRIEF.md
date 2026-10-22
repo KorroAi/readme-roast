@@ -360,3 +360,58 @@ Read the other owners' seams before you build on them, and put what you need in 
 - the lead's own play-through captures: a biome per stratum, a guardian fight, the menus;
 - an adversarial release-risk review;
 - the APK, the docs, and the delivery to the director in French, with an honest list of what was and was not verified.
+
+## 6. Beyond: the director, 2026-10-22: "go all out, the credits are reset, exceed my expectations"
+
+- **Tokens are no longer a constraint. Quality, completeness and wow are.** These rules stay:
+  - one heavy browser job at a time (the machine has 4 CPUs);
+  - a bootable game and a green tsc at every save;
+  - evidence for every claim;
+  - the calm-but-nervous rule.
+- **Full scope.** Every role delivers all of its P1 and P2, at a high bar, then as much of its stretch list as it can, in this
+  order:
+  1. Polish what exists until it is excellent.
+  2. Then add the new things.
+- **Stretch, per owner** (each still proven: reachable, tested, captured):
+  - **WORLD:**
+    - one landmark vista per stratum: a huge cavern with a view, a waterfall or a lava fall;
+    - secret areas behind cracked walls with rare loot;
+    - an underground river to follow;
+    - a mini-dungeon per stratum: a Halden mine complex with a lever-and-door or pressure-plate puzzle and a reward vault;
+    - the old world's best rooms as set pieces.
+  - **MOBS:**
+    - **a companion:** a Lampling tamed with glowcaps follows you, lights the way, chirps near rare ores, fights small foes, and
+      levels up. LOOP adds the taming item and the feeding; UI adds its HUD chip.
+    - smarter packs: they flank, ambush from ceilings, and the beings flee and can be chased;
+    - **elite variants** with affixes (glowing, armoured, swift, splitting) and better loot.
+  - **LOOP:**
+    - camp upgrades that visibly grow the camp: tents, lamps, a forge chimney, a trophy wall of guardian heads (with WORLD and VIS
+      for the models and placement);
+    - a **trader** at camp (rare recipes, orders);
+    - gem sockets on weapons and armour;
+    - a daily-challenge seed;
+    - a trip summary after each return, with records.
+  - **UI:**
+    - menu transitions and haptics per action;
+    - a beautiful map;
+    - a black-out screen;
+    - toasts for feats;
+    - an animated main menu over a live stratum;
+    - accessibility options: text size, colour-blind rarity patterns, reduced motion.
+  - **VIS:**
+    - one "wow" moment per biome: a vista, a light show, bioluminescent waves on sonar;
+    - calm "weather" events: spore drift, ice fog, ember rain, all in real places only;
+    - the Heart's relighting finale spectacle.
+  - **AUDIO** (a new sixth specialist; port 4179):
+    - procedural, layered music per biome whose intensity follows danger and combat;
+    - guardian themes and the finale;
+    - ambience beds;
+    - a sound for every new action, item, creature and event;
+    - mixing and ducking.
+- **Ownership change, effective now:** `src/audio/**` (except `mobSfx.ts`, which stays with MOBS) and `tests/unit/audio*.test.ts`
+  move from LOOP to **AUDIO**. LOOP sends its sound needs (event → sound) to AUDIO as STATUS lines.
+- **Coming later in the round, from the lead:**
+  - a **QA playtester** after WORLD's switch-over: it plays the real game, and files bugs with captures in STATUS.md, addressed to
+    owners;
+  - a **French localisation** pass at the end (the director is French): every text in `fr`, with the language following the
+    device and a setting to change it.

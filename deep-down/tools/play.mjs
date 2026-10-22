@@ -53,7 +53,8 @@ const screenOf = (p) =>
 const clock = () => page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value);
 let failed = false;
 try {
-  await page.goto(`${url}index.html`);
+  // DD_QUERY: an address query for the run (e.g. 'gen=strata').
+  await page.goto(`${url}index.html${process.env.DD_QUERY ? `?${process.env.DD_QUERY}` : ''}`);
   await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 180000 });
   for (const step of steps) {
     try {

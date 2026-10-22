@@ -91,7 +91,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'mob:shot': { phase: 'hit', pan: 0, gain: 1 },
   'mob:met': { kind: 'stalker' },
   // Round 3 (MOBS): guardians, the bestiary, the creatures' sounds by name.
-  'mob:sfx': { name: 'mob.hiss', pan: 0, gain: 0.8 },
+  'mob:sfx': { name: 'mob.chitter', pan: 0, gain: 0.8 },
   'mob:guardianAwake': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
   'mob:guardianPhase': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', phase: 2 },
   'mob:guardianReset': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
@@ -106,6 +106,25 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'player:placed': { item: 'torch', block: 0, x: 1, y: 2, z: 3 },
   'hotbar:selected': { slot: 3, item: 'torch' },
   'mine:combo': { count: 2, x: 0, y: 0, z: 0 },
+  // LOOP (round 3): crafting, gear, stations, quests, guidance, hazards, rewards.
+  'craft:made': { recipe: 'torch', item: 'torch', times: 1, count: 4 },
+  'item:used': { item: 'bandage' },
+  'gear:equipped': { item: 'copperPick', slot: 'pick' },
+  'recipe:unlocked': { recipe: 'torch', item: 'torch' },
+  'station:placed': { station: 'furnace', x: 1, y: 2, z: 3, stratum: 1 },
+  'quest:step': { id: 'main:s1.lairs', kind: 'main', text: 'Find the lairs' },
+  'quest:done': { id: 'main:guardian.amberHollows', kind: 'main', reward: '+2 Bandage' },
+  'tutorial:step': { id: 'mine', highlight: 'action', line: 'Mine' },
+  'quest:shard': { biome: 'amberHollows', count: 1 },
+  'quest:page': { n: 1, first: true },
+  'guide:hint': { id: 'flame', text: 'Low flame', target: 'flame' },
+  'guide:arrival': { card: { biome: 'amberHollows', name: 'Amber Hollows', line: '', stratum: 1, hazard: null, counter: null, rumour: '', first: true } },
+  'quest:heartLit': {},
+  'quest:ending': {},
+  'order:paid': { id: 'order:1', reward: '+4 Torch' },
+  'bestiary:reward': { kind: 'crawler', text: '+2 Chitin' },
+  'hazard:changed': { kind: 'cold', level: 0.5 },
+  'reward:paid': { items: { torch: 4 }, reason: 'order' },
 };
 
 const WORLD_STATE: AudioWorldState = {

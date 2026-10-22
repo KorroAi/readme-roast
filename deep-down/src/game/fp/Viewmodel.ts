@@ -227,6 +227,32 @@ export function pickLayout(aspect: number): PickLayout {
 export type RightTool = 'pick' | WeaponModelId;
 
 /**
+ * The drawn model of a weapon (round 3): the higher tiers share the first tiers' models (a blade, a
+ * shaft, a sling), so every weapon LOOP adds shows in hand instead of falling back to the pick.
+ */
+export function toolModel(tool: string): RightTool {
+  switch (tool) {
+    case 'machete':
+    case 'sword':
+    case 'greatAxe':
+      return 'machete';
+    case 'spear':
+    case 'crystalSpear':
+    case 'sunLance':
+      return 'spear';
+    case 'sling':
+    case 'crossbow':
+    case 'emberCrossbow':
+      return 'sling';
+    case 'flash':
+    case 'bomb':
+      return 'flash';
+    default:
+      return 'pick';
+  }
+}
+
+/**
  * Where each weapon sits at rest, relative to the pick's layout for the screen shape: the machete
  * like the pick but a little taller, the spear low and pointing on into the scene, the sling and a
  * Flash Charge held up in the lower right.
@@ -523,7 +549,7 @@ export class Viewmodel {
    * (about a quarter of a second), or at once with `instant`.
    */
   setRightHand(tool: string, instant = false): void {
-    const t = (tool === 'machete' || tool === 'spear' || tool === 'sling' || tool === 'flash' ? tool : 'pick') as RightTool;
+    const t = toolModel(tool);
     this.wanted = t;
     if (instant) {
       this.showTool(t);
@@ -568,7 +594,7 @@ export class Viewmodel {
    * `contact` of `duration`, recovery. The weapon comes to hand at once if it was not there.
    */
   attack(tool: string, target: THREE.Vector3 | null, camera: THREE.Camera, duration?: number, contact?: number): void {
-    const t = (tool === 'machete' || tool === 'spear' || tool === 'sling' || tool === 'flash' ? tool : 'pick') as RightTool;
+    const t = toolModel(tool);
     const d = ACTION_DEFAULT[t];
     this.act(t, duration ?? d.dur, contact ?? d.contact, target, camera);
   }

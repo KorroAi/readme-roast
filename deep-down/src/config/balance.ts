@@ -208,7 +208,7 @@ export const WORLD = {
  * Round 3 (WORLD): which generator the game boots into. 'legacy' is the old hand-made 160 x 128 x 160
  * world (kept bootable until the switch); 'strata' the seeded strata of config/biomes (STRATA).
  */
-export const WORLD_GEN: 'legacy' | 'strata' = 'legacy';
+export const WORLD_GEN: 'legacy' | 'strata' = 'strata';
 
 /** The generator in use: WORLD_GEN, or `?gen=strata|legacy` in the address (tests, captures). */
 export function worldGen(): 'legacy' | 'strata' {

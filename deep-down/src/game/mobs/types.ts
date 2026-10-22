@@ -326,6 +326,8 @@ export interface MobHitResult {
   action?: 'caught' | 'harvested' | 'spores' | 'petted' | 'startled';
   /** The blow found an open guard / a weak spot (more damage, a brighter flash). */
   weak?: boolean;
+  /** The blow met a shell or a closed guard (less damage, a dull flash, a clank). */
+  armoured?: boolean;
   /** The damage dealt after armour and weak spots. */
   damage?: number;
 }

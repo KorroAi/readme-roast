@@ -6,7 +6,7 @@ import { BESTIARY_BONUS } from './rosters';
 import { SPECIES, type BrainId, type GuardianPattern, type ShotDef, type SpeciesDef } from './species';
 import { runBrain, crawlerGround } from './brains';
 import { guardianBrain, guardianOnHit } from './guardian';
-import { strataSpawner, type Lair, type Nest } from './spawner';
+import { lairTick, strataSpawner, type Lair, type Nest } from './spawner';
 import type { Mob, MobBiome, MobContext, MobElement, MobFamily, MobHitResult, MobKind, MobRank, MobRarity, MobRay, MobState, MobStrike } from './types';
 
 /**
@@ -675,6 +675,8 @@ export class MobSim {
     this.ctx = ctx;
     this.clock += dt;
     if (ctx.active) {
+      // The guardians sleep in their lairs whatever the spawning (they are the layout's, not the dice's).
+      if (this.lairs.length && !ctx.atCamp) lairTick(this, ctx);
       // The strata (a biome map, or a biome forced for tests and captures) spawn from the rosters.
       if (this.forceBiome || ctx.biome || this.env.biomeAt) strataSpawner(this, dt, ctx);
       else this.spawner(dt, ctx);
@@ -1789,7 +1791,7 @@ export class MobSim {
       m.timer = 0.8;
     } else if (m.brain === 'spit' && m.state === 'windup' && weak) m.setState('stalk');
     const heavy = killed || weak;
-    return { hit: true, killed, hitStop: heavy ? MOBS_RULES.hitStopHeavy : MOBS_RULES.hitStop, weak, damage: d };
+    return { hit: true, killed, hitStop: heavy ? MOBS_RULES.hitStopHeavy : MOBS_RULES.hitStop, weak, armoured, damage: d };
   }
 
   /** A bomb: every monster within `radius` takes `dmg` (half at the edge) and is thrown back. */
@@ -2064,7 +2066,8 @@ export class MobSim {
     const fx = Math.floor(x);
     const fz = Math.floor(z);
     let fy = Math.floor(y);
-    for (let k = 0; k < 10; k++) {
+    // A perch can hang high over a cavern floor: look far down (40 m) before giving up.
+    for (let k = 0; k < 40; k++) {
       if (s(fx, fy - 1, fz) && !s(fx, fy, fz)) return fy;
       fy--;
     }
@@ -2146,8 +2149,10 @@ export class MobSim {
     const flatL = Math.hypot(lx, lz);
     for (let i = 0; i < def.count; i++) {
       if (this.spits.length >= MOBS_RULES.maxSpits) break;
-      const k = def.count === 1 ? 0 : i / (def.count - 1) - 0.5;
-      const a = base + k * 2 * def.spread * spreadScale;
+      // The first glob flies true (a still explorer is hit); the others fan out to either side
+      // (a strafe dodges the true one but may meet a side one). The outermost go at ±spread.
+      const k = i === 0 ? 0 : (i % 2 === 1 ? 1 : -1) * Math.ceil(i / 2);
+      const a = base + (k / Math.max(1, Math.floor((def.count - 1) / 2))) * def.spread * spreadScale;
       const v = new THREE.Vector3(Math.sin(a) * flatL, ly, Math.cos(a) * flatL).normalize().multiplyScalar(def.speed);
       // Keep the horizontal speed when lobbed (the vertical part comes from the lob).
       if (def.gravity > 0) {

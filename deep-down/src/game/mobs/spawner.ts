@@ -107,7 +107,6 @@ export function strataSpawner(sim: MobSim, dt: number, ctx: MobContext): void {
   sim.attemptIn -= dt;
   if (sim.attemptIn > 0 || ctx.atCamp) return;
   sim.attemptIn = MOBS_RULES.attemptEvery;
-  lairs(sim, ctx);
   if (!sim.spawning) return;
   const now = sim.clock;
   const r = sim.rng;
@@ -257,8 +256,8 @@ function nests(sim: MobSim, ctx: MobContext, inLair: boolean): void {
   }
 }
 
-/** One guardian asleep in each lair not yet won, once the explorer is within 30 m of its arena. */
-function lairs(sim: MobSim, ctx: MobContext): void {
+/** One guardian asleep in each lair not yet won, once the explorer is within 30 m of its arena (MobSim.update, every frame). */
+export function lairTick(sim: MobSim, ctx: MobContext): void {
   for (const l of sim.lairs) {
     if (sim.guardiansDone.has(l.biome)) continue;
     if (sim.mobs.some((m) => m.guardian && m.lair === l && !m.dying)) continue;

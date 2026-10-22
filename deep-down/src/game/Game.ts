@@ -346,6 +346,8 @@ export class Game {
         return s.world;
       },
       owned: () => this.progression.ownedWeapons(),
+      // UI (round 3): the weapon a blow uses is LOOP's (the equipped one when it reaches, else the best owned).
+      weaponFor: (d) => this.loop.weaponFor(d),
       camera: () => this.cameraRig.camera,
       eye: () => this.handPosition(),
       viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),

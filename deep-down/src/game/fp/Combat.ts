@@ -4,7 +4,7 @@ import type { EventBus, GameEvents } from '../../core/events';
 import { raycastVoxels } from '../../world/raycast';
 import type { VoxelWorld } from '../../world/VoxelWorld';
 import type { Mob, MobSystem } from '../mobs/types';
-import type { Viewmodel } from './Viewmodel';
+import { toolModel, type Viewmodel } from './Viewmodel';
 import './events';
 
 /**
@@ -26,6 +26,11 @@ export interface CombatHost {
   readonly world: VoxelWorld;
   /** Weapons built (Progression.ownedWeapons()). */
   owned(): readonly string[];
+  /**
+   * Round 3: the weapon an attack at `distance` m uses (LOOP's `loop.weaponFor`: the equipped one
+   * when it reaches, else the best owned). Without it the best owned weapon is picked here.
+   */
+  weaponFor?(distance: number): Weapon;
   camera(): THREE.PerspectiveCamera;
   /** The eye (reach is measured from it). */
   eye(): THREE.Vector3;
@@ -230,7 +235,7 @@ export class Combat {
       this.chase(mob, TOUCH_REACH * 0.8, dt);
       return;
     }
-    const w = bestWeapon(this.host.owned(), d);
+    const w = this.weaponAt(d);
     if (d <= w.reach) {
       if (this.cooldown > 0) return;
       this.host.stopWalk();
@@ -302,9 +307,13 @@ export class Combat {
     }
     this.stanceT = near ? STANCE_HOLD : Math.max(0, this.stanceT - dt);
     if (this.vm.swinging || this.pending || this.flashIn >= 0) return;
-    const owned = this.host.owned();
-    const melee = bestWeapon(owned, 0);
+    const melee = this.weaponAt(0);
     const want = this.stanceT > 0 && melee.id !== 'pick' ? melee.id : 'pick';
-    if (this.vm.rightHand !== want) this.vm.setRightHand(want);
+    if (this.vm.rightHand !== toolModel(want)) this.vm.setRightHand(want);
+  }
+
+  /** The weapon for a blow at `d` m (LOOP's choice when it is there). */
+  private weaponAt(d: number): Weapon {
+    return this.host.weaponFor?.(d) ?? bestWeapon(this.host.owned(), d);
   }
 }
