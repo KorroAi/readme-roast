@@ -182,6 +182,8 @@ try {
             deep = true;
           }
           else if (where === 'vistaFloor' && L.vista) look = L.falls?.[0]?.bottom ?? L.vista.centre;
+          // The arrival (stratum I: the camp) as the explorer first sees it: along the arrival's yaw.
+          else if (where === 'arrival' && L.arrival) look = [L.arrival.x + Math.sin(L.arrival.yaw) * 10, L.arrival.y + 0.6, L.arrival.z + Math.cos(L.arrival.yaw) * 10];
           else if (where === 'works' && L.dungeon) look = L.dungeon.hall;
           else if (where === 'heart' && L.heart) look = [L.heart.centre[0], L.heart.centre[1] + 6, L.heart.centre[2]];
           else if (where === 'site') {

@@ -876,7 +876,13 @@ void main() {
     int code = hiC;
     vec3 hc = uHiCol[clamp(code - 2, 0, 4)];
     if (hiSel && uHiFx.z > 0.5) hc = mix(vec3(dot(hc, vec3(0.2126, 0.7152, 0.0722))), vec3(1.0, 0.32, 0.26), 0.55); // too hard
-    float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel);
+    // Round 3 (lead 23:53): an ambient rim hugs a find in a wall. On a floor or a roof a vein's
+    // outline is a long flat frame across the ground (and seen edge-on its line smears thick), so
+    // the ambient highlight stays off horizontal faces and fades on a wall seen at a grazing angle;
+    // the selected cell keeps its own outline everywhere.
+    float hiFacing = abs(dot(n, normalize(cameraPosition - vWorldPos)));
+    float hiWall = hiAx == 1 ? 0.0 : smoothstep(0.22, 0.45, hiFacing);
+    float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel) * hiWall;
     float k = amb + 2.4 * sel;
     // The inner glow gathers in a band ~10 cm inside the rim. Ambient: a soft glowing seam with a
     // thin, quieter line at its edge; up close only a breath of it (the find is in the lantern's

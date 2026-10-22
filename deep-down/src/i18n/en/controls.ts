@@ -190,6 +190,7 @@ export const controls = {
   'set3.seed': 'World seed: {seed}',
   'menu3.seed': 'Seed (optional)',
   'menu3.seedHint': 'Leave empty for a new random world, or type a seed to share one.',
+  'menu3.seedRandom': 'Random',
   'menu3.start': 'Start the expedition',
   'menu3.cardShards': '{n}/12 shards',
   'menu3.cardTime': '{time} played',

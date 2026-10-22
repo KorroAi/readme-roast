@@ -18,9 +18,17 @@ export function playTimeText(seconds: number): string {
   return t('menu3.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') });
 }
 
-/** The Visual Lab button: dev builds, or ?lab for reviewers (never on a player's home screen). */
+/**
+ * The Visual Lab button: a developer tool, never on a player's home screen, in any build (lead 23:55):
+ * only with ?lab in the address, or the dev flag localStorage 'deepdown.lab' = '1'.
+ */
 function showLab(): boolean {
-  return import.meta.env.DEV || new URLSearchParams(location.search).has('lab');
+  if (new URLSearchParams(location.search).has('lab')) return true;
+  try {
+    return localStorage.getItem('deepdown.lab') === '1';
+  } catch {
+    return false;
+  }
 }
 
 /** Main menu over the live cave: the carved wordmark, the tagline between brass rules, the expedition buttons. */
@@ -37,8 +45,10 @@ export function buildMenu(host: ScreenHost): HTMLElement {
     maxlength: 24,
     autocomplete: 'off',
     spellcheck: 'false',
-    placeholder: t('menu3.seed'),
+    // In sight on the title (lead 23:55): empty, it says what it gives.
+    placeholder: t('menu3.seedRandom'),
     'aria-label': t('menu3.seed'),
+    'aria-describedby': 'dd-seed-hint',
     'data-key': 'seed',
   });
   const seed = () => (seedInput.value.trim() ? seedInput.value.trim() : undefined);
@@ -100,7 +110,8 @@ export function buildMenu(host: ScreenHost): HTMLElement {
           : null,
         card,
         btn(t('menu.newGame'), startNew, { variant: hasSave ? 'secondary' : 'primary', key: 'new', autofocus: !hasSave }),
-        h('details', { class: 'dd-seed' }, h('summary', { class: 'dd-seed-summary', text: t('menu3.seed') }), h('p', { class: 'dd-seed-hint', text: t('menu3.seedHint') }), seedInput),
+        // The seed: its label and a field in sight, "Random" while empty (a tap on the label focuses it).
+        h('label', { class: 'dd-seed' }, h('span', { class: 'dd-seed-summary', text: t('menu3.seed') }), seedInput, h('span', { class: 'dd-sr', id: 'dd-seed-hint', text: t('menu3.seedHint') })),
         daily
           ? btn(t('daily3.name'), startDaily, {
               sub: [daily.goalText, ...daily.modTexts, daily.best ? t('daily3.best', { time: daily.best }) : ''].filter(Boolean).join(' · '),

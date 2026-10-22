@@ -99,7 +99,8 @@ export async function boot(page: Page, query = ''): Promise<void> {
 export async function newExpedition(page: Page, opts: { seed?: string; tutorial?: boolean } = {}): Promise<Touch> {
   const touch = await Touch.attach(page);
   if (opts.seed !== undefined) {
-    await tapEl(page, touch, '.dd-seed-summary');
+    // The field is in sight on the title ("Random" while empty): a tap, then the word.
+    await tapEl(page, touch, '.dd-seed-input');
     await page.locator('.dd-seed-input').fill(opts.seed);
   }
   await tapEl(page, touch, page.getByRole('button', { name: /New Expedition/i }).first());
