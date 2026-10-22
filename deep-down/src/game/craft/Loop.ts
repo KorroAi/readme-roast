@@ -1666,12 +1666,15 @@ export class Loop implements LoopActions {
       return r ? t(STATIONS[r.station].name) : '';
     };
     const step = this.quests.mainRawStep().step;
+    // Every input of the item's recipe already met (the Machete shows from the start, but the lairs
+    // step suggests it only once the explorer has seen what it takes; a guardian step always does).
+    const met = (item: ItemId) => RECIPES.some((r) => r.output.item === item && this.unlockedCache.has(r.id) && recipeInputs(r).every(([id]) => this.known.has(id)));
     // (1) The weapon band: strata I-II band 1, III-IV band 2, V-VI band 3.
     if (step === 'guardian' || step === 'lairs' || step === 'heart' || step === 'boss') {
       const band = deep <= 2 ? 1 : deep <= 4 ? 2 : 3;
       const ofBand = (CATALOGUE as readonly ItemId[]).filter((id) => ITEMS[id].equip === 'weapon' && (ITEMS[id].tier ?? 1) >= band);
       if (!ofBand.some((id) => this.gear.owned.has(id))) {
-        const next = ofBand.filter((id) => (ITEMS[id].tier ?? 1) === band).find(visible);
+        const next = ofBand.filter((id) => (ITEMS[id].tier ?? 1) === band).find((id) => (step === 'lairs' ? met(id) : visible(id)));
         if (next) return { why: 'weapon', item: next, station: station(next) };
       }
     }

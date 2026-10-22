@@ -26,8 +26,11 @@ const MARKER_LABEL: Record<MapMarker['kind'], TextKey> = {
   ravine: 'm3.map.m.ravine',
 };
 
+/** A press on a pin that moves farther than this (px) is a pan of the map, not a tap on the pin. */
+const PIN_SLOP = 8;
+
 /** The legend's order: the ways first (camp, outposts, the objective, the gate), then lairs, places, finds. */
-export const LEGEND_ORDER: ReadonlyArray<MapMarker['kind']> =['camp', 'outpost', 'objective', 'gate', 'lair', 'cache', 'vista', 'river', 'works', 'place', 'secret', 'page', 'chest', 'ravine', 'nest', 'shrine'];
+export const LEGEND_ORDER: ReadonlyArray<MapMarker['kind']> = ['camp', 'outpost', 'objective', 'gate', 'lair', 'cache', 'vista', 'river', 'works', 'place', 'secret', 'page', 'chest', 'ravine', 'nest', 'shrine'];
 
 /** Zoom limits (CSS px per metre) and the default view's span around the explorer (m). */
 export const MAP_ZOOM_MAX = 14;
@@ -279,8 +282,15 @@ export function buildMap(host: ScreenHost): HTMLElement {
     const r = view.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   };
+  // A press on a pin is the pin's tap unless it moves: past a few pixels it pans the map like any
+  // other drag (the camp's pin sits mid-map at camp; a drag starting on it must still pan).
+  const onPin = new Map<number, { x: number; y: number }>();
   view.addEventListener('pointerdown', (e) => {
-    if ((e.target as HTMLElement).closest('.dd-m3-pin, .dd-m3-mapctl')) return;
+    if ((e.target as HTMLElement).closest('.dd-m3-mapctl')) return;
+    if ((e.target as HTMLElement).closest('.dd-m3-pin')) {
+      onPin.set(e.pointerId, local(e));
+      return;
+    }
     view.setPointerCapture?.(e.pointerId);
     pts.set(e.pointerId, local(e));
     if (pts.size === 2) {
@@ -290,6 +300,15 @@ export function buildMap(host: ScreenHost): HTMLElement {
     e.preventDefault();
   });
   view.addEventListener('pointermove', (e) => {
+    const from = onPin.get(e.pointerId);
+    if (from) {
+      const q = local(e);
+      if (Math.hypot(q.x - from.x, q.y - from.y) < PIN_SLOP) return;
+      // A drag after all: the view takes the pointer (the pin's click will not come).
+      onPin.delete(e.pointerId);
+      view.setPointerCapture?.(e.pointerId);
+      pts.set(e.pointerId, from);
+    }
     const prev = pts.get(e.pointerId);
     if (!prev) return;
     const p = local(e);
@@ -305,6 +324,7 @@ export function buildMap(host: ScreenHost): HTMLElement {
     draw();
   });
   const up = (e: PointerEvent) => {
+    onPin.delete(e.pointerId);
     pts.delete(e.pointerId);
     if (pts.size < 2) pinch = null;
   };

@@ -253,7 +253,7 @@ describe('the strata generator (round 3)', () => {
     expect(springs).toBeGreaterThanOrEqual(4);
   });
 
-  it('keeps its hazard pockets where the hazard is, and off the places the explorer must use', () => {
+  it('keeps its hazard pockets where the hazard is, and off the places the explorer must use (and Halden\'s pages)', () => {
     for (let n = 1; n <= 6; n++) {
       const l = L(n);
       const places: [string, readonly number[], number][] = [
@@ -261,6 +261,7 @@ describe('the strata generator (round 3)', () => {
         ['gate stand', l.gate.stand, 2],
         ...l.outpostSites.map((o): [string, readonly number[], number] => [o.id, o.p, 2]),
         ...l.lairs.map((a): [string, readonly number[], number] => [`lair ${a.biome}`, a.centre, 4]),
+        ...l.pages.map((pg): [string, readonly number[], number] => [pg.id, pg.p, 0]),
       ];
       for (const h of l.hazards.filter((z) => z.kind === 'gas' || z.kind === 'lava')) {
         for (const [id, p, r] of places) expect(Math.hypot(p[0] - h.centre[0], (p[1] - h.centre[1]) * 1.5, p[2] - h.centre[2]), `${id} in ${h.kind} ${h.id}`).toBeGreaterThanOrEqual(h.radius + r);

@@ -9,12 +9,16 @@ import type { VoxelWorld } from '../VoxelWorld';
  * the body and a ladder or a rope at the feet or the chest). Ladders and ropes are climbed up and down
  * and catch a drop. A world with no ladder, rope or lava (the old hand-made one) walks exactly as before.
  */
-const stands = (b: Uint8Array, sx: number, i: number): boolean => {
-  const below = b[i - sx];
-  return SOLID[b[i]] === 0 && SOLID[b[i + sx]] === 0 && SOLID[below] === 1 && below !== B.LAVA;
-};
 const hangs = (b: Uint8Array, sx: number, i: number): boolean => SOLID[b[i]] === 0 && SOLID[b[i + sx]] === 0 && (CLIMB[b[i]] === 1 || CLIMB[b[i + sx]] === 1);
-const isState = (b: Uint8Array, sx: number, i: number): boolean => stands(b, sx, i) || hangs(b, sx, i);
+/** stands || hangs, each cell read once (the field's hot path). */
+const isState = (b: Uint8Array, sx: number, i: number): boolean => {
+  const id = b[i];
+  if (SOLID[id]) return false;
+  const up = b[i + sx];
+  if (SOLID[up]) return false;
+  const below = b[i - sx];
+  return (SOLID[below] === 1 && below !== B.LAVA) || CLIMB[id] === 1 || CLIMB[up] === 1;
+};
 
 /**
  * The forward moves from state c at height y (traps.ts forEachMove): walk to a 4-neighbour state, else

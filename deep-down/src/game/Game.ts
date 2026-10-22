@@ -1174,7 +1174,8 @@ export class Game {
       this.atCamp = true;
       this.bus.emit('camp:entered', {});
       const banked = this.bank();
-      if (!totalOf(banked) && this.playTime > 5) this.ui.toast(t('toast.welcomeBack'), 'info');
+      // LOOP: a lower stratum's lift landing banks like the camp but is not the camp (QA 22:10).
+      if (!totalOf(banked) && this.playTime > 5) this.ui.toast(t(this.loop.atMainCamp() ? 'toast.welcomeBack' : 'toast.atLanding'), 'info');
       this.tutorial('workbench', 'hint.workbench', 5000);
       // The trip ends before the camp save (so the save already holds the finished trip and its
       // records), and is announced after it (so the report never opens over an unsaved camp).
@@ -1208,7 +1209,7 @@ export class Game {
       this.stats.itemsBanked += total;
       this.bus.emit('items:banked', { total, items: banked });
       this.bus.emit('inventory:changed', {});
-      this.ui.toast(t('toast.banked', { count: total }), 'good');
+      this.ui.toast(t(this.loop.atMainCamp() ? 'toast.banked' : 'toast.bankedLanding', { count: total }), 'good');
     }
     return banked;
   }

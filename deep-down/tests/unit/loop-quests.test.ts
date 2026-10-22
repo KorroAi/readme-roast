@@ -190,6 +190,7 @@ describe('the main quest: Relight the Heart', () => {
     const { h, loop } = game();
     const q = loop.quests;
     const w = h.strata;
+    loop.gear.grant('machete'); // armed (the unarmed line is tested in "guidance (2)")
     expect(q.main()).toMatchObject({ id: 'main:s1.lairs', kind: 'main', progress: { have: 0, need: 2 }, target: null });
     w.reveal('lair_amberHollows');
     loop.update(0.5);
@@ -831,8 +832,38 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     for (const s of TUTORIAL) expect(s.timeout, s.id).toBeGreaterThan(0);
   });
 
+  it('a guardian step with no weapon says to make one first, with a hint by Craft, again near the lair; a weapon found in the bag is worn (QA 22:10)', () => {
+    const { h, loop } = game();
+    h.inCamp = false;
+    h.strata.reveal('lair_amberHollows');
+    loop.update(0.5);
+    const q = loop.quests;
+    expect(q.mainRawStep().step).toBe('guardian');
+    expect(q.main()).toMatchObject({ text: en['quest.step.arm'].replace('{item}', en['item.machete' as keyof typeof en]), target: null });
+    expect(q.main().text.length).toBeLessThanOrEqual(34);
+    const hints = () => of(h, 'guide:hint').filter((e) => String(e.id).startsWith('arm:'));
+    expect(hints()).toHaveLength(1);
+    expect(hints()[0]).toMatchObject({ id: 'arm:s1', target: 'craft' });
+    for (let i = 0; i < 5; i++) loop.update(1);
+    expect(hints()).toHaveLength(1);
+    // Walking up to the lair unarmed: once more.
+    h.player = { x: 52, y: 20, z: 75 };
+    loop.update(0.5);
+    expect(hints().map((e) => e.id)).toEqual(['arm:s1', 'arm:near:main:s1.guardian.amberHollows']);
+    // A Machete picked up from a chest goes to the locker and is worn: the line is the guardian's again.
+    h.backpack.add('machete', 1);
+    h.bus.emit('inventory:changed', {});
+    loop.update(0.5);
+    expect(h.backpack.count('machete')).toBe(0);
+    expect(loop.gear.equipped.weapon).toBe('machete');
+    expect(of(h, 'gear:equipped').some((e) => e.item === 'machete')).toBe(true);
+    loop.update(0.5);
+    expect(q.main()).toMatchObject({ text: `Defeat ${en['mob.amberMatriarch' as keyof typeof en].replace(/^The /, 'the ')}`, target: { kind: 'lair' } });
+  });
+
   it('after 90 s without a lead the rumour points near the nearest unrevealed lair, with the stuck hint', () => {
     const { h, loop } = game();
+    loop.gear.grant('machete');
     h.inCamp = false;
     loop.update(1);
     expect(loop.quests.main()).toMatchObject({ id: 'main:s1.lairs', target: null });
@@ -892,6 +923,13 @@ describe('camp orders (2): paid on the arrival\'s own deposit; the needs follow 
     book.list = [keep, stale, ...book.list.filter((o) => o.daily)];
     h.strata.enter(2);
     h.strata.enter(3);
+    // Stratum III's lift landing pays what is done, but brings no new orders (QA 22:10).
+    h.bus.emit('camp:entered', {});
+    expect(book.list.map((o) => o.id)).toContain('order:stale');
+    expect(of(h, 'toast').some((e) => e.text === en['order.renewed'])).toBe(false);
+    // Back at the camp: the needs have followed the explorer down.
+    h.bus.emit('camp:left', {});
+    h.strata.enter(1);
     h.bus.emit('camp:entered', {});
     const ids = book.list.map((o) => o.id);
     expect(ids).toContain('order:keep');
@@ -996,6 +1034,7 @@ describe('the whole descent, step by step (BRIEF §0.3)', () => {
     expect(step().m.step).toBe('tutorial');
     q.skipTutorial();
     h.inCamp = false;
+    loop.gear.grant('machete'); // the first weapon, made at the Forge in stratum I
     const picks = NEXT_PICK as Record<number, ItemId | null>;
     for (let n = 1; n <= 6; n++) {
       expect(h.strata.current).toBe(n);

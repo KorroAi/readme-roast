@@ -373,7 +373,9 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'coldsteelPick', category: 'tools', station: 'workbench', inputs: { coldsteelIngot: 6, verdite: 2, frostCrystal: 3 } }),
   r({ out: 'sunmetalPick', category: 'tools', station: 'workbench', inputs: { sunmetalIngot: 6, orichalcum: 2, mireOpal: 2 } }),
   // --- Weapons: three per band (melee, reach, ranged), at the Forge; bombs at the Alchemy Table.
-  r({ out: 'machete', category: 'weapons', station: 'forge', inputs: { copperIngot: 3, hide: 1 } }),
+  // The first weapon and its station show from the start (QA 22:10): the unarmed guardian step and
+  // its hint send the explorer to them, so the Craft menu must show what they take and where it is found.
+  r({ out: 'machete', category: 'weapons', station: 'forge', inputs: { copperIngot: 3, hide: 1 }, unlock: 'start' }),
   r({ out: 'spear', category: 'weapons', station: 'forge', inputs: { copperIngot: 2, fungalWood: 3, fang: 1 } }),
   r({ out: 'sling', category: 'weapons', station: 'workbench', inputs: { hide: 1, gel: 1, fungalWood: 2 } }),
   r({ out: 'sword', category: 'weapons', station: 'forge', inputs: { silverIngot: 4, ironIngot: 3, fang: 2 } }),
@@ -451,7 +453,7 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'furnace', category: 'stations', station: 'workbench', inputs: { stone: 12, coal: 2 }, unlock: 'start' }),
   r({ out: 'furnace', alt: 2, category: 'stations', station: 'workbench', inputs: { stone: 12, fungalWood: 4 }, unlock: 'start' }),
   r({ out: 'furnace', alt: 3, category: 'stations', station: 'workbench', inputs: { stone: 12, sulphur: 2 } }),
-  r({ out: 'forge', category: 'stations', station: 'workbench', inputs: { stone: 10, copperIngot: 4, coal: 2 } }),
+  r({ out: 'forge', category: 'stations', station: 'workbench', inputs: { stone: 10, copperIngot: 4, coal: 2 }, unlock: 'start' }),
   // The deeper strata build their Forge from their own bars.
   r({ out: 'forge', alt: 2, category: 'stations', station: 'workbench', inputs: { brick: 8, ironIngot: 3 } }),
   r({ out: 'forge', alt: 3, category: 'stations', station: 'workbench', inputs: { brick: 8, silverIngot: 2 } }),

@@ -586,6 +586,39 @@ describe('loot: chests and the loose rock of the ores', () => {
     expect([...loop.keepOnBank()]).not.toContain('fungalWood');
     expect(h.storage.deposit(h.backpack, loop.keepOnBank())).toMatchObject({ fungalWood: 3, coal: 2 });
   });
+
+  it('at camp, what was just made or taken from the bank stays in the bag until the explorer leaves (UI 22:17)', () => {
+    const { h, loop } = loopOf();
+    h.inCamp = true;
+    h.backpack.add('fungalWood', 2);
+    h.backpack.add('gel', 1);
+    loop.learn('fungalWood');
+    loop.learn('gel');
+    expect(loop.craft('rope').ok).toBe(true);
+    h.storage.add('ladder', 3);
+    expect(loop.withdraw('ladder', 3)).toBe(3);
+    h.backpack.add('copperOre', 5);
+    expect(h.storage.deposit(h.backpack, loop.keepOnBank())).toEqual({ copperOre: 5 });
+    expect(h.backpack.count('rope')).toBeGreaterThan(0);
+    expect(h.backpack.count('ladder')).toBe(3);
+    // Out of the camp and back: the next deposit takes them like the rest.
+    h.bus.emit('camp:left', {});
+    expect(h.storage.deposit(h.backpack, loop.keepOnBank())).toMatchObject({ ladder: 3 });
+  });
+
+  it('gear never sits in the bag or the bank: a weapon found there goes to the locker and is worn when its slot is empty', () => {
+    const { h, loop } = loopOf();
+    h.storage.add('spear', 1);
+    h.backpack.add('minerHelmet', 1);
+    h.bus.emit('inventory:changed', {});
+    loop.update(0.1);
+    expect(h.storage.count('spear')).toBe(0);
+    expect(h.backpack.count('minerHelmet')).toBe(0);
+    expect(loop.gear.equipped.weapon).toBe('spear');
+    expect(loop.gear.equipped.head).toBe('minerHelmet');
+    expect(h.events.filter((e) => e.type === 'gear:equipped').map((e) => (e.payload as { item: string }).item).sort()).toEqual(['minerHelmet', 'spear']);
+    expect(loop.weaponFor(0).id).toBe('spear');
+  });
 });
 
 // ---------------------------------------------------------------------------------------
