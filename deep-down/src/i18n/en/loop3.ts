@@ -86,6 +86,7 @@ export const loop3 = {
   'gear3.head': 'Head',
   'gear3.chest': 'Chest',
   'gear3.feet': 'Feet',
+  'gear3.kept': 'Kept with your gear: {item}',
   'gear3.armour': 'Armour {armour}%',
 
   // Armour sets
@@ -167,6 +168,7 @@ export const loop3 = {
   'quest.chain.free': 'The Heart burns again. Free play: finish the bestiary, the feats and the orders.',
   'quest.step.lairsHint': 'Sonar shows lairs through the rock; Halden\'s pages and deep walks into a biome reveal them too.',
   'quest.step.guardian': 'Defeat {guardian}',
+  'quest.step.arm': 'Make a weapon first: the {item}',
   'quest.step.prepare': 'Craft the {pick}',
   'quest.step.gate': 'Open the Gate of {stratum}',
   'quest.step.descend': 'Descend to {next}',
@@ -213,6 +215,8 @@ export const loop3 = {
   'order.paid': 'Order done: {reward}',
   'order.ready': 'Order ready: collect at camp',
   'order.renewed': 'New camp orders',
+  'toast.atLanding': 'The lift landing: what you carry is banked here',
+  'toast.bankedLanding': 'Banked {count} items at the lift landing',
   'bestiary.reward': '{name} recorded: {bonus}',
   'bestiary.bonus.health': '+{n} max health',
   'bestiary.bonus.damage': '+{n}% damage',
@@ -251,6 +255,7 @@ export const loop3 = {
   'hint3.bagFull': 'Bag full: bank at camp or an outpost, or drop something.',
   'hint3.noFuel': 'The Furnace has no fuel: bring coal or wood.',
   'hint3.tooHard': 'Too hard for your pick: tier {tier} needed.',
+  'hint3.needWeapon': 'A pick barely scratches a guardian. Make the {item} at the {station} first: the Craft menu shows what it takes.',
   'hint3.tooHardPick': 'Too hard for your pick: it takes the {pick} (tier {tier}). See Craft.',
   'hint3.outpost': 'Craft an Outpost Kit: bank, bed and fast travel down here.',
   'hint3.firstBiome': 'New biome: watch the arrival card for its danger.',

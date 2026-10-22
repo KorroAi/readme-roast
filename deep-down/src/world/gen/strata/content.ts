@@ -837,6 +837,8 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   // Halden's journal pages (config/biomes PAGE_PLAN; LOOP's text): each in a chamber of its biome, a
   // page that names a guardian 40-120 m from that lair (it tells where to look), the camp's page by
   // the camp, the first page below the gate by the lift, the last by the Heart's door.
+  // (Never in a gas or lava pocket: a page is read, not fought for.)
+  const inPool = (q: readonly number[], m: number) => decor.pools.some((pl) => Math.abs(pl.y - q[1]) < 10 && Math.hypot(pl.x - q[0], pl.z - q[2]) < pl.r + (pl.kind === 'gas' ? 3 : 1) + m);
   for (const pg of PAGE_PLAN) {
     if (BIOMES[pg.biome].stratum !== stratum) continue;
     const biome = plan.biomes.includes(pg.biome) ? pg.biome : plan.biomes[0];
@@ -846,6 +848,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     } else if (pg.near === 'gate') {
       for (let t = 0; t < 4 && !p; t++) p = nearWall(places.gateStand, 5 + t * 2);
     }
+    if (p && inPool(p, 1)) p = null;
     if (!p) {
       const lair = lairs.find((l) => l.biome === biome);
       const homes = plan.nodes
@@ -855,7 +858,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
         .sort((p1, p2) => (pg.lair ? Math.abs(p1.d - 70) - Math.abs(p2.d - 70) : rng.next() - 0.5));
       for (const h of homes) {
         const q = nearWall([Math.floor(h.n.x) + 0.5, floorAt(h.n), Math.floor(h.n.z) + 0.5], Math.min(6, Math.floor(Math.min(h.n.rx, h.n.rz))));
-        if (q && spaced('page', q, 30)) {
+        if (q && spaced('page', q, 30) && !inPool(q, 1)) {
           p = q;
           break;
         }
@@ -865,7 +868,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       // Any reachable floor of the biome by a wall.
       for (const i of order) {
         const c = cellOf(i);
-        if (biomeAtCell(c[0], c[2]) !== biome || curated(c[0], c[2]) || !free(c[0], c[1], c[2]) || solidN(c[0], c[1], c[2]) === 0 || !spaced('page', c, 30)) continue;
+        if (biomeAtCell(c[0], c[2]) !== biome || curated(c[0], c[2]) || !free(c[0], c[1], c[2]) || solidN(c[0], c[1], c[2]) === 0 || !spaced('page', c, 30) || inPool([c[0] + 0.5, c[1], c[2] + 0.5], 1)) continue;
         claim(c[0], c[1], c[2]);
         p = [c[0] + 0.5, c[1], c[2] + 0.5];
         break;

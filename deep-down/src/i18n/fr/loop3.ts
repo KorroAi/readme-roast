@@ -88,6 +88,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'gear3.head': 'Tête',
   'gear3.chest': 'Torse',
   'gear3.feet': 'Pieds',
+  'gear3.kept': 'Rangé avec votre équipement : {item}',
   'gear3.armour': 'Armure {armour} %',
 
   // Ensembles d'armure
@@ -163,6 +164,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'quest.step.lairs': 'Trouvez les repaires — {stratum}',
   'quest.step.lairsHint': 'Le sonar montre les repaires à travers la roche ; les pages de Halden et les longues marches dans un biome les révèlent aussi.',
   'quest.step.guardian': 'Vainquez {guardian}',
+  'quest.step.arm': 'D’abord une arme : {item}',
   'quest.step.prepare': 'Fabriquez : {pick}',
   'quest.step.gate': 'Ouvrez la Porte de la {stratum}',
   'quest.step.descend': 'Descendez vers la {next}',
@@ -209,6 +211,8 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'order.paid': 'Commande remplie : {reward}',
   'order.ready': 'Commande prête : à rapporter au camp',
   'order.renewed': 'Nouvelles commandes au camp',
+  'toast.atLanding': 'Le palier du monte-charge : ce que vous portez y est mis en réserve',
+  'toast.bankedLanding': '{count} objets mis en réserve au palier',
   'bestiary.reward': 'Bestiaire : {name} — {bonus}',
   'bestiary.bonus.health': '+{n} de santé max',
   'bestiary.bonus.damage': '+{n} % de dégâts',
@@ -247,6 +251,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'hint3.bagFull': 'Sac plein : mettez en réserve au camp ou à un avant-poste, ou jetez quelque chose.',
   'hint3.noFuel': 'Le Fourneau n’a plus de combustible : apportez du charbon ou du bois.',
   'hint3.tooHard': 'Trop dur pour votre pioche : il faut le rang {tier}.',
+  'hint3.needWeapon': 'Une pioche égratigne à peine un gardien. Fabriquez d’abord une arme — {item} ({station}) : l’Atelier montre ce qu’il faut.',
   'hint3.tooHardPick': 'Trop dur pour votre pioche : il faut la {pick} (rang {tier}). Voyez l’Atelier.',
   'hint3.outpost': 'Fabriquez un Kit d’avant-poste : réserve, lit et voyage rapide ici-bas.',
   'hint3.firstBiome': 'Nouveau biome : lisez la carte d’arrivée, elle dit son danger.',
