@@ -54,7 +54,7 @@ export function gemLine(gem: ItemId, where: 'weapon' | 'armour'): string {
     if (fx.armour.health) parts.push(t('gem3.fx.health', { n: fx.armour.health }));
     if (fx.armour.ward) parts.push(t('gem3.fx.ward', { hazard: t(`hazard.${fx.armour.ward.hazard}` as TextKey), n: pct(fx.armour.ward.amount) }));
   }
-  return parts.join(', ');
+  return parts.join(t('loop3.listSep'));
 }
 
 export interface SocketTotals {

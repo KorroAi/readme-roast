@@ -47,9 +47,18 @@ function workshopProps(bay: Bay, back: number): PropSpec[] {
       const x = bay.x0 + x0 + i * step;
       out.push({ id: `lab_ws_${kind}_${i}_${z}`, kind: kind as PropKind, x, y: 2, z, rotY: Math.PI, scale: 1, anchor: [Math.floor(x), 1, Math.floor(z)], emitters: [], seed: 31 + i, modelVariant: variant });
     });
-  row([['furnace'], ['forge'], ['alchemyTable'], ['workbench'], ['outpost']], back - 4, 2.5, 3.1);
-  row([['campTent'], ['forgeChimney'], ['trophyWall', 0xfff]], back - 1.2, 3, 5);
-  row([['lairPillar', 0], ['lairBrazier'], ['lairRune', 0], ['lairRune', 1], ['lairPillar', 1]], back - 8, 2.5, 3.1);
+  // The trophy wall as LOOP builds it (decor scale 0.9), the guardians' heads on its hooks (0.55,
+  // 0.4 m in front of it; the props face the camera, so the row is mirrored).
+  const cx = bay.x0 + BAY_W / 2;
+  const wz = back - 1.0;
+  out.push({ id: 'lab_ws_trophyWall', kind: 'trophyWall' as PropKind, x: cx, y: 2, z: wz, rotY: Math.PI, scale: 0.9, anchor: [Math.floor(cx), 1, Math.floor(wz)], emitters: [], seed: 7, modelVariant: 0 });
+  for (let i = 0; i < 12; i++) {
+    const x = cx + 4.5 - 0.8 * i;
+    out.push({ id: `lab_ws_trophy_${i}`, kind: 'guardianTrophy' as PropKind, x, y: 2, z: wz - 0.4, rotY: Math.PI, scale: 0.55, anchor: [Math.floor(x), 1, Math.floor(wz)], emitters: [], seed: 40 + i, modelVariant: i });
+  }
+  row([['campTent'], ['campChimney'], ['traderCart']], back - 4.6, 3, 5.5);
+  row([['furnace'], ['forge'], ['alchemyTable'], ['workbench'], ['outpost']], back - 8, 2.5, 3.1);
+  row([['lever', 0], ['lever', 1], ['mineSet'], ['timberProp', 0], ['lairPillar', 0], ['lairBrazier'], ['lairRune', 0], ['lairRune', 2], ['lairRune', 1]], back - 11, 1.2, 1.95);
   return out;
 }
 

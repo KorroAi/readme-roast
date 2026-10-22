@@ -88,15 +88,24 @@ export class Orders {
     return out;
   }
 
-  /** At camp: take the done orders out (to be paid) and refill. */
+  /**
+   * At camp: take the done orders out (to be paid) and refill. The camp's needs follow the explorer
+   * down: an order not started yet that was made for a shallower stratum than the deepest reached is
+   * replaced too (`renewed`); orders under way stay until they are done.
+   */
   collect(stratum: number, today: number): Order[] {
     const paid = this.list.filter((o) => o.have >= o.need);
-    if (paid.length === 0 && this.day === today) return [];
-    this.list = this.list.filter((o) => o.have < o.need);
+    const stale = this.list.filter((o) => !o.daily && o.have === 0 && o.stratum < stratum);
+    this.renewed = stale.length;
+    if (paid.length === 0 && stale.length === 0 && this.day === today) return [];
+    this.list = this.list.filter((o) => o.have < o.need && !stale.includes(o));
     this.done += paid.length;
     this.fill(stratum, today);
     return paid;
   }
+
+  /** Orders replaced by the last collect() without being done (made for a shallower stratum). */
+  renewed = 0;
 
   toJSON(): OrdersSave {
     return { list: this.list.map((o) => ({ ...o, reward: { ...o.reward } })), seq: this.seq, day: this.day, done: this.done };

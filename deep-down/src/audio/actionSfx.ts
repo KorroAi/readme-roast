@@ -59,14 +59,43 @@ export const ACTION_SFX = {
     grit(v, t + 0.02, 0.1, 'bandpass', 1600, 1.2, 0.12, 1.2, 0.3);
   }, 0.15),
 
+  /** Climbing a ladder: a hand on a wooden rung, now and then the frame creaking. */
+  'climb.ladder': sound('sfx', 0.55, 0.1, 1, 0.5, (v, p) => {
+    const t = v.t;
+    const k = v.vary(0.06) * (p.pitch ?? 1);
+    thump(v, t, 320 * k, 230 * k, 0.32, 0.06, 'triangle');
+    v.osc('sine', 640 * k, t, t + 0.06).connect(v.perc(t, 0.001, 0.1, 0.04)).connect(v.out);
+    burst(v, t, 'white', 'bandpass', 1300 * k, 3, 0.18, 0.03);
+    if (v.rand(0, 1) < 0.3) {
+      const o = v.osc('sawtooth', 140 * k, t + 0.05, t + 0.32);
+      o.frequency.setValueAtTime(130 * k, t + 0.05);
+      o.frequency.linearRampToValueAtTime(175 * k, t + 0.3);
+      const env = v.swell(t + 0.05, 0.04, 0.08, 0.1, 0.12);
+      o.connect(v.filter('bandpass', 900, 5)).connect(env).connect(v.out);
+      v.lfo(env.gain, 28, 0.06, t, t + 0.32, 'square');
+    }
+  }, 0.12),
+  /** Climbing a rope: its fibres creaking under the weight and a hand sliding on it. */
+  'climb.rope': sound('sfx', 0.55, 0.12, 1, 0.6, (v, p) => {
+    const t = v.t;
+    const k = v.vary(0.08) * (p.pitch ?? 1);
+    const o = v.osc('sawtooth', 95 * k, t, t + 0.3);
+    o.frequency.setValueAtTime(90 * k, t);
+    o.frequency.linearRampToValueAtTime(120 * k, t + 0.25);
+    const env = v.swell(t, 0.03, 0.16, 0.08, 0.14);
+    o.connect(v.filter('bandpass', 720 * k, 4)).connect(env).connect(v.out);
+    v.lfo(env.gain, 34 * v.vary(0.1), 0.1, t, t + 0.3, 'square');
+    swell(v, t + 0.02, 'pink', 'bandpass', 2300, 1.4, 0.12, 0.03, 0.06, 0.12);
+  }, 0.12),
+
   // ---- The sonar and its echoes
   /** The lantern pulse: a felt whum, a bright bloom, the ring of air going out. */
   'sonar.pulse': sound('sfx', 0.7, 0.55, 3, 2.6, (v) => {
     const t = v.t;
     thump(v, t, 170, 85, 0.35, 0.45);
     thump(v, t, 340, 220, 0.22, 0.25, 'triangle');
-    bell(v, t, 1046.5, 0.16, 1.1);
-    glide(v, t + 0.02, 'sine', 1568, 784, 0.8, 0.07);
+    bell(v, t, 1174.7, 0.16, 1.1);
+    glide(v, t + 0.02, 'sine', 1760, 880, 0.8, 0.07);
     const ring = swell(v, t, 'pink', 'bandpass', 3200, 5, 0.09, 0.04, 0.1, 0.8);
     ring.frequency.setValueAtTime(3200, t);
     ring.frequency.exponentialRampToValueAtTime(700, t + 0.9);
@@ -203,7 +232,7 @@ export const ACTION_SFX = {
       burst(v, t + at, 'white', 'highpass', 3200, 0, 0.18, 0.02);
     });
     swell(v, t + 0.8, 'white', 'bandpass', 3000, 0.9, 0.22, 0.05, 0.3, 0.6);
-    done(v, t + 1.25, 698.5, 1046.5);
+    done(v, t + 1.25, 740, 1108.7);
   }, 0.3),
   /** The alchemy table: glass clinks, bubbles rising, a shimmer of something made. */
   'craft.alchemy': sound('sfx', 0.75, 0.5, 3, 2.6, (v) => {
@@ -314,6 +343,27 @@ export const ACTION_SFX = {
     chord(v, t + 0.2, [440, 554.4, 659.3, 880], 'sine', 0.06, 2500, 0.5, 0.4, 1);
     rise(v, t + 0.25, [880, 1108.7, 1318.5], 0.09, 0.06, 0.9);
   }, 0.3),
+  /**
+   * A blast bomb going off where it landed: a hard crack and the mid knock a phone plays, a deep
+   * body for headphones, rock and grit raining down after it.
+   */
+  'act.bomb': sound('sfx', 0.85, 0.35, 3, 2.2, (v, p) => {
+    const t = v.t;
+    const k = 0.8 + 0.2 * (p.intensity ?? 0.5);
+    burst(v, t, 'white', 'bandpass', 1800, 0.8, 0.6 * k, 0.05);
+    thump(v, t, 260, 120, 0.7 * k, 0.22, 'triangle');
+    thump(v, t, 120, 38, 0.8 * k, 0.6);
+    swell(v, t, 'brown', 'lowpass', 600, 0.7, 0.55 * k, 0.01, 0.15, 0.9);
+    grit(v, t + 0.08, 0.9, 'bandpass', 1500, 0.9, 0.35 * k, 0.95, 0.15);
+    for (let i = 0; i < 7; i++) burst(v, t + 0.35 + v.rand(0, 1.1), 'white', 'bandpass', v.rand(1200, 3200), 2, v.rand(0.05, 0.12), 0.03);
+  }, 0.12),
+  /** The Lampling's lure: a soft two-note whistle, as you would call a little creature. */
+  'use.lure': sound('sfx', 0.65, 0.4, 3, 1.4, (v) => {
+    const t = v.t;
+    glide(v, t, 'sine', 1320, 1760, 0.16, 0.14, 0.01);
+    glide(v, t + 0.24, 'sine', 1480, 1980, 0.22, 0.12, 0.01);
+    swell(v, t, 'white', 'highpass', 5200, 0, 0.02, 0.05, 0.25, 0.2);
+  }, 0.5),
   /** A flare struck: the scrape, the hiss of its light. */
   'use.flare': sound('sfx', 0.75, 0.3, 3, 1.6, (v) => {
     const t = v.t;
@@ -362,6 +412,19 @@ export const ACTION_SFX = {
     bell(v, v.t, 1174.7, 0.1, 0.5);
     bell(v, v.t + 0.1, 1568, 0.09, 0.7);
   }, 0.3),
+  /** A hazard zone walked into: a low, soft swell on a minor second, felt more than heard. */
+  'zone.enter': sound('sfx', 0.6, 0.4, 2, 1.8, (v, p) => {
+    const t = v.t;
+    const k = p.pitch ?? 1;
+    const lp = v.filter('lowpass', 900, 0.7);
+    lp.connect(v.swell(t, 0.35, 0.22, 0.35, 0.9)).connect(v.out);
+    for (const [f, a] of [[220, 1], [233.1, 0.8], [110, 0.5]] as const) v.osc('triangle', f * k, t, t + 1.7).connect(v.gain(a * 0.35)).connect(lp);
+    swell(v, t, 'pink', 'bandpass', 520 * k, 1.5, 0.06, 0.4, 0.3, 0.8);
+  }, 3),
+  /** The rumour's arrow appears: a faint rising "this way" on three bells. */
+  'guide.way': sound('sfx', 0.55, 0.45, 2, 1.6, (v) => {
+    rise(v, v.t, [740, 880, 1174.7], 0.12, 0.08, 0.9);
+  }, 3),
   /** A guide's hint: a soft questioning two-tone. */
   'ui.hint': sound('sfx', 0.6, 0.25, 2, 1.0, (v) => {
     blip(v, v.t, 784, 0.1, 0.25);
@@ -374,6 +437,17 @@ export const ACTION_SFX = {
     f.frequency.exponentialRampToValueAtTime(4200, t + 0.25);
     chord(v, t + 0.15, [392, 587.3, 740], 'triangle', 0.05, 1500, 0.35, 0.4, 1.1);
   }, 0.5),
+
+  /** Low health: the explorer's own heart, a soft lub-dub felt low and heard near 300 Hz on a phone. */
+  'player.heartbeat': sound('sfx', 0.6, 0.05, 2, 0.6, (v, p) => {
+    const t = v.t;
+    const k = 0.7 + 0.3 * (p.intensity ?? 0.5);
+    for (const [at, g] of [[0, 1], [0.21, 0.62]] as const) {
+      thump(v, t + at, 72, 44, 0.45 * g * k, 0.2);
+      thump(v, t + at, 270, 150, 0.32 * g * k, 0.09, 'triangle');
+      burst(v, t + at, 'pink', 'bandpass', 470, 1.3, 0.16 * g * k, 0.05);
+    }
+  }, 0.3),
 
   // ---- Hazard warnings (the meter past half, then near full)
   /** Cold biting: an icy shiver, a trembling breath. */
@@ -495,6 +569,12 @@ export const ACTION_SFX = {
     burst(v, v.t, 'pink', 'bandpass', 900, 1, 0.2, 0.08);
     coins(v, v.t + 0.05, Math.max(3, Math.min(7, Math.round(p.count ?? 4))), 0.5);
   }, 0.3),
+  /** A bestiary page completed (scanned or defeated: its bonus applies): paper, and three notes filling in. */
+  'bestiary.complete': sound('sfx', 0.6, 0.4, 2, 1.4, (v) => {
+    const f = swell(v, v.t, 'white', 'bandpass', 2400, 1.5, 0.14, 0.03, 0.04, 0.15);
+    f.frequency.exponentialRampToValueAtTime(4400, v.t + 0.2);
+    rise(v, v.t + 0.1, [987.8, 1174.7, 1480], 0.07, 0.08, 0.8);
+  }, 0.6),
   /** A bestiary page: paper and a curious note. */
   'bestiary.page': sound('sfx', 0.6, 0.35, 2, 1.2, (v) => {
     const f = swell(v, v.t, 'white', 'bandpass', 2200, 1.5, 0.15, 0.03, 0.04, 0.15);

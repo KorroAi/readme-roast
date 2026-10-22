@@ -1,7 +1,8 @@
 import { expect, test, type Page } from '@playwright/test';
 import { seedFromText } from '../../src/ui/seed';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, newExpedition, quiet, screen, tapControl, waitScreen } from './r3';
+import type { Touch } from './touch';
+import { PHONE, boot, centreOf, newExpedition, quiet, screen, tapControl, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): every menu end to end with real touches at 390 x 844 (BRIEF §0.6), the Settings
 // additions, the seed field of New Game, and the desktop keys for the menus:
@@ -22,8 +23,8 @@ const RAIL: Array<[string, string]> = [
   ['bestiary', 'Bestiary'],
 ];
 
-async function closeMenu(page: Page): Promise<void> {
-  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+async function closeMenu(page: Page, touch: Touch): Promise<void> {
+  await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 }
 
@@ -43,55 +44,55 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
     await expect(page.locator(`.dd-menu3[data-menu="${id}"]`)).toBeVisible();
     // Opened from play, the panel rises in.
     await expect(page.locator(`.dd-menu3[data-menu="${id}"]`)).toHaveAttribute('data-enter', 'play');
-    await closeMenu(page);
+    await closeMenu(page, touch);
   }
 
   // The rail goes round all five; each has its "?" help card.
   await tapControl(page, touch, 'bag');
   expect(await waitScreen(page, 'inventory')).toBe(true);
   for (const [id] of RAIL) {
-    if ((await screen(page)) !== id) await page.locator(`[data-key="rail:${id}"]`).tap();
+    if ((await screen(page)) !== id) await tapEl(page, touch, page.locator(`[data-key="rail:${id}"]`));
     expect(await waitScreen(page, id), `the rail reached ${id}`).toBe(true);
-    await page.locator('.dd-menu3 [data-key="help"]').tap();
+    await tapEl(page, touch, page.locator('.dd-menu3 [data-key="help"]'));
     await expect(page.locator('.dd-m3-helpcard')).toBeVisible();
-    await page.locator('.dd-menu3 [data-key="help"]').tap();
+    await tapEl(page, touch, page.locator('.dd-menu3 [data-key="help"]'));
     await expect(page.locator('.dd-m3-helpcard')).toHaveCount(0);
   }
   // A rail switch to the right slides in from the right (a calm cut of the frame).
-  await page.locator('[data-key="rail:inventory"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="rail:inventory"]'));
   expect(await waitScreen(page, 'inventory')).toBe(true);
   await expect(page.locator('.dd-menu3[data-menu="inventory"]')).toHaveAttribute('data-enter', 'left');
-  await page.locator('[data-key="rail:map"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="rail:map"]'));
   expect(await waitScreen(page, 'map')).toBe(true);
   await expect(page.locator('.dd-menu3[data-menu="map"]')).toHaveAttribute('data-enter', 'right');
 
   // The Map: its view pans with a drag and zooms with its buttons; the seed is shown.
   await expect(page.locator('.dd-m3-seed')).toContainText(String(seed));
   const cam0 = await page.evaluate(() => (window.__DD__.game.ui as { state: { mapCamera: { cx: number; cz: number; zoom: number } } }).state.mapCamera);
-  await page.locator('[data-key="map:zoomIn"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="map:zoomIn"]'));
   const cam1 = await page.evaluate(() => (window.__DD__.game.ui as { state: { mapCamera: { cx: number; zoom: number } } }).state.mapCamera);
   expect(cam1.zoom).toBeGreaterThan(cam0.zoom * 1.2);
   const view = await page.locator('.dd-m3-mapview').boundingBox();
   await touch.drag({ x: view!.x + view!.width / 2, y: view!.y + view!.height / 2 }, { x: view!.x + view!.width / 2 + 60, y: view!.y + view!.height / 2 }, 60, 3);
   const cam2 = await page.evaluate(() => (window.__DD__.game.ui as { state: { mapCamera: { cx: number } } }).state.mapCamera);
   expect(cam2.cx, 'the drag panned the map').toBeLessThan(cam1.cx);
-  await closeMenu(page);
+  await closeMenu(page, touch);
 
   // ≡ pauses; Settings has the round 3 additions.
   await tapControl(page, touch, 'menu');
   expect(await waitScreen(page, 'pause')).toBe(true);
-  await page.getByRole('button', { name: /Settings/i }).first().tap();
+  await tapEl(page, touch, page.getByRole('button', { name: /Settings/i }).first());
   expect(await waitScreen(page, 'settings')).toBe(true);
   await expect(page.locator('.dd-settings-seed')).toContainText(String(seed));
   // Invert Y and the left-handed mirror.
-  await page.locator('[data-key="invertY"]').first().tap();
+  await tapEl(page, touch, page.locator('[data-key="invertY"]').first());
   expect(await page.evaluate(() => window.__DD__.game.settings.invertY)).toBe(true);
-  await page.locator('[data-key="leftHanded"]').first().tap();
+  await tapEl(page, touch, page.locator('[data-key="leftHanded"]').first());
   expect(await page.evaluate(() => window.__DD__.game.settings.leftHanded)).toBe(true);
   // Rarity patterns and reduced motion (per-device preferences).
-  await page.locator('[data-key="patterns"]').first().tap();
+  await tapEl(page, touch, page.locator('[data-key="patterns"]').first());
   expect(await page.evaluate(() => document.querySelector('.dd-ui')?.classList.contains('dd-cb'))).toBe(true);
-  await page.locator('[data-key="motion:reduce"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="motion:reduce"]'));
   expect(await page.evaluate(() => document.documentElement.classList.contains('dd-reduce-motion'))).toBe(true);
   // Button size: the slider's value reaches the pads (a CSS variable on the UI root).
   // (A range input takes its value from a drag; set it as one would end, with its input event.)
@@ -100,9 +101,9 @@ test('the menus: HUD buttons, the rail, help cards; Settings additions; the seed
     el.dispatchEvent(new Event('input', { bubbles: true }));
   });
   expect(await untilGame(page, async () => (await page.evaluate(() => getComputedStyle(document.querySelector('.dd-ui')!).getPropertyValue('--btn-scale').trim())) === '1.2', 3)).toBe(true);
-  await page.locator('[data-key="close"]').first().tap();
+  await tapEl(page, touch, page.locator('[data-key="close"]').first());
   expect(await waitScreen(page, 'pause')).toBe(true);
-  await page.getByRole('button', { name: /Resume/i }).first().tap();
+  await tapEl(page, touch, page.getByRole('button', { name: /Resume/i }).first());
   expect(await waitScreen(page, 'none')).toBe(true);
   // Left-handed: the stick goes to the right, the pads to the left of the screen.
   const action = await centreOf(page, 'action');

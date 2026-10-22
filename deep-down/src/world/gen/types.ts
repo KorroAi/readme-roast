@@ -1,5 +1,6 @@
 import type { VoxelWorld } from '../VoxelWorld';
 import type { FeatureLayout } from './features/types';
+import type { ItemId } from '../../config/items';
 
 export type PropKind =
   | 'campfire'
@@ -72,7 +73,9 @@ export type StrataPropKind =
   | 'alchemyTable'
   | 'outpost'
   /** The Halden works' lock (round 3, WORLD): a lever on a wall (VIS models it; its socket lamp shows its state). */
-  | 'lever';
+  | 'lever'
+  /** A mine set across a Halden Mines drift (two posts and a cap; VIS models it). */
+  | 'mineSet';
 
 /** Round 3: ambient props that hang from the roof (anchored on the cell above). */
 export const HANGING_PROPS: ReadonlySet<string> = new Set(['amberDrip', 'hangingRoots', 'icicle', 'vineCurtain']);
@@ -99,8 +102,11 @@ export interface PropSpec {
   rune?: { item: string; glyph: number };
   /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
   feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache' | 'gate' | 'lift' | 'lever'; id: string; end?: 'top' | 'bottom' };
-  /** Halden caches, supply crates and the builders' coffers (feature 'cache'): what is inside (game/Progression). */
-  loot?: Partial<Record<'stone' | 'rootFibre' | 'copperOre' | 'ironOre' | 'glimmerShard' | 'echoShard', number>>;
+  /**
+   * Halden caches, supply crates and the builders' coffers (feature 'cache'): what is inside (game/Progression).
+   * Round 3: any item (the strata's chests are filled by LOOP's config/loot lootFor).
+   */
+  loot?: Partial<Record<ItemId, number>>;
   /** A secret alcove's reward (content pass): opening it counts the secret. */
   secret?: string;
   /** Minable props (crystal clusters) drop items when broken. */

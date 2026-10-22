@@ -48,7 +48,7 @@ export class EventSchedule {
    * Advance the clock (only while exploring) and start an event when one is due.
    * @returns the event that started this step, or null.
    */
-  step(dt: number, exploring: boolean, depth: number, place: Placer): GameEvent | null {
+  step(dt: number, exploring: boolean, depth: number, place: Placer, weightOf?: (kind: EventKind) => number): GameEvent | null {
     if (!exploring || !(dt > 0)) return null;
     this.clock += dt;
     if (this.current) {
@@ -56,7 +56,7 @@ export class EventSchedule {
       return null;
     }
     if (this.clock < this.nextAt) return null;
-    const ev = this.pick(depth, place);
+    const ev = this.pick(depth, place, weightOf);
     if (!ev) this.nextAt = this.clock + EVENTS.retry;
     return ev;
   }
@@ -81,16 +81,18 @@ export class EventSchedule {
     return ev;
   }
 
-  private pick(depth: number, place: Placer): GameEvent | null {
+  /** `weightOf`: a multiplier on a kind's odds here (round 3: the Halden Mines' loose roofs favour a rockfall). */
+  private pick(depth: number, place: Placer, weightOf?: (kind: EventKind) => number): GameEvent | null {
     const kinds = EVENT_KINDS.filter((k) => this.allowed(k, depth) && k !== this.last);
+    const weight = (k: EventKind) => EVENTS.weight[k] * (weightOf?.(k) ?? 1);
     // Weighted draw without replacement until one can be placed.
     const pool = kinds.slice();
     while (pool.length) {
-      const total = pool.reduce((s, k) => s + EVENTS.weight[k], 0);
+      const total = pool.reduce((s, k) => s + weight(k), 0);
       let r = this.rng.next() * total;
       let k = pool[pool.length - 1];
       for (const c of pool) {
-        r -= EVENTS.weight[c];
+        r -= weight(c);
         if (r <= 0) {
           k = c;
           break;

@@ -15,8 +15,12 @@ declare module '../../core/events' {
     'weapon:swing': { weapon: string; ranged: boolean };
     /** A strike landed on a mob (`killed`: it died, or a being was caught or harvested by it). */
     'weapon:hit': { weapon: string; mob: number; kind: string; killed: boolean; x: number; y: number; z: number };
-    /** A Flash Charge burst at the explorer (radius m; `count`: monsters caught in it). */
-    'weapon:flash': { x: number; y: number; z: number; radius: number; count: number };
+    /**
+     * A burst where something was set off (radius m; `count`: monsters caught in it). Round 3: `kind`
+     * says what: a Flash Charge ('flash', at the explorer or thrown), a thrown Blast Bomb ('bomb') or a
+     * thrown flare landing ('flare').
+     */
+    'weapon:flash': { x: number; y: number; z: number; radius: number; count: number; kind?: 'flash' | 'bomb' | 'flare' };
   }
 }
 

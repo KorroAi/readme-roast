@@ -21,6 +21,8 @@ export interface MusicNote {
   layer: MusicLayer;
   /** Stereo position (counter-lines sit a little off centre). */
   pan?: number;
+  /** Stealing priority when it must outrank its family's default (the Dark Heart's sung theme). */
+  prio?: number;
 }
 
 /** How much of each layer the danger asks for (0..1 targets; MusicPlayer fades the stems to them). */
@@ -48,6 +50,15 @@ const LEAD_HI = 88;
 
 const STEP_VEL: Record<string, number> = { x: 1, o: 0.72, g: 0.36 };
 const BASS_DEGREE: Record<string, number> = { '1': 0, '3': 2, '4': 3, '5': 4, '7': 6, '8': 7 };
+/** Bars of bed alone when calm music comes back after a breather (the cave first, then the tune). */
+const INTRO_BARS = 2;
+/** The last part of a movement: no new phrase begins, and the harmony comes home before the rest. */
+const CODA = 0.9;
+/** A movement's dynamic arc: calm music swells from this level to full in its middle, then eases back. */
+const ARC_FLOOR = 0.84;
+/** Stab register (MIDI): a chord the phone plays whole, under the lead. */
+const STAB_LO = 52;
+const STAB_HI = 76;
 
 type Variation = 'plain' | 'sequence' | 'octave' | 'fragment' | 'diminution';
 
@@ -61,6 +72,12 @@ type Variation = 'plain' | 'sequence' | 'octave' | 'fragment' | 'diminution';
  * fight within one beat. The phrase machine states the motif plainly first, then varies it
  * (sequenced on the chord, an octave up, fragmented under tension, in diminution in a fight) with
  * bars of rest between phrases; calm music plays in movements of a few minutes and then breathes.
+ *
+ * Each calm movement has a shape: after a breather the bed comes back alone for two bars, the
+ * phrases swell to the middle of the movement and ease back, and in its last tenth no new phrase
+ * begins and the harmony comes home to the tonic before the rest. Fights add chord stabs (the
+ * score's `combat.stab`); a guardian's second phase adds its `phase2` skins, a busier bass line and a
+ * stab every bar; the Dark Heart's last phase sings the game's theme above the guardian motif.
  */
 export class MusicScheduler {
   readonly score: ScoreDef;
@@ -88,6 +105,16 @@ export class MusicScheduler {
   /** Were tension and combat composing on the last beat (an entry hit marks their arrival)? */
   private wasTense = false;
   private wasFighting = false;
+  /** A guardian fight's phase (1 = its first; MusicPlayer.setPhase), and how many it has. */
+  private phaseNow = 1;
+  private phaseCount = 1;
+  /** Bed-only bars left before the phrases come back after a breather. */
+  private introBars = 0;
+  private wasResting = false;
+  /** The movement is ending: the next chord change goes home to the tonic. */
+  private cadence = false;
+  /** The movement's dynamic arc (velocity scale of the bed and the motif while calm). */
+  private arc = 1;
 
   constructor(score: ScoreId | ScoreDef, seed = 1, startDelay = 1) {
     this.score = typeof score === 'string' ? SCORES[score] : score;
@@ -96,11 +123,20 @@ export class MusicScheduler {
     this.barDur = this.beatDur * this.score.meter;
     this.startDelay = startDelay;
     this.movement = this.rng.range(MOVEMENT[0], MOVEMENT[1]);
+    // Guardians fight in two phases, the Dark Heart in three (the probe's GuardianState corrects it).
+    this.phaseCount = this.score.finale ? 3 : 2;
   }
 
   /** Time the next beat is due (NaN before the first advance). */
   get nextBeatTime(): number {
     return this.origin + this.beat * this.beatDur;
+  }
+
+  /** The first beat of the grid at or after `t` (NaN before the first advance). */
+  beatAfter(t: number): number {
+    if (Number.isNaN(this.origin)) return Number.NaN;
+    const k = Math.max(0, Math.ceil((t - this.origin) / this.beatDur - 1e-9));
+    return this.origin + k * this.beatDur;
   }
 
   /** The bar being composed now. */
@@ -121,6 +157,27 @@ export class MusicScheduler {
   /** Phrases of the motif begun so far. */
   get phraseCount(): number {
     return this.phrases;
+  }
+
+  /** The guardian fight's phase the score is playing (1 outside a fight). */
+  get phase(): number {
+    return this.phaseNow;
+  }
+
+  /** The movement's dynamic arc now (1 outside calm music). */
+  get dynamics(): number {
+    return this.arc;
+  }
+
+  /**
+   * A guardian fight moved to `phase` (1-based) of `phases`: from the second phase the fight
+   * tightens (phase2 skins, the busier bass, a stab every bar); the Dark Heart's last phase sings the
+   * game's theme above the guardian motif. Takes effect from the next beat.
+   */
+  setPhase(phase: number, phases = this.phaseCount): void {
+    const n = Number.isFinite(phases) ? Math.max(1, Math.round(phases)) : 1;
+    this.phaseCount = Math.max(n, 1);
+    this.phaseNow = Number.isFinite(phase) ? Math.max(1, Math.min(Math.max(this.phaseCount, 3), Math.round(phase))) : 1;
   }
 
   /** Fill `out` with notes starting in [now, until); returns how many. Reuses `out`. */
@@ -215,8 +272,10 @@ export class MusicScheduler {
     if (tense) this.composeSteps(s.tension.bass, null, 'tension', t, beatInBar, s.bass, notes, fighting);
     if (tense && s.tension.pulse) this.composeSteps(null, s.tension.pulse, 'tension', t, beatInBar, s.tension.pulse.timbre, notes, false);
     if (fighting) {
-      this.composeSteps(s.combat.bass, null, 'combat', t, beatInBar, s.bass, notes, false);
+      const late = this.phaseNow >= 2 && s.phase2 ? s.phase2 : null;
+      this.composeSteps(late?.bass ?? s.combat.bass, null, 'combat', t, beatInBar, s.bass, notes, false);
       for (const p of s.combat.drums) if (bar % (p.every ?? 1) === 0) this.composeSteps(null, p, 'combat', t, beatInBar, p.timbre, notes, false);
+      if (late) for (const p of late.drums) if (bar % (p.every ?? 1) === 0) this.composeSteps(null, p, 'combat', t, beatInBar, p.timbre, notes, false);
     }
     // The music answers at once: the beat danger arrives gets a low root (and the pulse), the beat a
     // fight starts gets an accent, whatever the pattern holds there.
@@ -241,33 +300,60 @@ export class MusicScheduler {
     const s = this.score;
     const rng = this.rng;
     const calm = mix.tension <= ACTIVE && mix.combat <= ACTIVE;
-    // The chord: the progression, now and then a substitution from it.
-    if (bar % s.chordBars === 0) {
-      const idx = Math.floor(bar / s.chordBars) % s.progression.length;
-      this.chord = rng.chance(0.12) ? rng.pick(s.progression) : s.progression[idx];
-    }
+    const fighting = mix.combat > ACTIVE;
     // Calm music plays in movements, then rests a while (never in a fight).
     if (calm) {
-      this.calmMusic += this.barDur;
+      // A movement's clock runs while it plays (a breather's bars do not count toward the next one).
+      if (t >= this.breatherUntil) this.calmMusic += this.barDur;
       if (this.calmMusic > this.movement && t >= this.breatherUntil) {
         this.breatherUntil = t + rng.range(BREATHER[0], BREATHER[1]);
         this.calmMusic = 0;
         this.movement = rng.range(MOVEMENT[0], MOVEMENT[1]);
+        this.cadence = false;
       }
     } else this.breatherUntil = -Infinity;
     const resting = t < this.breatherUntil;
+    // Back from a breather: the bed alone for two bars from its first chord, then the tune.
+    if (this.wasResting && !resting) this.introBars = INTRO_BARS + ((s.chordBars - (bar % s.chordBars)) % s.chordBars);
+    this.wasResting = resting;
+    // The movement's shape: a swell to its first half, easing back into the coda.
+    const progress = calm ? Math.min(1, this.calmMusic / this.movement) : 0;
+    this.arc = calm ? ARC_FLOOR + (1 - ARC_FLOOR) * Math.sin(Math.PI * (0.15 + 0.85 * progress)) : 1;
+    if (calm && progress > CODA) this.cadence = true;
+    else if (!calm) this.cadence = false;
+    // The chord: the progression, now and then a substitution from it; home to the tonic in a coda.
+    if (bar % s.chordBars === 0) {
+      const idx = Math.floor(bar / s.chordBars) % s.progression.length;
+      this.chord = this.cadence ? s.progression[0] : rng.chance(0.12) ? rng.pick(s.progression) : s.progression[idx];
+    }
 
     // The bed.
-    if (!resting && mix.bed > ACTIVE && bar % s.chordBars === 0 && !(s.bedRest && rng.chance(s.bedRest))) {
+    // (The first chord after a breather always sounds: the cave's music comes back through its bed.)
+    if (!resting && mix.bed > ACTIVE && bar % s.chordBars === 0 && !(s.bedRest && this.introBars === 0 && rng.chance(s.bedRest))) {
       const pad = s.tonic - 12;
       const duration = s.chordBars * this.barDur + 0.25;
       let strum = 0;
       for (const v of s.voicing) {
         notes.push({
           time: t + strum, duration, midi: this.foldPad(degreeToMidi(pad, s.mode, this.chord + v)),
-          velocity: rng.range(0.55, 0.72), voice: s.bed, brightness: s.brightness * rng.range(0.88, 1.12), layer: 'bed',
+          velocity: rng.range(0.55, 0.72) * this.arc, voice: s.bed, brightness: s.brightness * rng.range(0.88, 1.12), layer: 'bed',
         });
         strum += rng.range(0.02, 0.12);
+      }
+    }
+
+    // A fight's chord stabs: on chord changes, every bar once a guardian's second phase begins.
+    if (fighting && s.combat.stab && (bar % s.chordBars === 0 || this.phaseNow >= 2)) this.stab(t, notes);
+
+    // The deeper strata's swell under the tension: the chord's root and fifth, low and sustained, held
+    // through the fight too (it thickens the floor of the drums).
+    if (mix.tension > ACTIVE && s.tension.swell && bar % s.chordBars === 0) {
+      const duration = s.chordBars * this.barDur + 0.3;
+      for (const v of [0, 4]) {
+        let midi = degreeToMidi(s.tonic - 24, s.mode, this.chord + v);
+        while (midi < 45) midi += 12;
+        while (midi > 60) midi -= 12;
+        notes.push({ time: t + v * 0.03, duration, midi, velocity: fighting ? 0.42 : 0.5, voice: s.tension.swell, brightness: s.brightness * 0.8, layer: 'tension', prio: 2 });
       }
     }
 
@@ -277,8 +363,11 @@ export class MusicScheduler {
       notes.push({ time: t, duration: this.barDur * 2, midi: this.fold(root + 13), velocity: 0.16, voice: s.tension.shiver, brightness: s.brightness, layer: 'tension' });
     }
 
-    // The motif's phrase machine.
-    if (mix.motif > ACTIVE && !resting && t >= this.holdMotifUntil) this.phraseMachine(t, mix, calm, notes);
+    // The motif's phrase machine (after a breather's intro bars).
+    if (this.introBars > 0 && !resting) {
+      this.introBars--;
+      if (this.phraseBarsLeft > 0) this.phraseBarsLeft--;
+    } else if (mix.motif > ACTIVE && !resting && t >= this.holdMotifUntil) this.phraseMachine(t, mix, calm, notes);
     else if (this.phraseBarsLeft > 0) this.phraseBarsLeft--;
 
     // Far percussion while exploring.
@@ -304,6 +393,11 @@ export class MusicScheduler {
       this.counterInRest(t, notes);
       return;
     }
+    if (calm && this.cadence) {
+      // The coda: the phrases have said it; the harmony goes home before the rest.
+      this.counterInRest(t, notes);
+      return;
+    }
     const fighting = mix.combat > ACTIVE;
     const tense = mix.tension > ACTIVE && !fighting;
     const p = fighting ? 0.9 : tense ? 0.5 : s.density;
@@ -325,6 +419,7 @@ export class MusicScheduler {
     this.phraseNotes = this.phraseOf(variation, t, fighting);
     for (const n of this.phraseNotes) notes.push(n);
     this.echo(notes);
+    if (fighting && s.finale && this.phaseNow >= this.phaseCount) this.finaleTheme(t, notes);
     this.phrases++;
     this.phraseBarsLeft = s.motifBars - 1;
     this.justPhrased = true;
@@ -416,12 +511,42 @@ export class MusicScheduler {
         out.push({
           time: t + Math.max(0, at + jitter), duration: m.len * timeScale * this.beatDur * 0.95,
           midi: this.fold(degreeToMidi(base, s.mode, m.d + shift)),
-          velocity: Math.min(1, (m.vel ?? 0.8) * rng.range(0.85, 1.05) * (r === 1 ? 0.9 : 1)),
+          velocity: Math.min(1, (m.vel ?? 0.8) * rng.range(0.85, 1.05) * (r === 1 ? 0.9 : 1) * this.arc),
           voice: s.lead, brightness: s.brightness, layer: 'motif',
         });
       }
     }
     return out;
+  }
+
+  /** A short chord on the score's stab timbre, under the lead (the octave on top from a second phase). */
+  private stab(t: number, notes: MusicNote[]): void {
+    const s = this.score;
+    const timbre = s.combat.stab;
+    if (!timbre) return;
+    const guardian = !!s.phase2;
+    const vel = !guardian ? 0.5 : this.phaseNow >= 2 ? 0.72 : 0.62;
+    const tones = this.phaseNow >= 2 ? [0, 2, 4, 7] : [0, 2, 4];
+    for (const v of tones) {
+      let midi = degreeToMidi(s.tonic - 12, s.mode, this.chord + v);
+      while (midi > STAB_HI) midi -= 12;
+      while (midi < STAB_LO) midi += 12;
+      notes.push({ time: t, duration: this.beatDur * 0.45, midi, velocity: vel * this.rng.range(0.92, 1.04), voice: timbre, brightness: s.brightness, layer: 'combat' });
+    }
+  }
+
+  /** The Dark Heart's last phase: the game's theme sung above the guardian motif (kept from stealing). */
+  private finaleTheme(t: number, notes: MusicNote[]): void {
+    const s = this.score;
+    const f = s.finale;
+    if (!f) return;
+    const base = this.leadBase() + 12 * f.octave;
+    for (const m of f.theme) {
+      notes.push({
+        time: t + m.at * this.beatDur, duration: m.len * this.beatDur * 0.95, midi: this.fold(degreeToMidi(base, s.mode, m.d)),
+        velocity: 0.72 * (m.vel ?? 1), voice: f.voice, brightness: s.brightness, layer: 'motif', prio: 3,
+      });
+    }
   }
 
   /** Pattern steps of one beat (drums, or a bass line when `line` is given). */

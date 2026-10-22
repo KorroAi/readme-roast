@@ -1,6 +1,12 @@
 import type { CDPSession, Page } from '@playwright/test';
 
-/** Real touch input through the Chrome DevTools Protocol (Playwright only offers taps). */
+/**
+ * Real touch input through the Chrome DevTools Protocol (Playwright only offers taps).
+ *
+ * Under load SwiftShader acks a CDP touch event in seconds, so a gesture whose events are awaited one
+ * by one reaches the page stretched (a tap reads as a long-press, a drag's first move as a hold): a
+ * tap sends its start and end together, and a drag its start with its moves (QA, 20:36).
+ */
 export class Touch {
   private constructor(private readonly cdp: CDPSession, private readonly page: Page) {}
 
@@ -17,14 +23,29 @@ export class Touch {
 
   /** Press at a point, slide to another, hold there for `holdMs`, release. */
   async drag(from: { x: number; y: number }, to: { x: number; y: number }, holdMs: number, id = 1): Promise<void> {
-    await this.send('touchStart', [{ ...from, id }]);
-    const steps = 8;
-    for (let i = 1; i <= steps; i++) {
-      await this.send('touchMove', [{ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps, id }]);
-      await this.page.waitForTimeout(16);
-    }
+    await this.press(from, to, id, 8);
     await this.page.waitForTimeout(holdMs);
     await this.send('touchEnd', []);
+  }
+
+  /**
+   * Press at a point and slide to another, staying down (end it with up()). The start and every move
+   * go out together: each event is acked in seconds under load, and the page coalesces the moves
+   * into the frames it draws, so the slide arrives whole whatever the harness latency.
+   */
+  async press(from: { x: number; y: number }, to: { x: number; y: number }, id = 1, steps = 4): Promise<void> {
+    const at = (i: number) => ({ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps, id });
+    // Sent in order (the start first): each send goes out when called, the awaits come after.
+    const sent: Array<Promise<void>> = [this.send('touchStart', [{ ...from, id }])];
+    for (let i = 1; i <= steps; i++) sent.push(this.send('touchMove', [at(i)]));
+    await Promise.all(sent);
+  }
+
+  /** Slide a finger that is down from one point to another (its moves pipelined, see press). */
+  async slide(from: { x: number; y: number }, to: { x: number; y: number }, id = 1, steps = 4): Promise<void> {
+    const sent: Array<Promise<void>> = [];
+    for (let i = 1; i <= steps; i++) sent.push(this.send('touchMove', [{ x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps, id }]));
+    await Promise.all(sent);
   }
 
   /** Press and hold without moving (hold-to-mine). */
@@ -43,7 +64,8 @@ export class Touch {
     await this.send('touchEnd', []);
   }
 
+  /** A quick tap: the start and the end sent together (a tap, never a long-press, whatever the load). */
   async tap(at: { x: number; y: number }): Promise<void> {
-    await this.hold(at, 60, 3);
+    await Promise.all([this.send('touchStart', [{ ...at, id: 3 }]), this.send('touchEnd', [])]);
   }
 }

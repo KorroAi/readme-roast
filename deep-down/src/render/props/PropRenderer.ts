@@ -3,7 +3,7 @@ import type { PropSpec } from '../../world/gen/types';
 import type { LightingUniforms } from '../lighting';
 import { createEntityMaterial } from '../entityMaterial';
 import { hash32 } from '../../core/math';
-import { PROP_VARIANTS, buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
+import { buildPropModel, variantOf, type PropModel, type PropModelOptions, type PartMotion } from './models';
 import { FOG_CULL } from '../lighting';
 import { createFlameMaterial, flameQuad } from './flame';
 import { DecorBatch, isDecor } from './DecorBatch';
@@ -160,7 +160,7 @@ export class PropRenderer {
     // Living flames (fires): camera-facing shader quads, each its own seed.
     for (let i = 0; i < model.flames.length; i++) {
       const f = model.flames[i];
-      const mesh = new THREE.Mesh(flameQuad(), createFlameMaterial(this.lighting, ((spec.seed >>> 0) % 997) / 97 + i * 3.7, f.w, f.h));
+      const mesh = new THREE.Mesh(flameQuad(), createFlameMaterial(this.lighting, ((spec.seed >>> 0) % 997) / 97 + i * 3.7, f.w, f.h, f.tint ?? null));
       mesh.position.set(f.x, f.y, f.z);
       mesh.renderOrder = 9;
       mesh.userData.flame = true;
@@ -452,8 +452,9 @@ function setFx(mat: THREE.ShaderMaterial, tint: number, lift: number, hi: PropEn
 }
 
 function modelOptions(spec: PropSpec): PropModelOptions {
-  // A chosen variant wins; the black stone sleeps (variant 0) unless the finale wakes it.
-  const variant = spec.modelVariant !== undefined ? Math.max(0, Math.floor(spec.modelVariant)) % PROP_VARIANTS[spec.kind] : spec.kind === 'abyssMonolith' ? 0 : propVariant(spec.kind, spec.seed);
+  // A chosen variant wins; the black stone sleeps (variant 0) unless the finale wakes it, and the
+  // round 3 kinds whose variant is a state or a style show 0 until it is chosen (models variantOf).
+  const variant = variantOf(spec);
   if (spec.kind !== 'hangingLantern') return { variant };
   // Hang from the ceiling block this lantern is anchored to; quantized so lanterns share meshes.
   const above = spec.anchor && spec.anchor[1] > spec.y + 0.5 ? (spec.anchor[1] - spec.y) / spec.scale : 1.6;

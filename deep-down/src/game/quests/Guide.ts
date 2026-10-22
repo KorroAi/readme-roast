@@ -1,5 +1,5 @@
 import { BIOMES, type BiomeId } from '../../config/biomes';
-import { ITEMS, type ItemId } from '../../config/items';
+import { ITEMS, gearFor, type ItemId } from '../../config/items';
 
 /** Seconds between two first-time item tips. */
 const ITEM_TIP_GAP = 7;
@@ -23,12 +23,12 @@ export interface GuideInput {
 
 /** The hazard counter line per WORLD hazard kind (LOOP text), shown on the arrival card. */
 const COUNTER: Partial<Record<string, TextKey>> = {
-  chill: 'hazard.cold.counter',
+  chill: 'hazard.chill.counter',
   cold: 'hazard.cold.counter',
   gas: 'hazard.gas.counter',
   lava: 'hazard.heat.counter',
   dark: 'hazard.dark.counter',
-  void: 'hazard.dark.counter',
+  void: 'hazard.void.counter',
 };
 
 const STUCK: Partial<Record<MainStepId, TextKey>> = {
@@ -54,9 +54,10 @@ export function arrivalCard(biome: BiomeId, first: boolean): ArrivalCard {
   const d = BIOMES[biome];
   const text = (k: TextKey | string) => (hasText(k) ? t(k as TextKey) : '');
   const hazard = d.hazard.kind === 'none' ? null : text(d.hazardText) || null;
-  const counterKey = COUNTER[d.hazard.kind];
-  const gear = text(d.gearText);
-  const counter = d.hazard.kind === 'none' ? null : [counterKey ? t(counterKey) : '', gear].filter(Boolean).join(' · ') || null;
+  // The metered hazards name the loop's counters (the items and the set); the others (falls,
+  // rockfall, thorns, and the Heart) WORLD's gear line.
+  const counterKey = biome === 'heart' ? undefined : COUNTER[d.hazard.kind];
+  const counter = d.hazard.kind === 'none' ? null : (counterKey ? t(counterKey) : text(d.gearText)) || null;
   return {
     biome: biome as ArrivalCard['biome'],
     name: text(d.name) || biome,
@@ -106,7 +107,8 @@ export class Guide {
     bus.on('block:tooHard', (e) => {
       if (this.clock - this.hardT < 20) return;
       this.hardT = this.clock;
-      this.hint('tooHard', t('hint3.tooHard', { tier: e.requiredTier }), 'craft');
+      const pick = gearFor('pick', e.requiredTier);
+      this.hint('tooHard', pick ? t('hint3.tooHardPick', { pick: t(ITEMS[pick].name), tier: e.requiredTier }) : t('hint3.tooHard', { tier: e.requiredTier }), 'craft');
     });
     bus.on('world:biome', (e) => {
       if (!(e.biome in BIOMES)) return;

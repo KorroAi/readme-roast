@@ -317,6 +317,22 @@ export const mobs = {
   'mob.guardianDown': '{name} is defeated! A Heart Shard!',
   'mob.guardianPhase': 'It grows angry: faster now.',
   'mob.guardianReset': 'The guardian heals and sleeps again.',
+  'mob.guardianOpen': 'Its guard is open: strike now!',
+  // A guardian's new phase: what it does now (the added pattern), one line each.
+  'mob.phaseLine.amberMatriarch.2': 'The Matriarch rears up: now she slams. Out of the circle, then strike.',
+  'mob.phaseLine.mycelord.2': 'The Mycelord stamps the ground now. Step out of its circle.',
+  'mob.phaseLine.elderTaproot.2': 'The Taproot heaves: rings roll out of it. Jump them.',
+  'mob.phaseLine.tideWarden.2': 'The Tide Warden calls the leeches from the water.',
+  'mob.phaseLine.quartzTitan.2': 'The Titan rings like a bell: jump its shockwave.',
+  'mob.phaseLine.foremanEngine.2': 'The Engine overheats: it sprays rivets now. Weave between them.',
+  'mob.phaseLine.rimeWyrm.2': 'The Wyrm calls the hoarfrost bats.',
+  'mob.phaseLine.thornmother.2': 'The Thornmother shudders: rings of thorns roll out. Jump them.',
+  'mob.phaseLine.miasmaKing.2': 'The Miasma King calls his gasbags. Burst them far from you.',
+  'mob.phaseLine.gildedColossus.2': 'The Colossus fires rune bolts now. Weave between them.',
+  'mob.phaseLine.magmaBehemoth.2': 'The Behemoth roars: shockwaves and ember mites now.',
+  'mob.phaseLine.voidHerald.2': 'The Herald rings the void: jump its shockwave.',
+  'mob.phaseLine.heartOfDark.2': 'The Heart\'s shell cracks. It snuffs the light and calls the deep.',
+  'mob.phaseLine.heartOfDark.3': 'The Heart burns its last light: it falls on you. Dash off its mark!',
 
   // ---- Elites (a pack's leader: one affix, two from stratum IV)
   'mob.elite.radiant': 'Radiant',

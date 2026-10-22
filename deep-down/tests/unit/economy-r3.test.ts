@@ -11,7 +11,7 @@ import { recipesFor } from '../../src/config/recipes';
  * rosters and guardians) following the descent plan with the recipes as written, and reaches the
  * Heart; each stratum takes about 15–25 minutes (the first one also holds the 5-minute tutorial).
  */
-const SEEDS = [12345, 777];
+const SEEDS = [12345, 777, 4242];
 const runs = new Map<number, { supplies: StratumSupply[]; report: DescentReport }>();
 
 beforeAll(() => {
@@ -24,7 +24,7 @@ beforeAll(() => {
 const fmt = (n: number) => n.toFixed(1).padStart(5);
 
 describe('the economy and quest simulation (round 3)', () => {
-  it('reaches the Heart with the recipes as written, on two expeditions', () => {
+  it('reaches the Heart with the recipes as written, on three expeditions', () => {
     for (const seed of SEEDS) {
       const { report } = runs.get(seed)!;
       const lines = report.strata.map(

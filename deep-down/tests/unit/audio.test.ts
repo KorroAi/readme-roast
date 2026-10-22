@@ -1,20 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { B, BLOCKS, type SoundKind } from '../../src/config/blocks';
 import { ITEM_IDS, ITEMS } from '../../src/config/items';
+import { RECIPES } from '../../src/config/recipes';
 import { EventBus, type GameEvents } from '../../src/core/events';
 import { Rng } from '../../src/core/rng';
 import { activeDuration, peakOf, rmsOf, spectralCentroid } from '../../src/audio/analysis';
 import { AudioSystem, LISTENED_EVENTS, renderSfxOffline, type AudioWorldState } from '../../src/audio/AudioSystem';
 import { brownNoise, crackleTexture, crumbleTexture, impulseResponse, pinkNoise } from '../../src/audio/buffers';
-import { AUDIBLE_EVENTS, sfxForEvent, stepKindOf } from '../../src/audio/eventMap';
+import { AUDIBLE_EVENTS, MOMENT_STEPS, REWARD_MOMENTS, SILENT_EVENTS, VOICED_ELSEWHERE, sfxForEvent, stepKindOf } from '../../src/audio/eventMap';
 import { CALM_MIX, MusicScheduler, type LayerMix, type MusicNote } from '../../src/audio/MusicScheduler';
 import { TIMBRES } from '../../src/audio/instruments';
 import { BIOME_SCORES, SCORES, SCORE_IDS, guardianScoreFor } from '../../src/audio/scores';
-import { SFX, SFX_NAMES, isSfxName } from '../../src/audio/sfx';
+import { SFX, SFX_NAMES, isSfxName, type StepKind } from '../../src/audio/sfx';
+import { KEYED, majorKeyOf, shiftTo } from '../../src/audio/harmony';
 import { MODES, MOODS, degreeToMidi, inMode, midiToHz, moodFor, volumeToGain } from '../../src/audio/theory';
 import { RateGate, VoiceLimiter } from '../../src/audio/voices';
 
-const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
+/** A realistic sample of every bus event, the optional ones too (`-?`): a new event fails to compile here until it has one. */
+const SAMPLE_PAYLOADS: { [K in keyof GameEvents]-?: NonNullable<GameEvents[K]> } = {
   'block:hit': { x: 1, y: 2, z: 3, block: B.SLATE, progress: 0.4 },
   'block:broken': { x: 1, y: 2, z: 3, block: B.COPPER_ORE },
   'block:tooHard': { x: 1, y: 2, z: 3, block: B.ANCIENT_BRICK, requiredTier: 99 },
@@ -101,6 +104,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'mob:guardianAwake': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
   'mob:guardianPhase': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', phase: 2 },
   'mob:guardianReset': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
+  'mob:guardianOpen': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', seconds: 1.6 },
   'mob:guardianDefeated': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', shard: 'amberHollows', x: 0, y: 0, z: 0 },
   'mob:scanned': { id: 3, kind: 'capSpitter', first: true },
   'mob:bestiary': { kind: 'capSpitter', page: 'new', found: 1, total: 61 },
@@ -127,7 +131,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'recipe:unlocked': { recipe: 'torch', item: 'torch' },
   'station:placed': { station: 'furnace', x: 1, y: 2, z: 3, stratum: 1 },
   'quest:step': { id: 'main:s1.lairs', kind: 'main', text: 'Find the lairs' },
-  'quest:done': { id: 'main:guardian.amberHollows', kind: 'main', reward: '+2 Bandage' },
+  'quest:done': { id: 'task:amberHollows.mine', kind: 'biome', reward: '+2 Bandage' },
   'tutorial:step': { id: 'mine', highlight: 'action', line: 'Mine' },
   'quest:shard': { biome: 'amberHollows', count: 1 },
   'quest:page': { n: 1, first: true },
@@ -138,7 +142,7 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'order:paid': { id: 'order:1', reward: '+4 Torch' },
   'bestiary:reward': { kind: 'crawler', text: '+2 Chitin' },
   'hazard:changed': { kind: 'cold', level: 0.5 },
-  'reward:paid': { items: { torch: 4 }, reason: 'order' },
+  'reward:paid': { items: { glowcap: 3 }, reason: 'garden' },
   // LOOP (round 3 stretch, declared optional): the camp, the trader, sockets, the trip, the companion's treats, the daily.
   'camp:upgraded': { id: 'tents', level: 1 },
   'trade:done': { id: 'trade:1', times: 1, item: 'torch', recipe: null },
@@ -446,6 +450,190 @@ describe('event to sound mapping', () => {
     }
     expect(SFX.discovery.priority).toBe(4);
     expect(SFX.discovery.wet).toBeGreaterThan(0.6);
+  });
+});
+
+describe('every event heard once, on purpose', () => {
+  const name = <K extends keyof GameEvents>(type: K, p: GameEvents[K]) => sfxForEvent(type, p)?.name ?? null;
+
+  it('classifies every bus event exactly once: its own sound, heard through another, or silent by design', () => {
+    const all = Object.keys(SAMPLE_PAYLOADS) as Array<keyof GameEvents>;
+    expect(all.length).toBeGreaterThan(115);
+    for (const type of all) {
+      const classes = [AUDIBLE_EVENTS.includes(type), type in VOICED_ELSEWHERE, type in SILENT_EVENTS].filter(Boolean).length;
+      expect(classes, type).toBe(1);
+    }
+    // The lists name only real events, each with its reason.
+    for (const [type, why] of [...Object.entries(VOICED_ELSEWHERE), ...Object.entries(SILENT_EVENTS)]) {
+      expect(type in SAMPLE_PAYLOADS, type).toBe(true);
+      expect((why ?? '').length, type).toBeGreaterThan(12);
+    }
+    // Every mapped event, on its realistic sample, makes a registered sound (or a deliberate nothing).
+    for (const type of AUDIBLE_EVENTS) {
+      const req = sfxForEvent(type, SAMPLE_PAYLOADS[type] as never);
+      if (req) expect(isSfxName(req.name), `${type} -> ${req.name}`).toBe(true);
+    }
+  });
+
+  it('hears the companion once: MOBS voices its moments in stereo, the map adds the treat and the zap', () => {
+    for (const type of ['companion:trust', 'companion:tamed', 'companion:level', 'companion:ore', 'companion:lure', 'companion:feed'] as const) {
+      expect(AUDIBLE_EVENTS.includes(type), type).toBe(false);
+      expect(sfxForEvent(type, SAMPLE_PAYLOADS[type] as never), type).toBeNull();
+    }
+    expect(name('companion:fed', SAMPLE_PAYLOADS['companion:fed'])).toBe('companion.eat');
+    expect(name('companion:zap', SAMPLE_PAYLOADS['companion:zap'])).toBe('companion.zap');
+    for (const voice of ['companion.chirp', 'companion.happy', 'companion.alert', 'companion.levelup', 'companion.hurt']) {
+      const req = sfxForEvent('mob:sfx', { name: voice, pan: -0.4, gain: 0.7 });
+      expect(req?.name, voice).toBe(voice);
+      expect(req?.params.pan).toBe(-0.4);
+    }
+    expect(name('item:used', { item: 'lamplingLure' })).toBe('use.lure');
+    expect(name('item:used', { item: 'glowTreat' })).toBe('companion.eat');
+  });
+
+  it('hears a reward through its moment, never twice', () => {
+    for (const reason of REWARD_MOMENTS) expect(name('reward:paid', { items: { torch: 2 }, reason }), reason).toBeNull();
+    expect(name('reward:paid', { items: { glowcap: 3 }, reason: 'garden' })).toBe('reward.pouch');
+    expect(name('order:paid', { id: 'order:3', reward: '+4 Torch' })).toBe('loop.order');
+    expect(name('quest:done', { id: 'order:3', kind: 'order', reward: '+4 Torch' })).toBeNull();
+    for (const id of ['main:guardian.frostCaverns', 'main:heart', 'main:s3.gate']) {
+      expect(MOMENT_STEPS.test(id), id).toBe(true);
+      expect(name('quest:done', { id, kind: 'main', reward: null }), id).toBeNull();
+    }
+    expect(MOMENT_STEPS.test('main:s3.lairs')).toBe(false);
+    expect(name('quest:done', { id: 'task:frostCaverns.hunt', kind: 'biome', reward: '+1 Gem' })).toBe('quest.done');
+    expect(name('quest:done', { id: 'main:tutorial', kind: 'tutorial', reward: null })).toBe('quest.done');
+    expect(name('mob:bestiary', { kind: 'gritBoar', page: 'new', found: 2, total: 61 })).toBe('bestiary.page');
+    expect(name('mob:bestiary', { kind: 'gritBoar', page: 'complete', found: 2, total: 61 })).toBe('bestiary.complete');
+    expect(name('bestiary:reward', SAMPLE_PAYLOADS['bestiary:reward'])).toBeNull();
+  });
+
+  it('plays a sound for every round-3 action', () => {
+    // Sprint footsteps per floor: each biome's ground its own material, a sprint heavier and louder.
+    const floors: Array<[number, StepKind]> = [
+      [B.AMBER_FLOOR, 'sand'], [B.MYCEL_FLOOR, 'fungus'], [B.ROOT_FLOOR, 'root'], [B.FLOOD_FLOOR, 'water'], [B.GEODE_FLOOR, 'crystal'],
+      [B.MINE_FLOOR, 'soil'], [B.FROST_SNOW, 'snow'], [B.FROST_ICE, 'ice'], [B.JUNGLE_MOSS, 'moss'], [B.BOG_CRUST, 'mud'], [B.CITY_TILE, 'ancient'],
+      [B.ASH_FLOOR, 'ash'], [B.OBSIDIAN_FLOOR, 'glass'], [B.GATE_SEAL, 'metal'], [B.BUILT_PLANK, 'wood'], [B.LADDER, 'wood'],
+    ];
+    for (const [block, kind] of floors) {
+      expect(stepKindOf(block), String(block)).toBe(kind);
+      expect(isSfxName(`step.${kind}`)).toBe(true);
+    }
+    const walk = sfxForEvent('player:footstep', { block: B.FROST_SNOW, speed: 4.2 })!.params;
+    const sprint = sfxForEvent('player:footstep', { block: B.FROST_SNOW, speed: 6.5 })!.params;
+    expect(sprint.intensity!).toBeGreaterThan(walk.intensity! + 0.3);
+    expect(sprint.gain!).toBeGreaterThan(walk.gain!);
+    // Dash, jump, landing on the biome's floor.
+    expect(name('player:dash', SAMPLE_PAYLOADS['player:dash'])).toBe('act.dash');
+    expect(name('player:jump', {})).toBe('jump');
+    expect(sfxForEvent('player:land', { fallSpeed: 12, block: B.FROST_ICE })!.params.material).toBe('ice');
+    // The sonar's pulse (its echoes: AudioSystem, from what VIS revealed).
+    expect(name('player:sonar', SAMPLE_PAYLOADS['player:sonar'])).toBe('sonar.pulse');
+    // Placing each placeable.
+    const placed = (item: string) => name('player:placed', { item, block: 0, x: 0, y: 0, z: 0 });
+    expect([placed('torch'), placed('ladder'), placed('rope'), placed('door'), placed('brick'), placed('plank'), placed('outpostKit'), placed('furnace')])
+      .toEqual(['place.torch', 'place.ladder', 'place.rope', 'place.door', 'place.block', 'place.plank', 'place.outpost', 'place.station']);
+    // Crafting per station (a recipe of each), camp upgrades and the trader.
+    for (const [station, sound] of [['workbench', 'craft.workbench'], ['furnace', 'craft.furnace'], ['forge', 'craft.forge'], ['alchemy', 'craft.alchemy'], ['hand', 'craft.hand']] as const) {
+      const recipe = RECIPES.find((r) => r.station === station);
+      expect(recipe, station).toBeDefined();
+      expect(name('craft:made', { recipe: recipe!.id, item: recipe!.output.item as never, times: 1, count: 1 }), station).toBe(sound);
+    }
+    expect(name('craft:made', { recipe: 'camp:tents', item: 'plank', times: 1, count: 1 })).toBe('camp.upgrade');
+    expect(name('camp:upgraded', { id: 'tents', level: 1 })).toBe('camp.upgrade');
+    expect(name('trade:done', SAMPLE_PAYLOADS['trade:done'])).toBe('craft.trader');
+    expect(name('gem:socketed', SAMPLE_PAYLOADS['gem:socketed'])).toBe('gem.socket');
+    // Equip, consume and eat.
+    expect(['head', 'chest', 'feet', 'weapon', 'lantern', 'pick'].map((slot) => name('gear:equipped', { item: 'copperPick', slot: slot as never })))
+      .toEqual(['equip.armour', 'equip.armour', 'equip.armour', 'equip.weapon', 'equip.lantern', 'equip.tool']);
+    expect(['bandage', 'roastCap', 'healingDraught', 'oilFlask', 'warmingTonic', 'flare'].map((item) => name('item:used', { item: item as never })))
+      .toEqual(['use.bandage', 'use.eat', 'use.drink', 'use.oil', 'use.ward', 'use.flare']);
+    // Bombs and flares thrown from the hotbar: a heavier whoosh, then a blast or the flare catching.
+    expect(sfxForEvent('weapon:swing', { weapon: 'bomb', ranged: true })!.params.pitch).toBeLessThan(1);
+    expect(name('weapon:flash', { x: 0, y: 0, z: 0, radius: 4, count: 2 })).toBe('act.bomb');
+    expect(name('weapon:flash', { x: 0, y: 0, z: 0, radius: 6, count: 0 })).toBe('weapon.flash');
+    // Quest beats, shards, the gate, descent and ascent, fast travel, the tutorial.
+    expect(name('quest:step', SAMPLE_PAYLOADS['quest:step'])).toBe('quest.step');
+    expect(name('quest:shard', SAMPLE_PAYLOADS['quest:shard'])).toBe('loop.shard');
+    expect(name('world:gateOpened', SAMPLE_PAYLOADS['world:gateOpened'])).toBe('loop.gate');
+    expect(name('world:stratum', { stratum: 3, from: 2, biomes: ['crystalGeode', 'haldenMines'] })).toBe('world.descent');
+    expect(name('world:stratum', { stratum: 2, from: 3, biomes: ['rootGalleries', 'floodedGrottoes'] })).toBe('world.ascent');
+    expect(name('world:stratum', { stratum: 1, from: null, biomes: ['amberHollows', 'mushroomForest'] })).toBeNull();
+    expect(name('player:travelled', SAMPLE_PAYLOADS['player:travelled'])).toBe('travel.whoosh');
+    expect(name('tutorial:step', SAMPLE_PAYLOADS['tutorial:step'])).toBe('tutorial.step');
+    expect(name('tutorial:step', { id: null, highlight: null, line: null })).toBeNull();
+    // Hazard onsets (and the AudioSystem's warnings from the meter).
+    for (const kind of ['cold', 'gas', 'heat', 'dark'] as const) expect(name('hazard:changed', { kind, level: 0.6 })).toBe(`loop.hazard.${kind}`);
+    // LOOP's hazard warnings speak in the hazard's own voice; other hints with the hint's.
+    expect(['cold', 'chill', 'gas', 'lava', 'dark', 'void'].map((k) => name('guide:hint', { id: `hazard:${k}`, text: '', target: null })))
+      .toEqual(['hazard.cold', 'hazard.cold', 'hazard.gas', 'hazard.heat', 'hazard.dark', 'hazard.dark']);
+    expect(name('guide:hint', { id: 'flame', text: '', target: 'flame' })).toBe('ui.hint');
+    // A hazard zone walked into: a low cue (lower for the heavier dangers); an elemental blow: its hit says it; the rumour's arrow: "this way".
+    const zones = ['falls', 'rockfall', 'chill', 'gas', 'lava'].map((k) => sfxForEvent('guide:hint', { id: `zone:${k}`, text: '', target: null })!);
+    for (const z of zones) expect(z.name).toBe('zone.enter');
+    expect(zones[4].params.pitch!).toBeLessThan(zones[0].params.pitch!);
+    expect(name('guide:hint', { id: 'element:frost', text: '', target: null })).toBeNull();
+    expect(name('guide:hint', { id: 'stuck:lairs', text: '', target: 'tracker' })).toBe('guide.way');
+    // UI's thrown things say what they are.
+    expect(name('weapon:flash', { x: 0, y: 0, z: 0, radius: 6, count: 0, kind: 'flare' })).toBe('use.flare');
+    expect(name('weapon:flash', { x: 0, y: 0, z: 0, radius: 6, count: 2, kind: 'bomb' })).toBe('act.bomb');
+    expect(name('weapon:flash', { x: 0, y: 0, z: 0, radius: 4, count: 2, kind: 'flash' })).toBe('weapon.flash');
+    expect(name('hazard:changed', { kind: null, level: 0 })).toBeNull();
+    // The Halden works: levers, plates in order (a rising tone), a wrong plate (they all spring back), the vault.
+    expect(name('world:lever', SAMPLE_PAYLOADS['world:lever'])).toBe('world.lever');
+    const plates = [1, 2, 3].map((set) => sfxForEvent('world:plate', { k: set - 1, set, total: 3, ok: true })!.params.pitch!);
+    expect(plates[1]).toBeGreaterThan(plates[0]);
+    expect(plates[2]).toBeGreaterThan(plates[1]);
+    expect(name('world:plate', { k: 1, set: 0, total: 3, ok: false })).toBe('world.plateReset');
+    expect(name('world:worksOpened', SAMPLE_PAYLOADS['world:worksOpened'])).toBe('world.worksOpened');
+    // Menus, page turns and the hotbar (its tick climbs with the slot), feats.
+    expect(['map', 'quests', 'bestiary', 'crafting', 'inventory', 'settings'].map((screen) => name('ui:opened', { screen })))
+      .toEqual(['ui.page', 'ui.page', 'ui.page', 'ui.page', 'ui.bag', 'ui.open']);
+    const ticks = [0, 1, 2, 3, 4, 5].map((slot) => sfxForEvent('hotbar:selected', { slot, item: null })!.params.pitch!);
+    for (let i = 1; i < ticks.length; i++) expect(ticks[i]).toBeGreaterThan(ticks[i - 1]);
+    expect(name('feat:earned', { id: 'deep3' })).toBe('feat.fanfare');
+    expect(name('daily:done', SAMPLE_PAYLOADS['daily:done'])).toBe('feat.fanfare');
+    // The world: sites, lairs marked (not by the sonar: its echo says it), elites, moths.
+    expect(name('world:site', { id: 'river_1', kind: 'river', name: 'x', biome: 'amberHollows', stratum: 1 })).toBe('site.found');
+    expect(name('world:site', { id: 'vista_1', kind: 'vista', name: 'x', biome: 'amberHollows', stratum: 1 })).toBe('discovery');
+    expect(name('world:lairRevealed', { id: 'l', biome: 'amberHollows', how: 'page' })).toBe('lair.revealed');
+    expect(name('world:lairRevealed', { id: 'l', biome: 'amberHollows', how: 'sonar' })).toBeNull();
+    expect(name('mob:elite', SAMPLE_PAYLOADS['mob:elite'])).toBe('elite.alert');
+    expect(name('moths:startled', SAMPLE_PAYLOADS['moths:startled'])).toBe('amb.moth');
+  });
+});
+
+describe('the cues follow the music\'s key', () => {
+  const D_MAJOR = MODES.ionian;
+
+  it('finds the major key that holds each score\'s mode, and every scale note lands in it', () => {
+    for (const id of SCORE_IDS) {
+      const s = SCORES[id];
+      const key = majorKeyOf(s);
+      if (s.mode === 'wholeTone' || s.mode === 'phrygianDominant' || s.mode === 'harmonicMinor') continue;
+      for (const step of MODES[s.mode]) expect(inMode(s.tonic + step, key, 'ionian'), `${id} ${s.tonic + step}`).toBe(true);
+    }
+    expect(majorKeyOf({ tonic: 67, mode: 'mixolydian' }) % 12).toBe(0); // G mixolydian: C major
+    expect(majorKeyOf({ tonic: 61, mode: 'aeolian' }) % 12).toBe(4); // C# minor: E major
+    expect(majorKeyOf({ tonic: 64, mode: 'lydian' }) % 12).toBe(11); // E lydian: B major
+  });
+
+  it('moves a D-major cue by the smallest interval, and its notes stay in the target key', () => {
+    for (let key = 50; key < 80; key++) {
+      const shift = shiftTo(key);
+      expect(shift).toBeGreaterThanOrEqual(-6);
+      expect(shift).toBeLessThanOrEqual(5);
+      for (const step of D_MAJOR) expect(inMode(62 + step + shift, key, 'ionian')).toBe(true);
+    }
+    expect(shiftTo(62)).toBe(0);
+    expect(shiftTo(74)).toBe(0);
+    expect(shiftTo(Number.NaN)).toBe(0);
+  });
+
+  it('keys only registered, tonal cues (no footsteps, clicks, creatures or warnings)', () => {
+    for (const n of KEYED) expect(isSfxName(n), n).toBe(true);
+    for (const n of ['ui.click', 'ui.error', 'hazard.cold', 'step.stone', 'mob.chitter', 'act.dash', 'damaged', 'reward.pouch']) expect(KEYED.has(n), n).toBe(false);
+    for (const n of ['quest.done', 'feat.fanfare', 'discovery', 'pickup.rare', 'sonar.ping', 'craft.forge', 'loop.shard', 'guardian.fall']) expect(KEYED.has(n), n).toBe(true);
   });
 });
 

@@ -27,6 +27,10 @@ export function buildCraft(host: ScreenHost): HTMLElement {
   const categories = v.categories
     .map((c) => ({ ...c, total: pool.filter((x) => x.category === c.id).length, ready: pool.filter((x) => x.category === c.id && x.state === 'ok').length }))
     .filter((c) => c.total > 0);
+  // LOOP's suggestion (the tutorial's torches, the pick the next gate asks for): opening the menu
+  // goes to its tab, and its card is ringed while the menu stays open.
+  const focus = v.focus && pool.some((c) => c.id === v.focus!.recipe) ? v.focus : null;
+  if (focus && host.opening) st.craftTab = focus.category;
   const cat = pickCategory({ categories }, st.craftTab);
   st.craftTab = cat;
   const cards = pool.filter((c) => c.category === cat);
@@ -58,7 +62,16 @@ export function buildCraft(host: ScreenHost): HTMLElement {
   );
 
   const list = h('div', { class: 'dd-m3-cards' });
-  for (const c of cards) list.append(card(host, c));
+  for (const c of cards) {
+    const el = card(host, c);
+    if (focus && c.id === focus.recipe) {
+      el.classList.add('focus');
+      el.prepend(h('p', { class: 'dd-m3-focus', text: t('m3.craft.focus') }));
+      // Brought into view as the menu opens.
+      if (host.opening && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => el.isConnected && el.scrollIntoView({ block: 'nearest' }));
+    }
+    list.append(el);
+  }
 
   const body = [
     tabRow(

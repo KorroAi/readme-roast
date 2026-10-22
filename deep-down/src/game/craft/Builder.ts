@@ -56,7 +56,8 @@ export const BUILT_PROP: Record<Exclude<BuiltThing['kind'], 'decor'>, PropKind> 
   furnace: 'furnace' as PropKind,
   forge: 'forge' as PropKind,
   alchemy: 'alchemyTable' as PropKind,
-  trader: 'brokenCart' as PropKind,
+  // VIS models the trader's cart (19:57); the broken cart until a build without it.
+  trader: 'traderCart' as PropKind,
   outpost: 'outpost' as PropKind,
 };
 
@@ -119,7 +120,7 @@ export class Builder {
     const decor = t.kind === 'decor';
     const spec: PropSpec = {
       id: t.id,
-      kind: decor ? modelOf(t.prop ?? 'crate', t.fallback) : BUILT_PROP[t.kind as Exclude<BuiltThing['kind'], 'decor'>],
+      kind: decor ? modelOf(t.prop ?? 'crate', t.fallback) : t.kind === 'trader' ? modelOf('traderCart', 'brokenCart') : BUILT_PROP[t.kind as Exclude<BuiltThing['kind'], 'decor'>],
       x: t.x,
       y: t.y,
       z: t.z,

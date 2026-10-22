@@ -199,7 +199,7 @@ export class Combat {
         const e = this.host.eye();
         const w = WEAPONS.flash;
         const count = sys.flash(e.x, e.y - 0.3, e.z, w.area ?? 6, w.damage);
-        this.bus.emit('weapon:flash', { x: e.x, y: e.y, z: e.z, radius: w.area ?? 6, count });
+        this.bus.emit('weapon:flash', { x: e.x, y: e.y, z: e.z, radius: w.area ?? 6, count, kind: 'flash' });
       }
     }
     const t = this.target;

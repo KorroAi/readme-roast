@@ -115,6 +115,8 @@ export class CameraRig {
   private trauma = 0;
   private dip = 0;
   private dipVel = 0;
+  /** The lens widening left (deg), see kickFov. */
+  private fovKick = 0;
   private initialized = false;
   private readonly guarded = new THREE.Vector3();
   private readonly guardOffset = new THREE.Vector3();
@@ -131,6 +133,15 @@ export class CameraRig {
     const k = LOOK_PER_PX * this.sensitivity;
     this.yaw -= dxPx * k;
     this.pitch = clamp(this.pitch - dyPx * k * (this.invertY ? -1 : 1), -PITCH_LIMIT, PITCH_LIMIT);
+  }
+
+  /**
+   * Round 3 (UI): a short widening of the lens (degrees), easing back in about 0.25 s: a dash's
+   * burst of speed and a sprint's start read as speed without any shake. Scaled by shakeScale (0
+   * under reduced motion).
+   */
+  kickFov(deg: number): void {
+    this.fovKick = Math.min(10, Math.max(this.fovKick, deg * this.shakeScale));
   }
 
   /** A jolt (0..1): a landing or a heavy door. The view dips a little and recovers; no roll. */
@@ -207,11 +218,12 @@ export class CameraRig {
       this.dipVel += (-k * this.dip - c * this.dipVel) * dt;
       this.dip += this.dipVel * dt;
       this.trauma = Math.max(0, this.trauma - dt * 2);
+      this.fovKick = this.fovKick > 0.01 ? damp(this.fovKick, 0, 9, dt) : 0;
     }
     const cam = this.camera;
     cam.position.copy(this.eye);
     cam.rotation.set(clamp(this.viewPitch + this.dip * 0.05, -PITCH_LIMIT - 0.05, PITCH_LIMIT + 0.05), this.viewYaw, 0);
-    cam.fov = fpVerticalFov(aspect);
+    cam.fov = fpVerticalFov(aspect) + this.fovKick;
     cam.aspect = aspect;
     cam.near = NEAR;
     cam.updateProjectionMatrix();

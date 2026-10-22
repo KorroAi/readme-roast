@@ -10,7 +10,8 @@ import { standableFor } from './nav';
 import { BestiaryLog, type BestiarySave } from './bestiary';
 import { guardianState } from './guardian';
 import { ROSTERS } from './rosters';
-import { setSpawnSpots, spawnFirstFight, type Lair, type Nest } from './spawner';
+import { spawnFirstFight, type Lair } from './spawner';
+import { darkTide, linkStrata, type StrataLayout } from './strataLink';
 import { SPECIES } from './species';
 import { ELITE_BONUS, RADIANT_OIL, eliteName } from './elites';
 import { CompanionBrain, TAME_NEED, XP, levelFor, nextLevelXp, type CompanionState, type CompanionView } from './companion';
@@ -48,25 +49,13 @@ interface GameExtras {
   events?: { handle?: (k: 'migration' | 'treasure') => void };
 }
 
-/** The stratum layout fields MOBS reads (structurally: WORLD's StratumLayout). */
-interface StrataLayout {
-  stratum?: number;
-  biomeAt?: (x: number, y: number, z: number) => string;
-  lairs?: ReadonlyArray<{ id: string; biome: string; guardian: string; centre: readonly number[]; radius: number; spawn?: readonly number[] }>;
-  nests?: ReadonlyArray<{ id?: string; biome: string; p: readonly number[]; radius?: number; kind?: string | null }>;
-  spawnPoints?: ReadonlyArray<{ p: readonly number[]; biome: string; dark: boolean; open: boolean; ceiling: boolean }>;
-  heart?: { centre: readonly number[]; radius: number; spawn: readonly number[] } | null;
-}
 
 const tmp = new THREE.Vector3();
 const right = new THREE.Vector3();
 const look = new THREE.Vector3();
 
-/** The dark tide: with no day cycle in the deep, the creatures stir in waves (an 8-minute cycle, 0..1). */
-export function darkTide(seconds: number, period = 480): number {
-  const k = 0.5 - 0.5 * Math.cos((seconds / period) * Math.PI * 2);
-  return Math.max(0, Math.min(1, (k - 0.35) / 0.65));
-}
+/** The dark tide (an 8-minute cycle of the creatures' stirring), from strataLink. */
+export { darkTide };
 
 export class MobDirector implements MobSystem {
   readonly sim: MobSim;
@@ -98,6 +87,8 @@ export class MobDirector implements MobSystem {
   private fightWanted = false;
   private fightTry = 0;
   private fightMob = 0;
+  /** Open-guard hints shown this game (the first two only). */
+  private openHints = 0;
 
   constructor(private readonly game: Game, private readonly hooks: MobDirectorHooks) {
     const g = game;
@@ -197,44 +188,14 @@ export class MobDirector implements MobSystem {
       if (p) anchors.push({ x: p[0], y: p[1] + (k === 'fallBottom' ? 14 : -6), z: p[2] });
     }
     this.sim.wormAnchors = anchors;
-    // The strata.
-    const sl = layout as unknown as StrataLayout;
-    const biomeAt = sl.biomeAt;
-    this.sim.env.biomeAt = typeof biomeAt === 'function' ? (x, y, z) => {
-      const b = biomeAt(x, y, z);
-      return b in ROSTERS ? (b as MobBiome) : null;
-    } : undefined;
-    const lairs: Lair[] = [];
-    for (const l of sl.lairs ?? []) {
-      if (!(l.biome in ROSTERS) || !(l.guardian in SPECIES)) continue;
-      const sp = l.spawn ?? l.centre;
-      lairs.push({ id: l.id, biome: l.biome as MobBiome, guardian: l.guardian as Lair['guardian'], x: l.centre[0], y: l.centre[1], z: l.centre[2], radius: l.radius, sx: sp[0], sy: sp[1], sz: sp[2] });
-    }
-    if (sl.heart) {
-      const h = sl.heart;
-      // The Dark Heart wakes when the 12 shards relight the Heart (LOOP's 'quest:heartLit'): before that
-      // its chamber is still, so the ending cannot come before the shards.
-      lairs.push({ id: 'heart', biome: 'heart', guardian: 'heartOfDark', x: h.centre[0], y: h.centre[1], z: h.centre[2], radius: h.radius, sx: h.spawn[0], sy: h.spawn[1], sz: h.spawn[2], sealed: () => !this.heartLit() });
-    }
-    this.sim.lairs = lairs;
-    const nests: Nest[] = [];
-    let id = 1;
-    for (const n of sl.nests ?? []) {
-      if (!(n.biome in ROSTERS)) continue;
-      nests.push({ id: id++, biome: n.biome as MobBiome, x: n.p[0], y: n.p[1], z: n.p[2], radius: n.radius ?? 3, kind: n.kind && n.kind in SPECIES ? (n.kind as MobKind) : null, next: 0, kills: 0 });
-    }
-    this.sim.nests = nests;
-    setSpawnSpots((sl.spawnPoints ?? []).filter((q) => q.biome in ROSTERS).map((q) => ({ x: q.p[0], y: q.p[1], z: q.p[2], biome: q.biome as MobBiome, dark: q.dark, open: q.open, ceiling: q.ceiling })));
+    // The strata: the biome map, the lairs, the nests, the spawn points (game/mobs/strataLink).
+    const kinds = linkStrata(this.sim, layout as unknown as StrataLayout, () => this.heartLit());
+    // WORLD's vista hall (§6), from stratum IV down: something vast may pass through it, far below its
+    // balcony (the Deep Worm's glimpse; the first world's chasms had it).
+    const sv = layout as unknown as { stratum?: number; vista?: { centre: readonly number[]; radius: number } | null };
+    if (sv.vista && (sv.stratum ?? 0) >= 4) anchors.push({ x: sv.vista.centre[0], y: sv.vista.centre[1] + Math.min(10, sv.vista.radius * 0.3), z: sv.vista.centre[2] });
     // Warm this stratum's creatures' models and batches, one a tick (no hitch at a first meeting).
-    const biomes = ((sl as { biomes?: readonly string[] }).biomes ?? []).filter((b): b is MobBiome => b in ROSTERS);
-    if (sl.heart) biomes.push('heart');
-    const kinds = new Set<MobKind>();
-    for (const b of biomes) {
-      const r = ROSTERS[b];
-      for (const e of [...r.monsters, ...r.beings]) kinds.add(e.kind);
-      kinds.add(r.guardian);
-    }
-    if (kinds.size) this.renderer.prepare([...kinds]);
+    if (kinds.length) this.renderer.prepare(kinds);
   }
 
   /** LOOP's quest: the Heart relit with the 12 shards (its boss may come). */
@@ -335,6 +296,9 @@ export class MobDirector implements MobSystem {
     }
     const ctx = this.context(active);
     this.sim.spawning = this.autoSpawn;
+    // LOOP's Daily Descent 'swarm' modifier: half as many again about, and they come sooner.
+    const mods = (g as unknown as { loop?: { dailyMods?: () => readonly string[] } }).loop?.dailyMods?.();
+    this.sim.density = mods?.includes('swarm') ? 1.5 : 1;
     // A relic already in the journal (an earlier trip) has no Sentinel left by it.
     for (const site of this.sim.sentinelSites) {
       if (!this.sim.sentinelDone.has(site.relic) && g.journal.hasKeyItem(site.relic) && !this.sim.mobs.some((m) => m.kind === 'sentinel' && m.relic === site.relic)) this.sim.sentinelDone.add(site.relic);
@@ -445,6 +409,61 @@ export class MobDirector implements MobSystem {
     for (const o of this.sim.mobs) if (o !== m && o.kind === 'lampling' && o.group === m.group && !o.tame) o.setState('flee');
   }
 
+  /** LOOP's items: a tame Lampling follows the explorer. */
+  hasCompanion(): boolean {
+    return this.companionState !== null;
+  }
+
+  /**
+   * LOOP's Lampling Lure (a rare recipe): the nearest wild Lampling within `radius` m is tamed at once;
+   * with none in reach, where Lamplings live, one is called in from the dark (it flies to the explorer
+   * and is tame). @returns false when one already follows, or no Lampling lives here.
+   */
+  lureLampling(x: number, y: number, z: number, radius: number): boolean {
+    if (this.companionState) return false;
+    let best: SimMob | null = null;
+    let bd = radius;
+    for (const m of this.sim.mobs) {
+      if (m.kind !== 'lampling' || m.tame || m.dying) continue;
+      const d = Math.hypot(m.position.x - x, m.position.y - y, m.position.z - z);
+      if (d <= bd) {
+        bd = d;
+        best = m;
+      }
+    }
+    if (!best) {
+      const biome = this.sim.biomeAt(x, y, z);
+      if (!ROSTERS[biome]?.beings.some((e) => e.kind === 'lampling')) return false;
+      // From the dark a little way off, at head height in open air.
+      const s = this.sim.env.solid;
+      for (let k = 0; k < 24 && !best; k++) {
+        const a = (k / 24) * Math.PI * 2 + this.sim.rng.range(0, 0.25);
+        const r = 6 + (k % 3);
+        const px = x + Math.sin(a) * r;
+        const pz = z + Math.cos(a) * r;
+        const py = y + 1.9;
+        if (s(Math.floor(px), Math.floor(py), Math.floor(pz)) || !this.sim.clearSight({ x, y: py, z }, { x: px, y: py, z: pz })) continue;
+        best = this.sim.spawn('lampling', px, py, pz, { biome });
+      }
+      if (!best) return false;
+    }
+    best.trust = TAME_NEED;
+    this.tameNow(best);
+    return true;
+  }
+
+  /** LOOP's Glow Treat: experience for the companion (`xp` glowcaps' worth); its body is never hurt, so `heal` only brightens it. @returns false without one. */
+  feedCompanion(xp: number, heal: number): boolean {
+    if (!this.companionState) return false;
+    this.gainXp(Math.max(0, XP.fed * xp), true);
+    const body = this.sim.mobs.find((m) => m.tame && !m.dying);
+    if (body) {
+      body.flash = Math.max(body.flash, Math.min(1, 0.4 + heal / 60));
+      this.game.particles.sparkle(body.position.x, body.position.y, body.position.z, body.def.mote, 10, this.game.rng, 0.9);
+    }
+    return true;
+  }
+
   /** Experience for the companion; a level comes with a toast and a chime. */
   private gainXp(n: number, fed = false): void {
     const c = this.companionState;
@@ -488,6 +507,30 @@ export class MobDirector implements MobSystem {
       state: this.companionBrain.state,
       glow: body ? Math.min(1, 0.6 + 0.08 * c.level) : 0,
     };
+  }
+
+  private readonly lightOut = { x: 0, y: 0, z: 0, glow: 0 };
+
+  /**
+   * VIS's moving warm light (VisDirector → lighting.ts glowLight): the tame Lampling's body and its
+   * glow 0..1 (brighter with its level, a flare as it zaps or hovers by a rare vein, fading in and out
+   * with its body), or null with no companion about. Called every frame: no allocation.
+   */
+  companionLight(): { x: number; y: number; z: number; glow: number } | null {
+    const c = this.companionState;
+    if (!c) return null;
+    const body = this.sim.mobs.find((m) => m.tame && !m.dying);
+    if (!body || body.fade < 0.05) return null;
+    const b = this.companionBrain;
+    const base = 0.45 + 0.09 * (c.level - 1);
+    const flare = b.zap.t > 0 ? 0.35 * (b.zap.t / 0.35) : b.state === 'scout' ? 0.18 + 0.08 * Math.sin(this.sim.clock * 8) : 0;
+    const breath = 0.04 * Math.sin(this.sim.clock * 2.3 + body.seed * 6);
+    const o = this.lightOut;
+    o.x = body.position.x;
+    o.y = body.position.y;
+    o.z = body.position.z;
+    o.glow = Math.max(0, Math.min(1, (base + flare + breath) * body.fade));
+    return o;
   }
 
   /** The tutorial's first fight: until one stands, try every second to put a lone, soft Amber Tick in view. */
@@ -726,6 +769,8 @@ export class MobDirector implements MobSystem {
       case 'telegraph': {
         const s = this.stereo(e.mob.position);
         bus.emit('mob:telegraph', { id: e.mob.id, kind: e.mob.kind, ...s });
+        // The tell on the body: a sharp glint at its head as the wind-up starts (seen across a cavern).
+        this.renderer.tell(e.mob);
         break;
       }
       case 'attack':
@@ -737,6 +782,7 @@ export class MobDirector implements MobSystem {
         const p = e.mob.position;
         bus.emit('mob:hit', { id: e.mob.id, kind: e.mob.kind, damage: e.damage, killed: e.killed, armoured: e.armoured, weak: e.weak, x: p.x, y: p.y, z: p.z, ...s });
         this.sfxAt(e.armoured ? 'mob.hit.armour' : e.mob.def.voice.hit, p, e.weak ? 1.15 : 1);
+        this.impactOf(e.mob, e.armoured, !!e.weak);
         break;
       }
       case 'die': {
@@ -754,6 +800,9 @@ export class MobDirector implements MobSystem {
         const p = m.position;
         const big = m.guardian ? 16 : m.def.size === 'large' || m.def.size === 'huge' ? 9 : 5;
         g.particles.sparkle(p.x, p.y, p.z, m.def.mote, big, g.rng, m.guardian ? 2.4 : big > 5 ? 1.6 : 0.8);
+        // Its light goes out in one soft breath (the body then collapses and dissolves).
+        if (m.brain !== 'fuse') this.renderer.impact(p.x, p.y, p.z, m.def.mote, m.guardian ? 2.6 : big > 5 ? 1.5 : 1.05);
+        if (m.guardian) g.cameraRig.addTrauma(0.3);
         if (m.brain !== 'fuse') this.sfxAt(m.def.voice.die, p);
         if (m.kind === 'sentinel' && m.relic) g.ui.toast(t('mob.sentinelDown'), 'good');
         if (m.guardian) {
@@ -825,7 +874,18 @@ export class MobDirector implements MobSystem {
           if (hasText(key)) g.ui.toast(t(key as TextKey), 'info');
         } else if (e.phase === 'phase') {
           bus.emit('mob:guardianPhase', { id: m.id, kind: m.kind as GuardianState['kind'], biome, phase: m.phase });
-          g.ui.hint(t('mob.guardianPhase'), 2200);
+          const key = `mob.phaseLine.${m.kind}.${m.phase}`;
+          g.ui.hint(t((hasText(key) ? key : 'mob.guardianPhase') as TextKey), 2600);
+          // Its roar shakes the arena a little (the fight has turned; mining never shakes).
+          g.cameraRig.addTrauma(0.16);
+        } else if (e.phase === 'open') {
+          bus.emit('mob:guardianOpen', { id: m.id, kind: m.kind as GuardianState['kind'], biome, seconds: m.openFor });
+          // The first open guards of a game get a word (then the sound and the body tell it alone).
+          if (this.openHints < 2 && !g.progression.hintsShown.has('mob.guardianOpen')) {
+            this.openHints++;
+            if (this.openHints >= 2) g.progression.hintsShown.add('mob.guardianOpen');
+            g.ui.hint(t('mob.guardianOpen'), 1800);
+          }
         } else {
           if (this.fighting === m) this.fighting = null;
           bus.emit('mob:guardianReset', { id: m.id, kind: m.kind as GuardianState['kind'], biome });
@@ -856,6 +916,24 @@ export class MobDirector implements MobSystem {
       case 'wake':
         break;
     }
+  }
+
+  /**
+   * A blow lands: a few sparks fly off its body on the explorer's side (steel-white off a plate, gold
+   * off a weak spot, its own colour off flesh) and a short flash of light marks the spot. On the
+   * creature only: the screen never flashes for a hit.
+   */
+  private impactOf(m: SimMob, armoured: boolean, weak: boolean): void {
+    const g = this.game;
+    const e = g.cameraRig.camera.position;
+    const p = m.position;
+    tmp.set(e.x - p.x, e.y - p.y, e.z - p.z);
+    const d = tmp.length();
+    if (d > 40 || d < 1e-3) return;
+    tmp.multiplyScalar(Math.min(m.bounds.radius * 0.85, d * 0.5) / d).add(p);
+    const color = armoured ? 0xdfe9ff : weak ? 0xffe2a0 : m.def.mote;
+    g.particles.sparkle(tmp.x, tmp.y, tmp.z, color, armoured ? 5 : weak ? 7 : 4, g.rng, armoured ? 1.7 : 1.15);
+    this.renderer.impact(tmp.x, tmp.y, tmp.z, color, weak ? 1.25 : armoured ? 0.75 : 0.9);
   }
 
   /** A creature's sound by name, placed in stereo (LOOP's eventMap plays 'mob:sfx'). */

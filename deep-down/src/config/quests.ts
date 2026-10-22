@@ -36,23 +36,30 @@ export interface TutorialStepDef {
   id: TutorialStepId;
   line: TextKey;
   highlight: UiTargetId | null;
-  /** Seconds after which the step moves on by itself (a step that needs a creature, say). */
+  /**
+   * Seconds of play after which the step moves on by itself: the tutorial never blocks (a step that
+   * needs a creature, a vein out of sight, a player who would rather explore). The time counts only
+   * while playing, not in the menus.
+   */
   timeout?: number;
 }
 
 export const TUTORIAL: readonly TutorialStepDef[] = [
-  { id: 'look', line: 'tut.look', highlight: 'look' },
-  { id: 'move', line: 'tut.move', highlight: 'joystick' },
-  { id: 'mine', line: 'tut.mine', highlight: 'action' },
+  { id: 'look', line: 'tut.look', highlight: 'look', timeout: 60 },
+  { id: 'move', line: 'tut.move', highlight: 'joystick', timeout: 60 },
+  { id: 'mine', line: 'tut.mine', highlight: 'action', timeout: 150 },
   { id: 'pickup', line: 'tut.pickup', highlight: 'bag', timeout: 20 },
-  { id: 'craft', line: 'tut.craft', highlight: 'craft' },
-  { id: 'torch', line: 'tut.torch', highlight: 'place' },
+  { id: 'craft', line: 'tut.craft', highlight: 'craft', timeout: 120 },
+  { id: 'torch', line: 'tut.torch', highlight: 'place', timeout: 120 },
   { id: 'fight', line: 'tut.fight', highlight: 'action', timeout: 45 },
-  { id: 'sonar', line: 'tut.sonar', highlight: 'sonar' },
-  { id: 'bag', line: 'tut.bag', highlight: 'bag' },
-  { id: 'map', line: 'tut.map', highlight: 'map' },
-  { id: 'quest', line: 'tut.quest', highlight: 'quests' },
+  { id: 'sonar', line: 'tut.sonar', highlight: 'sonar', timeout: 60 },
+  { id: 'bag', line: 'tut.bag', highlight: 'bag', timeout: 60 },
+  { id: 'map', line: 'tut.map', highlight: 'map', timeout: 60 },
+  { id: 'quest', line: 'tut.quest', highlight: 'quests', timeout: 60 },
 ];
+
+/** What finishing the tutorial (not skipping it) pays: light and food for the first trip. */
+export const TUTORIAL_REWARD: Partial<Record<ItemId, number>> = { torch: 6, bandage: 2, oilFlask: 1 };
 
 /** Starter gift when the tutorial begins (so the first craft is in reach right away). */
 export const STARTER_KIT: Partial<Record<ItemId, number>> = { fungalWood: 3, coal: 2, glowcap: 2, bandage: 2 };
@@ -95,7 +102,7 @@ export const GUARDIAN_LOOT: Record<BiomeKey, Reward> = {
 // -------------------------------------------------------------------------------------
 // Camp orders
 
-export type OrderKind = 'deliver' | 'craft' | 'hunt' | 'smelt' | 'torches';
+export type OrderKind = 'deliver' | 'craft' | 'hunt' | 'smelt' | 'torches' | 'chests';
 
 export interface OrderTemplate {
   kind: OrderKind;
@@ -131,6 +138,7 @@ export const ORDER_TEMPLATES: readonly OrderTemplate[] = [
   { kind: 'hunt', need: 6 },
   { kind: 'smelt', need: 5 },
   { kind: 'torches', need: 8 },
+  { kind: 'chests', need: 4 },
 ];
 
 /** Orders shown at once (plus the daily one). */
@@ -139,8 +147,11 @@ export const ORDER_SLOTS = 3;
 // -------------------------------------------------------------------------------------
 // Biome tasks (per biome: mine its materials, hunt, record its creatures, light it up)
 
+export type BiomeTaskId = 'mine' | 'hunt' | 'scan' | 'torches' | 'places';
+
 export interface BiomeTaskDef {
-  id: 'mine' | 'hunt' | 'scan' | 'torches';
+  id: BiomeTaskId;
+  /** How many (0: counted from the world: the roster for 'scan', the named places for 'places'). */
   need: number;
 }
 
@@ -149,7 +160,13 @@ export const BIOME_TASKS: readonly BiomeTaskDef[] = [
   { id: 'hunt', need: 8 },
   { id: 'scan', need: 0 },
   { id: 'torches', need: 6 },
+  // WORLD's named places of the biome (its set piece, its secret room, and the vista, the river or
+  // the works when they lie in it): counted from the stratum's layout once it is entered.
+  { id: 'places', need: 0 },
 ];
+
+/** The 'places' task's count before its stratum was entered (a set piece and a secret room). */
+export const PLACES_DEFAULT = 2;
 
 // -------------------------------------------------------------------------------------
 // The bestiary: each new page pays 2 of the creature's first drop (or a bandage); milestones raise max health.
@@ -179,6 +196,9 @@ export interface FeatSnapshot3 {
   fullSet: boolean;
   pages: number;
   pickTier: number;
+  /** Named places found (WORLD's 'world:site'), and whether every one of a stratum's was. */
+  places?: number;
+  placesStratum?: boolean;
   /** Round 3 stretch: the companion's level (0: none), camp levels built, barters, gems set, dailies done. */
   companion?: number;
   elites?: number;
@@ -226,6 +246,9 @@ export const FEATS3: readonly FeatDef3[] = [
   { id: 'firstGem', check: (s) => (s.gems ?? 0) >= 1, reward: { amber: 2 } },
   { id: 'daily', check: (s) => (s.dailies ?? 0) >= 1, reward: { blastBomb: 2 } },
   { id: 'elites10', check: (s) => (s.elites ?? 0) >= 10, reward: { healingDraught: 2 } },
+  // The named places of the deep (WORLD's vistas, rivers, works, set pieces and secret rooms).
+  { id: 'places10', check: (s) => (s.places ?? 0) >= 10, reward: { oilFlask: 3 } },
+  { id: 'placesAll', check: (s) => !!s.placesStratum, reward: { flare: 4, healingDraught: 1 } },
 ];
 
 // -------------------------------------------------------------------------------------

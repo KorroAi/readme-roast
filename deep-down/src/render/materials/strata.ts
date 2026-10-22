@@ -88,6 +88,10 @@ const R = {
   starsteel: [0x24242e, 0x363646, 0x4c4c60, 0x64647c, 0x80809a, 0x9e9eb8],
   heart: [0x12050a, 0x1a070e, 0x240a13, 0x300e1a, 0x3d1222, 0x4b172b, 0x5a1d35],
   gate: [0x0f1015, 0x15161d, 0x1c1d26, 0x242530, 0x2d2e3b, 0x373846, 0x424352],
+  doorOak: [0x1a120b, 0x23180f, 0x2d1f13, 0x382718, 0x44301d, 0x503922, 0x5d4228],
+  builtOak: [0x2a1d12, 0x362617, 0x43301d, 0x513a23, 0x5f452a, 0x6e5031, 0x7d5c38],
+  doorIron: [0x16171a, 0x1f2024, 0x2a2b30, 0x36373d, 0x44454c, 0x55565e, 0x6a6b74],
+  plate: [0x1a1c22, 0x22252c, 0x2b2e37, 0x353943, 0x40444f, 0x4b505c, 0x575c69],
 } as const;
 
 // ---------------------------------------------------------------------------------------
@@ -786,6 +790,103 @@ function glowVine(c: MatCanvas, rng: Rng): void {
   glowSpecks(c, rng, 0x8aff6a, 90, 220);
 }
 
+/**
+ * A timber door (16 texels a metre, the pattern repeating every block so a door of any size reads
+ * the same): vertical oak planks with dark seams and grain, two iron straps a block with a rivet on
+ * every plank. `heavy`: the Halden works' iron-bound vault door (darker oak, wide straps, an iron
+ * frame at the block's edge); otherwise the explorer's crafted door (lighter wood, thin straps).
+ */
+function door(heavy: boolean) {
+  return (c: MatCanvas, rng: Rng): void => {
+    const pal = heavy ? R.doorOak : R.builtOak;
+    const f = new Field2();
+    const grain = fbm(rng, 32, 3, 0.55, 4);
+    const tone = fbm(rng, 8, 2);
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const i = x + y * S;
+        const plank = Math.floor(x / 4);
+        const px = x % 4;
+        let v = 0.42 + (hash2(plank, 7) - 0.5) * 0.22 + (grain(x, y) - 0.5) * 0.32 + (tone(x, y) - 0.5) * 0.1;
+        let h = 150 + (grain(x, y) - 0.5) * 40;
+        if (px === 0) {
+          v = 0.05;
+          h = 20;
+          f.code[i] = 1;
+        } else if (px === 1) v += 0.08;
+        // A knot now and then.
+        if (hash2(plank, Math.floor(y / 5)) > 0.96 && px === 2) v -= 0.25;
+        f.v[i] = v;
+        f.h[i] = h;
+      }
+    resolve(c, f, pal, 0x060403, 0, 0.6);
+    // Iron: the straps (and, heavy, the frame round each block's edge), with rivets on the planks.
+    const iron = R.doorIron;
+    const strapRows = heavy ? [2, 3, 4, 11, 12, 13] : [3, 4, 11, 12];
+    for (let y = 0; y < S; y++)
+      for (let x = 0; x < S; x++) {
+        const ly = y % 16;
+        const lx = x % 16;
+        const onStrap = strapRows.includes(ly);
+        const onFrame = heavy && (lx === 0 || lx === 15);
+        if (!onStrap && !onFrame) continue;
+        const top = onStrap && ly === strapRows[0] % 16;
+        const k = top ? 5 : onFrame ? 2 : 3 + Math.round((hash2(x, y) - 0.5) * 1.2);
+        c.set(x, y, iron[Math.max(0, Math.min(iron.length - 1, k))], 215);
+        const rivetRow = heavy ? ly === 3 || ly === 12 : ly === 3 || ly === 12;
+        if (onStrap && rivetRow && x % 4 === 2) c.set(x, y, iron[6], 235);
+      }
+    if (heavy) {
+      // Rust bleeding from the straps down the oak.
+      for (let x = 0; x < S; x++)
+        for (const y0 of [5, 14]) {
+          if (hash2(x, y0) < 0.6) continue;
+          for (let d = 0; d < 3; d++) c.tint(x, (y0 + d) % S, 0x5a2a14, 0.35 - d * 0.1);
+        }
+    }
+  };
+}
+
+/**
+ * The works' pressure plate (top face; the floor cell the explorer steps on): a dressed slab set in a
+ * dark bevelled groove, a carved ring glyph inked in faint rune-gold (an emissive mask: it glows a
+ * little in the dark, so the plates read as a set in the room's floor).
+ */
+function pressurePlate(c: MatCanvas, rng: Rng): void {
+  const f = new Field2();
+  const n = fbm(rng, 8, 2);
+  for (let y = 0; y < S; y++)
+    for (let x = 0; x < S; x++) {
+      const i = x + y * S;
+      const lx = x % 16;
+      const ly = y % 16;
+      const edge = Math.min(lx, ly, 15 - lx, 15 - ly);
+      let v = 0.5 + (n(x, y) - 0.5) * 0.16;
+      if (edge === 0) v = 0.04;
+      else if (edge === 1) v = lx === 1 || ly === 1 ? 0.78 : 0.24;
+      f.v[i] = v;
+      f.h[i] = edge === 0 ? 4 : 14;
+      if (edge === 0) f.code[i] = 1;
+    }
+  resolve(c, f, R.plate, 0x050608, 0, 0.6);
+  // The glyph: a ring with four ticks and a dot, carved (dark) with a gold inlay that glows.
+  for (let by = 0; by < S; by += 16)
+    for (let bx = 0; bx < S; bx += 16) {
+      const cx = bx + 7.5;
+      const cy = by + 7.5;
+      for (let a = 0; a < 40; a++) {
+        const ang = (a / 40) * TAU;
+        c.set(cx + Math.cos(ang) * 4.6, cy + Math.sin(ang) * 4.6, 0xd8a640, 150);
+      }
+      for (let k = 0; k < 4; k++) {
+        const ang = (k / 4) * TAU + Math.PI / 4;
+        for (let r = 5.5; r < 7; r += 0.7) c.set(cx + Math.cos(ang) * r, cy + Math.sin(ang) * r, 0xb08830, 110);
+      }
+      c.set(cx, cy, 0xffd870, 190);
+      c.set(cx + 1, cy, 0xd8a640, 120);
+    }
+}
+
 // ---------------------------------------------------------------------------------------
 // The biome hosts (rock structure + ramp + overlay)
 
@@ -847,7 +948,8 @@ export const STRATA_LAYERS = {
   amberSandSide: { painter: side('amberSand'), glow: 0, biomes: ['amberHollows'] },
   amberSandTop: { painter: top('amberSand', 'stone', R.amberSand, 0x0a0604), glow: 0, biomes: ['amberHollows'] },
   amberFloor: { painter: recolour(gravel, R.amberFloor), glow: 0, biomes: ['amberHollows'] },
-  amberOre: { painter: ore('amberLime', 'nugget', R.amberOre, 0xffd890), glow: 0, biomes: ['amberHollows'] },
+  // Amber holds the light: its nuggets glow softly (the Honeycomb's cells, the starter biome's first ore).
+  amberOre: { painter: ore('amberLime', 'nugget', R.amberOre, 0xffd890), glow: 0.35, biomes: ['amberHollows'] },
   // I-B Mushroom Forest
   mycelSide: { painter: side('mycel'), glow: 0, biomes: ['mushroomForest'] },
   mycelTop: { painter: top('mycel', 'deep', R.mycel, 0x050508, (c, rng) => threads(c, rng, 0x8a88a4, 14, 0.3, 165)), glow: 0, biomes: ['mushroomForest'] },
@@ -930,6 +1032,10 @@ export const STRATA_LAYERS = {
   // Built things (every stratum)
   gateSeal: { painter: gateSeal, glow: 1.0, biomes: ['built'] },
   crackedWall: { painter: crackedWall, glow: 0.5, biomes: ['built'] },
+  // The Halden works (one per stratum) and the explorer's crafted door.
+  haldenDoor: { painter: door(true), glow: 0, biomes: ['built'] },
+  pressurePlate: { painter: pressurePlate, glow: 0.55, biomes: ['built'] },
+  builtDoor: { painter: door(false), glow: 0, biomes: ['built'] },
 } satisfies Record<string, StrataLayer>;
 
 export type StrataLayerName = keyof typeof STRATA_LAYERS;

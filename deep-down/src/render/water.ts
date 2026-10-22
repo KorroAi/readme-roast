@@ -150,9 +150,9 @@ void main() {
       float reach = 1.0 - smoothstep(0.7, 1.0, sd / max(uSonarFx.z, 1.0));
       // The front: a bright band, broken by the plankton's own patchiness. Behind it: specks that
       // keep glowing a while (the afterglow), never a lit sheet.
-      float patch = 0.45 + 0.9 * wn(p * 1.6 - uTime * 0.2);
+      float patchy = 0.45 + 0.9 * wn(p * 1.6 - uTime * 0.2);
       float specks = smoothstep(0.5, 0.88, wn(p * 3.4 + vec2(uTime * 0.06, -uTime * 0.04))) * (0.6 + 0.4 * wn(p * 9.0));
-      float front = exp(-ahead * ahead) * 1.3 * reach * patch;
+      float front = exp(-ahead * ahead) * 1.3 * reach * patchy;
       float trail = step(sd, uSonar.w) * exp(-(uSonar.w - sd) * 0.1) * uSonarFx.w * specks * 1.1;
       wave = (front + trail) * uSonarFx.y * step(sd, uSonarFx.z * 1.1);
     }

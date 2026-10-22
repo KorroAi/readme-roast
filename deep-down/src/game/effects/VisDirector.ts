@@ -11,9 +11,9 @@ import { BiomeMotes } from './BiomeMotes';
 import { Ambience, type AmbientAnchor } from './Ambience';
 import { dripAnchors } from './stratumAmbience';
 import { HazardFx, type HazardReading, type HazardZoneView } from './HazardFx';
-import { HeartFinale } from './HeartFinale';
+import { HeartFinale, type HeartState } from './HeartFinale';
 import { WeatherFx, type CavernView } from './WeatherFx';
-import { BIOME_LOOKS, isLookBiome } from '../../render/biomeLook';
+import { BIOME_LOOKS, BIOME_WATER, LOOK_BIOMES, isLookBiome } from '../../render/biomeLook';
 import { SONAR, SonarPulse, type SonarMark } from '../../render/sonar';
 import { TorchLights } from '../../render/torches';
 import { Climbables } from '../../render/climbables';
@@ -24,6 +24,13 @@ import type { PropRenderer } from '../../render/props/PropRenderer';
 import { findPockets, pocketDrop, pocketKind, pocketProps, type Pocket } from '../../render/props/pocketModels';
 import { HaloSystem, type HaloSource } from './Halos';
 import { B, SOLID } from '../../config/blocks';
+import { RiverRibbons, type RiverView } from '../../render/rivers';
+import { Waterfall, type FallKind } from './Waterfall';
+import type { ParticleSystem } from './Particles';
+import { Rng } from '../../core/rng';
+import { LightBeams } from './LightBeams';
+import { strataBeams } from './strataBeams';
+import { GeyserFx } from './GeyserFx';
 
 /**
  * Round 3 (VIS): one place that runs the round's visuals, so the hub (Game.ts) needs a few one-line
@@ -59,8 +66,49 @@ export interface VisDirectorOptions {
   hazard?: () => HazardReading | null;
   /** Is the Heart already relit (LOOP's quests)? A loaded stratum VI then starts lit. */
   heartLit?: () => boolean;
+  /** How far the Heart's story is (LOOP's quests: dark, awake = the shards are in, lit = the ending). */
+  heartState?: () => HeartState;
   /** The companion's glow (MOBS: a tame Lampling): where it is and how bright (0..1); null: none. */
   companion?: () => { x: number; y: number; z: number; glow: number } | null;
+  /** The game's particles (the falls' spray and embers, a lever's sparks). */
+  particles?: () => ParticleSystem | null;
+  /** MOBS' director, read by shape for the companion's light when `companion` is not given. */
+  mobs?: () => unknown;
+}
+
+/** A fall as WORLD gives it (StratumLayout.falls[]: the vista's waterfall, a lava fall in VI). */
+interface FallView {
+  kind: string;
+  top: readonly number[];
+  bottom: readonly number[];
+  width: number;
+}
+
+/** The Halden works (StratumLayout.dungeon), read structurally: its levers and their socket lamps. */
+interface WorksView {
+  puzzle?: string;
+  vault?: readonly number[];
+  sockets?: ReadonlyArray<readonly number[]>;
+  levers?: readonly string[];
+}
+
+/**
+ * The companion's light from MOBS' director, read by shape: `companionLight()` when MOBS exposes it,
+ * else the tame Lampling's body (sim.mobs, tame) and the HUD chip's glow (companion()).
+ */
+export function companionGlow(mobs: unknown): { x: number; y: number; z: number; glow: number } | null {
+  if (!mobs || typeof mobs !== 'object') return null;
+  const m = mobs as {
+    companionLight?: () => { x: number; y: number; z: number; glow: number } | null;
+    companion?: () => { glow?: number } | null;
+    sim?: { mobs?: ReadonlyArray<{ tame?: boolean; dying?: boolean; position?: { x: number; y: number; z: number } }> };
+  };
+  if (typeof m.companionLight === 'function') return m.companionLight();
+  const view = typeof m.companion === 'function' ? m.companion() : null;
+  if (!view) return null;
+  const body = m.sim?.mobs?.find((b) => b.tame && !b.dying && b.position);
+  if (!body?.position) return null;
+  return { x: body.position.x, y: body.position.y, z: body.position.z, glow: typeof view.glow === 'number' ? view.glow : 0.7 };
 }
 
 /** WORLD's strata layout, read structurally (src/world/gen/strata/types.ts StratumLayout). */
@@ -73,6 +121,10 @@ interface StrataView {
   hazards?: ReadonlyArray<HazardZoneView>;
   heart?: { centre: readonly number[] } | null;
   caverns?: ReadonlyArray<CavernView>;
+  rivers?: ReadonlyArray<RiverView>;
+  falls?: ReadonlyArray<FallView>;
+  dungeon?: WorksView | null;
+  secrets?: ReadonlyArray<{ id?: string; centre?: readonly number[] }>;
 }
 
 /** A point from WORLD's records, whatever the field is called (centre, center, at, position, x/y/z). */
@@ -105,6 +157,15 @@ export class VisDirector {
   readonly heart: HeartFinale;
   /** The calm weather of some caverns (spore drift, ice fog, ember rain). */
   readonly weather: WeatherFx;
+  /** The underground rivers (water, or lava in VI) flowing along WORLD's channel. */
+  readonly rivers: RiverRibbons;
+  /** The Sulphur Bog's vents huffing columns of steam (WORLD's gasVent props). */
+  readonly geysers: GeyserFx;
+  /** The layout's falls (the vista's waterfall or lava fall), rebuilt with it. */
+  private falls: Waterfall[] = [];
+  /** Shafts of light under the high lights of the shaft biomes (strataBeams), rebuilt with the layout. */
+  private beams: LightBeams | null = null;
+  private readonly fxRng = new Rng(0x5eed);
   private readonly tint = waterTintFor(new Map());
   /** Drips, glow caps and the deep glows of the layout (rebuilt with it). */
   private ambience: Ambience | null = null;
@@ -140,10 +201,14 @@ export class VisDirector {
     this.group.add(this.motes.points);
     this.hazards = new HazardFx(s.rig.uniforms);
     this.group.add(this.hazards.group);
-    this.heart = new HeartFinale(s.rig.uniforms);
+    this.heart = new HeartFinale(s.rig.uniforms, s.terrain.noiseTex);
     this.group.add(this.heart.group);
     this.weather = new WeatherFx(s.rig.uniforms);
     this.group.add(this.weather.group);
+    this.rivers = new RiverRibbons(s.rig.uniforms, this.water.uniforms);
+    this.group.add(this.rivers.group);
+    this.geysers = new GeyserFx(s.rig.uniforms);
+    this.group.add(this.geysers.group);
     this.pocketHalos = new HaloSystem(s.rig.uniforms, []);
     this.pocketHalos.mesh.name = 'pocketHalos';
     const size = new THREE.Vector2();
@@ -156,13 +221,24 @@ export class VisDirector {
       o.bus.on('player:sonar', (e) => {
         this.sonar({ x: e.x, y: e.y, z: e.z }, e.radius > 0 ? e.radius : SONAR.radius);
       }),
-      // A guardian falls: its arena's runes go cold.
-      o.bus.on('mob:guardianDefeated', (e) => this.dressLair(this.o.session(), e.biome, true)),
-      // The twelve shards relight the Heart: the finale.
+      // A guardian wakes: its arena's runes blaze (the fight is on); it sleeps again: they settle;
+      // it falls: they go cold.
+      o.bus.on('mob:guardianAwake', (e) => this.dressLair(this.o.session(), e.biome, 'awake')),
+      o.bus.on('mob:guardianReset', (e) => this.dressLair(this.o.session(), e.biome, 'sleep')),
+      o.bus.on('mob:guardianDefeated', (e) => this.dressLair(this.o.session(), e.biome, 'spent')),
+      // The twelve shards are in: the Heart wakes (act I); its guardian falls: the deep is relit (act II).
       o.bus.on('quest:heartLit', () => {
+        this.sonarPulse?.cancel();
+        this.heart.awaken();
+      }),
+      o.bus.on('quest:ending', () => {
         this.sonarPulse?.cancel();
         this.heart.start();
       }),
+      // A lever of the Halden works thrown: it stays down (its socket lamp lit), with a few sparks.
+      o.bus.on('world:lever', (e) => this.syncLevers(e.id)),
+      // The works' iron door grinds open: the dust of a century falls from its frame.
+      o.bus.on('world:worksOpened', () => this.worksDust()),
     );
   }
 
@@ -198,9 +274,15 @@ export class VisDirector {
     const strata = s.layout as unknown as StrataView;
     this.look?.update(dt, x, y, z, typeof strata.biomeAt === 'function' ? strata.biomeAt.bind(strata) : null);
     if (!this.heart.playing) this.sonarPulse?.update(dt);
+    // The Heart beats with the Dark Heart (MOBS' guardian: its phase sets the tempo), slowly asleep.
+    const g = (this.o.mobs?.() as { activeGuardian?: () => { kind: string; phase: number; status: string } | null } | undefined)?.activeGuardian?.() ?? null;
+    this.heart.tempo = g && g.kind === 'heartOfDark' && g.status === 'awake' ? [1.25, 0.95, 0.68][Math.max(0, Math.min(2, g.phase - 1))] : this.heart.state === 'awake' ? 1.25 : 2.2;
     this.heart.update(dt, time, s.terrain, this.o.grade as unknown as { flash: number; flashColor: THREE.Color } | null);
     this.motes.intensity = this.heart.moteBoost;
     this.weather.update(dt, s.world, camera);
+    const particles = this.o.particles?.() ?? null;
+    if (particles) for (const f of this.falls) f.update(dt, particles, this.fxRng, camera.position);
+    this.geysers.update(dt, camera);
     this.torches.update(dt, time, camera.position);
     this.climbables.update(camera.position);
     const weights = this.look?.weights ?? EMPTY;
@@ -208,7 +290,7 @@ export class VisDirector {
     this.water.setTint(waterTintFor(weights, this.tint));
     this.hazards.update(dt, camera, weights, this.o.hazard?.() ?? null);
     // The companion's own light moves with it (lighting.ts glowLight: terrain and props take it).
-    const comp = this.o.companion?.() ?? null;
+    const comp = this.o.companion ? this.o.companion() : companionGlow(this.o.mobs?.());
     const gl = s.rig.uniforms.uGlowLight as THREE.IUniform<THREE.Vector4> | undefined;
     const gc = s.rig.uniforms.uGlowColor as THREE.IUniform<THREE.Color> | undefined;
     if (gl && gc) {
@@ -219,6 +301,13 @@ export class VisDirector {
       } else gl.value.w = 0;
     }
     (this.o.grade as { hazard?: THREE.Vector4 } | null)?.hazard?.copy(this.hazards.levels);
+    // The bioluminescent biomes breathe (lighting.ts bioBreath), in their share of the mix.
+    const bio = s.rig.uniforms.uBioWave as THREE.IUniform<number> | undefined;
+    if (bio) bio.value = Math.min(1, (weights.get('mushroomForest') ?? 0) + (weights.get('glowrootJungle') ?? 0));
+    const tw = s.rig.uniforms.uTwinkle as THREE.IUniform<number> | undefined;
+    if (tw) tw.value = Math.min(1, (weights.get('rootGalleries') ?? 0) + (weights.get('floodedGrottoes') ?? 0));
+    const fl = s.rig.uniforms.uFlicker as THREE.IUniform<number> | undefined;
+    if (fl) fl.value = Math.min(1, weights.get('haldenMines') ?? 0);
   }
 
   /** The lairs, the gate, pages and outposts the sonar shows (from WORLD's strata layout). */
@@ -239,6 +328,13 @@ export class VisDirector {
       const p = pointOf(op);
       if (p) out.push({ x: p[0], y: p[1] + 0.8, z: p[2], kind: 'outpost' });
     }
+    // Round 3: the secret rooms behind their cracked walls, and the works' reward vault.
+    for (const sr of L.secrets ?? []) {
+      const p = pointOf(sr as Record<string, unknown>);
+      if (p) out.push({ x: p[0], y: p[1] + 1, z: p[2], kind: 'secret' });
+    }
+    const vault = L.dungeon?.vault;
+    if (Array.isArray(vault) && vault.length >= 3) out.push({ x: vault[0], y: vault[1] + 1, z: vault[2], kind: 'chest' });
     return out;
   }
 
@@ -266,6 +362,7 @@ export class VisDirector {
     this.torches.attach(s.world);
     this.climbables.attach(s.world);
     this.water.setSonar(s.terrain.uniforms.uSonar, s.terrain.uniforms.uSonarFx);
+    this.rivers.setSonar(s.terrain.uniforms.uSonar, s.terrain.uniforms.uSonarFx);
     s.props.decor.setSonar(s.terrain.uniforms.uSonar, s.terrain.uniforms.uSonarFx);
     // Props and the decor follow the terrain's cave culling (nothing drawn behind the rock).
     const chunks = s.chunks;
@@ -297,24 +394,33 @@ export class VisDirector {
     }
     this.ambience = new Ambience(s.rig.uniforms, s.world, anchors, landmarks, typeof strata.biomeAt !== 'function');
     this.hazards.setZones(strata.hazards ?? []);
-    this.heart.setHeart(strata.heart ?? null, this.o.heartLit?.() ?? false);
+    this.heart.setHeart(strata.heart ?? null, this.o.heartState?.() ?? (this.o.heartLit?.() ? 'lit' : 'dark'), s.world);
     this.weather.setCaverns(strata.caverns ?? []);
     this.group.add(this.ambience.group);
+    // The rivers and the falls of this stratum (none in the old world: Game's landmark fall there).
+    this.rivers.set(strata.rivers ?? [], lakes);
+    this.setFalls(s, strata.falls ?? []);
+    this.geysers.setVents(typeof strata.biomeAt === 'function' ? s.layout.props.filter((p) => p.kind === 'gasVent').map((p) => [p.x, p.y, p.z]) : []);
+    this.syncLevers(null);
     this.dressPockets(s, strata);
     for (const ids of this.runeIds.values()) for (const id of ids) s.props.remove(id);
     this.runeIds.clear();
+    this.styleLairs(s, strata);
     const beaten = new Set(this.o.beaten?.() ?? []);
     for (const l of strata.lairs ?? []) {
       const b = typeof l.biome === 'string' ? l.biome : null;
-      if (b) this.dressLair(s, b, beaten.has(b));
+      if (b) this.dressLair(s, b, beaten.has(b) ? 'spent' : 'sleep');
     }
   }
 
   /**
    * A guardian's arena: a ring of inlaid floor stones round it, between WORLD's pillars and braziers,
-   * each with a glyph glowing rose while the guardian lives and a cold ash-gold once it has fallen.
+   * each with a glyph glowing rose while the guardian sleeps, blazing while it fights (variant 2) and
+   * a cold ash-gold once it has fallen.
    */
-  private dressLair(s: VisSession, biome: string, spent: boolean): void {
+  private dressLair(s: VisSession, biome: string, state: 'sleep' | 'awake' | 'spent'): void {
+    // A fallen guardian's arena stays cold (a late reset event changes nothing).
+    if (state !== 'spent' && (this.o.beaten?.() ?? []).includes(biome)) state = 'spent';
     const strata = s.layout as unknown as StrataView;
     const lair = (strata.lairs ?? []).find((l) => l.biome === biome);
     const c = pointOf(lair ?? null);
@@ -340,10 +446,31 @@ export class VisDirector {
       }
       if (floor < 0) continue;
       const id = `lairRune_${biome}_${k}`;
-      s.props.add({ id, kind: 'lairRune' as PropSpec['kind'], x: x + 0.5, y: floor, z: z + 0.5, rotY: a + Math.PI / 2, scale: 1, anchor: [x, floor - 1, z], emitters: [], seed: k * 977 + radius, modelVariant: spent ? 1 : 0 });
+      s.props.add({ id, kind: 'lairRune' as PropSpec['kind'], x: x + 0.5, y: floor, z: z + 0.5, rotY: a + Math.PI / 2, scale: 1, anchor: [x, floor - 1, z], emitters: [], seed: k * 977 + radius, modelVariant: state === 'spent' ? 1 : state === 'awake' ? 2 : 0 });
       ids.push(id);
     }
     this.runeIds.set(biome, ids);
+  }
+
+  /**
+   * The arenas' standing stones wear their biome (render/props/biomeModels PILLAR_STYLES: the
+   * variant is the biome's index in LOOK_BIOMES), and their braziers burn in its light
+   * (BRAZIER_TINT): WORLD's lairPillar and lairBrazier props round each lair.
+   */
+  private styleLairs(s: VisSession, strata: StrataView): void {
+    for (const l of strata.lairs ?? []) {
+      const b = typeof l.biome === 'string' ? l.biome : null;
+      const c = pointOf(l);
+      const r = typeof l.radius === 'number' ? l.radius : 0;
+      const v = b ? (LOOK_BIOMES as readonly string[]).indexOf(b) : -1;
+      if (!c || v < 0) continue;
+      for (const spec of s.liveProps.values()) {
+        if ((spec.kind !== 'lairPillar' && spec.kind !== 'lairBrazier') || Math.hypot(spec.x - c[0], spec.z - c[2]) > r + 3) continue;
+        if (spec.modelVariant === v) continue;
+        spec.modelVariant = v;
+        s.props.add(spec);
+      }
+    }
   }
 
   /**
@@ -359,6 +486,11 @@ export class VisDirector {
     this.pocketProps = s.props;
     if (typeof strata.biomeAt !== 'function') {
       this.pocketHalos.setSources([]);
+      if (this.beams) {
+        this.group.remove(this.beams.mesh);
+        this.beams.dispose();
+        this.beams = null;
+      }
       return;
     }
     const w = s.world;
@@ -372,7 +504,8 @@ export class VisDirector {
     const halos: HaloSource[] = [];
     for (const p of this.pockets) {
       const look = isLookBiome(p.biome) ? BIOME_LOOKS[p.biome] : null;
-      if (!look) continue;
+      // The geode's lights (B.LIGHT_ABYSS) already wear Game's static abyss halo: none twice.
+      if (!look || p.id === B.LIGHT_ABYSS) continue;
       const [r, g, b] = look.light;
       // Right under its roof the light is the hanging thing's: a faint wide breath round it. A light
       // well below a high roof (its worms, crystals or ice up there) glows as a soft mote of its own.
@@ -383,6 +516,76 @@ export class VisDirector {
       halos.push({ x: p.x, y: p.y, z: p.z, id: B.LIGHT_EMBER, color: [r * k, g * k, b * k], size: floating ? 0.85 : 1.7, lift: floating ? 0.5 : 0.25 });
     }
     this.pocketHalos.setSources(halos);
+    // The high lights of the shaft biomes fall in soft shafts to the floor (a few, spaced apart).
+    if (this.beams) {
+      this.group.remove(this.beams.mesh);
+      this.beams.dispose();
+    }
+    this.beams = new LightBeams(s.rig.uniforms, s.terrain.noiseTex, strataBeams(w, this.pockets));
+    this.beams.mesh.name = 'strataBeams';
+    this.group.add(this.beams.mesh);
+  }
+
+  /** The layout's falls: a water or lava fall from each top to its foot. */
+  private setFalls(s: VisSession, falls: readonly FallView[]): void {
+    for (const f of this.falls) {
+      this.group.remove(f.group);
+      f.dispose();
+    }
+    this.falls = [];
+    for (const f of falls) {
+      if (!f || !Array.isArray(f.top) || !Array.isArray(f.bottom) || f.top.length < 3 || f.bottom.length < 3) continue;
+      if (f.top[1] - f.bottom[1] < 1) continue;
+      const kind: FallKind = f.kind === 'lava' ? 'lava' : 'water';
+      // A water fall glows only with its biome's bioluminescence (the grottoes' blue); the cave lights it.
+      const at = (s.layout as unknown as StrataView).biomeAt;
+      const b = typeof at === 'function' ? at.call(s.layout, f.top[0], f.top[1], f.top[2]) : null;
+      const wt = isLookBiome(b) ? BIOME_WATER[b] : null;
+      const glow: [number, number, number] = wt ? [wt.glow[0] * wt.glowAmount, wt.glow[1] * wt.glowAmount, wt.glow[2] * wt.glowAmount] : [0, 0, 0];
+      const fall = new Waterfall(s.rig.uniforms, new THREE.Vector3(f.top[0], f.top[1], f.top[2]), new THREE.Vector3(f.top[0], f.bottom[1], f.top[2]), Math.max(2, (f.width || 3) + 0.6), kind, { glow });
+      fall.group.name = `fall:${kind}`;
+      this.falls.push(fall);
+      this.group.add(fall.group);
+    }
+  }
+
+  /**
+   * The works' levers show their state (a thrown lever stays down): from the socket lamps in the
+   * voxels (WORLD keeps the state there), on a new layout and when one is thrown ('world:lever').
+   */
+  private syncLevers(pulled: string | null): void {
+    const s = this.o.session();
+    const works = (s.layout as unknown as StrataView).dungeon;
+    const ids = works?.levers ?? [];
+    const sockets = works?.sockets ?? [];
+    if (works?.puzzle && works.puzzle !== 'levers') return;
+    ids.forEach((id, k) => {
+      const spec = s.liveProps.get(id);
+      const c = sockets[k];
+      if (!spec || !c) return;
+      const down = id === pulled || s.world.get(Math.floor(c[0]), Math.floor(c[1]), Math.floor(c[2])) === B.LIGHT_RUNE;
+      const v = down ? 1 : 0;
+      if ((spec.modelVariant ?? 0) === v) return;
+      spec.modelVariant = v;
+      s.props.add(spec);
+      if (id === pulled) {
+        const p = this.o.particles?.();
+        const a = spec.rotY;
+        // Sparks off the quadrant as the arm drops (the lever's head swings out from the wall).
+        p?.sparkle(spec.x + Math.sin(a) * 0.1, spec.y + 1.05, spec.z + Math.cos(a) * 0.1, 0xffc070, 6, this.fxRng, 1.8);
+      }
+    });
+  }
+
+  /** Dust and grit off the works' door as it opens (its cells, now air). */
+  private worksDust(): void {
+    const p = this.o.particles?.();
+    const door = ((this.o.session().layout as unknown as StrataView).dungeon as { door?: ReadonlyArray<readonly number[]> } | null | undefined)?.door ?? [];
+    if (!p) return;
+    for (const c of door) {
+      p.dust(c[0] + 0.5, c[1] + 0.9, c[2] + 0.5, 0x8a7a64, 6, this.fxRng, 0.9);
+      p.dust(c[0] + 0.5, c[1] + 0.2, c[2] + 0.5, 0x5a4a3a, 4, this.fxRng, 0.6);
+    }
   }
 
   /** The light pockets of the loaded stratum (debug report, tests). */
@@ -416,7 +619,7 @@ export class VisDirector {
   }
 
   /** For the debug API and tests. */
-  report(): { biome: string | null; weights: Record<string, number>; torches: number; torchesDrawn: number; climbables: number; sonarPings: number; revealed: number; motes: string[]; pockets: number; hazard: number[]; veils: number; weather: string | null; waterQuads: number } {
+  report(): { biome: string | null; weights: Record<string, number>; torches: number; torchesDrawn: number; climbables: number; sonarPings: number; revealed: number; motes: string[]; pockets: number; hazard: number[]; veils: number; weather: string | null; waterQuads: number; riverQuads: number; falls: string[]; vents: number; eruptions: number } {
     const weights: Record<string, number> = {};
     for (const [k, v] of this.look?.weights ?? []) weights[k] = Math.round(v * 1000) / 1000;
     return {
@@ -433,6 +636,10 @@ export class VisDirector {
       veils: this.hazards.veilCount,
       weather: this.weather.kind ? `${this.weather.kind}:${this.weather.level.toFixed(2)}` : null,
       waterQuads: this.water.quads,
+      riverQuads: this.rivers.quads,
+      falls: this.falls.map((f) => f.kind),
+      vents: this.geysers.ventCount,
+      eruptions: this.geysers.eruptions,
     };
   }
 
@@ -448,6 +655,11 @@ export class VisDirector {
     this.hazards.dispose();
     this.heart.dispose();
     this.weather.dispose();
+    this.rivers.dispose();
+    this.geysers.dispose();
+    this.beams?.dispose();
+    for (const f of this.falls) f.dispose();
+    this.falls = [];
     this.ambience?.dispose();
     this.pocketHalos.dispose();
     if (this.pocketProps) {

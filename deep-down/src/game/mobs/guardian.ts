@@ -46,11 +46,40 @@ function phaseAt(def: GuardianDef, hp: number, max: number): number {
   return Math.min(n, 1 + Math.floor((1 - frac) * n + 1e-6));
 }
 
+/**
+ * Its guard opens (after an attack, a charge into the wall, an emergence): the window to strike. It
+ * is told three ways: a sound (an exhale and a rising chime), its body (it slumps, its core blazes:
+ * render/mobs/poses) and the 'mob:guardianOpen' event (the HUD's bar may pulse). Phase-quickened.
+ */
+export function openGuard(sim: MobSim, m: SimMob, seconds: number, state: 'recoil' | 'stunned' = 'recoil'): void {
+  m.setState(state);
+  m.timer = seconds;
+  m.openLeft = seconds;
+  m.openFor = seconds;
+  sim.emit({ type: 'guardian', mob: m, phase: 'open' });
+  sim.sfx(m, 'guardian.open');
+}
+
+/** Seconds of each Dark Heart beat by phase (and asleep): it quickens as it weakens. */
+const HEART_BEAT = [2.2, 1.25, 0.95, 0.68];
+
+/** The Dark Heart's beat: its shell swells twice (lub-dub) and the chamber hears it. */
+function heartbeat(sim: MobSim, m: SimMob, dt: number): void {
+  if (m.brain !== 'heart') return;
+  const period = HEART_BEAT[m.state === 'sleep' ? 0 : Math.min(3, m.phase)];
+  m.beat += dt / period;
+  if (m.beat >= 1) {
+    m.beat -= Math.floor(m.beat);
+    sim.sfx(m, 'guardian.heartbeat');
+  }
+}
+
 export function guardianBrain(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
   const def = gdef(m);
   const c = arenaCentre(m);
   const R = arenaRadius(m);
   const inArena = Math.hypot(ctx.player.x - c.x, ctx.player.z - c.z) < R && Math.abs(ctx.player.y - c.y) < 10;
+  heartbeat(sim, m, dt);
   // ---- Asleep in the lair.
   if (m.state === 'sleep') {
     m.glow += (0.3 - m.glow) * Math.min(1, dt * 2);
@@ -222,9 +251,22 @@ function begin(sim: MobSim, m: SimMob, ctx: MobContext, def: GuardianDef, p: Gua
     default:
       break;
   }
-  sim.telegraph(m);
-  sim.emit({ type: 'sfx', name: p === 'summon' ? 'guardian.call' : p === 'volley' ? 'mob.hiss' : 'guardian.roar', x: m.position.x, y: m.position.y, z: m.position.z, mob: m });
+  // One voice per pattern (heard, the next blow is known before it is seen).
+  sim.telegraph(m, PATTERN_TELL[p]);
 }
+
+/** Each pattern's wind-up voice (audio/mobSfx). */
+const PATTERN_TELL: Record<GuardianPattern, string> = {
+  slam: 'guardian.tell.slam',
+  ring: 'guardian.tell.ring',
+  volley: 'mob.hiss',
+  charge: 'guardian.tell.charge',
+  summon: 'guardian.call',
+  burrow: 'mob.rumble',
+  dive: 'guardian.tell.dive',
+  line: 'guardian.tell.line',
+  snuff: 'guardian.snuff',
+};
 
 function windup(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: GuardianDef): void {
   void def;
@@ -278,10 +320,7 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
   const p = m.pattern ?? 'slam';
   const foot = fly(m) ? { x: m.position.x, y: sim.floorY(m.position.x, m.position.y, m.position.z), z: m.position.z } : m.foot;
   const blast = def.blast ?? 3;
-  const open = (seconds: number) => {
-    m.setState('recoil');
-    m.timer = seconds * (1 - 0.1 * (m.phase - 1));
-  };
+  const open = (seconds: number) => openGuard(sim, m, seconds * (1 - 0.1 * (m.phase - 1)));
   switch (p) {
     case 'slam':
       if (!m.landed) {
@@ -348,8 +387,7 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
           sim.dropMarker(m);
           sim.sfx(m, 'mob.thud');
           sim.emit({ type: 'burst', x: m.position.x + m.dir.x * m.bounds.radius, y: m.position.y, z: m.position.z + m.dir.z * m.bounds.radius, color: 0xb8a890, size: 1.4 });
-          m.setState('stunned');
-          m.timer = 2.6;
+          openGuard(sim, m, 2.6, 'stunned');
           return;
         }
       }
@@ -424,7 +462,8 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
         m.landed = true;
         sim.dropMarker(m);
         sim.snuffLeft = 6;
-        sim.sfx(m, 'guardian.snuff');
+        // (Its inhale was the wind-up's tell; now the dark hums as the adds come in.)
+        sim.sfx(m, 'mob.drone');
         for (let i = 0; i < 2 + (m.phase - 1); i++) {
           const kind = def.brood[sim.rng.int(0, def.brood.length - 1)] as MobKind;
           const a = sim.rng.range(-Math.PI, Math.PI);
@@ -504,8 +543,7 @@ function burrowing(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Gua
       sim.emit({ type: 'burst', x: m.foot.x, y: fy + 0.3, z: m.foot.z, color: 0xb89a70, size: 1.6 });
       sim.sfx(m, 'mob.burst');
       sim.dropMarker(m);
-      m.setState('recoil');
-      m.timer = 2.4;
+      openGuard(sim, m, 2.4);
     }
     return;
   }
@@ -535,10 +573,17 @@ export function guardianOnHit(sim: MobSim, m: SimMob, dmg: number, strike: MobSt
     sim.dropMarker(m);
     m.mode = '';
     m.tappable = true;
+    m.openLeft = 0;
     m.setState('wake');
     m.stateTime = 0.4;
     sim.emit({ type: 'guardian', mob: m, phase: 'phase' });
     sim.sfx(m, 'guardian.phase');
+    // The fight turns: a ring of its light rolls out over the arena (it hurts no one; it looks unlike
+    // a shockwave's warning band), a burst at its body; the Dark Heart's chamber gasps dark a moment.
+    const fy = fly(m) ? sim.floorY(m.position.x, m.position.y, m.position.z) : m.foot.y;
+    sim.addRing(m, m.position.x, fy, m.position.z, arenaRadius(m) * 0.95, 13);
+    sim.emit({ type: 'burst', x: m.position.x, y: m.position.y, z: m.position.z, color: def.mote, size: 2 });
+    if (m.brain === 'heart') sim.snuffLeft = Math.max(sim.snuffLeft, 1.1);
   }
   return { damage: d, armoured, weak };
 }
@@ -559,6 +604,7 @@ export function guardianState(m: SimMob): GuardianState {
     phases: def.patterns.length,
     status: m.dying ? 'defeated' : m.state === 'sleep' ? 'dormant' : 'awake',
     vulnerable: m.vulnerable,
+    window: m.vulnerable && m.openFor > 0 ? Math.max(0, Math.min(1, m.openLeft / m.openFor)) : 0,
     telegraph: m.state === 'windup' && m.pattern ? `mob.pattern.${m.pattern}` : null,
   };
 }

@@ -127,6 +127,8 @@ void main() {
     float wave = exp(-ahead * ahead) * 2.4 + step(sd, uSonar.w) * exp(-(uSonar.w - sd) * 0.07) * 0.8 * uSonarFx.w;
     emissive *= 1.0 + wave * uSonarFx.y * reach;
   }
+  // The bioluminescent biomes' slow swell of light (lighting.ts bioBreath) runs through the decor too.
+  emissive *= bioBreath(vWorldPos) * bioTwinkle(vWorldPos) * lampFlicker(vWorldPos);
 #endif
   if (uRim > 0.0) {
     // The explorer keeps its own colours: cool world light (cyan crystals, violet abyss) is half

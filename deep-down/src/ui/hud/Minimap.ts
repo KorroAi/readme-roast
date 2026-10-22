@@ -36,6 +36,12 @@ export const MARKER_COLOR: Record<MapMarker['kind'], string> = {
   cache: '#ff9b4a',
   shrine: '#8fe3ee',
   nest: '#c86a5a',
+  vista: '#ffe7a8',
+  river: '#6cc4ff',
+  works: '#e0a36a',
+  secret: '#f39cff',
+  place: '#fff0c8',
+  ravine: '#b7c2cf',
 };
 
 /** The glyph (ui/hud/glyphs) of each marker kind on the Map. */
@@ -49,8 +55,23 @@ export const MARKER_GLYPH: Record<MapMarker['kind'], string> = {
   objective: 'quests',
   cache: 'bag',
   shrine: 'other',
-  nest: 'being',
+  nest: 'nest',
+  vista: 'vista',
+  river: 'river',
+  works: 'works',
+  secret: 'secret',
+  place: 'star',
+  ravine: 'ravine',
 };
+
+/** The line colours (the river; lava in the deepest stratum). */
+export const LINE_COLOR: Record<'water' | 'lava', string> = { water: '#5fb8ff', lava: '#ff7a3a' };
+
+/** Markers the minimap pins to its rim when they are beyond its range (the ways that matter). */
+const RIM_KINDS: ReadonlySet<MapMarker['kind']> = new Set(['objective', 'camp', 'gate', 'outpost', 'cache']);
+
+/** Contour lines every this many metres of floor height (the Map's relief). */
+export const CONTOUR_M = 4;
 
 /**
  * The stratum painted column by column (see the file comment). `rgba` has one texel per column of
@@ -95,6 +116,10 @@ export class MapRaster {
       }
     const at = (x: number, z: number) => (x < 0 || z < 0 || x >= w || z >= d ? 0 : cls[x + z * w]);
     const ht = (x: number, z: number, fallback: number) => (x < 0 || z < 0 || x >= w || z >= d || cls[x + z * w] !== 2 ? fallback : hts[x + z * w]);
+    // The relief: higher floor a little lighter, lower a little darker, over the stratum's span.
+    const lo = src.heightRange?.[0] ?? 0;
+    const span = Math.max(1, (src.heightRange?.[1] ?? 0) - lo);
+    const band = (y: number) => Math.floor(y / CONTOUR_M);
     for (let z = 0; z < d; z++)
       for (let x = 0; x < w; x++) {
         const i = x + z * w;
@@ -113,11 +138,21 @@ export class MapRaster {
         const tint = src.biomeColors[src.biome(src.originX + x, src.originZ + z)] ?? 0x807060;
         const h0 = hts[i];
         const slope = (h0 - ht(x - 1, z, h0)) + (h0 - ht(x, z - 1, h0));
-        const shade = Math.max(0.68, Math.min(1.32, 1 + slope * 0.09));
+        const elev = src.heightRange ? Math.max(0, Math.min(1, (h0 - lo) / span)) : 0.5;
+        const shade = Math.max(0.62, Math.min(1.36, (1 + slope * 0.09) * (0.86 + elev * 0.3)));
         // A mid-dark ground (the walls' rim is the brightest thing on the map).
         let r = (CELL_RGB[2][0] * 0.42 + ((tint >> 16) & 255) * 0.3) * shade;
         let g = (CELL_RGB[2][1] * 0.42 + ((tint >> 8) & 255) * 0.3) * shade;
         let b = (CELL_RGB[2][2] * 0.42 + (tint & 255) * 0.3) * shade;
+        // Contour lines: the floor crosses a CONTOUR_M step between this column and the one east or south.
+        if (src.heightRange) {
+          const b0 = band(h0);
+          if (band(ht(x + 1, z, h0)) !== b0 || band(ht(x, z + 1, h0)) !== b0) {
+            r *= 0.74;
+            g *= 0.74;
+            b *= 0.78;
+          }
+        }
         // A wall rim where the floor meets rock or the unknown.
         const edge = at(x - 1, z) !== 2 || at(x + 1, z) !== 2 || at(x, z - 1) !== 2 || at(x, z + 1) !== 2;
         if (edge) {
@@ -253,8 +288,36 @@ export class Minimap {
       }
     }
     ctx.putImageData(this.img, 0, 0);
-    // Markers inside the range (dimmed when done), clamped to the rim when beyond it.
     const k = n / 92;
+    // The river's explored stretches, turned with the view and clipped to the round window.
+    if (s.lines?.length) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.arc(half, half, half - 1, 0, Math.PI * 2);
+      ctx.clip();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      for (const line of s.lines) {
+        ctx.strokeStyle = LINE_COLOR[line.kind];
+        ctx.globalAlpha = 0.85;
+        ctx.lineWidth = 2.2 * k;
+        for (const run of line.runs) {
+          ctx.beginPath();
+          for (let j = 0; j + 1 < run.length; j += 2) {
+            const dx = run[j] - s.playerX;
+            const dz = run[j + 1] - s.playerZ;
+            const vx = half + (dx * cs - dz * sn) / mPerPx;
+            const vy = half - (-dx * sn - dz * cs) / mPerPx;
+            if (j === 0) ctx.moveTo(vx, vy);
+            else ctx.lineTo(vx, vy);
+          }
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+      ctx.globalAlpha = 1;
+    }
+    // Markers inside the range (dimmed when done), clamped to the rim when beyond it.
     for (const m of s.markers) {
       const dx = m.x - s.playerX;
       const dz = m.z - s.playerZ;
@@ -266,7 +329,7 @@ export class Minimap {
       const edge = half - 5 * k;
       const beyond = l > edge;
       if (beyond) {
-        if (m.kind !== 'objective' && m.kind !== 'camp' && m.kind !== 'gate' && m.kind !== 'outpost') continue;
+        if (!RIM_KINDS.has(m.kind)) continue;
         mx = (mx / l) * edge;
         my = (my / l) * edge;
       }
@@ -283,6 +346,14 @@ export class Minimap {
         ctx.closePath();
       } else if (m.kind === 'camp' || m.kind === 'outpost') {
         ctx.rect(half + mx - r, half + my - r, r * 2, r * 2);
+      } else if (m.kind === 'cache' || m.kind === 'vista' || m.kind === 'works' || m.kind === 'secret' || m.kind === 'place') {
+        // The places and the pack left behind: a diamond.
+        const q = r * 1.25;
+        ctx.moveTo(half + mx, half + my - q);
+        ctx.lineTo(half + mx + q, half + my);
+        ctx.lineTo(half + mx, half + my + q);
+        ctx.lineTo(half + mx - q, half + my);
+        ctx.closePath();
       } else ctx.arc(half + mx, half + my, r, 0, Math.PI * 2);
       ctx.fill();
       ctx.stroke();

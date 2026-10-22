@@ -81,16 +81,26 @@ export function menuShell(host: ScreenHost, id: RailId, title: string, help: str
 /** A row of tabs (re-renders on change); `count` adds a small number after the label. */
 export function tabRow<T extends string>(label: string, tabs: Array<{ id: T; text: string; count?: number }>, current: T, onPick: (id: T) => void): HTMLElement {
   const row = h('div', { class: 'dd-tabs dd-m3-tabs', role: 'tablist', 'aria-label': label });
+  let selected: HTMLElement | null = null;
   for (const tb of tabs) {
     const sel = tb.id === current;
-    row.append(
-      h(
-        'button',
-        { class: 'dd-tab', type: 'button', role: 'tab', 'aria-selected': String(sel), 'data-key': `tab:${tb.id}`, onclick: () => onPick(tb.id) },
-        tb.text,
-        tb.count !== undefined && tb.count > 0 ? h('span', { class: 'dd-m3-tabcount', text: String(tb.count) }) : null,
-      ),
+    const b = h(
+      'button',
+      { class: 'dd-tab', type: 'button', role: 'tab', 'aria-selected': String(sel), 'data-key': `tab:${tb.id}`, onclick: () => onPick(tb.id) },
+      tb.text,
+      tb.count !== undefined && tb.count > 0 ? h('span', { class: 'dd-m3-tabcount', text: String(tb.count) }) : null,
     );
+    if (sel) selected = b;
+    row.append(b);
+  }
+  // The strip scrolls sideways on a narrow phone: the selected tab is always brought into view.
+  if (selected && typeof requestAnimationFrame === 'function') {
+    const s = selected;
+    requestAnimationFrame(() => {
+      if (!row.isConnected) return;
+      const left = s.offsetLeft - row.offsetLeft;
+      if (left < row.scrollLeft || left + s.offsetWidth > row.scrollLeft + row.clientWidth * 0.85) row.scrollLeft = Math.max(0, left - 12);
+    });
   }
   return row;
 }

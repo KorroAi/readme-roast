@@ -1,11 +1,12 @@
 import type { BiomeId } from '../config/biomes';
-import { B } from '../config/blocks';
+import { B, SOLID } from '../config/blocks';
 
 /**
  * What the audio reads from the game (round 3, AUDIO), once per control tick (15 Hz): the biome and
  * stratum (the score and the beds), the danger around the explorer (the score's layers), a guardian
- * fight, the hazard meter, sound emitters near the listener (waterfalls, vents, lava, fires, torches),
- * what the sonar revealed (its echo pings), and the screen and mode (menus, the title, death).
+ * fight, the hazard meter, the sound features near the listener (the vista's fall, the river,
+ * cascades, vents, lava, braziers, lamps, torches, crystals, drips, ice...), what the sonar revealed
+ * (its echo pings), and the screen and mode (menus, the title, death).
  *
  * `gameAudioProbe(game)` reads the game by shape (game.strata, game.mobs, game.loop, game.vis,
  * game.ui, game.cameraRig, game.session, game.mode), lazily, so it never imports the hub and every
@@ -13,17 +14,51 @@ import { B } from '../config/blocks';
  */
 
 export type HazardName = 'cold' | 'gas' | 'heat' | 'dark';
-export type EmitterKind = 'waterfall' | 'gasVent' | 'emberVent' | 'bubbles' | 'lava' | 'fire' | 'torch' | 'crystal';
 
+/**
+ * The features that sound. Loops (built while audible): falls, the river, vents, bubbling pools,
+ * lava, fires, braziers, lamps, torches, crystals, the void's spires, a ravine's updraft. One-shots
+ * only: drips, spore puffs, ice, mine timbers, rubble.
+ */
+export type EmitterKind =
+  | 'waterfall' | 'cascade' | 'river' | 'gasVent' | 'emberVent' | 'bubbles' | 'lava' | 'lavaFall'
+  | 'fire' | 'brazier' | 'lamp' | 'torch' | 'crystal' | 'void' | 'draft'
+  | 'drips' | 'spores' | 'ice' | 'timber' | 'rubble';
+
+export const EMITTER_KINDS: readonly EmitterKind[] = [
+  'waterfall', 'cascade', 'river', 'gasVent', 'emberVent', 'bubbles', 'lava', 'lavaFall', 'fire', 'brazier', 'lamp', 'torch', 'crystal', 'void', 'draft',
+  'drips', 'spores', 'ice', 'timber', 'rubble',
+];
+
+/** A sound source in the world: a point, or a segment (a fall: the sound comes from its nearest point). */
 export interface Emitter {
   kind: EmitterKind;
   x: number;
   y: number;
   z: number;
+  /** A segment's other end (falls). */
+  x2?: number;
+  y2?: number;
+  z2?: number;
   /** Audible range (m): silent beyond it, full at a metre. */
   range: number;
   /** 0..1 */
   strength: number;
+}
+
+/** The nearest emitter of a kind as heard from the listener this tick. */
+export interface HeardEmitter {
+  kind: EmitterKind;
+  /** The point it is heard from (a segment's nearest point). */
+  x: number;
+  y: number;
+  z: number;
+  /** Distance (m, height weighted) and its range. */
+  d: number;
+  range: number;
+  strength: number;
+  /** 0..1: how much rock lies on the line from the ear to it (muffled and quieter). */
+  occlusion: number;
 }
 
 export interface SonarReveal {
@@ -51,6 +86,8 @@ export interface AudioScene {
   screen: string;
   biome: BiomeId | null;
   stratum: number;
+  /** The strata world is loaded (false: the old hand-made world, which has no biomes). */
+  strata: boolean;
   /** A stratum switch is loading. */
   loading: boolean;
   /** The listener (the eye) and its right vector on the floor plane (for panning). */
@@ -67,8 +104,13 @@ export interface AudioScene {
   hazard: HazardName | null;
   /** 0..1 the hazard meter's build-up. */
   hazardLevel: number;
-  /** Emitters within their range of the listener, the nearest (relative to range) first. */
-  emitters: Emitter[];
+  /** The nearest emitter of each kind in range, the most audible first. */
+  emitters: HeardEmitter[];
+  /** The explorer's health 0..1 (1 when unknown). */
+  health: number;
+  /** On a ladder or a rope (and how fast, m/s up or down), or null. */
+  climbing: 'ladder' | 'rope' | null;
+  climbSpeed: number;
   /** Sonar pings sent so far and what the last one revealed. */
   sonarPings: number;
   sonar: readonly SonarReveal[];
@@ -79,8 +121,8 @@ export type AudioProbe = () => AudioScene | null;
 /** An empty scene (no game attached, or the title before a world exists). */
 export function emptyScene(): AudioScene {
   return {
-    mode: 'menu', screen: 'none', biome: null, stratum: 1, loading: false, lx: 0, ly: 0, lz: 0, rx: 1, rz: 0,
-    danger: 0, engaged: 0, guardian: null, hazard: null, hazardLevel: 0, emitters: [], sonarPings: 0, sonar: [],
+    mode: 'menu', screen: 'none', biome: null, stratum: 1, strata: false, loading: false, lx: 0, ly: 0, lz: 0, rx: 1, rz: 0,
+    danger: 0, engaged: 0, guardian: null, hazard: null, hazardLevel: 0, emitters: [], health: 1, climbing: null, climbSpeed: 0, sonarPings: 0, sonar: [],
   };
 }
 
@@ -138,66 +180,170 @@ interface HazardZoneLike {
   strength: number;
 }
 
-/** Which props sound, and how. */
-const PROP_EMITTERS: Record<string, { kind: EmitterKind; range: number; strength: number }> = {
-  waterfall: { kind: 'waterfall', range: 30, strength: 1 },
+interface FallLike {
+  kind: string;
+  top: readonly number[];
+  bottom: readonly number[];
+  width?: number;
+}
+
+interface RiverLike {
+  kind: string;
+  points: ReadonlyArray<readonly number[]>;
+}
+
+/** What a stratum's layout offers the ear (read by shape). */
+export interface SoundingLayout {
+  props?: readonly PropLike[];
+  hazards?: readonly HazardZoneLike[];
+  falls?: readonly FallLike[];
+  rivers?: readonly RiverLike[];
+}
+
+/** Which props sound, and how (WORLD's, LOOP's and VIS's prop kinds; anything else is silent). */
+export const PROP_EMITTERS: Record<string, { kind: EmitterKind; range: number; strength: number }> = {
+  // Water: a prop 'waterfall' is a small fall off a ledge (dozens in the grottoes); the vista's
+  // great fall comes from layout.falls.
+  waterfall: { kind: 'cascade', range: 13, strength: 0.6 },
   gasVent: { kind: 'gasVent', range: 14, strength: 0.8 },
   emberVent: { kind: 'emberVent', range: 14, strength: 0.8 },
   bogBubble: { kind: 'bubbles', range: 12, strength: 0.7 },
-  lavaGlow: { kind: 'lava', range: 22, strength: 0.75 },
+  lavaGlow: { kind: 'lava', range: 16, strength: 0.6 },
+  // Fire: the camp's, a lair's braziers, the forges and furnaces placed; lamps and lanterns hiss.
   campfire: { kind: 'fire', range: 12, strength: 1 },
+  lairBrazier: { kind: 'brazier', range: 9, strength: 0.6 },
+  furnace: { kind: 'brazier', range: 7, strength: 0.45 },
+  forge: { kind: 'brazier', range: 7, strength: 0.45 },
+  lanternPost: { kind: 'lamp', range: 5, strength: 0.5 },
+  hangingLantern: { kind: 'lamp', range: 5, strength: 0.4 },
+  outpost: { kind: 'lamp', range: 6, strength: 0.55 },
+  // Crystals ring, the void's spires hum.
   crystalSpire: { kind: 'crystal', range: 9, strength: 0.6 },
   crystalCluster: { kind: 'crystal', range: 8, strength: 0.45 },
   geodeShards: { kind: 'crystal', range: 7, strength: 0.4 },
+  voidSpire: { kind: 'void', range: 10, strength: 0.5 },
+  // One-shots: amber resin dripping, mushrooms puffing spores, icicles, the mines' timbers.
+  amberDrip: { kind: 'drips', range: 7, strength: 0.8 },
+  sporePuff: { kind: 'spores', range: 8, strength: 0.8 },
+  icicle: { kind: 'ice', range: 8, strength: 0.7 },
+  iceSpike: { kind: 'ice', range: 7, strength: 0.5 },
+  timberProp: { kind: 'timber', range: 9, strength: 0.6 },
 };
 
+/** A river is heard from points this far apart along its course (the nearest one answers). */
+const RIVER_STEP = 3.6;
 const CELL = 16;
 
-/** A grid of the stratum's emitters (built once per layout), queried round the listener. */
+const cellKey = (cx: number, cz: number): number => (cx + 512) * 4096 + (cz + 512);
+
+/** The nearest point of segment a-b to p (falls). */
+function nearestOnSegment(e: Emitter, x: number, y: number, z: number): [number, number, number] {
+  if (e.x2 === undefined || e.y2 === undefined || e.z2 === undefined) return [e.x, e.y, e.z];
+  const dx = e.x2 - e.x;
+  const dy = e.y2 - e.y;
+  const dz = e.z2 - e.z;
+  const len2 = dx * dx + dy * dy + dz * dz;
+  const t = len2 > 1e-6 ? Math.max(0, Math.min(1, ((x - e.x) * dx + (y - e.y) * dy + (z - e.z) * dz) / len2)) : 0;
+  return [e.x + dx * t, e.y + dy * t, e.z + dz * t];
+}
+
+/** Height counts a little more than plan distance (sound in a cave travels along it, not through floors). */
+const earDistance = (x: number, y: number, z: number, px: number, py: number, pz: number): number => Math.hypot(px - x, (py - y) * 1.3, pz - z);
+
+/**
+ * A stratum's emitters (built once per layout): the props that sound, the falls (segments), the
+ * rivers (points along their course), and the hazard zones (lava, gas pools, a ravine's updraft, the
+ * mines' rubble, the void). Small ranges sit in a 16 m grid; the long-range ones in a list.
+ */
 export class EmitterIndex {
   private readonly cells = new Map<number, Emitter[]>();
+  private readonly wide: Emitter[] = [];
   readonly count: number;
+  readonly byKind: Partial<Record<EmitterKind, number>> = {};
 
-  constructor(props: readonly PropLike[], hazards: readonly HazardZoneLike[] = []) {
+  constructor(layoutOrProps: SoundingLayout | readonly PropLike[], hazards: readonly HazardZoneLike[] = []) {
+    const layout: SoundingLayout = Array.isArray(layoutOrProps) ? { props: layoutOrProps as readonly PropLike[], hazards } : (layoutOrProps as SoundingLayout);
     let n = 0;
     const add = (e: Emitter) => {
+      if (!Number.isFinite(e.x) || !Number.isFinite(e.z) || !(e.range > 0)) return;
+      n++;
+      this.byKind[e.kind] = (this.byKind[e.kind] ?? 0) + 1;
+      if (e.range > CELL * 1.5 || e.x2 !== undefined) {
+        this.wide.push(e);
+        return;
+      }
       const key = cellKey(Math.floor(e.x / CELL), Math.floor(e.z / CELL));
       let list = this.cells.get(key);
       if (!list) this.cells.set(key, (list = []));
       list.push(e);
-      n++;
     };
-    for (const p of props) {
+    for (const p of layout.props ?? []) {
       const d = PROP_EMITTERS[p.kind];
       if (d) add({ kind: d.kind, x: p.x, y: p.y + 0.5, z: p.z, range: d.range, strength: d.strength });
     }
-    for (const h of hazards) {
-      if (h.kind === 'lava') add({ kind: 'lava', x: h.centre[0], y: h.centre[1], z: h.centre[2], range: h.radius + 14, strength: 0.6 + 0.4 * h.strength });
-      else if (h.kind === 'gas') add({ kind: 'bubbles', x: h.centre[0], y: h.centre[1], z: h.centre[2], range: h.radius + 6, strength: 0.4 + 0.4 * h.strength });
+    for (const f of layout.falls ?? []) {
+      if (f.top.length < 3 || f.bottom.length < 3) continue;
+      const lava = f.kind === 'lava';
+      add({ kind: lava ? 'lavaFall' : 'waterfall', x: f.top[0], y: f.top[1], z: f.top[2], x2: f.bottom[0], y2: f.bottom[1], z2: f.bottom[2], range: lava ? 40 : 46, strength: 1 });
+    }
+    for (const r of layout.rivers ?? []) {
+      const lava = r.kind === 'lava';
+      let since = Infinity;
+      let prev: readonly number[] | null = null;
+      for (const p of r.points) {
+        if (p.length < 3) continue;
+        if (prev) since += Math.hypot(p[0] - prev[0], p[2] - prev[2]);
+        prev = p;
+        if (since < RIVER_STEP) continue;
+        since = 0;
+        add({ kind: lava ? 'lava' : 'river', x: p[0], y: p[1] + 0.3, z: p[2], range: lava ? 18 : 15, strength: lava ? 0.75 : 0.7 });
+      }
+    }
+    for (const h of layout.hazards ?? []) {
+      if (h.centre.length < 3) continue;
+      const [x, y, z] = h.centre;
+      const s = Math.max(0, Math.min(1, h.strength));
+      if (h.kind === 'lava') add({ kind: 'lava', x, y, z, range: h.radius + 14, strength: 0.6 + 0.4 * s });
+      else if (h.kind === 'gas') add({ kind: 'bubbles', x, y, z, range: h.radius + 6, strength: 0.4 + 0.4 * s });
+      else if (h.kind === 'falls') add({ kind: 'draft', x, y, z, range: h.radius + 12, strength: 0.6 });
+      else if (h.kind === 'rockfall') add({ kind: 'rubble', x, y, z, range: h.radius + 6, strength: 0.7 });
+      else if (h.kind === 'void') add({ kind: 'void', x, y, z, range: h.radius + 8, strength: 0.5 + 0.3 * s });
     }
     this.count = n;
   }
 
-  /** Emitters within their range of (x, y, z), nearest relative to range first, at most `max`. */
-  near(x: number, y: number, z: number, max = 8, out: Emitter[] = []): Emitter[] {
+  /**
+   * The nearest emitter of each kind within its range of (x, y, z) (relative to its range), as
+   * heard from there, at most `max`, the nearest-relative first. `extra` (torches and lava found in
+   * the voxels) joins in. Reuses `out`.
+   */
+  near(x: number, y: number, z: number, max = 12, out: HeardEmitter[] = [], extra: readonly Emitter[] = []): HeardEmitter[] {
     out.length = 0;
+    const best = new Map<EmitterKind, { e: Emitter; rel: number; px: number; py: number; pz: number; d: number }>();
+    const consider = (e: Emitter) => {
+      const [px, py, pz] = nearestOnSegment(e, x, y, z);
+      const d = earDistance(x, y, z, px, py, pz);
+      if (d >= e.range) return;
+      const rel = d / e.range;
+      const b = best.get(e.kind);
+      if (!b || rel < b.rel) best.set(e.kind, { e, rel, px, py, pz, d });
+    };
     const cx = Math.floor(x / CELL);
     const cz = Math.floor(z / CELL);
-    for (let dz = -2; dz <= 2; dz++) {
-      for (let dx = -2; dx <= 2; dx++) {
+    for (let dz = -1; dz <= 1; dz++) {
+      for (let dx = -1; dx <= 1; dx++) {
         const list = this.cells.get(cellKey(cx + dx, cz + dz));
-        if (!list) continue;
-        for (const e of list) if (Math.hypot(e.x - x, (e.y - y) * 1.3, e.z - z) < e.range) out.push(e);
+        if (list) for (const e of list) consider(e);
       }
     }
-    const rel = (e: Emitter) => Math.hypot(e.x - x, (e.y - y) * 1.3, e.z - z) / e.range;
-    out.sort((a, b) => rel(a) - rel(b));
+    for (const e of this.wide) consider(e);
+    for (const e of extra) consider(e);
+    for (const [kind, b] of best) out.push({ kind, x: b.px, y: b.py, z: b.pz, d: b.d, range: b.e.range, strength: b.e.strength, occlusion: 0 });
+    out.sort((a, b) => a.d / a.range - b.d / b.range);
     if (out.length > max) out.length = max;
     return out;
   }
 }
-
-const cellKey = (cx: number, cz: number): number => (cx + 512) * 4096 + (cz + 512);
 
 /** The nearest placed torch and lava cell round (x, y, z), scanned in the voxels (cheap: twice a second). */
 export function scanVoxels(get: (x: number, y: number, z: number) => number, x: number, y: number, z: number): Emitter[] {
@@ -238,19 +384,41 @@ export function scanVoxels(get: (x: number, y: number, z: number) => number, x: 
   return out;
 }
 
+/**
+ * How much rock lies on the straight line from the ear to a source: the share of solid cells sampled
+ * every metre between them (the last metre at each end skipped: a torch's own wall, the floor under
+ * the ear). 0: in the open; 1: through solid rock.
+ */
+export function occlusionOf(get: (x: number, y: number, z: number) => number, ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
+  const d = Math.hypot(bx - ax, by - ay, bz - az);
+  const steps = Math.min(40, Math.floor(d));
+  if (steps < 3) return 0;
+  let solid = 0;
+  let n = 0;
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const b = get(Math.floor(ax + (bx - ax) * t), Math.floor(ay + (by - ay) * t), Math.floor(az + (bz - az) * t));
+    n++;
+    if (b > 0 && b < SOLID.length && SOLID[b]) solid++;
+  }
+  // Two metres of rock already muffle most of it; a thin rim of stone at a corner only a little.
+  return n > 0 ? Math.min(1, solid / Math.max(2, n * 0.5)) : 0;
+}
+
 // ---------------------------------------------------------------------------------------
 // The game, by shape
 
 interface GameShape {
   mode?: string;
   ui?: { screen?: string };
-  strata?: { current?: number; biomeHere?: BiomeId | null; busy?: boolean; layout?: { props?: readonly PropLike[]; hazards?: readonly HazardZoneLike[] } | null };
+  strata?: { current?: number; biomeHere?: BiomeId | null; busy?: boolean; layout?: SoundingLayout | null };
   mobs?: { list?: () => readonly MobLike[]; activeGuardian?: () => { kind?: string; phase?: number; phases?: number; hp?: number; max?: number } | null };
   loop?: { hazards?: { active?: HazardName | null; meter?: number } };
   vis?: { sonarState?: { pings?: number; last?: ReadonlyArray<{ x: number; y: number; z: number; kind?: string; rarity?: string | null; delay?: number }> } | null };
   cameraRig?: { camera?: { position?: { x: number; y: number; z: number }; matrixWorld?: { elements?: ArrayLike<number> } } };
-  player?: { x: number; y: number; z: number };
-  session?: { world?: { get(x: number, y: number, z: number): number }; layout?: { props?: readonly PropLike[] } };
+  player?: { x: number; y: number; z: number; climbing?: boolean; vy?: number };
+  health?: { fraction?: number };
+  session?: { world?: { get(x: number, y: number, z: number): number }; layout?: SoundingLayout };
 }
 
 /** The probe of a running Game (read by shape; see the file comment). */
@@ -261,7 +429,9 @@ export function gameAudioProbe(gameRef: unknown): AudioProbe {
   let scanAt = 0;
   let scanned: Emitter[] = [];
   let tick = 0;
-  const near: Emitter[] = [];
+  const heard: HeardEmitter[] = [];
+  /** Each kind's occlusion, measured a few times a second (it changes as slowly as the explorer walks). */
+  const occluded = new Map<EmitterKind, number>();
   return () => {
     const g = gameRef as GameShape;
     tick++;
@@ -271,6 +441,7 @@ export function gameAudioProbe(gameRef: unknown): AudioProbe {
     scene.biome = st?.biomeHere ?? null;
     scene.stratum = st?.current ?? 1;
     scene.loading = st?.busy === true;
+    scene.strata = !!st?.layout || scene.loading;
     const cam = g.cameraRig?.camera;
     const p = cam?.position ?? g.player;
     if (p && Number.isFinite(p.x)) {
@@ -291,25 +462,49 @@ export function gameAudioProbe(gameRef: unknown): AudioProbe {
     scene.engaged = d.engaged;
     const gs = g.mobs?.activeGuardian?.() ?? null;
     scene.guardian = gs ? { kind: gs.kind ?? 'guardian', phase: gs.phase ?? 1, phases: gs.phases ?? 2, hp: gs.hp ?? 1, max: gs.max ?? 1 } : null;
+    // Health.
+    const hp = g.health?.fraction;
+    scene.health = Number.isFinite(hp) ? Math.max(0, Math.min(1, hp!)) : 1;
     // Hazards.
     const hz = g.loop?.hazards;
     scene.hazard = hz?.active ?? null;
     scene.hazardLevel = Number.isFinite(hz?.meter) ? Math.max(0, Math.min(1, hz!.meter!)) : 0;
-    // Emitters: the stratum's props and pockets, plus torches and lava found in the voxels.
+    // Emitters: the stratum's features, plus torches and lava found in the voxels.
     const layout = st?.layout ?? g.session?.layout ?? null;
     if (layout !== indexOf) {
       indexOf = layout;
-      index = layout ? new EmitterIndex(layout.props ?? [], (layout as { hazards?: readonly HazardZoneLike[] }).hazards ?? []) : null;
+      index = layout ? new EmitterIndex(layout) : null;
+      occluded.clear();
     }
     const world = g.session?.world;
     if (world && tick >= scanAt) {
       scanAt = tick + 8;
       scanned = scanVoxels((x, y, z) => world.get(x, y, z), scene.lx, scene.ly - 1, scene.lz);
     }
-    index?.near(scene.lx, scene.ly, scene.lz, 8, near);
-    if (!index) near.length = 0;
-    for (const s of scanned) if (Math.hypot(s.x - scene.lx, s.y - scene.ly, s.z - scene.lz) < s.range) near.push(s);
-    scene.emitters = near;
+    if (index) index.near(scene.lx, scene.ly, scene.lz, 12, heard, scanned);
+    else heard.length = 0;
+    if (world) {
+      const fresh = tick % 4 === 0;
+      for (const h of heard) {
+        let o = occluded.get(h.kind);
+        if (o === undefined || fresh) {
+          o = occlusionOf((x, y, z) => world.get(x, y, z), scene.lx, scene.ly, scene.lz, h.x, h.y, h.z);
+          occluded.set(h.kind, o);
+        }
+        h.occlusion = o;
+      }
+    }
+    scene.emitters = heard;
+    // Climbing: what the hands hold (the ladder or rope cell at the chest, else at the feet).
+    const pl = g.player;
+    scene.climbing = null;
+    scene.climbSpeed = 0;
+    if (pl?.climbing && world) {
+      const at = (dy: number) => world.get(Math.floor(pl.x), Math.floor(pl.y + dy), Math.floor(pl.z));
+      const b = at(1.1) === B.ROPE || at(0.2) === B.ROPE ? B.ROPE : at(1.1) === B.LADDER || at(0.2) === B.LADDER ? B.LADDER : B.AIR;
+      scene.climbing = b === B.ROPE ? 'rope' : b === B.LADDER ? 'ladder' : null;
+      scene.climbSpeed = Number.isFinite(pl.vy) ? pl.vy! : 0;
+    }
     // The sonar's last reveal.
     const sonar = g.vis?.sonarState;
     scene.sonarPings = sonar?.pings ?? 0;

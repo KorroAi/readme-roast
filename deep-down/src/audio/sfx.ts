@@ -9,6 +9,7 @@ import { MOB_SFX } from './mobSfx';
 import { LOOP_SFX } from './loopSfx';
 import { ACTION_SFX } from './actionSfx';
 import { AMBIENCE_SFX } from './ambienceSfx';
+import { MINE_SFX } from './mineSfx';
 
 // Every one-shot sound in the game, synthesized from oscillators, the shared noise buffers
 // and envelopes. Recipes only talk to a Voice, so the same code plays live through the mix
@@ -37,6 +38,8 @@ export interface SfxParams {
   tier?: number;
   /** Surface under the player for landings. */
   material?: StepKind;
+  /** Semitones every tone of the sound moves (the cues follow the music's key: audio/harmony). */
+  transpose?: number;
 }
 
 interface SfxDef {
@@ -433,7 +436,8 @@ const def = (bus: BusName, gain: number, wet: number, priority: number, length: 
 
 const hit = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.75, wet, 2, length, HIT[kind], 0.04);
 const brk = (kind: SoundKind, length: number, wet: number) => def('sfx', 0.8, wet, 2, length, BREAK[kind], 0.04);
-const step = (kind: StepKind) => def('sfx', 0.45, 0.08, 1, 0.25, (v, p) => STEP[kind](v, v.t, saturate(p.intensity ?? 0.3)), 0.06);
+// Round 3: steps +1.7 dB (0.45 -> 0.55): at a walk they sat 14 dB under the score on a phone.
+const step = (kind: StepKind) => def('sfx', 0.55, 0.08, 1, 0.25, (v, p) => STEP[kind](v, v.t, saturate(p.intensity ?? 0.3)), 0.06);
 const pickup = (freqs: readonly number[], spacing: number, amp: number, decay: number, sparkle: number) => (v: Voice) => {
   freqs.forEach((f, i) => blip(v, v.t + i * spacing, f * v.vary(0.005), amp, decay));
   if (sparkle > 0) burst(v, v.t + 0.02, 'white', 'highpass', 7000, 0.7, sparkle, 0.08 + freqs.length * 0.03);
@@ -723,6 +727,8 @@ export const SFX = {
   // Round 3 (AUDIO): every new action and event (audio/actionSfx) and the beds' one-shots (audio/ambienceSfx).
   ...ACTION_SFX,
   ...AMBIENCE_SFX,
+  // Round 3 (AUDIO): the biome rocks that do not mine as stone (audio/mineSfx: ice, glass, fungus, mud, snow, vines, resin).
+  ...MINE_SFX,
 } satisfies Record<string, SfxDef>;
 
 export type SfxName = keyof typeof SFX;
@@ -737,7 +743,7 @@ export function sfxInfo(name: SfxName): Readonly<Omit<SfxDef, 'build'>> {
 /** Build and start one sound at time `t` on `target`. Returns the voice (for limiting). */
 export function playSfx(target: SynthTarget, name: SfxName, params: SfxParams, t: number): Voice {
   const d = SFX[name];
-  const v = new Voice(target, t, { gain: d.gain * (params.gain ?? 1), wet: d.wet + BASE_SEND[d.bus], pan: params.pan });
+  const v = new Voice(target, t, { gain: d.gain * (params.gain ?? 1), wet: d.wet + BASE_SEND[d.bus], pan: params.pan, transpose: params.transpose });
   d.build(v, params);
   v.finish();
   return v;

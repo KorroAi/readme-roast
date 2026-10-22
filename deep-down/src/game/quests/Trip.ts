@@ -14,9 +14,14 @@ import { hasText, t, type TextKey } from '../../i18n';
  */
 export type TripRecord = 'depth' | 'kills' | 'finds' | 'long';
 
+/** Where a trip ended: the stratum I camp, a lower stratum's lift landing, an outpost's bed. */
+export type TripEnd = 'camp' | 'lift' | 'outpost';
+
 export interface TripSummary {
   n: number;
   outcome: 'returned' | 'blackout';
+  /** Where it ended (the black-out: where the explorer wakes). Optional for older fixtures. */
+  where?: TripEnd;
   seconds: number;
   /** Metres. */
   deepest: number;
@@ -32,6 +37,10 @@ export interface TripSummary {
   pages: number;
   bestiary: number;
   banked: number;
+  /** Named places reached for the first time on this trip (WORLD's 'world:site'; optional for older fixtures). */
+  places?: number;
+  /** Chests opened on this trip (optional for older fixtures). */
+  chests?: number;
   records: TripRecord[];
   /** The main quest's step now (the card's "Next"). */
   next: string;
@@ -64,6 +73,8 @@ interface Live {
   pages: number;
   bestiary: number;
   banked: number;
+  places: number;
+  chests: number;
 }
 
 /** The ore item a block gives (for the rarest find's name). */
@@ -117,6 +128,9 @@ export class Trip {
     bus.on('world:biome', (e) => {
       if (this.live && e.biome !== 'heart' && e.biome in BIOMES) this.live.biomes.add(e.biome as BiomeKey);
     });
+    bus.on('world:site', () => {
+      if (this.live) this.live.places++;
+    });
   }
 
   get active(): boolean {
@@ -141,7 +155,14 @@ export class Trip {
       pages: 0,
       bestiary: 0,
       banked: 0,
+      places: 0,
+      chests: 0,
     };
+  }
+
+  /** A chest was opened (Loop.chestOpened). */
+  chestOpened(): void {
+    if (this.live) this.live.chests++;
   }
 
   /** Each frame while out: the depth (metres) and the stratum. */
@@ -156,13 +177,13 @@ export class Trip {
    * The trip ends: its summary (null when there was none, or it was too short to tell: under 20 s
    * with nothing found). The orders paid and the bank at the camp count when they come right after.
    */
-  end(now: number, outcome: TripSummary['outcome'], next: string): TripSummary | null {
+  end(now: number, outcome: TripSummary['outcome'], next: string, where: TripEnd = 'camp'): TripSummary | null {
     const l = this.live;
     this.live = null;
     if (!l) return null;
     const seconds = Math.max(0, now - l.t0);
     const finds = RARITIES.reduce((a, r) => a + l.finds[r], 0);
-    if (seconds < 20 && finds === 0 && l.kills === 0 && l.shards.length === 0) return null;
+    if (seconds < 20 && finds === 0 && l.kills === 0 && l.shards.length === 0 && l.places === 0 && l.chests === 0) return null;
     const rec = this.records;
     rec.trips++;
     const records: TripRecord[] = [];
@@ -193,10 +214,13 @@ export class Trip {
       pages: l.pages,
       bestiary: l.bestiary,
       banked: l.banked,
+      places: l.places,
+      chests: l.chests,
       records,
       next,
       lines: [],
-      title: t(outcome === 'blackout' ? 'trip3.blackout' : 'trip3.title'),
+      where,
+      title: t(TITLE[outcome][where], { stratum: ROMAN_NUM[l.stratum] ?? '' }),
     };
     s.lines = linesOf(s);
     this.last = s;
@@ -229,6 +253,13 @@ export class Trip {
   }
 }
 
+/** The card's title by how and where the trip ended. */
+const TITLE: Record<TripSummary['outcome'], Record<TripEnd, TextKey>> = {
+  returned: { camp: 'trip3.title', lift: 'trip3.title.lift', outpost: 'trip3.title.outpost' },
+  blackout: { camp: 'trip3.blackout', lift: 'trip3.blackout.lift', outpost: 'trip3.blackout.outpost' },
+};
+const ROMAN_NUM = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
+
 function minutes(s: number): string {
   const m = Math.floor(s / 60);
   return t('trip3.minutes', { m, s: Math.round(s - m * 60) });
@@ -241,15 +272,17 @@ function linesOf(s: TripSummary): Array<{ label: string; value: string }> {
   };
   const finds = RARITIES.reduce((a, r) => a + s.finds[r], 0);
   add('trip3.time', minutes(s.seconds));
-  add('trip3.deepest', `${s.deepest} m`);
-  add('trip3.biomes', s.biomes.map((b) => (hasText(`biome.${b}.name`) ? t(`biome.${b}.name` as TextKey) : b)).join(', '), s.biomes.length > 0);
-  add('trip3.finds', RARITIES.filter((r) => s.finds[r] > 0).map((r) => `${s.finds[r]} ${t(`rarity.${r}` as TextKey)}`).join(' · ') || '0', true);
+  add('trip3.deepest', t('loop3.metres', { n: s.deepest }));
+  add('trip3.biomes', s.biomes.map((b) => (hasText(`biome.${b}.name`) ? t(`biome.${b}.name` as TextKey) : b)).join(t('loop3.listSep')), s.biomes.length > 0);
+  add('trip3.finds', RARITIES.filter((r) => s.finds[r] > 0).map((r) => t('loop3.count', { n: s.finds[r], item: t(`rarity.${r}` as TextKey) })).join(t('loop3.dotSep')) || '0', true);
   add('trip3.rarest', s.rarest ? t(ITEMS[s.rarest].name) : '', !!s.rarest && finds > 0);
   add('trip3.kills', s.kills, s.kills > 0);
   add('trip3.shards', s.shards.length, s.shards.length > 0);
   add('trip3.crafted', s.crafted, s.crafted > 0);
   add('trip3.torches', s.torches, s.torches > 0);
   add('trip3.orders', s.orders, s.orders > 0);
+  add('trip3.places', s.places ?? 0, (s.places ?? 0) > 0);
+  add('trip3.chests', s.chests ?? 0, (s.chests ?? 0) > 0);
   add('trip3.pages', s.pages, s.pages > 0);
   add('trip3.bestiary', s.bestiary, s.bestiary > 0);
   add('trip3.banked', s.banked, s.banked > 0);

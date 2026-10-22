@@ -142,7 +142,7 @@ describe('props of the strata (VIS round 3)', () => {
     expect(pockets.find((p) => p.y === 6)!.roof).toBeNull();
     const specs = pocketProps(pockets, 7);
     expect(specs.length).toBe(2);
-    expect(specs.every((sp) => sp.kind === 'glowWormsBlue' && sp.y === 30)).toBe(true);
+    expect(specs.every((sp) => (sp.kind as string) === 'glowWormsBlue' && sp.y === 30)).toBe(true);
     // A mine lamp hangs on its chain down to its light: the drop rides in the variant.
     const mine = pocketProps(findPockets(w, () => 'haldenMines', owned), 7).find((sp) => sp.x === 20.5)!;
     expect(mine.kind).toBe('mineLamp');

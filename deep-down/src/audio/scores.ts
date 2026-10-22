@@ -73,10 +73,20 @@ export interface ScoreDef {
   rest: readonly [number, number];
   /** The chance a chord change rests the bed too (sparse scores). */
   bedRest?: number;
-  /** Tension: a bass ostinato, a pulse, and a quiet high "shiver" note (a semitone above the root). */
-  tension: { bass: string; pulse: Pattern | null; shiver?: Timbre };
-  /** Combat: drums, a driving bass line, chord stabs on chord changes. */
+  /**
+   * Tension: a bass ostinato, a pulse, a quiet high "shiver" note (a semitone above the root), and in
+   * the deeper strata a low sustained `swell` (strings in tremolo, a drone) on the chord's root and fifth.
+   */
+  tension: { bass: string; pulse: Pattern | null; shiver?: Timbre; swell?: Timbre };
+  /** Combat: drums, a driving bass line, chord stabs on chord changes (every bar from a guardian's second phase). */
   combat: { drums: readonly Pattern[]; bass: string; stab?: Timbre };
+  /** Guardian themes: what the second phase (and later) adds: more skins, a busier bass line. */
+  phase2?: { drums: readonly Pattern[]; bass?: string };
+  /**
+   * The Dark Heart: from its last phase, the game's theme sung above the guardian motif (`voice`,
+   * `octave` above the lead), every phrase.
+   */
+  finale?: { theme: readonly MotifNote[]; voice: Timbre; octave: number };
   /** Far-off percussion while exploring (the mines' anvil, the magma's slow drum). */
   explore?: readonly Pattern[];
   /** Deck level (1 = nominal). */
@@ -98,6 +108,15 @@ const kit = {
     { steps: high, timbre: 'shaker', vel: 0.5 },
   ],
 };
+
+/**
+ * A guardian's second phase: a tom fill into every other downbeat and a ghosted woodblock on the
+ * off-beats over its own extra skin (the fight tightens without getting louder at the bottom).
+ */
+const phaseFill = (skin: Timbre, midi: number, extra: readonly Pattern[] = []): ScoreDef['phase2'] => ({
+  drums: [{ steps: '.....oxx', timbre: skin, vel: 0.75, midi, every: 2 }, { steps: '.g.g.g.g', timbre: 'rim', vel: 0.42, midi: 64 }, ...extra],
+  bass: '1.11.515',
+});
 
 /** The game's theme (the lantern's): heard at the title, at camp in major, and in the Heart. */
 const HEART_THEME: readonly MotifNote[] = [
@@ -136,6 +155,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     bed: 'glassPad', lead: 'musicBox', counter: 'flute', counterStyle: 'answer', bass: 'subBass', brightness: 1100, density: 0.55, rest: [1, 3], bedRest: 0.15,
     tension: { bass: '1..5..', pulse: { steps: 'x.....', timbre: 'heartbeat', vel: 0.4 }, shiver: 'glass' },
     combat: { drums: [{ steps: 'x..o..', timbre: 'tom', vel: 0.85, midi: 52 }, { steps: 'o.o.o.', timbre: 'rim', vel: 0.5, midi: 64 }, { steps: 'gggggg', timbre: 'shaker', vel: 0.45 }], bass: '1.5.8.' },
+    // A spore popping high in the caps now and then.
+    explore: [{ steps: '....g.', timbre: 'drop', vel: 0.3, midi: 88, every: 3 }],
   }),
   // ---- Stratum II
   /** Roots and earth: F dorian rolling in 12/8, a marimba over a reed pad, a bowed bass. */
@@ -147,6 +168,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     bed: 'reedPad', lead: 'marimba', counter: 'pluck', counterStyle: 'echo', bass: 'bowed', brightness: 1200, density: 0.6, rest: [1, 2],
     tension: { bass: '1..1..5..1..', pulse: { steps: 'x.....x.....', timbre: 'heartbeat', vel: 0.45 } },
     combat: { drums: [{ steps: 'x..x..x..x.o', timbre: 'tom', vel: 0.85, midi: 48 }, { steps: '...o.....o..', timbre: 'frame', vel: 0.7, midi: 55 }, { steps: 'g.gg.gg.gg.g', timbre: 'shaker', vel: 0.45 }], bass: '1..5..1..8..' },
+    // The roots' slow knock, deep in the earth.
+    explore: [{ steps: 'o...........', timbre: 'frame', vel: 0.22, midi: 50, every: 2 }],
   }),
   /** Lakes and waterfalls: C# minor, a flute falling like a wave over flowing harp arpeggios. */
   floodedGrottoes: biome({
@@ -169,6 +192,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     bed: 'shimmer', lead: 'celesta', counter: 'glass', counterStyle: 'echo', bass: 'subBass', brightness: 1300, density: 0.5, rest: [1, 3],
     tension: { bass: '1.......', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.38 }, shiver: 'glass' },
     combat: { drums: [{ steps: 'x..x.x..', timbre: 'tom', vel: 0.85, midi: 50 }, { steps: 'o.....o.', timbre: 'anvil', vel: 0.4, midi: 76 }, { steps: 'gggggggg', timbre: 'shaker', vel: 0.4 }], bass: '1..1.5..' },
+    // A crystal answering somewhere in the forest of them.
+    explore: [{ steps: '......g.', timbre: 'anvil', vel: 0.24, midi: 88, every: 3 }],
   }),
   /** Timber, rails, lamps: E dorian work song on a plucked string over a reed organ; a far anvil. */
   haldenMines: biome({
@@ -177,7 +202,7 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     motif: [{ d: 0, at: 0, len: 0.5 }, { d: 0, at: 0.5, len: 0.5 }, { d: 2, at: 1, len: 0.5 }, { d: 4, at: 1.5, len: 0.5 }, { d: 3, at: 2, len: 1 }, { d: 2, at: 3, len: 1 },
       { d: 1, at: 4, len: 0.5 }, { d: 2, at: 4.5, len: 0.5 }, { d: 1, at: 5, len: 0.5 }, { d: -1, at: 5.5, len: 0.5 }, { d: 0, at: 6, len: 2 }],
     bed: 'organ', lead: 'pluck', counter: 'whistle', counterStyle: 'answer', bass: 'pluckBass', brightness: 1100, density: 0.6, rest: [1, 2],
-    tension: { bass: '1.1.1.1.', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.4 } },
+    tension: { bass: '1.1.1.1.', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.4 }, swell: 'tremolo' },
     combat: { drums: [{ steps: 'x..x..x.', timbre: 'tom', vel: 0.85, midi: 48 }, { steps: '..o...o.', timbre: 'anvil', vel: 0.5, midi: 64 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.45 }], bass: '1.1.5.15' },
     explore: [{ steps: 'o.......', timbre: 'anvil', vel: 0.2, midi: 62, every: 2 }],
   }),
@@ -188,8 +213,10 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     progression: [0, 5, 3, 0], voicing: [0, 4, 9],
     motif: [{ d: 7, at: 0, len: 2 }, { d: 6, at: 2, len: 1 }, { d: 4, at: 3, len: 1 }, { d: 2, at: 4, len: 1 }, { d: 3, at: 5, len: 1 }, { d: 0, at: 6, len: 2 }],
     bed: 'glassPad', lead: 'glass', counter: 'celesta', counterStyle: 'echo', bass: 'subBass', brightness: 800, density: 0.45, rest: [2, 4], bedRest: 0.3,
-    tension: { bass: '1.......', pulse: { steps: 'x.......', timbre: 'heartbeat', vel: 0.45 }, shiver: 'glass' },
-    combat: { drums: [{ steps: 'x...x.x.', timbre: 'taiko', vel: 0.85, midi: 43 }, { steps: '..o...o.', timbre: 'snap', vel: 0.55, midi: 72 }, { steps: 'g.g.g.g.', timbre: 'shaker', vel: 0.4 }], bass: '1...5.1.' },
+    tension: { bass: '1.......', pulse: { steps: 'x.......', timbre: 'heartbeat', vel: 0.45 }, shiver: 'glass', swell: 'tremolo' },
+    combat: { drums: [{ steps: 'x...x.x.', timbre: 'taiko', vel: 0.85, midi: 43 }, { steps: '..o...o.', timbre: 'snap', vel: 0.55, midi: 72 }, { steps: 'g.g.g.g.', timbre: 'shaker', vel: 0.4 }], bass: '1...5.1.', stab: 'celesta' },
+    // The ice cracking far off, very rarely.
+    explore: [{ steps: '...g....', timbre: 'snap', vel: 0.22, midi: 78, every: 4 }],
   }),
   /** Bioluminescent vines: A dorian at a lively tempo, a pan flute and kalimba, soft hand drums even exploring. */
   glowrootJungle: biome({
@@ -199,7 +226,7 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
       { d: 0, at: 4, len: 0.5 }, { d: 2, at: 4.5, len: 0.25 }, { d: 3, at: 4.75, len: 0.75 }, { d: 2, at: 5.5, len: 0.5 }, { d: 0, at: 6, len: 0.5 }, { d: -1, at: 6.5, len: 1.5 }],
     bed: 'warm', lead: 'panFlute', counter: 'kalimba', counterStyle: 'arp', bass: 'pluckBass', brightness: 1500, density: 0.65, rest: [1, 2],
     tension: { bass: '1..1..1.', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.35 } },
-    combat: { drums: [{ steps: 'x..x..x.', timbre: 'tom', vel: 0.85, midi: 50 }, { steps: '..o...o.', timbre: 'clap', vel: 0.55 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.45 }], bass: '1.15.1.5' },
+    combat: { drums: [{ steps: 'x..x..x.', timbre: 'tom', vel: 0.85, midi: 50 }, { steps: '..o...o.', timbre: 'clap', vel: 0.55 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.45 }], bass: '1.15.1.5', stab: 'marimba' },
     explore: [{ steps: 'g..g..g.', timbre: 'shaker', vel: 0.22 }, { steps: '......o.', timbre: 'tom', vel: 0.2, midi: 55, every: 2 }],
   }),
   // ---- Stratum V
@@ -210,8 +237,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     motif: [{ d: 0, at: 0, len: 1 }, { d: 1, at: 1, len: 0.5 }, { d: 0, at: 1.5, len: 0.5 }, { d: -1, at: 2, len: 1 }, { d: 0, at: 3, len: 2 },
       { d: 3, at: 5, len: 0.5 }, { d: 2, at: 5.5, len: 0.5 }, { d: 1, at: 6, len: 1 }, { d: 0, at: 7, len: 3 }],
     bed: 'murk', lead: 'reed', bass: 'subBass', brightness: 700, density: 0.5, rest: [1, 3],
-    tension: { bass: '1....1..5.', pulse: { steps: 'x....x....', timbre: 'heartbeat', vel: 0.4 } },
-    combat: { drums: [{ steps: 'x..x..x.x.', timbre: 'tom', vel: 0.85, midi: 46 }, { steps: '.o...o..o.', timbre: 'rim', vel: 0.5, midi: 58 }, { steps: 'g.g.g.g.g.', timbre: 'shaker', vel: 0.4 }], bass: '1.1..5.1..' },
+    tension: { bass: '1....1..5.', pulse: { steps: 'x....x....', timbre: 'heartbeat', vel: 0.4 }, swell: 'murk' },
+    combat: { drums: [{ steps: 'x..x..x.x.', timbre: 'tom', vel: 0.85, midi: 46 }, { steps: '.o...o..o.', timbre: 'rim', vel: 0.5, midi: 58 }, { steps: 'g.g.g.g.g.', timbre: 'shaker', vel: 0.4 }], bass: '1.1..5.1..', stab: 'reed' },
     explore: [{ steps: '.......g..', timbre: 'drop', vel: 0.3, midi: 58 }],
   }),
   /** Carved halls and gold runes: D phrygian dominant, a horn and temple bells over a choir; a far gong. */
@@ -221,8 +248,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     motif: [{ d: 0, at: 0, len: 1 }, { d: 1, at: 1, len: 0.5 }, { d: 2, at: 1.5, len: 0.5 }, { d: 4, at: 2, len: 2 },
       { d: 5, at: 4, len: 0.5 }, { d: 4, at: 4.5, len: 0.5 }, { d: 2, at: 5, len: 1 }, { d: 1, at: 6, len: 0.5 }, { d: 0, at: 6.5, len: 1.5 }],
     bed: 'choirPad', lead: 'horn', counter: 'bell', counterStyle: 'answer', bass: 'bowed', brightness: 1000, density: 0.5, rest: [1, 3],
-    tension: { bass: '1...1...', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.4 } },
-    combat: { drums: kit.taiko('x..x..x.', '..o..o.o', 'g.g.g.g.'), bass: '1.1.5.1.' },
+    tension: { bass: '1...1...', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.4 }, swell: 'tremolo' },
+    combat: { drums: kit.taiko('x..x..x.', '..o..o.o', 'g.g.g.g.'), bass: '1.1.5.1.', stab: 'horn' },
     explore: [{ steps: 'o.......', timbre: 'gong', vel: 0.16, midi: 45, every: 8 }],
   }),
   // ---- Stratum VI
@@ -232,8 +259,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     progression: [0, 1, 5, 0], voicing: [0, 4, 7],
     motif: [{ d: 0, at: 0, len: 1.5 }, { d: 1, at: 1.5, len: 0.5 }, { d: 0, at: 2, len: 1 }, { d: -2, at: 3, len: 1 }, { d: -1, at: 4, len: 1 }, { d: 0, at: 5, len: 1 }, { d: -3, at: 6, len: 2 }],
     bed: 'drone', lead: 'brass', bass: 'sawBass', brightness: 900, density: 0.55, rest: [1, 2],
-    tension: { bass: '1.1.1.1.', pulse: { steps: 'x..x....', timbre: 'heartbeat', vel: 0.45 } },
-    combat: { drums: [...kit.taiko(), { steps: 'x.......', timbre: 'boom', vel: 0.6, midi: 36, every: 2 }], bass: '1.1.1.15' },
+    tension: { bass: '1.1.1.1.', pulse: { steps: 'x..x....', timbre: 'heartbeat', vel: 0.45 }, swell: 'drone' },
+    combat: { drums: [...kit.taiko(), { steps: 'x.......', timbre: 'boom', vel: 0.6, midi: 36, every: 2 }], bass: '1.1.1.15', stab: 'brass' },
     explore: [{ steps: 'x.......', timbre: 'taiko', vel: 0.28, midi: 40, every: 2 }],
     leadOctave: -1,
   }),
@@ -243,8 +270,8 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     progression: [0, 1, 0, 3], voicing: [0, 2, 4],
     motif: [{ d: 0, at: 0, len: 1 }, { d: 3, at: 1, len: 1 }, { d: 2, at: 2, len: 2 }, { d: 4, at: 4, len: 1 }, { d: 1, at: 5, len: 1 }, { d: 0, at: 6, len: 2 }],
     bed: 'voidPad', lead: 'glass', counter: 'bell', counterStyle: 'echo', bass: 'subBass', brightness: 700, density: 0.4, rest: [2, 4], bedRest: 0.25,
-    tension: { bass: '1.......', pulse: { steps: 'x.......', timbre: 'heartbeat', vel: 0.5 }, shiver: 'glass' },
-    combat: { drums: [{ steps: 'x...x...', timbre: 'boom', vel: 0.8, midi: 38 }, { steps: '..o..o..', timbre: 'tom', vel: 0.6, midi: 46 }, { steps: 'g...g.g.', timbre: 'snap', vel: 0.4, midi: 70 }], bass: '1...1.5.' },
+    tension: { bass: '1.......', pulse: { steps: 'x.......', timbre: 'heartbeat', vel: 0.5 }, shiver: 'glass', swell: 'voidPad' },
+    combat: { drums: [{ steps: 'x...x...', timbre: 'boom', vel: 0.8, midi: 38 }, { steps: '..o..o..', timbre: 'tom', vel: 0.6, midi: 46 }, { steps: 'g...g.g.', timbre: 'snap', vel: 0.4, midi: 70 }], bass: '1...1.5.', stab: 'bell' },
     explore: [{ steps: 'x.......', timbre: 'boom', vel: 0.2, midi: 36, every: 4 }],
   }),
   /** The Heart: the game's theme in D minor, a choir over an organ, bells answering. */
@@ -253,8 +280,9 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
     progression: [0, 5, 3, 4], voicing: [0, 2, 4, 7],
     motif: HEART_THEME,
     bed: 'organ', lead: 'choir', counter: 'bell', counterStyle: 'answer', bass: 'bowed', brightness: 1000, density: 0.55, rest: [1, 2],
-    tension: { bass: '1...1...', pulse: { steps: 'x...x...', timbre: 'heartbeat', vel: 0.55 } },
-    combat: { drums: kit.taiko(), bass: '1.1.5.1.' },
+    // Its tension pulse is the earth's (a low boom), not a heart: the Dark Heart's own beat (MOBS) is the heart here.
+    tension: { bass: '1...1...', pulse: { steps: 'x...x...', timbre: 'boom', vel: 0.42, midi: 36 }, swell: 'tremolo' },
+    combat: { drums: kit.taiko(), bass: '1.1.5.1.', stab: 'brass' },
   }),
 
   // ---- Home, the title, the ending
@@ -290,26 +318,34 @@ export const SCORES: Record<ScoreId, ScoreDef> = {
   }),
 
   // ---- Guardian themes, one per stratum (the same motif, each stratum's colour)
-  guardian1: guardian('guardian1', 69, 'aeolian', 120, { bed: 'drone', lead: 'horn', counter: 'kalimba', bass: 'sawBass' }, kit.taiko()),
+  guardian1: guardian('guardian1', 69, 'aeolian', 120, { bed: 'drone', lead: 'horn', counter: 'kalimba', bass: 'sawBass' }, kit.taiko(),
+    phaseFill('tom', 50)),
   guardian2: guardian('guardian2', 72, 'aeolian', 116, { bed: 'tremolo', lead: 'horn', counter: 'marimba', bass: 'bowed' },
-    [{ steps: 'x..x..x.', timbre: 'tom', vel: 0.9, midi: 45 }, { steps: 'o.o..o.o', timbre: 'drop', vel: 0.5, midi: 76 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }]),
+    [{ steps: 'x..x..x.', timbre: 'tom', vel: 0.9, midi: 45 }, { steps: 'o.o..o.o', timbre: 'drop', vel: 0.5, midi: 76 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }],
+    phaseFill('tom', 47, [{ steps: 'x.......', timbre: 'taiko', vel: 0.5, midi: 43, every: 2 }])),
   guardian3: guardian('guardian3', 67, 'phrygian', 124, { bed: 'organ', lead: 'brass', counter: 'bell', bass: 'sawBass' },
-    [{ steps: 'x..x..x.', timbre: 'taiko', vel: 0.9, midi: 43 }, { steps: '..o...o.', timbre: 'anvil', vel: 0.55, midi: 66 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }]),
+    [{ steps: 'x..x..x.', timbre: 'taiko', vel: 0.9, midi: 43 }, { steps: '..o...o.', timbre: 'anvil', vel: 0.55, midi: 66 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }],
+    phaseFill('tom', 50, [{ steps: '...o...o', timbre: 'anvil', vel: 0.35, midi: 70 }])),
   guardian4: guardian('guardian4', 64, 'aeolian', 128, { bed: 'tremolo', lead: 'brass', counter: 'celesta', bass: 'sawBass' },
-    [{ steps: 'x..x..x.', timbre: 'taiko', vel: 0.9, midi: 43 }, { steps: '..o...o.', timbre: 'snap', vel: 0.55, midi: 72 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }]),
+    [{ steps: 'x..x..x.', timbre: 'taiko', vel: 0.9, midi: 43 }, { steps: '..o...o.', timbre: 'snap', vel: 0.55, midi: 72 }, { steps: 'gogogogo', timbre: 'shaker', vel: 0.5 }],
+    phaseFill('tom', 50, [{ steps: '.o...o..', timbre: 'snap', vel: 0.4, midi: 76 }])),
   guardian5: guardian('guardian5', 65, 'phrygianDominant', 112, { bed: 'choirPad', lead: 'reed', counter: 'bell', bass: 'bowed' },
-    [...kit.taiko('x..x..x.', '..o..o.o', 'g.g.g.g.'), { steps: 'o.......', timbre: 'gong', vel: 0.3, midi: 45, every: 4 }]),
+    [...kit.taiko('x..x..x.', '..o..o.o', 'g.g.g.g.'), { steps: 'o.......', timbre: 'gong', vel: 0.3, midi: 45, every: 4 }],
+    phaseFill('tom', 46, [{ steps: 'o.......', timbre: 'gong', vel: 0.22, midi: 50, every: 2 }])),
   guardian6: guardian('guardian6', 62, 'phrygian', 132, { bed: 'organ', lead: 'brass', counter: 'choir', bass: 'sawBass' },
-    [...kit.taiko(), { steps: 'x.......', timbre: 'boom', vel: 0.65, midi: 36, every: 2 }]),
-  /** The Heart's boss: the guardian motif and, from its last phase, the game's theme above it. */
+    [...kit.taiko(), { steps: 'x.......', timbre: 'boom', vel: 0.65, midi: 36, every: 2 }],
+    phaseFill('taiko', 45, [{ steps: '....x...', timbre: 'boom', vel: 0.45, midi: 36, every: 2 }])),
+  /** The Heart's boss: the guardian motif and, from its last phase, the game's theme sung above it. */
   heartBoss: {
     ...guardian('heartBoss', 62, 'phrygian', 120, { bed: 'organ', lead: 'brass', counter: 'choir', bass: 'sawBass' },
-      [...kit.taiko(), { steps: 'x...x...', timbre: 'boom', vel: 0.6, midi: 36 }, { steps: 'o.......', timbre: 'gong', vel: 0.3, midi: 43, every: 4 }]),
+      [...kit.taiko(), { steps: 'x...x...', timbre: 'boom', vel: 0.6, midi: 36 }, { steps: 'o.......', timbre: 'gong', vel: 0.3, midi: 43, every: 4 }],
+      phaseFill('taiko', 45, [{ steps: '..o...o.', timbre: 'tom', vel: 0.5, midi: 52 }])),
     counterStyle: 'answer',
+    finale: { theme: HEART_THEME, voice: 'choir', octave: 1 },
   },
 };
 
-function guardian(id: GuardianScoreId | 'heartBoss', tonic: number, mode: ModeName, bpm: number, t: { bed: Timbre; lead: Timbre; counter: Timbre; bass: Timbre }, drums: readonly Pattern[]): ScoreDef {
+function guardian(id: GuardianScoreId | 'heartBoss', tonic: number, mode: ModeName, bpm: number, t: { bed: Timbre; lead: Timbre; counter: Timbre; bass: Timbre }, drums: readonly Pattern[], phase2: ScoreDef['phase2']): ScoreDef {
   return {
     id, tonic, mode, bpm, meter: 4, sub: 2,
     progression: [0, 5, 3, 4], chordBars: 2, voicing: [0, 4, 7],
@@ -318,6 +354,7 @@ function guardian(id: GuardianScoreId | 'heartBoss', tonic: number, mode: ModeNa
     brightness: 1200, density: 1, rest: [0, 0],
     tension: { bass: '1.1.1.1.', pulse: null },
     combat: { drums, bass: '1.1.1.15', stab: 'brass' },
+    phase2,
     leadOctave: -1,
   };
 }

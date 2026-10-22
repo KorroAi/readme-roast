@@ -1,4 +1,4 @@
-import { B } from '../../../config/blocks';
+import { B, SOLID } from '../../../config/blocks';
 import { BIOMES, type BiomeId } from '../../../config/biomes';
 import { Noise } from '../../../core/noise';
 import type { VoxelWorld } from '../../VoxelWorld';
@@ -220,11 +220,20 @@ export function dilateGuard(st: CarveState, n = 2): void {
 /**
  * Worm caves: where two smooth 3D noise fields are both near zero (the intersection of two
  * surfaces is a tube). Sampled on a 2 m lattice and interpolated. They open side galleries, forks and
- * dead-end pockets; they never touch the three cells under a guarded floor, nor the zone's shell.
+ * dead-end pockets; they never touch the three cells under any floor the plan carved (every floor
+ * standing when they run: a column may hold a tunnel over a gallery, and the guard keeps only the
+ * lowest), nor the three under a guarded floor, nor the zone's shell.
  */
 export function carveWorms(st: CarveState, seed: number): number {
   const { world: w, plan } = st;
   const { sx, sy, sz } = w;
+  // Every plan floor (solid under air) keeps its three cells of rock. The loop below climbs each
+  // column and only ever carves the cell it stands on, so the cells over it are still the plan's.
+  const blk = w.blocks;
+  const underFloor = (id: number): boolean => {
+    for (let k = 0; k < 3; k++) if (SOLID[blk[id + k * sx]] === 1 && blk[id + (k + 1) * sx] === B.AIR) return true;
+    return false;
+  };
   const n1 = new Noise(seed ^ 0x3a3a);
   const n2 = new Noise(seed ^ 0x7c7c);
   const S = 2;
@@ -270,6 +279,7 @@ export function carveWorms(st: CarveState, seed: number): number {
         if (v < thr) {
           const id = x + sx * (y + sy * z);
           if (w.blocks[id] !== B.AIR) {
+            if (underFloor(id)) continue;
             w.blocks[id] = B.AIR;
             carved++;
           }

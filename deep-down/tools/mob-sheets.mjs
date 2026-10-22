@@ -271,6 +271,122 @@ try {
       log(`companion: ${JSON.stringify(await page.evaluate(() => window.__DD__.mobs.companion()))}`);
     }
   }
+  if (opt.only === 'fight' || opt.only === 'all') {
+    // The moments of a fight, held still: a blow landing (the flinch, the sparks, the pin of light),
+    // creatures collapsing as they die (each its own way), a guardian's open guard and its phase ring.
+    await page.evaluate(() => window.__DD__.goto('frostCaverns'));
+    await settle(30);
+    await page.evaluate(() => {
+      window.__DD__.mobs.clear();
+      window.__DD__.mobs.harmless(true);
+    });
+    await openAhead(4, 9);
+    const hid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('icefang', 3.2, 0, { asleep: false }));
+    if (hid !== null) {
+      await page.evaluate((id) => {
+        const m = window.__DD__.mobs;
+        m.freeze(true);
+        m.setAnim(id, { face: true, alert: 1 });
+      }, hid);
+      const h = await page.evaluate((id) => window.__DD__.mobs.get(id), hid);
+      await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.05), [h.x, h.y, h.z]);
+      await settle(2, 300);
+      await page.evaluate((id) => {
+        const m = window.__DD__.mobs;
+        m.hit(id, 0.6);
+        window.__DD__.step(2, 1 / 30);
+      }, hid);
+      await shoot(`${opt.out}/fight-hit.png`);
+      log('fight-hit: a blow lands on an icefang (flinch, sparks, pin)');
+    }
+    // Collapses: a beast topples, a brute slumps, a flier falls, a bug flips.
+    await page.evaluate(() => window.__DD__.mobs.clear());
+    const cids = await page.evaluate(() => window.__DD__.mobs.lineup(['thornback', 'rimeHulk', 'frostBat', 'rustMite'], 4.6, 0.6));
+    if (cids.length) {
+      const row = (await page.evaluate(() => window.__DD__.mobs.list())).filter((m) => cids.includes(m.id));
+      await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, -0.1), [row.reduce((a, m) => a + m.x, 0) / row.length, row.reduce((a, m) => a + m.y, 0) / row.length, row.reduce((a, m) => a + m.z, 0) / row.length]);
+      await settle(2, 300);
+      await page.evaluate((ids) => {
+        const m = window.__DD__.mobs;
+        for (const id of ids) m.hit(id, 9999);
+        window.__DD__.step(13, 1 / 30);
+      }, cids);
+      await shoot(`${opt.out}/fight-collapse.png`);
+      log(`fight-collapse: ${row.map((m) => m.kind).join(', ')} struck down 0.43 s ago`);
+    }
+    // A guardian's open guard (it sags, its core blazes) and its phase ring of light.
+    await page.evaluate(() => window.__DD__.mobs.clear());
+    await openAhead(6, 12);
+    const gid = await page.evaluate(() => window.__DD__.mobs.spawnAhead('rimeWyrm', 9, 0, { asleep: false }));
+    if (gid !== null) {
+      await page.evaluate((id) => {
+        const m = window.__DD__.mobs;
+        m.freeze(true);
+        m.setAnim(id, { face: true, glow: 1, alert: 1 });
+        m.open(id, 3);
+        m.ring(id);
+        window.__DD__.step(9, 1 / 30);
+      }, gid);
+      const g = await page.evaluate((id) => window.__DD__.mobs.get(id), gid);
+      await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y - 1, z, -0.1), [g.x, g.y, g.z]);
+      await settle(1, 200);
+      await shoot(`${opt.out}/fight-open.png`);
+      log(`fight-open: the Rime Wyrm's guard open (window ${JSON.stringify(await page.evaluate(() => window.__DD__.mobs.guardian()?.window ?? null))}), its ring rolling out`);
+    }
+    await page.evaluate(() => {
+      window.__DD__.mobs.clear();
+      window.__DD__.mobs.freeze(false);
+    });
+  }
+  if (opt.only === 'heart' || opt.only === 'all') {
+    // The Dark Heart's three phases: a closed shell, cracked and bleeding light, its last blaze.
+    const at = await page.evaluate(() => window.__DD__.goto('heart'));
+    if (at) {
+      await settle(30);
+      await page.evaluate(() => window.__DD__.mobs.clear());
+      await openAhead(8, 14);
+      const id = await page.evaluate(() => window.__DD__.mobs.spawnAhead('heartOfDark', 11, 0, { asleep: false }));
+      if (id !== null) {
+        for (const ph of [1, 2, 3]) {
+          await page.evaluate(([i, p]) => {
+            const m = window.__DD__.mobs;
+            m.freeze(true);
+            m.phase(i, p);
+            m.setAnim(i, { face: true, glow: 1 });
+            window.__DD__.step(3, 1 / 30);
+          }, [id, ph]);
+          const h = await page.evaluate((i) => window.__DD__.mobs.get(i), id);
+          await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), [h.x, h.y, h.z]);
+          await settle(1, 200);
+          await shoot(`${opt.out}/heart-phase${ph}.png`);
+          log(`heart-phase${ph}`);
+        }
+      } else log('the Heart: could not place it');
+    } else log('the Heart: no chamber');
+  }
+  if (opt.only === 'worm' || opt.only === 'all') {
+    // The Deep Worm passing through a vista hall (WORLD §6), seen from its balcony (strata IV-VI).
+    for (const n of [6, 4]) {
+      await page.evaluate((s) => window.__DD__.stratum(s), n);
+      await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 240_000, polling: 250 });
+      const at = await page.evaluate(() => window.__DD__.goto('vista'));
+      if (!at) continue;
+      await settle(40);
+      await page.evaluate(() => window.__DD__.mobs.clear());
+      const v = await page.evaluate(() => window.__DD__.strata().vista);
+      const c = [v.centre[0], v.centre[1] + Math.min(10, v.radius * 0.3), v.centre[2]];
+      await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), c);
+      const id = await page.evaluate(([x, y, z]) => window.__DD__.mobs.spawn('worm', x, y, z), c);
+      // Let it come into the middle of the view.
+      for (let k = 0; k < 40; k++) await page.evaluate(() => window.__DD__.step(3, 1 / 30));
+      await settle(1, 300);
+      await shoot(`${opt.out}/worm-stratum${n}.png`);
+      log(`worm-stratum${n}: ${id !== null ? 'passing' : 'not placed'} through the ${v.name} hall (r ${v.radius})`);
+      break;
+    }
+  }
+  const shaderErrs = [...new Set(errors)].filter((e) => /Shader Error|WebGLProgram|redefinition|VALIDATE_STATUS/i.test(e));
+  console.log(shaderErrs.length ? `SHADER ERRORS (${shaderErrs.length}):\n${shaderErrs.slice(0, 6).join('\n').slice(0, 3000)}` : 'shader errors: none');
   if (errors.length) console.log('page errors:\n' + [...new Set(errors)].slice(0, 12).join('\n'));
 } finally {
   await browser.close();

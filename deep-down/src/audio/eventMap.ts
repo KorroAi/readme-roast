@@ -4,6 +4,7 @@ import { RECIPES } from '../config/recipes';
 import type { GameEvents } from '../core/events';
 import { saturate } from '../core/math';
 import { SPRINT_SPEED, WALK_SPEED } from '../game/fp/constants';
+import type { MineKind } from './mineSfx';
 import { isSfxName, type SfxName, type SfxParams, type StepKind } from './sfx';
 
 // Which sound each gameplay event makes. Pure data mapping, unit tested in Node. Some events also
@@ -16,6 +17,20 @@ export interface SfxRequest {
 }
 
 export const soundKindOf = (block: number): SoundKind => blockDef(block).sound;
+
+/** The biome rocks that mine as their own material (audio/mineSfx), not as their block's SoundKind. */
+const MINE_SOUND: Partial<Record<number, MineKind>> = {
+  [B.FROST_ICE]: 'ice', [B.ICE_CRYSTAL]: 'ice',
+  [B.OBSIDIAN]: 'glass', [B.OBSIDIAN_FLOOR]: 'glass', [B.EMBER_GLASS]: 'glass',
+  [B.MUSHROOM_CAP_TEAL]: 'fungus', [B.MUSHROOM_CAP_MAGENTA]: 'fungus', [B.MUSHROOM_STEM]: 'fungus', [B.MYCEL_FLOOR]: 'fungus',
+  [B.BOG_MUD]: 'mud', [B.BOG_CRUST]: 'mud', [B.TOXIC_POOL]: 'mud',
+  [B.FROST_SNOW]: 'snow',
+  [B.GLOW_VINE]: 'vine',
+  [B.AMBER_ORE]: 'resin', [B.SAP_AMBER]: 'resin',
+};
+
+/** How a block sounds when mined: its biome material, else its block's SoundKind. */
+export const mineKindOf = (block: number): SoundKind | MineKind => MINE_SOUND[block] ?? soundKindOf(block);
 
 /** The round-3 floors (and the climbables) underfoot: each biome sounds like its ground. */
 const FLOOR_STEP: Partial<Record<number, StepKind>> = {
@@ -45,6 +60,9 @@ export function stepKindOf(block: number): StepKind {
 
 /** 0 at a stroll, ~0.35 at a walk, 1 at a sprint. */
 export const paceOf = (speed: number): number => saturate((speed - 1.5) / (SPRINT_SPEED - 1.5));
+
+/** A step's level: soft at a creep, full at a walk, a little louder at a sprint (+1.2 dB). */
+export const stepGainOf = (speed: number): number => (0.65 + 0.35 * saturate(speed / WALK_SPEED)) * (1 + 0.15 * saturate((speed - WALK_SPEED) / (SPRINT_SPEED - WALK_SPEED)));
 
 const req = (name: SfxName, params: SfxParams = {}): SfxRequest => ({ name, params });
 
@@ -77,6 +95,7 @@ function useSound(item: string): SfxName {
   if (use === 'ward') return 'use.ward';
   if (use === 'flare') return 'use.flare';
   if (use === 'feed') return 'companion.eat';
+  if (use === 'lure') return 'use.lure';
   if (d?.kind === 'potion') return 'use.drink';
   return 'use.eat';
 }
@@ -105,8 +124,8 @@ function placeSound(item: string): SfxName {
 type EventSounds = { [K in keyof GameEvents]?: (p: NonNullable<GameEvents[K]>) => SfxRequest | null };
 
 export const EVENT_SOUNDS: EventSounds = {
-  'block:hit': (p) => req(`hit.${soundKindOf(p.block)}`, { progress: p.progress }),
-  'block:broken': (p) => req(`break.${soundKindOf(p.block)}`),
+  'block:hit': (p) => req(`hit.${mineKindOf(p.block)}`, { progress: p.progress }),
+  'block:broken': (p) => req(`break.${mineKindOf(p.block)}`),
   'block:tooHard': () => req('tooHard'),
   // Crystal clusters are the only minable props.
   'prop:hit': (p) => req('hit.crystal', { progress: p.progress }),
@@ -121,7 +140,7 @@ export const EVENT_SOUNDS: EventSounds = {
   // A feat: a bright little fanfare (round 3).
   'feat:earned': () => req('feat.fanfare'),
   // Footsteps per floor; a sprint lands heavier and scuffs (pace from the speed).
-  'player:footstep': (p) => req(`step.${stepKindOf(p.block)}`, { gain: 0.65 + 0.35 * saturate(p.speed / WALK_SPEED), intensity: paceOf(p.speed) }),
+  'player:footstep': (p) => req(`step.${stepKindOf(p.block)}`, { gain: stepGainOf(p.speed), intensity: paceOf(p.speed) }),
   'player:jump': () => req('jump'),
   'player:land': (p) => req('land', { intensity: saturate((p.fallSpeed - 3) / 17), material: stepKindOf(p.block) }),
   'player:damaged': (p) => req('damaged', { intensity: saturate(p.amount / 40) }),
@@ -152,22 +171,28 @@ export const EVENT_SOUNDS: EventSounds = {
   'mob:shot': (p) => (p.phase === 'fly' ? null : req('weapon.spark', { pan: p.pan, gain: Math.max(0.3, p.gain) })),
   'mob:sfx': (p) => (isSfxName(p.name) ? req(p.name, { pan: p.pan, gain: p.gain, ...(p.pitch !== undefined && p.pitch !== 1 ? { pitch: p.pitch } : {}) }) : null),
   'mob:elite': () => req('elite.alert'),
-  'mob:bestiary': (p) => (p.page === 'new' ? req('bestiary.page', { gain: 0.8 }) : null),
-  // The companion (MOBS' stretch): its own voice for every moment.
-  'companion:trust': () => req('companion.chirp'),
-  'companion:tamed': () => req('companion.happy'),
+  // A page of the bestiary: met (paper and a curious note), or completed by a scan or a defeat.
+  'mob:bestiary': (p) => req(p.page === 'new' ? 'bestiary.page' : 'bestiary.complete', { gain: 0.8 }),
+  // The companion (MOBS' stretch): MOBS voices its trust, taming, levels and ore alerts in stereo at
+  // the Lampling ('mob:sfx' companion.*); these add what MOBS does not: the crunch of a treat, its zap.
   'companion:fed': () => req('companion.eat'),
-  'companion:level': () => req('companion.levelup'),
-  'companion:ore': () => req('companion.alert'),
   'companion:zap': () => req('companion.zap'),
   // FP's weapons (game/fp/events): the swing, the blade's bite, the flash, and the tunk on plain rock.
-  'weapon:swing': (p) => req(p.ranged ? 'weapon.sling' : 'weapon.whoosh', { pitch: p.weapon === 'machete' ? 1.25 : p.weapon === 'spear' ? 0.8 : 1 }),
+  // A bomb or a flare thrown from the hotbar is a ranged swing too (a heavier whoosh for the bomb).
+  'weapon:swing': (p) => req(p.ranged ? 'weapon.sling' : 'weapon.whoosh', { pitch: SWING_PITCH[p.weapon] ?? 1 }),
   'weapon:hit': (p) => (p.weapon === 'machete' || p.weapon === 'spear' || p.weapon === 'sword' || p.weapon === 'crystalSpear' ? req('weapon.slice') : null),
-  'weapon:flash': () => req('weapon.flash'),
+  // A Flash Charge's burst, a blast bomb landing (radius 4: WEAPONS.bomb.area), a flare landing
+  // (UI's `kind` when it sends one; AudioSystem tells a thrown flare by where it lands otherwise).
+  'weapon:flash': (p) => {
+    if (p.kind === 'bomb' || (p.kind === undefined && p.radius <= 4.5)) return req('act.bomb', { intensity: saturate(p.count / 4) });
+    return req(p.kind === 'flare' ? 'use.flare' : 'weapon.flash');
+  },
   'block:tunk': () => req('block.tunk'),
   // The world events (game/events): one cue as each starts; a beaten gust ends with the flame catching.
   'world:event': (p) => (p.phase === 'start' ? (WORLD_EVENT_CUES[p.event.kind] ? req(WORLD_EVENT_CUES[p.event.kind]!) : null) : p.event.kind === 'gust' && p.ok ? req('lantern.refueled', { gain: 0.8 }) : null),
   'world:rockfall': (p) => req('event.rockland', { intensity: p.hit ? 1 : 0.6 }),
+  // Lumen moths scattered by a mining hit: their flutter, where they rose.
+  'moths:startled': (p) => req('amb.moth', { gain: Math.min(1, 0.6 + 0.1 * p.count) }),
   // Round 3 (WORLD): the strata. The descent and the climb; the gate; a lair marked; places; the works.
   'world:stratum': (p) => (p.from === null ? null : p.stratum > p.from ? req('world.descent') : req('world.ascent')),
   'world:gateOpened': () => req('loop.gate'),
@@ -191,23 +216,49 @@ export const EVENT_SOUNDS: EventSounds = {
   'recipe:unlocked': () => req('loop.unlock'),
   'station:placed': (p) => req(p.station === 'outpost' ? 'place.outpost' : 'place.station'),
   'quest:step': (p) => (p.kind === 'main' ? req('quest.step') : null),
-  'quest:done': (p) => (p.kind === 'order' || p.kind === 'tutorial' ? null : req('quest.done', { gain: p.kind === 'main' ? 1 : 0.8 })),
+  // A quest done: a biome's task, the tutorial finished. An order is heard as its coins; a guardian's
+  // step through its fall, the victory and the shard's ring; a gate's through the gate opening.
+  'quest:done': (p) => (p.kind === 'order' || MOMENT_STEPS.test(p.id) ? null : req('quest.done', { gain: p.kind === 'biome' ? 0.8 : 0.9 })),
   'quest:shard': () => req('loop.shard'),
   'quest:heartLit': () => req('loop.heart'),
   'guide:arrival': () => req('ui.card'),
-  'guide:hint': () => req('ui.hint'),
+  // A hint: a hazard's warning (LOOP's, as its meter passes 40 %) in that hazard's own voice; a
+  // hazard zone walked into (once per stratum) a low cue; a creature's first elemental blow nothing
+  // (its hit sounds); the rumour's arrow a faint "this way"; the rest the hint's two notes.
+  'guide:hint': (p) => {
+    const [, family, kind] = /^(\w+):(\w+)/.exec(p.id) ?? [];
+    if (family === 'hazard' && HAZARD_VOICE[kind]) return req(`hazard.${HAZARD_VOICE[kind]}`, { intensity: 0.5 });
+    if (family === 'zone') return req('zone.enter', { pitch: ZONE_PITCH[kind] ?? 1 });
+    if (family === 'element') return null;
+    if (family === 'stuck') return req('guide.way');
+    return req('ui.hint');
+  },
   'order:paid': () => req('loop.order'),
-  'bestiary:reward': () => req('reward.pouch', { gain: 0.8 }),
-  'reward:paid': (p) => (p.reason === 'starter' ? null : req('reward.pouch', { count: Object.values(p.items).reduce((a: number, b) => a + (b ?? 0), 0) })),
+  // Rewards are heard through their moment (an order's coins, a feat's fanfare, a task's chime, a
+  // guardian's fall, a bestiary page); only a reward with no moment of its own (the camp garden's
+  // harvest) jingles its pouch.
+  'reward:paid': (p) => (REWARD_MOMENTS.has(p.reason) ? null : req('reward.pouch', { count: Object.values(p.items).reduce((a: number, b) => a + (b ?? 0), 0) })),
   'tutorial:step': (p) => (p.id ? req('tutorial.step') : null),
   'hazard:changed': (p) => (p.kind ? req(`loop.hazard.${p.kind}`) : null),
   'camp:upgraded': () => req('camp.upgrade'),
   'trade:done': () => req('craft.trader'),
   'gem:socketed': () => req('gem.socket'),
   'trip:summary': () => req('page.read', { gain: 0.8 }),
-  'companion:lure': () => req('companion.chirp', { gain: 0.8 }),
   'daily:done': () => req('feat.fanfare'),
 };
+
+/** A world hazard's warning voice (gameplay/Hazards meters: cold and chill bite as cold, lava as heat, the void as the dark). */
+const HAZARD_VOICE: Record<string, 'cold' | 'gas' | 'heat' | 'dark'> = { cold: 'cold', chill: 'cold', gas: 'gas', lava: 'heat', heat: 'heat', dark: 'dark', void: 'dark' };
+
+const SWING_PITCH: Record<string, number> = { machete: 1.25, spear: 0.8, crystalSpear: 0.85, greatAxe: 0.75, bomb: 0.8, flare: 1.1, flash: 1.05 };
+/** A hazard zone's low cue, lower for the heavier dangers. */
+const ZONE_PITCH: Record<string, number> = { falls: 1.12, rockfall: 0.94, chill: 1.06, gas: 0.9, lava: 0.84 };
+
+/** Main-quest steps heard as their own moment (a guardian's fall, the Heart, a gate opening). */
+export const MOMENT_STEPS = /^main:(guardian\.|heart$|s\d+\.gate$)/;
+
+/** Reasons whose reward is heard through its own moment (eventMap 'reward:paid'). */
+export const REWARD_MOMENTS: ReadonlySet<string> = new Set(['starter', 'order', 'feat', 'task', 'guardian', 'bestiary', 'daily']);
 
 /** Each world event's opening cue (the migration and the treasure mob are heard through their creatures). */
 const WORLD_EVENT_CUES: Partial<Record<GameEvents['world:event']['event']['kind'], SfxName>> = {
@@ -232,6 +283,57 @@ export const TELEGRAPH: Partial<Record<string, SfxName>> = {
 };
 
 export const AUDIBLE_EVENTS = Object.keys(EVENT_SOUNDS) as Array<keyof GameEvents>;
+
+/**
+ * Events heard through another event or system, so that each moment sounds once, with where it is
+ * heard. With EVENT_SOUNDS and SILENT_EVENTS this classifies every GameEvents key exactly once
+ * (tests/unit/audio.test.ts: a new event fails to compile there until it is classified).
+ */
+export const VOICED_ELSEWHERE: Partial<Record<keyof GameEvents, string>> = {
+  'companion:trust': "MOBS' 'mob:sfx' companion.chirp, at the Lampling",
+  'companion:tamed': "MOBS' 'mob:sfx' companion.happy, at the Lampling",
+  'companion:level': "MOBS' 'mob:sfx' companion.levelup, at the Lampling",
+  'companion:ore': "MOBS' 'mob:sfx' companion.alert, at the vein",
+  'companion:feed': "MOBS answers with 'companion:fed' (the crunch of the treat)",
+  'companion:lure': "the lure's call ('item:used' use.lure); MOBS' companion.happy when one is tamed",
+  'mob:spawned': "the creature's own voice ('mob:cue', 'mob:sfx')",
+  'mob:met': "the bestiary's new page ('mob:bestiary')",
+  'mob:scanned': "the bestiary's completed page ('mob:bestiary'); the sonar's echoes",
+  'mob:attack': "a blow that lands is 'player:damaged'; the strike itself is the creature's 'mob:sfx'; the score's heat (AudioSystem)",
+  'mob:guardianAwake': "MOBS' guardian.roar ('mob:sfx') and the stratum's guardian theme (AudioSystem)",
+  'mob:guardianPhase': "MOBS' guardian.phase ('mob:sfx'), the score's phase sting and its next phase (AudioSystem)",
+  'mob:guardianReset': "the score goes back to the biome (AudioSystem)",
+  'mob:guardianOpen': "MOBS' guardian.open ('mob:sfx': an exhale and two rising chimes, the tell to strike)",
+  'mob:guardianDefeated': "MOBS' guardian.fall ('mob:sfx', ending on the shard's ring) and the score's victory sting (AudioSystem)",
+  'quest:page': "'world:note' (the page read)",
+  'quest:ending': "the ending's theme (AudioSystem)",
+  'bestiary:reward': "the bestiary's new page ('mob:bestiary')",
+  'world:biome': "the score and the beds crossfade (AudioSystem); a first visit's motif and its arrival card ('guide:arrival')",
+  'world:pocket': "the tremor's own crack ('world:event' event.tremor)",
+  'world:runeWake': "the old world's rune door: its opening ('world:runeOpen')",
+  'ui:used': "each control's own sound (the button's click, the dash, the sonar, the hotbar...)",
+  'player:cold': "the hazard layer and its warnings (AudioSystem, from the hazard meter)",
+  'camp:left': "the score and the bed leave the camp (AudioSystem)",
+  'expedition:ended': "the return to camp ('camp:entered') and the trip's summary ('trip:summary')",
+};
+
+/** Events silent by design, with why. */
+export const SILENT_EVENTS: Partial<Record<keyof GameEvents, string>> = {
+  'inventory:changed': 'bookkeeping (a pickup, a craft or a use is heard as itself)',
+  'objective:changed': "the old world's objectives (the round-3 quest beats are 'quest:step')",
+  toast: 'a toast is the text of a moment that has its own sound',
+  'game:saveFailed': 'a warning shown in the UI; a sound would only alarm',
+  'expedition:started': 'leaving camp is heard as the bed and the score changing',
+  'cache:created': "the old world's black-out cache",
+  'cache:recovered': "the old world's black-out cache",
+  'lantern:turnBack': "the old world's turn-back hint (the flame's own warnings are 'lantern:low' and 'lantern:empty')",
+  'record:depth': 'a toast from the second expedition on; a sound every ten metres of descent would nag',
+  'world:regrow': "the old world's living rock",
+  'world:bloom': "the old world's living rock",
+  'station:built': "the old world's camp plots (round 3's stations are 'station:placed')",
+  'relic:found': "the old world's runes ('item:picked' plays the relic's pickup)",
+  'finale:reached': "the old world's black stone ('world:monolith' plays it)",
+};
 
 export function sfxForEvent<K extends keyof GameEvents>(type: K, payload: GameEvents[K]): SfxRequest | null {
   const fn = EVENT_SOUNDS[type] as ((p: GameEvents[K]) => SfxRequest | null) | undefined;

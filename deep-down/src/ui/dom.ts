@@ -50,7 +50,8 @@ export function icon(src: string, cssSize: number, className = 'dd-icon', label?
   });
 }
 
-const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+// Round 3: a <details>' summary (the title's seed field) is a control too.
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), summary, [tabindex]:not([tabindex="-1"])';
 
 export function focusables(scope: ParentNode): HTMLElement[] {
   return Array.from(scope.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((el) => el.offsetParent !== null || el === document.activeElement);

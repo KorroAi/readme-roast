@@ -49,6 +49,8 @@ export interface TerrainUniforms {
    */
   uSonar: THREE.IUniform<THREE.Vector4>;
   uSonarFx: THREE.IUniform<THREE.Vector4>;
+  /** Round 3: the shell's colour on the rock (the sonar's pale gold; the Heart's rose, then gold). */
+  uSonarTint: THREE.IUniform<THREE.Color>;
 }
 
 /** Material glow values packed 4 per vec4 (a float array would take one vec4 slot per layer). */
@@ -105,6 +107,7 @@ export class TerrainRig {
       uHiView: { value: new THREE.Vector4(0.62, 0, 0, 0) },
       uSonar: { value: new THREE.Vector4(0, -9999, 0, 0) },
       uSonarFx: { value: new THREE.Vector4(1.2, 0, 24, 0) },
+      uSonarTint: { value: new THREE.Color(1, 0.8, 0.5) },
     };
   }
 

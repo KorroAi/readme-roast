@@ -1,19 +1,23 @@
 import { B } from '../../../config/blocks';
-import { STRATUM_SIZE, stratumDef, type BiomeId, type StratumIndex } from '../../../config/biomes';
+import { BIOMES, STRATUM_SIZE, stratumDef, type BiomeId, type StratumIndex } from '../../../config/biomes';
 import { hash32 } from '../../../core/math';
 import { Noise } from '../../../core/noise';
 import { VoxelWorld } from '../../VoxelWorld';
 import { carveEdges, carveGalleries, carveNode, carveWorms, dilateGuard, fillHost, type CarveState } from './carve';
 import { Rng } from '../../../core/rng';
-import { buildPlaces, placeContent, reachNear, validateProps, walkBfs } from './content';
+import { buildPlaces, liftBuried, placeContent, reachNear, validateProps, walkBfs } from './content';
 import { dressBiomes, floors } from './dress';
 import { planStratum, type StratumPlan } from './plan';
 import { SECOND_PIECES, SET_PIECES, carveRavines, carveRiver, carveVista, finishDungeon, stampDungeon, stampSetPiece, type SetPieceOut } from './structures';
 import type { StratumLayout, V3 } from './types';
 import { withBiomeAt } from './types';
+import { TrapScratch, fixTraps, type TrapWorld } from './traps';
 
 /** The seed of one stratum of an expedition (each stratum is its own deterministic world). */
 export const stratumSeed = (seed: number, stratum: number): number => hash32((seed >>> 0) ^ Math.imul(stratum + 1, 0x9e3779b1)) >>> 0;
+
+/** Tools only: a line per trap mended (tools/strata-traps.ts sets it). */
+export const genDebug: { trapLog?: (line: string) => void; noTraps?: boolean; phaseHook?: (phase: string, world: VoxelWorld) => void } = {};
 
 export interface StratumTimings {
   totalMs: number;
@@ -72,13 +76,14 @@ export function generateStratum(seed: number, stratumIn: number): StratumLayout 
   return last!;
 }
 
-export function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): StratumLayout & { timings: StratumTimings; ok: boolean; failed: string[] } {
+export function attemptStratum(seed: number, stratum: StratumIndex, attempt: number): StratumLayout & { timings: StratumTimings; ok: boolean; failed: string[]; worksNote: string } {
   const phases: Record<string, number> = {};
   let tp = performance.now();
   const phase = (name: string) => {
     const now = performance.now();
     phases[name] = Math.round((phases[name] ?? 0) + now - tp);
-    tp = now;
+    genDebug.phaseHook?.(name, world);
+    tp = performance.now();
   };
   const def = stratumDef(stratum);
   const s = hash32(stratumSeed(seed, stratum) + attempt * 0x1f123bb5) >>> 0;
@@ -117,7 +122,7 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
   const places = buildPlaces(st, stratum, s);
   floors(st);
   if (works) finishDungeon(st, works);
-  const decor = dressBiomes(st, s);
+  const decor = dressBiomes(st, s, reserved);
   const pieces: Array<SetPieceOut & { node: number }> = [];
   for (const n of plan.nodes) if (n.role?.startsWith('set:')) pieces.push({ ...stampSetPiece(st, n, n.role.slice(4), s, reserved), node: n.id });
   phase('dress');
@@ -126,6 +131,37 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
 
   const arrivalNode = plan.nodes[plan.arrival];
   const from: V3 = [Math.floor(arrivalNode.x) + 0.5, arrivalNode.y, Math.floor(arrivalNode.z) + 0.5];
+  // Traps (traps.ts): no hollow the explorer walks down into without a walk or a climb back out. The
+  // world as carved first (a ladder up the drop into each basin, small hollows filled flush), then,
+  // after the content, the worst case a player can make (every breakable block mined).
+  const scratch = new TrapScratch({ sx, sy, sz });
+  const trapWorld = (keep?: (i: number) => boolean): TrapWorld => {
+    const openCells: number[] = [];
+    for (const [x, y, z] of works?.door ?? []) openCells.push(x + sx * (y + sy * z));
+    if (stratum === 6) for (const [x, y, z] of places.seal) openCells.push(x + sx * (y + sy * z));
+    for (let i = world.blocks.indexOf(B.CRACKED_WALL); i >= 0; i = world.blocks.indexOf(B.CRACKED_WALL, i + 1)) openCells.push(i);
+    return {
+      blocks: world.blocks,
+      d: { sx, sy, sz },
+      start: from,
+      home: arrivalRegion(plan, stratum),
+      open: openCells,
+      fill: (x, _y, z) => BIOMES[plan.biomes[st.biomeCol[x + z * sx]]].floor,
+      keep,
+    };
+  };
+  const carvedFix = fixTraps(trapWorld(), scratch, { modes: ['carved'], log: genDebug.trapLog, rounds: genDebug.noTraps ? 1 : undefined });
+  phases.trapsFound = carvedFix.found;
+  phases.ladders = carvedFix.ladders.length;
+  phases.trapFilled = carvedFix.filled;
+  // The ladders and the floor round their tops are curated: the content keeps off them (a shrine's
+  // pillar or a chest on a ladder's landing would close the way back up).
+  for (const lad of carvedFix.ladders) {
+    if (!lad.length) continue;
+    const [tx, , tz] = lad[lad.length - 1];
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (tx + dx >= 0 && tz + dz >= 0 && tx + dx < sx && tz + dz < sz) reserved[tx + dx + (tz + dz) * sx] = 1;
+  }
+  phase('traps');
   const open = new Set(places.seal.map(([x, y, z]) => x + sx * (y + sy * z)));
   for (const [x, y, z] of works?.door ?? []) open.add(x + sx * (y + sy * z));
   const seen = walkBfs({ world }, from, open);
@@ -149,6 +185,28 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
     for (let z = Math.max(0, Math.floor(hz - r)); z < Math.min(sz, hz + r); z++) for (let x = Math.max(0, Math.floor(hx - r)); x < Math.min(sx, hx + r); x++) if (Math.hypot(x + 0.5 - hx, z + 0.5 - hz) < r) regionMap[x + z * sx] = 2;
   }
   shell(world);
+  // The worst case: every breakable block mined (a vein down into a floor would leave a pit). Its
+  // fixes never touch a prop's cells (a breakable block under a pit becomes plain rock instead).
+  const propCells = new Set<number>();
+  for (const p of content.props) {
+    // A fill may bury dressing (validateProps drops it below) or a chest, a page or a crystal
+    // cluster (liftBuried raises it onto the new floor); the gate, the lift, the levers and the
+    // camp's stations are never filled under.
+    const fixed = p.interact && p.interact !== 'feature' ? true : p.feature ? p.feature.kind !== 'cache' && p.feature.kind !== 'note' : false;
+    if (!fixed) continue;
+    const x = Math.floor(p.x);
+    const y = Math.floor(p.y);
+    const z = Math.floor(p.z);
+    for (let k = -1; k <= 1; k++) propCells.add(x + sx * (y + k + sy * z));
+    for (const [ex, ey, ez] of p.emitters) propCells.add(ex + sx * (ey + sy * ez));
+  }
+  const worstFix = fixTraps(trapWorld((i) => propCells.has(i)), scratch, { modes: ['carved', 'worst'], log: genDebug.trapLog, rounds: genDebug.noTraps ? 1 : undefined });
+  phases.worstFound = worstFix.found;
+  phases.ladders += worstFix.ladders.length;
+  phases.trapFilled += worstFix.filled;
+  phases.trapsLeft = worstFix.remaining;
+  phases.propsLifted = liftBuried(world, content);
+  phase('traps');
   phases.propsDropped = validateProps(world, content.props);
   phase('shell');
 
@@ -212,7 +270,20 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
   });
   phases.wormCells = wormCells;
   phases.galleries = pockets.length;
-  return Object.assign(layout, { timings: { totalMs: 0, phases, attempts: 1 }, ok, failed });
+  return Object.assign(layout, { timings: { totalMs: 0, phases, attempts: 1 }, ok, failed, worksNote: plan.worksNote });
+}
+
+/**
+ * The arrival's home box (feet cells): the camp's region in stratum I, the lift's landing below
+ * (content.ts builds the same boxes): walking back into it is getting home.
+ */
+export function arrivalRegion(plan: StratumPlan, stratum: StratumIndex): { min: V3; max: V3 } {
+  const an = plan.nodes[plan.arrival];
+  const ax = Math.floor(an.x) + 0.5;
+  const az = Math.floor(an.z) + 0.5;
+  const ay = an.y;
+  if (stratum === 1) return { min: [ax - an.rx, ay - 1, az - an.rz], max: [ax + an.rx, ay + 7, az + an.rz] };
+  return { min: [ax - 6, ay - 1, az - 6], max: [ax + 6, ay + 6, az + 6] };
 }
 
 function shell(w: VoxelWorld): void {

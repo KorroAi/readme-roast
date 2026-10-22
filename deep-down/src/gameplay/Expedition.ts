@@ -24,6 +24,8 @@ export interface CacheState {
   items: ItemCounts;
   /** Displayed depth in metres where it lies. */
   depth: number;
+  /** Round 3 (LOOP): the stratum it lies in (1..6; absent in the old world and in older saves). */
+  stratum?: number;
 }
 
 /**
@@ -45,9 +47,9 @@ export function makeCache(backpack: Backpack, groundDrops?: ItemCounts): ItemCou
  * destroys any older cache, even when it leaves nothing itself. @returns the new cache (null
  * when nothing was left) and how many items the old one held (lost for good).
  */
-export function replaceCache(old: CacheState | null, items: ItemCounts, at: { x: number; y: number; z: number; depth: number }): { cache: CacheState | null; replaced: number } {
+export function replaceCache(old: CacheState | null, items: ItemCounts, at: { x: number; y: number; z: number; depth: number; stratum?: number }): { cache: CacheState | null; replaced: number } {
   const replaced = old ? totalCount(old.items) : 0;
-  const cache = totalCount(items) > 0 ? { x: at.x, y: at.y, z: at.z, depth: at.depth, items: { ...items } } : null;
+  const cache: CacheState | null = totalCount(items) > 0 ? { x: at.x, y: at.y, z: at.z, depth: at.depth, items: { ...items }, ...(at.stratum !== undefined ? { stratum: at.stratum } : {}) } : null;
   return { cache, replaced };
 }
 

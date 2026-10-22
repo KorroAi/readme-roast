@@ -10,6 +10,11 @@ import { lairTick, strataSpawner, type Lair, type Nest } from './spawner';
 import { ARMOUR_ARC, ARMOUR_FRONT, LEADER_POWER, LEADER_REACH, SPLIT, affixNumbers } from './elites';
 import { lightBoost, type CompanionBrain, type CompanionEvent } from './companion';
 import type { Mob, MobAffix, MobBiome, MobContext, MobElement, MobFamily, MobHitResult, MobKind, MobRank, MobRarity, MobRay, MobState, MobStrike } from './types';
+import { WEAPONS } from '../../config/weapons';
+import { FlowField } from './flow';
+
+/** Each weapon's knock-back (m/s on a mass-1 creature), from LOOP's table (MOBS applies it). */
+const WEAPON_KNOCK: Readonly<Record<string, number | undefined>> = Object.fromEntries(Object.entries(WEAPONS).map(([k, w]) => [k, w.knockback]));
 
 /**
  * The creatures' simulation (round 2, MOBS): spawning, the brains of the twelve kinds, combat, the
@@ -54,7 +59,8 @@ export type MobSimEvent =
   | { type: 'scanned'; mob: SimMob }
   /** A burst at a point (an exploder, an emerging burrower, a slam): motes and dust, in its colour. */
   | { type: 'burst'; x: number; y: number; z: number; color: number; size: number }
-  | { type: 'guardian'; mob: SimMob; phase: 'awake' | 'phase' | 'reset' }
+  /** ('open': its guard opens after an attack, the window to strike; `mob.openFor` s.) */
+  | { type: 'guardian'; mob: SimMob; phase: 'awake' | 'phase' | 'reset' | 'open' }
   /** The companion did something (sensed an ore, zapped a foe). */
   | { type: 'companion'; mob: SimMob; event: CompanionEvent };
 
@@ -88,7 +94,8 @@ export interface Spit {
  */
 export interface Marker {
   id: number;
-  kind: 'disc' | 'line' | 'target' | 'wave' | 'ripple';
+  /** ('pulse': a harmless ring of light, a guardian's phase turning; its `progress` fades it.) */
+  kind: 'disc' | 'line' | 'target' | 'wave' | 'ripple' | 'pulse';
   x: number;
   y: number;
   z: number;
@@ -222,8 +229,9 @@ export class SimMob implements Mob {
   /** Seconds the explorer has watched it up close; scanned once. */
   watch = 0;
   scanned = false;
-  /** An exploder's fuse is lit. */
+  /** An exploder's fuse is lit, and when (sim clock): struck down in its first 0.35 s it only pops (the tell had no time to read). */
   fused = false;
+  fuseAt = 0;
   /** Its blows' damage factor (1: its kind's; the tutorial's first foe hits softly, elites harder). */
   power = 1;
   /** An elite's affixes (game/mobs/elites.ts), and what they make of it: speed, wind-up and cooldown factors. */
@@ -240,6 +248,22 @@ export class SimMob implements Mob {
   trust = 0;
   /** A crawler that climbs above the explorer to drop from the ceiling (once). */
   ambush = false;
+  // ---- Round 3: the feel of a fight (hit reactions and deaths read on the body)
+  /** A blow's flinch 0..1 (it decays in a quarter second), and the way the blow pushed it (unit, world xz). */
+  hurt = 0;
+  readonly hurtDir = { x: 0, z: 1 };
+  /** Struck down (not put away): it collapses for `collapse` s, then dissolves (`wasFalling`: still in the air last frame). */
+  killed = false;
+  collapse = 0;
+  wasFalling = false;
+  /** The Dark Heart's beat: 0..1 through each beat (its pose and its sound follow it). */
+  beat = 0;
+  /** Seconds left of a guardian's open guard (the window to strike), and its length. */
+  openLeft = 0;
+  openFor = 0;
+  /** Seconds left of following the flow field round rock to the explorer, and the next sight check. */
+  detour = 0;
+  losIn = 0;
 
   constructor(readonly kind: MobKind, seed: number) {
     const d = SPECIES[kind];
@@ -285,6 +309,13 @@ export class SimMob implements Mob {
 }
 
 const tmpA: V3 = { x: 0, y: 0, z: 0 };
+const tmpStep = { x: 0, z: 0 };
+const tmpAir: V3 = { x: 0, y: 0, z: 0 };
+
+/** It is coming for the explorer (not recoiling, fleeing or going home). */
+function hunting(m: SimMob): boolean {
+  return m.state === 'stalk' || m.state === 'attack' || m.state === 'lurk' || m.state === 'windup';
+}
 const tmpB: V3 = { x: 0, y: 0, z: 0 };
 const tmpUp = new THREE.Vector3(0, 1, 0);
 const tmpN: V3 = { x: 0, y: 0, z: 0 };
@@ -330,8 +361,14 @@ export class MobSim {
   snuffLeft = 0;
   /** Seconds since a monster last pressed the explorer (the encounter director brings the next one). */
   quiet = 0;
-  encounterDue = 26;
+  encounterDue = 18;
   lastMonster = -Infinity;
+  /** The last ambusher placed ahead (they wait to be walked into). */
+  lastAmbush = -Infinity;
+  /** Spawning density (1; LOOP's daily 'swarm' modifier raises it): more about, sooner. */
+  density = 1;
+  /** The way to the explorer through the caves (game/mobs/flow), rebuilt about once a second while monsters hunt. */
+  readonly flow = new FlowField();
   lastBeing = -Infinity;
   listeners: Array<(e: MobSimEvent) => void> = [];
   attemptIn = 2;
@@ -381,7 +418,11 @@ export class MobSim {
   // Spawning
 
   /** Put a mob in the world at a point (feet for walkers, the nearest clingable cell for crawlers). @returns null where it cannot stand. */
-  spawn(kind: MobKind, x: number, y: number, z: number, opts: { group?: number; treasure?: boolean; relic?: string; asleep?: boolean; biome?: MobBiome; lair?: Lair; nest?: number; owner?: number; ceiling?: boolean } = {}): SimMob | null {
+  /**
+   * (`check`: the cell it ends up in, once placed on its floor or its rock, must pass this too, or it
+   * is not spawned: a pack member jittered off the checked cell never lands in a lamp's light.)
+   */
+  spawn(kind: MobKind, x: number, y: number, z: number, opts: { group?: number; treasure?: boolean; relic?: string; asleep?: boolean; biome?: MobBiome; lair?: Lair; nest?: number; owner?: number; ceiling?: boolean; check?: (x: number, y: number, z: number) => boolean } = {}): SimMob | null {
     const m = new SimMob(kind, this.rng.next());
     const d = m.def;
     const s = this.env.solid;
@@ -396,12 +437,14 @@ export class MobSim {
       const fz = Math.floor(z);
       const fy = floorNear(s, fx, Math.floor(y), fz, h, 4);
       if (fy === null) return null;
+      if (opts.check && !opts.check(fx, fy, fz)) return null;
       m.foot.x = fx + 0.5;
       m.foot.y = fy;
       m.foot.z = fz + 0.5;
     } else if (d.locomotion === 'crawl') {
       const c = opts.ceiling ? this.nearestCeiling(Math.floor(x), Math.floor(y), Math.floor(z)) ?? this.nearestCling(Math.floor(x), Math.floor(y), Math.floor(z)) : this.nearestCling(Math.floor(x), Math.floor(y), Math.floor(z));
       if (!c) return null;
+      if (opts.check && !opts.check(c.x, c.y, c.z)) return null;
       m.cell.x = m.next.x = c.x;
       m.cell.y = m.next.y = c.y;
       m.cell.z = m.next.z = c.z;
@@ -411,6 +454,7 @@ export class MobSim {
       m.position.set(tmpA.x, tmpA.y, tmpA.z);
     } else {
       if (s(Math.floor(x), Math.floor(y), Math.floor(z))) return null;
+      if (opts.check && !opts.check(Math.floor(x), Math.floor(y), Math.floor(z))) return null;
       m.position.set(x, y, z);
     }
     m.home.x = x;
@@ -565,11 +609,11 @@ export class MobSim {
   }
 
   /** A random cell of the wanted shape in the spawn shell. */
-  findCell(ctx: MobContext, shape: 'floor' | 'cling' | 'air', ok: (x: number, y: number, z: number) => boolean, height = 1, minR: number = MOBS_RULES.spawnMin, maxR: number = MOBS_RULES.spawnMax): V3 | null {
+  findCell(ctx: MobContext, shape: 'floor' | 'cling' | 'air', ok: (x: number, y: number, z: number) => boolean, height = 1, minR: number = MOBS_RULES.spawnMin, maxR: number = MOBS_RULES.spawnMax, cone?: { yaw: number; half: number }): V3 | null {
     const s = this.env.solid;
     const r = this.rng;
     for (let tries = 0; tries < 28; tries++) {
-      const a = r.range(-Math.PI, Math.PI);
+      const a = cone ? cone.yaw + r.range(-cone.half, cone.half) : r.range(-Math.PI, Math.PI);
       const d = r.range(minR, maxR);
       const x = Math.floor(ctx.player.x + Math.sin(a) * d);
       const z = Math.floor(ctx.player.z + Math.cos(a) * d);
@@ -715,14 +759,29 @@ export class MobSim {
     let dim = 1;
     let followers = 0;
     let engaged = false;
+    // The way to the explorer, kept fresh while anything hunts it.
+    if (ctx.active && this.brains && this.mobs.some((m) => m.hostile && !m.dying && !m.guardian)) this.flowFor(ctx);
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
       m.stateTime += dt;
       m.flash = Math.max(0, m.flash - dt / MOBS_RULES.flash);
       m.cooldown -= dt * m.haste;
       if (m.dying) {
-        m.fade = Math.max(0, m.fade - dt / (m.guardian ? 3 : m.brain === 'sentinel' ? 2.4 : m.brain === 'drain' ? 0.9 : 0.7));
-        if (m.def.locomotion !== 'fly') this.walkerSettle(m, dt);
+        m.hurt = Math.max(0, m.hurt - dt / 0.25);
+        // Struck down: it falls, topples or curls up first (the body reads the death), then dissolves;
+        // one still falling (off a roof, out of the air) lands first.
+        if (m.killed) {
+          const falling = this.collapseStep(m, dt);
+          // The body comes down: a flier or a roof-crawler hitting the floor, a big one toppling over.
+          if (!falling && !m.landed && (m.wasFalling || (m.stateTime >= m.collapse * 0.75 && (m.def.size === 'large' || m.def.size === 'huge') && !m.guardian))) {
+            m.landed = true;
+            this.sfx(m, 'mob.thud');
+          }
+          m.wasFalling = falling;
+          if (m.stateTime < m.collapse || (falling && m.stateTime < m.collapse + 2.5)) continue;
+        }
+        m.fade = Math.max(0, m.fade - dt / dissolveOf(m));
+        if (!m.killed && m.def.locomotion !== 'fly') this.walkerSettle(m, dt);
         if (m.fade <= 0) {
           this.mobs.splice(i, 1);
           this.emit({ type: 'gone', mob: m });
@@ -739,7 +798,11 @@ export class MobSim {
       if (ctx.active) this.watchScan(m, dt, ctx);
       if (m.brain === 'drain' && m.state === 'attack') dim = Math.min(dim, MOBS_RULES.wispDim + (1 - MOBS_RULES.wispDim) * (1 - Math.min(1, m.stateTime / 1.5)));
       if (m.brain === 'lamp' && (m.state === 'follow' || m.tame)) followers += m.tame ? 0 : 1;
-      if (m.hostile && (m.state === 'windup' || m.state === 'attack' || m.state === 'stalk') && this.distToPlayer(m, ctx) < 18) engaged = true;
+      // Pressing the explorer: hunting it in sight (or close); one walled off in the next tunnel is not.
+      if (!engaged && m.hostile && (m.state === 'windup' || m.state === 'attack' || m.state === 'stalk')) {
+        const d = this.distToPlayer(m, ctx);
+        if (d < 7 || (d < 18 && this.seesPlayer(m, ctx))) engaged = true;
+      }
       // Put away what is far behind (and every monster when the explorer is home). Guardians keep to their lairs.
       const reach = m.brain === 'vista' ? 140 : m.guardian ? 90 : m.brain === 'sentinel' ? 60 : m.tame ? Infinity : MOBS_RULES.despawn;
       const far = Math.hypot(m.position.x - ctx.player.x, m.position.y - ctx.player.y, m.position.z - ctx.player.z) > reach;
@@ -759,6 +822,14 @@ export class MobSim {
     this.updateShots(dt);
     this.updateHazards(dt, ctx);
     if (ctx.active) this.wormDirector(ctx);
+  }
+
+  /** The flow field round the explorer, rebuilt when it is a second old or the explorer has moved 1.5 m. */
+  flowFor(ctx: MobContext): FlowField {
+    const f = this.flow;
+    const p = ctx.player;
+    if (this.clock - f.at > 1 || Math.hypot(p.x - f.x, p.y - f.y, p.z - f.z) > 1.5 || f.path !== MOBS_RULES.flowReach) f.build(this.env.solid, p.x, p.y + 0.01, p.z, MOBS_RULES.flowReach, this.clock);
+    return f;
   }
 
   /** Spawning from the biome rosters (the strata), rather than the first world's depth rules. */
@@ -790,6 +861,64 @@ export class MobSim {
     if (m.mode === 'under') return;
     walkStep(this.env.solid, m.foot, 0, 0, dt, this.heightOf(m), m.bounds.radius);
     this.placeWalker(m);
+  }
+
+  /**
+   * A struck-down creature's last moments (before it dissolves): a flier drops out of the air
+   * tumbling, a crawler on a wall or a roof falls to the floor, a walker settles where it fell (the
+   * blow's push carries it a little); a guardian shudders and bursts with light as it goes down.
+   */
+  collapseStep(m: SimMob, dt: number): boolean {
+    const s = this.env.solid;
+    const loco = m.def.locomotion;
+    let falling = false;
+    if (loco === 'fly') {
+      m.vel.x *= Math.exp(-dt * 1.6);
+      m.vel.z *= Math.exp(-dt * 1.6);
+      m.vel.y -= (m.guardian ? 9 : 16) * dt;
+      this.applyKnock(m, dt);
+      const r = Math.min(0.45, m.bounds.radius * 0.7);
+      const y0 = m.position.y;
+      flyStep(s, m.position, m.vel, dt, r);
+      m.yaw += dt * (m.seed > 0.5 ? 1.6 : -1.6) * Math.max(0, 1 - m.stateTime / Math.max(0.1, m.collapse));
+      // Still in the air: it moved down this step, or there is open air under its body.
+      falling = m.position.y < y0 - 1e-4 || !s(Math.floor(m.position.x), Math.floor(m.position.y - r - 0.2), Math.floor(m.position.z));
+      if (!falling) {
+        m.vel.x = 0;
+        m.vel.z = 0;
+      }
+    } else if (loco === 'crawl') {
+      if (m.up.y < 0.6 || m.vel.y !== 0) {
+        // Off the wall or the roof: it lets go and falls.
+        const floor = this.floorY(m.position.x, m.position.y, m.position.z);
+        m.vel.y -= 24 * dt;
+        m.position.y += m.vel.y * dt;
+        const ground = floor + m.def.lift * m.scale;
+        if (m.position.y <= ground) {
+          m.position.y = ground;
+          m.vel.y = 0;
+          m.up.set(0, 1, 0);
+        } else {
+          m.up.lerp(tmpUp, Math.min(1, dt * 6)).normalize();
+          falling = true;
+        }
+      }
+    } else if (m.mode !== 'under') {
+      this.applyKnock(m, dt);
+      this.walkerSettle(m, dt);
+    }
+    if (m.guardian && m.stateTime < m.collapse) {
+      // Light breaks out of it as it goes down: bursts round its body, quicker toward the end.
+      m.timer -= dt;
+      if (m.timer <= 0) {
+        const k = m.stateTime / Math.max(0.1, m.collapse);
+        m.timer = 0.42 - 0.24 * k + this.rng.range(0, 0.08);
+        const a = this.rng.range(-Math.PI, Math.PI);
+        const r = m.bounds.radius * this.rng.range(0.3, 0.9);
+        this.emit({ type: 'burst', x: m.position.x + Math.sin(a) * r, y: m.position.y + this.rng.range(-0.4, 0.8) * (m.bounds.halfHeight + m.bounds.radius), z: m.position.z + Math.cos(a) * r, color: m.def.mote, size: 0.8 + k });
+      }
+    }
+    return falling;
   }
 
   /** A blow's push, decaying over a quarter second (walkers slide on the floor, fliers drift). */
@@ -1162,8 +1291,15 @@ export class MobSim {
         const l = ctx.lantern;
         const camp = this.env;
         const brave = this.brave(m);
+        // Far from the explorer and coming for it: the flow field steers it round the rock.
+        const flow = !away && this.flow.ready && hunting(m) && this.distToPlayer(m, ctx) > 7 ? this.flow : null;
+        const here = flow ? flow.distAt(m.cell.x, m.cell.y, m.cell.z) : 0;
         const cost = (x: number, y: number, z: number) => {
           let c = 0;
+          if (flow) {
+            const fd = flow.distAt(x, y, z);
+            c += fd === 255 ? 6 : (fd - here) * 2;
+          }
           if (bright > 0) {
             const dd = Math.hypot(x + 0.5 - l.x, y + 0.5 - l.y, z + 0.5 - l.z);
             if (dd < bright) c += (bright - dd) * 1.5;
@@ -1844,6 +1980,20 @@ export class MobSim {
   /** Walk the feet toward (x, z). @returns whether the way was blocked. */
   walkToward(m: SimMob, x: number, z: number, speed: number, dt: number, keepCampOut = true): boolean {
     speed *= m.pace;
+    // Coming for the explorer but walled off (out of sight) or bumping rock: round it by the flow field.
+    const ctx = this.ctx;
+    if (m.hostile && ctx && this.flow.ready && hunting(m) && Math.hypot(x - ctx.player.x, z - ctx.player.z) < 10) {
+      m.losIn -= dt;
+      if (m.losIn <= 0) {
+        m.losIn = 0.3;
+        if (!this.seesPlayer(m, ctx)) m.detour = Math.max(m.detour, 0.6);
+      }
+      if (m.detour > 0 && this.flow.walkerStep(this.env.solid, m.foot, this.heightOf(m), tmpStep)) {
+        x = tmpStep.x;
+        z = tmpStep.z;
+      }
+    }
+    m.detour = Math.max(0, m.detour - dt);
     const dx = x - m.foot.x;
     const dz = z - m.foot.z;
     const d = Math.hypot(dx, dz);
@@ -1861,6 +2011,7 @@ export class MobSim {
     const bx = m.foot.x;
     const bz = m.foot.z;
     const blocked = walkStep(this.env.solid, m.foot, vx, vz, dt, this.heightOf(m), m.bounds.radius);
+    if (blocked && m.hostile) m.detour = Math.max(m.detour, 1);
     const moved = Math.hypot(m.foot.x - bx, m.foot.z - bz) / Math.max(dt, 1e-4);
     m.speedNow += (moved - m.speedNow) * Math.min(1, dt * 10);
     m.gait += (moved * dt * (m.brain === 'lurk' ? 1.6 : m.brain === 'sentinel' ? 1.3 : 6)) / Math.max(0.5, m.def.radius * m.scale * 2.2) ** 0.6;
@@ -1870,6 +2021,24 @@ export class MobSim {
 
   flyToward(m: SimMob, tx: number, ty: number, tz: number, speed: number, dt: number, accel: number): void {
     speed *= m.pace;
+    // A hunting flier whose way to the explorer is walled off follows the flow field round the rock.
+    const ctx = this.ctx;
+    if (m.hostile && !m.guardian && ctx && this.flow.ready && hunting(m) && Math.hypot(tx - ctx.player.x, tz - ctx.player.z) < 10) {
+      m.losIn -= dt;
+      if (m.losIn <= 0) {
+        m.losIn = 0.3;
+        tmpA.x = tx;
+        tmpA.y = ty;
+        tmpA.z = tz;
+        m.detour = clearLine(this.env.solid, m.position, tmpA) ? 0 : 0.6;
+      }
+      if (m.detour > 0 && this.flow.airStep(this.env.solid, m.position, tmpAir)) {
+        tx = tmpAir.x;
+        ty = tmpAir.y;
+        tz = tmpAir.z;
+      }
+      m.detour = Math.max(0, m.detour - dt);
+    }
     const dx = tx - m.position.x;
     const dy = ty - m.position.y;
     const dz = tz - m.position.z;
@@ -1886,6 +2055,8 @@ export class MobSim {
   }
 
   animate(m: SimMob, dt: number): void {
+    m.hurt = Math.max(0, m.hurt - dt / 0.25);
+    if (m.openLeft > 0) m.openLeft = Math.max(0, m.openLeft - dt);
     if (m.brain !== 'lurk' && m.brain !== 'sentinel' && !m.guardian && m.brain !== 'slam' && m.brain !== 'spit' && m.brain !== 'charge' && m.brain !== 'fuse') m.strike += ((m.state === 'windup' ? 1 : 0) - m.strike) * Math.min(1, dt * 10);
     m.alert += ((m.state === 'windup' || m.state === 'attack' ? 1 : m.state === 'stalk' ? 0.6 : 0.2) - m.alert) * Math.min(1, dt * 3);
   }
@@ -1992,6 +2163,12 @@ export class MobSim {
         if (m.state === 'stunned') {
           d *= MOBS_RULES.stunned;
           weak = true;
+        } else if (m.state === 'windup' && !strike.blast && d >= (m.maxHp ?? m.def.hp) * MOBS_RULES.staggerFrac) {
+          // Struck hard while it paws: the charge is broken (it shakes its head and backs off).
+          this.dropMarker(m);
+          m.strike = 0;
+          m.cooldown = Math.max(m.cooldown, m.def.cooldown * 0.5);
+          this.recoil(m, 0.8);
         }
         break;
       case 'guardian':
@@ -2007,16 +2184,27 @@ export class MobSim {
     m.hp = (m.hp ?? 1) - d;
     m.flash = weak ? 1 : armoured ? 0.45 : 0.85;
     const killed = m.hp <= 0;
-    this.emit({ type: 'hit', mob: m, damage: d, killed, armoured, weak });
-    // Knock-back: away from the blow, less for the heavy ones (none while it rushes).
+    // The flinch (its body jolts away from the blow; a guardian barely), and the push's way.
     const from = strike.from ?? (this.ctx ? { x: this.ctx.player.x, y: this.ctx.player.y, z: this.ctx.player.z } : null);
-    if (from && !killed && m.state !== 'attack') {
+    m.hurt = Math.max(m.hurt, (weak ? 1 : armoured ? 0.45 : 0.8) * (m.guardian ? 0.4 : 1));
+    if (from) {
       const kx = m.position.x - from.x;
       const kz = m.position.z - from.z;
-      const kl = Math.max(0.01, Math.hypot(kx, kz));
-      const push = (MOBS_RULES.knock * (strike.knock ?? 1) * (armoured ? 0.3 : 1)) / m.def.mass;
-      m.knock.x += (kx / kl) * push;
-      m.knock.z += (kz / kl) * push;
+      const kl = Math.hypot(kx, kz);
+      if (kl > 1e-3) {
+        m.hurtDir.x = kx / kl;
+        m.hurtDir.z = kz / kl;
+      }
+    }
+    this.emit({ type: 'hit', mob: m, damage: d, killed, armoured, weak });
+    // Knock-back: away from the blow, by the weapon's own knock (LOOP's config/weapons: the great axe
+    // shoves, the machete nudges), less for the heavy ones and off a plate (none while it rushes). A
+    // killing blow throws the body too.
+    if (from && m.state !== 'attack') {
+      const wk = strike.weapon ? WEAPON_KNOCK[strike.weapon] : undefined;
+      const push = ((wk ?? MOBS_RULES.knock) * (strike.knock ?? 1) * (armoured ? 0.3 : 1) * (killed ? 1.3 : 1)) / m.def.mass;
+      m.knock.x += m.hurtDir.x * push;
+      m.knock.z += m.hurtDir.z * push;
     }
     if (killed) this.kill(m);
     else if (m.brain === 'cling' || (m.brain === 'drop' && m.mode === 'ground')) this.recoil(m, light ? 3 : 1.4);
@@ -2058,6 +2246,14 @@ export class MobSim {
     m.hp = 0;
     m.setState('dying');
     m.tappable = false;
+    m.killed = true;
+    m.collapse = collapseOf(m);
+    m.openLeft = 0;
+    // (Reused for its landing thud.)
+    m.landed = false;
+    m.wasFalling = false;
+    m.timer = 0.15;
+    if (m.def.locomotion === 'crawl') m.vel.y = 0;
     this.dropMarker(m);
     if (m.brain === 'sentinel' && m.relic) this.sentinelDone.add(m.relic);
     if (m.guardian) this.guardiansDone.add(m.lair?.biome ?? m.biome);
@@ -2068,7 +2264,7 @@ export class MobSim {
     this.emit({ type: 'die', mob: m });
     // An exploder struck down: a lit fuse still bursts (it hurts the explorer too); an unlit one pops,
     // and its pop hurts only the monsters round it (a chain).
-    if (m.brain === 'fuse') this.burst(m, m.fused);
+    if (m.brain === 'fuse') this.burst(m, m.fused && this.clock - m.fuseAt >= MOBS_RULES.fuseRipe);
     // A radiant elite bursts in light: the monsters round it recoil (MobDirector feeds the lantern).
     if (m.affixBits & 1) this.flash(m.position.x, m.position.y, m.position.z, 6, 0);
     // A splitting elite: two smaller ones climb out of it.
@@ -2115,11 +2311,14 @@ export class MobSim {
       if (o === m || !o.hostile || o.dying || o.guardian || o.mode === 'under') continue;
       const dd = o.position.distanceTo(p);
       if (dd > r + o.bounds.radius) continue;
-      // A chain: other exploders light at once.
+      // A chain: other exploders light at once (each told: its hiss, its swell, its circle on the floor;
+      // never quicker than any blow's floor of 0.6 s here, so a chain can be run from).
       if (o.brain === 'fuse' && !o.fused) {
         o.fused = true;
+        o.fuseAt = this.clock;
         o.setState('windup');
-        o.timer = 0.25 + this.rng.range(0, 0.2);
+        o.timer = 0.6 + this.rng.range(0, 0.25);
+        this.telegraph(o);
       } else this.hit(o, m.def.damage * (full ? 0.6 : 0.4), { blast: true, from: p, knock: 1.5 });
     }
   }
@@ -2299,15 +2498,19 @@ export class MobSim {
     this.boostLeft = 0;
     this.snuffLeft = 0;
     this.quiet = 0;
+    // A new stratum (or a respawn): its first encounter comes after a short calm.
+    this.encounterDue = 18;
+    this.lastAmbush = -Infinity;
   }
 
   // ------------------------------------------------------------------------------------
   // Round 3: telegraphs, area blows, spits
 
   /** Announce a wind-up: the telegraph event (its sound, its pose) and its voice. */
-  telegraph(m: SimMob): void {
+  /** (`voice`: the wind-up's own sound instead of the kind's, e.g. a guardian's pattern.) */
+  telegraph(m: SimMob, voice: string = m.def.voice.tele): void {
     this.emit({ type: 'telegraph', mob: m });
-    this.emit({ type: 'sfx', name: m.def.voice.tele, x: m.position.x, y: m.position.y, z: m.position.z, mob: m });
+    this.emit({ type: 'sfx', name: voice, x: m.position.x, y: m.position.y, z: m.position.z, mob: m });
   }
 
   /** A named sound at the creature. */
@@ -2333,7 +2536,7 @@ export class MobSim {
   dropMarker(m: SimMob): void {
     if (!m.marker) return;
     const i = this.markers.findIndex((k) => k.id === m.marker);
-    if (i >= 0 && this.markers[i].kind !== 'wave') this.markers.splice(i, 1);
+    if (i >= 0 && this.markers[i].kind !== 'wave' && this.markers[i].kind !== 'pulse') this.markers.splice(i, 1);
     m.marker = 0;
   }
 
@@ -2455,6 +2658,16 @@ export class MobSim {
     this.waves.push({ marker: mk, speed, max, dmg: damage, element: m.def.element, owner: m, hit: false });
   }
 
+  /**
+   * A ring of the creature's own light rolling out along the floor that hurts no one (a guardian's
+   * phase turning). Drawn as a soft 'pulse', unlike a shockwave's warning band.
+   */
+  addRing(m: SimMob, x: number, y: number, z: number, max: number, speed: number): void {
+    const mk: Marker = { id: this.nextMarker++, kind: 'pulse', x, y, z, r: 0.5, dx: 0, dz: 1, len: 1.4, progress: 1, color: m.def.mote, owner: m.id, life: max / speed + 0.3 };
+    this.markers.push(mk);
+    this.waves.push({ marker: mk, speed, max, dmg: 0, element: 'none', owner: m, hit: true });
+  }
+
   /** A row of eruptions along a locked line. */
   addEruption(m: SimMob, mk: Marker, damage: number): void {
     const points: Eruption['points'] = [];
@@ -2508,6 +2721,7 @@ export class MobSim {
     for (let i = this.waves.length - 1; i >= 0; i--) {
       const w = this.waves[i];
       w.marker.r += w.speed * dt;
+      if (w.marker.kind === 'pulse') w.marker.progress = Math.max(0, 1 - w.marker.r / w.max);
       if (!w.hit && ctx.active) {
         const p = ctx.player;
         const flat = Math.hypot(p.x - w.marker.x, p.z - w.marker.z);
@@ -2556,7 +2770,7 @@ export class MobSim {
         continue;
       }
       mk.life -= dt;
-      if (mk.life <= 0 && mk.kind !== 'wave') this.markers.splice(i, 1);
+      if (mk.life <= 0 && mk.kind !== 'wave' && mk.kind !== 'pulse') this.markers.splice(i, 1);
     }
   }
 }
@@ -2570,6 +2784,24 @@ export function wormPoint(p: NonNullable<SimMob['path']>, t: number, out: THREE.
   out.x += (-(p.bz - p.az) / p.len) * w;
   out.z += ((p.bx - p.ax) / p.len) * w;
   return out;
+}
+
+/** How long a struck-down creature's collapse lasts before it dissolves (s): a tick's flick to a guardian's fall. */
+export function collapseOf(m: SimMob): number {
+  if (m.guardian) return m.brain === 'heart' ? 3.4 : 2.4;
+  if (m.brain === 'fuse' || m.brain === 'drain' || m.brain === 'vista') return 0;
+  const bySize = { tiny: 0.3, small: 0.42, medium: 0.6, large: 0.85, huge: 1.1 }[m.def.size];
+  // A flier is seen to hit the ground (it falls from about head height).
+  return m.def.locomotion === 'fly' ? Math.max(0.7, bySize) : bySize;
+}
+
+/** How long it takes to dissolve (s): after its collapse when struck down; at once when put away. */
+export function dissolveOf(m: SimMob): number {
+  if (m.guardian) return m.killed ? 2.2 : 3;
+  if (m.brain === 'sentinel') return 2.4;
+  if (m.brain === 'drain') return 0.9;
+  if (m.killed && (m.def.size === 'large' || m.def.size === 'huge')) return 1.0;
+  return 0.7;
 }
 
 function dampAngle(a: number, b: number, rate: number, dt: number): number {

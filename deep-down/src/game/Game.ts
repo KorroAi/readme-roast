@@ -15,6 +15,8 @@ import type { PropSpec, Region } from '../world/gen/types';
 import type { GameUi, UiFactory } from './GameUi';
 import type { HudState, InventoryView, JournalTab, SaveSummary, UiActions } from '../ui/types';
 import { AudioSystem } from '../audio/AudioSystem';
+// AUDIO: the probe through which the audio reads the game (audio/probe.ts).
+import { gameAudioProbe } from '../audio/probe';
 import { Backpack } from '../gameplay/Inventory';
 import { CampStorage } from '../gameplay/Storage';
 import { Equipment } from '../gameplay/Equipment';
@@ -81,6 +83,7 @@ import type { MenuScreen } from '../ui/hud/actions';
 import type { PropSpec as Prop } from '../world/gen/types';
 import { loadControlPrefs, saveControlPrefs, type ControlPrefs } from '../ui/controlPrefs';
 import { seedFromText } from '../ui/seed';
+import { BIOMES, STRATA } from '../config/biomes';
 import { installUiDebug } from './fp/uiDebug';
 import { prefersReducedMotion } from '../ui/brand/motion';
 
@@ -238,6 +241,8 @@ export class Game {
     this.ui.showScreen('loading');
     this.ui.setLoading(0, t('menu.loading'));
     this.audio = new AudioSystem(this.bus);
+    // AUDIO: the score, the beds and the mix read the game by shape at 15 Hz (biome, danger, guardian, hazard, features, sonar).
+    this.audio.attach(gameAudioProbe(this));
     this.applyAudioSettings();
     this.haptics = new Haptics(this.bus, () => this.settings.vibration && this.input.lastDevice === 'touch' && this.mode === 'playing');
 
@@ -271,7 +276,7 @@ export class Game {
     });
     this.scene.add(this.highlight.group);
     // VIS: round 3's visuals follow the live session (biome look, sonar on 'player:sonar', torches).
-    this.vis = new VisDirector({ bus: this.bus, session: () => this.session, highlight: () => this.highlight, grade: this.renderer.post.params, usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)), beaten: () => this.mobs?.guardiansBeaten?.() ?? [], hazard: () => ({ kind: this.loop?.hazards.active ?? null, level: this.loop?.hazards.meter ?? 0 }), heartLit: () => this.loop?.quests.heartLit ?? false, companion: () => (this.mobs as unknown as { companionLight?: () => { x: number; y: number; z: number; glow: number } | null } | undefined)?.companionLight?.() ?? null });
+    this.vis = new VisDirector({ bus: this.bus, session: () => this.session, highlight: () => this.highlight, grade: this.renderer.post.params, usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)), beaten: () => this.mobs?.guardiansBeaten?.() ?? [], hazard: () => ({ kind: this.loop?.hazards.active ?? null, level: this.loop?.hazards.meter ?? 0 }), heartLit: () => this.loop?.quests.heartLit ?? false, heartState: () => (this.loop?.quests.bossDefeated ? 'lit' : this.loop?.quests.heartLit ? 'awake' : 'dark'), mobs: () => this.mobs, particles: () => this.particles });
     this.scene.add(this.vis.group);
     this.marker.highlight = this.highlight;
     // VIS: ground props stand on the drawn (sculpted) rock, not the voxel top (they floated on rims).
@@ -280,7 +285,8 @@ export class Game {
     s.props.viewDistance = preset.viewDistance;
     const ft = layout.landmarks.fallTop;
     const fb = layout.landmarks.fallBottom;
-    if (ft && fb) {
+    // VIS: a stratum's falls (layout.falls[]) are VisDirector's, rebuilt on every switch; this one is the old world's.
+    if (ft && fb && !isStratumLayout(layout)) {
       this.waterfall = new Waterfall(s.rig.uniforms, new THREE.Vector3(...ft), new THREE.Vector3(...fb));
       this.scene.add(this.waterfall.group);
     }
@@ -474,7 +480,7 @@ export class Game {
 
   private enterMenu(): void {
     this.mode = 'menu';
-    this.act.reset();
+    this.act.reset(true);
     this.mining?.cancel();
     this.tap?.reset(this.input);
     this.combat?.reset();
@@ -503,14 +509,15 @@ export class Game {
     this.mobs?.clear();
   }
 
-  async newGame(seed?: number): Promise<void> {
+  /** @param daily UI (round 3): a Daily Descent's definition (LOOP's), started on its seed once the expedition stands. */
+  async newGame(seed?: number, daily?: Parameters<Loop['startDaily']>[0]): Promise<void> {
     if (this.loading || this.mode !== 'menu') return;
     this.loading = true;
     try {
       this.ui.showScreen('loading');
       this.ui.setLoading(0.5, t('menu.loadingMesh'));
       // WORLD: a new expedition (the seed given, or a fresh one) from stratum I; the old world resets.
-      await newExpedition(this, seed);
+      await newExpedition(this, daily ? daily.seed : seed);
       // Only now replace the old save (a failed reset must not have erased it).
       this.saves.clear();
       this.resetProgress();
@@ -518,6 +525,8 @@ export class Game {
       this.mobs.newExpedition();
       this.halosDirty = true;
       this.startPlaying();
+      // UI (round 3): the Daily Descent's goal, clock and modifiers run from here (LOOP's).
+      if (daily) this.loop.startDaily(daily);
     } catch (e) {
       this.loadFailed(e);
       return;
@@ -1761,13 +1770,33 @@ export class Game {
         saveControlPrefs(this.controlPrefs);
         this.ui.setControlPrefs?.(this.controlPrefs);
       },
+      strata: () => isStratumLayout(this.session.layout),
+      // UI (round 3): today's Daily Descent (LOOP's) for the title, and its start.
+      daily: () => {
+        const d = this.loop.dailyToday();
+        if (!d) return null;
+        const best = d.best === null ? null : t('trip3.minutes', { m: Math.floor(d.best / 60), s: Math.round(d.best % 60) });
+        return { title: d.title, goalText: d.goalText, modTexts: [...d.modTexts], best };
+      },
+      newDaily: () => {
+        enterGameScreen();
+        this.pendingSeed = null;
+        void this.newGame(undefined, this.loop.dailyToday());
+      },
+      endingView: () => (isStratumLayout(this.session.layout) ? this.loop.endingView(this.playTime) : null),
     };
   }
 
   /** The saved game for the Continue card (null when there is none or it cannot be read). */
   saveSummary(): SaveSummary | null {
     const res = this.saves.load();
-    return res.data ? summarizeSave(res.data) : null;
+    if (!res.data) return null;
+    const out = summarizeSave(res.data);
+    // UI (round 3): the expedition the save holds (WORLD's strata part), for the title's Continue card.
+    const st = res.data.strata;
+    const def = st ? STRATA[st.current - 1] : undefined;
+    if (st && def) out.expedition = { stratum: st.current, stratumName: t(def.name), biomes: def.biomes.map((b) => t(BIOMES[b].name)), deepest: st.deepest, shards: st.shards.length, seed: st.seed };
+    return out;
   }
 
   get version(): string {

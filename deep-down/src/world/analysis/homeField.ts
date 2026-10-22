@@ -1,7 +1,61 @@
 import { HOME } from '../../config/balance';
-import { SOLID } from '../../config/blocks';
+import { B, CLIMB, SOLID } from '../../config/blocks';
 import type { Region } from '../gen/types';
 import type { VoxelWorld } from '../VoxelWorld';
+
+/**
+ * Round 3 (WORLD): the walk model of the strata (world/gen/strata/traps.ts): a cell is a state when the
+ * explorer stands there (room for the body, solid ground that is not lava) or hangs there (room for
+ * the body and a ladder or a rope at the feet or the chest). Ladders and ropes are climbed up and down
+ * and catch a drop. A world with no ladder, rope or lava (the old hand-made one) walks exactly as before.
+ */
+const stands = (b: Uint8Array, sx: number, i: number): boolean => {
+  const below = b[i - sx];
+  return SOLID[b[i]] === 0 && SOLID[b[i + sx]] === 0 && SOLID[below] === 1 && below !== B.LAVA;
+};
+const hangs = (b: Uint8Array, sx: number, i: number): boolean => SOLID[b[i]] === 0 && SOLID[b[i + sx]] === 0 && (CLIMB[b[i]] === 1 || CLIMB[b[i + sx]] === 1);
+const isState = (b: Uint8Array, sx: number, i: number): boolean => stands(b, sx, i) || hangs(b, sx, i);
+
+/**
+ * The forward moves from state c at height y (traps.ts forEachMove): walk to a 4-neighbour state, else
+ * step up one (headroom over c), else drop up to maxDrop into the neighbour column; on a ladder or a
+ * rope also climb up, or down to the first state below.
+ */
+function forwardMoves(b: Uint8Array, sx: number, sy: number, sxy: number, c: number, y: number, maxDrop: number, emit: (n: number) => void): void {
+  if (y < 1 || y > sy - 3) return;
+  for (const dir of [1, -1, sxy, -sxy]) {
+    const n = c + dir;
+    if (isState(b, sx, n)) {
+      emit(n);
+      continue;
+    }
+    if (y + 1 <= sy - 3 && SOLID[b[c + 2 * sx]] === 0 && isState(b, sx, n + sx)) {
+      emit(n + sx);
+      continue;
+    }
+    if (SOLID[b[n]] === 0 && SOLID[b[n + sx]] === 0) {
+      for (let d = 1; d <= maxDrop && y - d >= 1; d++) {
+        const m = n - d * sx;
+        if (SOLID[b[m]]) break;
+        if (isState(b, sx, m)) {
+          emit(m);
+          break;
+        }
+      }
+    }
+  }
+  if (hangs(b, sx, c)) {
+    if (y + 1 <= sy - 3 && isState(b, sx, c + sx)) emit(c + sx);
+    for (let d = 1; d <= maxDrop && y - d >= 1; d++) {
+      const m = c - d * sx;
+      if (SOLID[b[m]]) break;
+      if (isState(b, sx, m)) {
+        emit(m);
+        break;
+      }
+    }
+  }
+}
 
 /** An extra one-way edge (a rope ride, a hoist): `from` reaches `to` in `cost` walking steps. */
 export interface FieldEdge {
@@ -104,7 +158,7 @@ export class HomeField {
     // Ride edges land in later levels: pending[level] holds cells first offered at that level.
     const pending = new Map<number, number[]>();
     const hasEdges = this.edgesTo.size > 0;
-    const standable = (i: number) => !S[blocks[i]] && !S[blocks[i + sx]] && S[blocks[i - sx]] === 1;
+    const state = (i: number) => isState(blocks, sx, i);
     let level = 0;
     while (frontier.length > 0 || pending.size > 0) {
       const next: number[] = [];
@@ -118,24 +172,44 @@ export class HomeField {
       for (let f = 0; f < frontier.length; f++) {
         const c = frontier[f];
         const y = Math.floor(c / sx) % sy;
+        // The inverse of forwardMoves (traps.ts homewardStates, held equal to its oracle by the tests).
         for (let k = 0; k < 4; k++) {
           const n = c + dirs[k];
           // (a) walk in from the same level.
-          if (standable(n)) offer(n);
-          // (b) step up into c from one level below (needs headroom over the lower cell).
+          if (y >= 1 && y <= sy - 3 && dist[n] === -1 && state(n)) offer(n);
+          // (b) step up into c from one level below: headroom over the lower cell, and no state in c's
+          // column at that level (the walk would take it).
           if (y >= 2) {
             const lower = n - sx;
-            if (standable(lower) && !S[blocks[n + sx]]) offer(lower);
+            if (dist[lower] === -1 && state(lower) && !state(c - sx) && !S[blocks[n + sx]]) offer(lower);
           }
-          // (c) drop into c's column from d levels above: c's column must be open up to the
-          // faller's head (y + d + 1), so c is the first floor the fall finds.
+          // (c) drop into c's column from d levels above: the fall passes open cells that are no
+          // state, enters where nothing stops it, and c is the first state it finds.
           for (let d = 1; d <= maxDrop; d++) {
-            if (y + d + 2 >= sy) break;
-            const colTop = c + (d + 1) * sx;
-            if (S[blocks[colTop]] || S[blocks[c + d * sx]]) break;
+            if (y + d > sy - 3) break;
+            if (d > 1) {
+              const mid = c + (d - 1) * sx;
+              if (S[blocks[mid]] || state(mid)) break;
+            }
+            const entry = c + d * sx;
+            if (S[blocks[entry]] || S[blocks[entry + sx]]) continue;
             const p = n + d * sx;
-            if (standable(p)) offer(p);
+            if (dist[p] !== -1 || !state(p) || state(entry)) continue;
+            if (y + d + 1 <= sy - 3 && !S[blocks[p + 2 * sx]] && state(entry + sx)) continue;
+            offer(p);
           }
+        }
+        // (d) climb up into c from the ladder or rope just below.
+        if (y >= 2 && dist[c - sx] === -1 && hangs(blocks, sx, c - sx)) offer(c - sx);
+        // (e) climb down (or let go) from d higher in c's column: c is the first state below.
+        for (let d = 1; d <= maxDrop; d++) {
+          if (y + d > sy - 3) break;
+          if (d > 1) {
+            const mid = c + (d - 1) * sx;
+            if (S[blocks[mid]] || state(mid)) break;
+          }
+          const p = c + d * sx;
+          if (dist[p] === -1 && hangs(blocks, sx, p)) offer(p);
         }
         if (hasEdges) {
           const into = this.edgesTo.get(c);
@@ -245,22 +319,8 @@ export class HomeField {
         best = n;
       }
     };
-    const standable = (i: number) => !S[blocks[i]] && !S[blocks[i + sx]] && S[blocks[i - sx]] === 1;
-    for (const dir of [1, -1, this.sxy, -this.sxy]) {
-      const n = c + dir;
-      if (standable(n)) consider(n);
-      if (y + 2 < sy && !S[blocks[c + 2 * sx]] && standable(n + sx)) consider(n + sx);
-      if (!S[blocks[n]] && !S[blocks[n + sx]]) {
-        for (let d = 1; d <= this.maxDrop && y - d >= 1; d++) {
-          const m = n - d * sx;
-          if (S[blocks[m]]) break;
-          if (standable(m)) {
-            consider(m);
-            break;
-          }
-        }
-      }
-    }
+    forwardMoves(blocks, sx, sy, this.sxy, c, y, this.maxDrop, consider);
+    void S;
     const rides = this.edgesFrom.get(c);
     if (rides) for (const e of rides) consider(e.to);
     return best;
@@ -273,9 +333,9 @@ export class HomeField {
     return [i % sx, Math.floor(i / sx) % sy, Math.floor(i / this.sxy)];
   }
 
+  /** A state of the walk model (standing, or hanging on a ladder or a rope). */
   private standableAt(i: number): boolean {
-    const b = this.world.blocks;
-    return !SOLID[b[i]] && !SOLID[b[i + this.sx]] && SOLID[b[i - this.sx]] === 1;
+    return isState(this.world.blocks, this.sx, i);
   }
 }
 
@@ -345,7 +405,7 @@ export class ReachSet {
     const S = SOLID;
     const sx = this.sx;
     const sy = w.sy;
-    const standable = (i: number) => !S[blocks[i]] && !S[blocks[i + sx]] && S[blocks[i - sx]] === 1;
+    const standable = (i: number) => isState(blocks, sx, i);
     let y0 = y;
     while (y0 > 1 && w.inBounds(x, y0, z) && !standable(w.index(x, y0, z))) y0--;
     if (w.inBounds(x, y0, z) && standable(w.index(x, y0, z))) {
@@ -358,29 +418,15 @@ export class ReachSet {
         touched.push(i);
         queue.push(i);
       };
-      const dirs = [1, -1, this.sxy, -this.sxy];
       while (queue.length) {
         const c = queue.pop()!;
         const cy = Math.floor(c / sx) % sy;
         const ride = this.jumps.size ? this.jumps.get(c) : undefined;
         if (ride) for (const j of ride) add(j);
-        for (const dir of dirs) {
-          const n = c + dir;
-          if (standable(n)) add(n);
-          if (cy + 2 < sy && !S[blocks[c + 2 * sx]] && standable(n + sx)) add(n + sx);
-          if (!S[blocks[n]] && !S[blocks[n + sx]]) {
-            for (let d = 1; d <= this.maxDrop && cy - d >= 1; d++) {
-              const m = n - d * sx;
-              if (S[blocks[m]]) break;
-              if (standable(m)) {
-                add(m);
-                break;
-              }
-            }
-          }
-        }
+        forwardMoves(blocks, sx, sy, this.sxy, c, cy, this.maxDrop, add);
       }
     }
+    void S;
     this.touched = touched;
     this.size = touched.length;
     this.lastMs = performanceNow() - t0;

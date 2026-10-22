@@ -23,7 +23,8 @@ export const DUCKS: Partial<Record<SfxName, DuckSpec>> = {
   discovery: { music: 0.4, ambience: 0.5, hold: 3.2 },
   'loop.shard': { ...STORY, hold: 2.6 },
   'loop.gate': { ...STORY, hold: 3.4 },
-  'loop.heart': { music: 0.35, ambience: 0.45, hold: 4.5 },
+  // The Heart relit: the score's own 'heartLit' sting carries it, so the music only steps back a little.
+  'loop.heart': { music: 0.8, ambience: 0.45, hold: 4.5 },
   'quest.done': STORY,
   'world.descent': { ...STORY, hold: 3 },
   'world.worksOpened': { ...STORY, hold: 3.2 },
@@ -35,6 +36,7 @@ export const DUCKS: Partial<Record<SfxName, DuckSpec>> = {
   'guardian.phase': BIG,
   'guardian.fall': { ...STORY, hold: 3 },
   'mob.boom': { ...BLOW, hold: 0.6 },
+  'act.bomb': { ...BLOW, hold: 0.6 },
   damaged: BLOW,
   died: { music: 0.3, ambience: 0.5, hold: 3 },
 };
@@ -82,6 +84,16 @@ export class Ducker {
   }
 }
 
+/**
+ * A dense fight: the score and the beds ease back as the creatures' voices and the blows pile up
+ * (nothing for one, -3 dB on the score and -4 dB on the beds from six on), so every wind-up reads over
+ * the music on a phone speaker. `busy`: creature and blow voices sounding now.
+ */
+export function densityDuck(busy: number): { music: number; ambience: number } {
+  const d = Number.isFinite(busy) ? Math.max(0, Math.min(1, (busy - 1) / 5)) : 0;
+  return { music: 1 - 0.29 * d, ambience: 1 - 0.37 * d };
+}
+
 /** Voice categories with their own caps (inside the global SFX cap). */
 export type VoiceCategory = 'step' | 'creature' | 'blow' | 'mining' | 'ambient' | 'ui' | 'pickup' | 'echo' | 'other';
 
@@ -98,9 +110,9 @@ export const CATEGORY_CAP: Record<VoiceCategory, number> = {
 };
 
 export function categoryOf(name: string): VoiceCategory {
-  if (name.startsWith('step.') || name === 'land' || name === 'jump') return 'step';
+  if (name.startsWith('step.') || name.startsWith('climb.') || name === 'land' || name === 'jump') return 'step';
   if (name.startsWith('mob.') || name.startsWith('guardian.') || name.startsWith('companion.')) return name.startsWith('mob.hit.') ? 'blow' : 'creature';
-  if (name.startsWith('weapon.') || name === 'hit.crit' || name === 'swing' || name === 'damaged') return 'blow';
+  if (name.startsWith('weapon.') || name === 'hit.crit' || name === 'swing' || name === 'damaged' || name === 'act.bomb') return 'blow';
   if (name.startsWith('hit.') || name.startsWith('break.') || name === 'tooHard' || name === 'block.tunk' || name === 'loop.combo') return 'mining';
   if (name.startsWith('amb.')) return 'ambient';
   if (name.startsWith('ui.')) return 'ui';

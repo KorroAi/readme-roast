@@ -206,10 +206,145 @@ export function pose(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
       poseGeneric(m, model, rig, t, out);
       break;
   }
-  if (m.guardian) {
-    // A guardian's open guard glows: the moment to strike.
-    out.glow *= m.vulnerable ? 1.25 + Math.sin(t * 9) * 0.25 : 1;
+  if (m.kind === 'heartOfDark') heartPhases(m, model, rig, t, out);
+  overlay(m, model, rig, t, out);
+}
+
+/** The Dark Heart's beat and its three phases: a closed shell, then cracked and bleeding light, then its last blaze. */
+function heartPhases(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseOut): void {
+  const b = boneMap(model);
+  const ph = m.state === 'sleep' ? 0 : Math.max(1, Math.min(3, m.phase));
+  // Lub-dub: two swells of its shell through each beat (the sim keeps the beat and its sound).
+  const bt = m.beat;
+  const pulse = Math.exp(-((bt / 0.05) ** 2)) + 0.65 * Math.exp(-(((bt - 0.17) / 0.05) ** 2));
+  const amp = [0.03, 0.05, 0.075, 0.11][ph];
+  if (b.sac >= 0) rig.scl[b.sac].setScalar(1 + pulse * amp);
+  // Its shards orbit wider and faster with each phase, wobbling out of the plane at the end.
+  const spin = [0.12, 0.3, 0.62, 1.15][ph];
+  const spread = [1, 1, 1.12, 1.26][ph];
+  b.tn.forEach((tb, k) => {
+    rig.euler(tb, Math.sin(t * 0.9 + k * 1.7) * 0.08 * ph, t * spin + k * 0.3, Math.cos(t * 0.8 + k) * 0.05 * ph);
+    rig.scl[tb].setScalar(spread);
+  });
+  // Its light: dim in its shell, bleeding through the cracks, then a flickering blaze.
+  out.glow = [0.35, 0.6, 1.0, 1.45][ph] + pulse * (0.35 + 0.2 * ph) + (ph === 3 ? Math.sin(t * 23) * 0.12 : 0);
+  out.sx *= 1 + pulse * amp * 0.4;
+  out.sz *= 1 + pulse * amp * 0.4;
+}
+
+/**
+ * Overlays on every kind's own pose (round 3, the second MOBS): the flinch of a blow, a guardian's
+ * open guard, and the collapse of a creature struck down (before it dissolves).
+ */
+function overlay(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseOut): void {
+  const b = boneMap(model);
+  if (!m.dying) {
+    // The flinch: the body jolts away from where the blow came from, squashes, its head snaps back;
+    // the little ones hop.
+    const h = m.hurt;
+    if (h > 0.001) {
+      const e = h * h;
+      const sy = Math.sin(m.yaw);
+      const cy = Math.cos(m.yaw);
+      const f = m.hurtDir.x * sy + m.hurtDir.z * cy;
+      const r = m.hurtDir.x * cy - m.hurtDir.z * sy;
+      out.pitch += e * 0.34 * f;
+      out.roll -= e * 0.34 * r;
+      out.sy *= 1 - e * 0.1;
+      out.sx *= 1 + e * 0.06;
+      out.sz *= 1 + e * 0.06;
+      out.glow += e * 0.35;
+      if (m.def.size === 'tiny' || m.def.size === 'small') out.lift += e * 0.12;
+      rig.turn(b.head, -e * 0.4, 0, 0);
+    }
+    if (m.guardian && m.vulnerable) {
+      // Its guard is open: it sags, heaving, its head and arms down; its core blazes (MobRenderer).
+      const w = m.openFor > 0 ? Math.min(1, m.openLeft / m.openFor) : 0.6;
+      const s = Math.min(1, m.stateTime / 0.25) * Math.min(1, w / 0.18);
+      out.lift -= s * 0.1 * m.def.lift;
+      out.pitch += s * 0.12;
+      out.sy *= 1 - s * 0.05 + Math.sin(t * 9) * 0.015 * s;
+      out.glow *= 1 + 0.55 * s;
+      rig.turn(b.head, s * 0.32, 0, 0);
+      for (const u of b.ua) rig.turn(u, s * 0.55, 0, 0);
+    }
+    return;
   }
+  // (Put away, or gone in a burst or a puff of smoke: no collapse.)
+  if (!m.killed || m.collapse <= 0) return;
+  // Struck down: its light flares once and goes out while the body goes down its own way.
+  const k = Math.min(1, m.stateTime / m.collapse);
+  const e = 1 - (1 - k) ** 3;
+  const side = m.seed > 0.5 ? 1 : -1;
+  out.glow = out.glow * (1 - 0.85 * e) + Math.exp(-k * 7) * 0.9;
+  switch (deathStyle(m, b)) {
+    case 'fall':
+      // Fliers: the wings fold and it tumbles out of the air (the sim drops it).
+      b.w.forEach((w, i) => rig.turn(w, 0, 0, (i === 0 ? 1 : -1) * e * 1.1));
+      b.wt.forEach((w, i) => rig.turn(w, 0, 0, (i === 0 ? 1 : -1) * e * 0.8));
+      out.roll += side * e * 1.4;
+      out.pitch += e * 0.5;
+      break;
+    case 'flip':
+      // Bugs and crawlers: over onto the back, the legs curling in.
+      out.roll += side * e * Math.PI * 0.94;
+      out.lift += Math.sin(k * Math.PI) * 0.18;
+      for (const L of b.legs) {
+        rig.turn(L.u, 0, 0, -L.side * e * 0.9);
+        rig.turn(L.l, 0, 0, -L.side * e * 0.8);
+      }
+      break;
+    case 'slump':
+      // The tall ones: down onto the knees, the head drops, the arms hang, the body sags.
+      out.lift -= e * m.def.lift * 0.45;
+      out.pitch += e * 0.42;
+      out.sy *= 1 - e * 0.16;
+      for (const L of b.legs) {
+        rig.turn(L.u, -e * 0.8, 0, 0);
+        rig.turn(L.l, e * 1.5, 0, 0);
+      }
+      for (const u of b.ua) rig.turn(u, e * 0.7, 0, 0);
+      rig.turn(b.head, e * 0.6, 0, 0);
+      break;
+    case 'sink':
+      // Still things (mimics, the great bloom): they sag shut and settle.
+      out.sy *= 1 - e * 0.35;
+      out.sx *= 1 + e * 0.08;
+      out.sz *= 1 + e * 0.08;
+      out.lift -= e * 0.12 * m.def.lift;
+      break;
+    case 'heart':
+      // The Dark Heart: its shell sinks, its shards drop and dim, its beat stops.
+      out.lift -= e * 0.8;
+      out.sy *= 1 - e * 0.12;
+      b.tn.forEach((tb, i) => rig.off[tb].set(0, -e * (1.2 + (i % 3) * 0.4), 0));
+      break;
+    default:
+      // Beasts: over onto the side, the legs stiff, the head down.
+      out.roll += side * e * 1.45;
+      out.lift -= e * m.def.lift * 0.3;
+      for (const L of b.legs) rig.turn(L.u, -e * 0.25, 0, 0);
+      rig.turn(b.head, e * 0.35, 0, 0);
+  }
+  if (m.guardian) {
+    // A guardian shudders as it goes down.
+    out.roll += Math.sin(t * 31) * 0.04 * (1 - k);
+    out.pitch += Math.sin(t * 27 + 1) * 0.03 * (1 - k);
+  }
+}
+
+type DeathStyle = 'fall' | 'flip' | 'slump' | 'sink' | 'heart' | 'topple';
+
+/** How a creature goes down: by how it moves and the body it has. */
+function deathStyle(m: SimMob, b: BoneMap): DeathStyle {
+  if (m.kind === 'heartOfDark') return 'heart';
+  const loco = m.def.locomotion;
+  if (loco === 'fly') return 'fall';
+  if (loco === 'crawl') return 'flip';
+  if (loco === 'still' || poseAs(m) === 'gnasher' || m.kind === 'thornmother') return 'sink';
+  if (b.legs.some((L) => L.sprawl) && m.def.size !== 'large') return 'flip';
+  if (b.ua.length > 0 || m.def.height >= 3) return 'slump';
+  return 'topple';
 }
 
 /** Which pose a creature takes: the first game's own, or one by its bones (the built bodies). */

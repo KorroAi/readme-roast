@@ -2,7 +2,7 @@ import './ui.css';
 import './screens/compat.css';
 import type { EventBus, GameEvents } from '../core/events';
 import type { GameUi } from '../game/GameUi';
-import { hasText, t, type TextKey } from '../i18n';
+import { detectLanguage, hasText, language, onLanguage, setLanguage, t, type TextKey } from '../i18n';
 import type { InputState } from '../input/types';
 import type { ItemCounts, Settings } from '../save/types';
 import { focusables, h } from './dom';
@@ -29,8 +29,9 @@ import { buildCraft } from './screens/r3/craft';
 import { buildMap } from './screens/r3/map';
 import { buildQuests } from './screens/r3/quests';
 import { buildBestiary } from './screens/r3/bestiary';
+import { buildTrip } from './screens/r3/trip';
 import { MilestoneBanner } from './hud/Milestones';
-import type { ControlPrefs } from './controlPrefs';
+import { languageOf, type ControlPrefs } from './controlPrefs';
 import { setReducedMotion } from './brand/motion';
 import { rewardLine } from '../game/quests/Quests';
 import type { Reward } from '../config/quests';
@@ -40,6 +41,11 @@ type Builder = (host: ScreenHost) => HTMLElement;
 /** Round 3: the Bag and Craft menus read LOOP's views; before LOOP's Loop exists the first version's screens stand in. */
 const bagOrOld: Builder = (host) => (host.actions.loop() ? buildBag(host) : buildInventory(host));
 const craftOrOld: Builder = (host) => (host.actions.loop() ? buildCraft(host) : buildTree(host));
+/** Round 3: in the strata a return shows LOOP's trip card; the first version's world keeps its report. */
+const tripOrReport: Builder = (host) => (host.state.trip ? buildTrip(host) : buildSummary(host));
+
+/** The strata's end card waits this long after 'quest:ending' (VIS's relighting, AUDIO's sting play first). */
+export const ENDING_DELAY_MS = 6500;
 
 const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   menu: buildMenu,
@@ -52,7 +58,7 @@ const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   quests: buildQuests,
   bestiary: buildBestiary,
   death: buildDeath,
-  summary: buildSummary,
+  summary: tripOrReport,
   board: buildBoard,
   journal: buildJournal,
   ending: buildEnding,
@@ -84,11 +90,19 @@ const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: '
  * It reads snapshots and requests UiActions; it never touches game state directly.
  */
 export class UI implements GameUi {
-  readonly touch: TouchControls;
+  /** The touch layer (built again in place when the language changes). */
+  get touch(): TouchControls {
+    return this.touchLayer;
+  }
+  private touchLayer: TouchControls;
   /** Round 3: the one action API every button and key drives (ui/hud/actions). */
   readonly player: PlayerActions;
   private readonly el: HTMLElement;
-  private readonly hud: Hud;
+  private hud: Hud;
+  /** What the HUD and the touch layer were last given (a language switch builds them again). */
+  private lastPrefs: ControlPrefs | null = null;
+  private lastLeftHanded = false;
+  private lastMap: MapSource | null = null;
   private readonly toasts = new Toasts();
   private readonly pickups = new PickupFeed();
   private readonly discovery = new DiscoveryBanner();
@@ -124,6 +138,8 @@ export class UI implements GameUi {
   private endingWaiting = false;
   /** The end card's fade to black is playing: play is held still under the veil. */
   private ceremony = false;
+  /** Round 3: the strata's end card waits for the world's relighting (ENDING_DELAY_MS). */
+  private endingTimer = 0;
   private showFps = false;
   private pendingPatch: Partial<Settings> | null = null;
   private patchRaf = 0;
@@ -153,6 +169,8 @@ export class UI implements GameUi {
     bestiaryBiome: null,
     help: null,
     mapCamera: null,
+    trip: null,
+    ending: null,
   };
 
   constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
@@ -164,24 +182,11 @@ export class UI implements GameUi {
     // transparent so the canvas below still receives mouse input. Inline beats any selector.
     this.el.style.pointerEvents = 'none';
     this.player = createPlayerActions(input);
-    const player = this.player;
-    this.hud = new Hud({
-      bag: () => player.open('inventory'),
-      menu: () => player.open('pause'),
-      open: (screen) => player.open(screen),
-      hotbar: (i) => player.hotbar(i),
-      // A long-press on a slot: the Bag opens to fill it.
-      assign: (i) => {
-        this.state.assignSlot = i;
-        this.state.bagTab = 'all';
-        player.open('inventory');
-      },
-      skipTutorial: () => actions.skipTutorial(),
-    });
-    this.milestones = new MilestoneBanner((screen) => player.open(screen));
+    this.hud = this.makeHud();
+    this.milestones = new MilestoneBanner((screen) => this.player.open(screen));
     this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el), this.milestones.el);
     root.appendChild(this.el);
-    this.touch = new TouchControls(this.el, input, player);
+    this.touchLayer = new TouchControls(this.el, input, this.player);
     // The exit layer comes after the live screens in the DOM (queries find the live screen
     // first) and sits under them (z-index), so the new screen fades in over the old one.
     this.el.append(this.screensEl, this.exitEl, this.modalEl, this.toasts.el, this.hud.tutorialEl);
@@ -200,6 +205,7 @@ export class UI implements GameUi {
       rerender: () => this.rerender(),
       patchSettings: (p, coalesce) => this.patchSettings(p, coalesce ?? false),
       closeReport: () => {
+        this.state.trip = null;
         actions.dismissReport();
         actions.closeScreen();
       },
@@ -215,6 +221,8 @@ export class UI implements GameUi {
     this.disposers.push(
       bus.on('item:picked', (p) => {
         this.pickup(p);
+        // Round 3: what was taken flies into the Bag (from where it lay on screen).
+        if (p.sx !== undefined && p.sy !== undefined && this.gameplay && this.current === 'none') this.hud.flyToBag(p.item, p.sx, p.sy);
         if (this.current === 'inventory') this.refresh();
       }),
       bus.on('toast', (p) => {
@@ -254,9 +262,29 @@ export class UI implements GameUi {
       // never over another open screen. A black-out ends the trip under the death screen: the
       // report waits for the respawn.
       bus.on('expedition:ended', ({ report }) => {
-        if (!report.show) return;
+        // Round 3: in the strata LOOP's trip card ('trip:summary') replaces the first version's report.
+        if (!report.show || this.actions.strata?.()) return;
         this.reportWaiting = report.outcome === 'blackout' ? 'respawn' : 'free';
         this.openWaiting();
+      }),
+      bus.on('trip:summary', (p) => {
+        // While the tutorial teaches (its first minutes), a trip card would only interrupt it.
+        if (!p?.summary || !this.actions.strata?.() || this.hud.tutorial.active) return;
+        this.state.trip = p.summary;
+        this.reportWaiting = p.summary.outcome === 'blackout' ? 'respawn' : 'free';
+        this.openWaiting();
+      }),
+      // Round 3: the Heart relit (its guardian fell): after the world's own relighting, the end card.
+      bus.on('quest:ending', () => {
+        if (!this.actions.strata?.()) return;
+        window.clearTimeout(this.endingTimer);
+        this.endingTimer = window.setTimeout(() => {
+          const view = this.actions.endingView?.() ?? null;
+          if (!view) return;
+          this.state.ending = view;
+          this.endingWaiting = true;
+          this.openWaiting();
+        }, ENDING_DELAY_MS);
       }),
       bus.on('player:respawned', () => {
         if (this.reportWaiting === 'respawn') this.reportWaiting = 'free';
@@ -297,6 +325,50 @@ export class UI implements GameUi {
     // (Escape to go back, arrows to move focus) never reach gameplay.
     window.addEventListener('keydown', onKey, true);
     this.disposers.push(() => window.removeEventListener('keydown', onKey, true));
+    // A language switch (Settings): every word on screen comes again in the new language.
+    this.disposers.push(onLanguage(() => this.relanguage()));
+  }
+
+  /** The HUD with its buttons wired to the one action API. */
+  private makeHud(): Hud {
+    const player = this.player;
+    return new Hud({
+      bag: () => player.open('inventory'),
+      menu: () => player.open('pause'),
+      open: (screen) => player.open(screen),
+      hotbar: (i) => player.hotbar(i),
+      // A long-press on a slot: the Bag opens to fill it.
+      assign: (i) => {
+        this.state.assignSlot = i;
+        this.state.bagTab = 'all';
+        player.open('inventory');
+      },
+      skipTutorial: () => this.actions.skipTutorial(),
+    });
+  }
+
+  /**
+   * The language changed: the HUD and the touch layer hold their words in their DOM, so both are
+   * built again in place (fed what they were last given; the next frame refills the rest) and the
+   * open screen is built again in the new language.
+   */
+  private relanguage(): void {
+    document.documentElement.lang = language();
+    const hud = this.makeHud();
+    this.hud.el.replaceWith(hud.el);
+    this.hud.tutorialEl.replaceWith(hud.tutorialEl);
+    this.hud.dispose();
+    this.hud = hud;
+    hud.setMap(this.lastMap);
+    const old = this.touchLayer;
+    const touch = new TouchControls(this.el, this.input, this.player);
+    old.el.replaceWith(touch.el);
+    old.dispose();
+    this.touchLayer = touch;
+    if (this.lastPrefs) touch.setPrefs(this.lastPrefs);
+    touch.setLeftHanded(this.lastLeftHanded);
+    this.updateTouch();
+    if (this.current !== 'none') this.rerender();
   }
 
   get screen(): ScreenId {
@@ -315,11 +387,19 @@ export class UI implements GameUi {
     if (this.current === 'summary' && id !== 'summary') {
       // Backgrounding pauses over the report: it opens again on resume. Any other way out skips it.
       if (id === 'pause') this.reportWaiting = 'free';
-      else this.actions.dismissReport();
+      else {
+        this.actions.dismissReport();
+        this.state.trip = null;
+      }
     }
+    // The strata's end card shows once: leaving it is free play.
+    if (this.current === 'ending' && id !== 'ending' && id !== 'pause') this.state.ending = null;
     if (id === 'menu' || id === 'loading') {
       this.reportWaiting = null;
       this.endingWaiting = false;
+      this.state.trip = null;
+      this.state.ending = null;
+      window.clearTimeout(this.endingTimer);
     }
     if (id === 'summary') this.state.reportAt = performance.now();
     // A long-press assignment lasts while the Bag is open; the help card closes with its menu.
@@ -345,14 +425,14 @@ export class UI implements GameUi {
     if (!this.gameplay || this.current !== 'none' || this.confirmSpec || this.ceremony) return;
     if (this.endingWaiting) {
       this.endingWaiting = false;
-      if (this.actions.getJournal().ending.reached) {
+      if (this.state.ending || this.actions.getJournal().ending.reached) {
         this.openEnding();
         return;
       }
     }
     if (this.reportWaiting !== 'free') return;
     this.reportWaiting = null;
-    if (this.actions.getReport()) this.showScreen('summary');
+    if (this.state.trip || this.actions.getReport()) this.showScreen('summary');
   }
 
   /** The end card's ceremony: the world fades to black, the card rises out of it. */
@@ -411,6 +491,7 @@ export class UI implements GameUi {
 
   /** Round 3: the explored stratum for the minimap (null before WORLD's strata are in). */
   setMap(src: MapSource | null): void {
+    this.lastMap = src;
     this.hud.setMap(src);
   }
 
@@ -426,7 +507,10 @@ export class UI implements GameUi {
 
   /** Round 3: the control layout's size and opacity. */
   setControlPrefs(p: ControlPrefs): void {
+    this.lastPrefs = p;
     this.touch.setPrefs(p);
+    // The language (the device's, or the one chosen in Settings): a change rebuilds the words.
+    setLanguage(languageOf(p, () => detectLanguage()));
     // Accessibility: rarity told by pattern and letter too; motion reduced whatever the device says.
     this.el.classList.toggle('dd-cb', p.patterns);
     setReducedMotion(p.motion === 'reduce' ? true : null);
@@ -452,6 +536,7 @@ export class UI implements GameUi {
     this.showFps = s.showFps;
     this.el.classList.toggle('dd-large', s.textSize === 'large');
     this.el.classList.toggle('dd-contrast', s.highContrast);
+    this.lastLeftHanded = s.leftHanded;
     this.touch.setLeftHanded(s.leftHanded);
   }
 
@@ -493,6 +578,7 @@ export class UI implements GameUi {
     for (const id of this.exitTimers) window.clearTimeout(id);
     this.exitTimers.clear();
     window.clearTimeout(this.veilTimer);
+    window.clearTimeout(this.endingTimer);
     cancelAnimationFrame(this.patchRaf);
     this.touch.dispose();
     this.hud.dispose();

@@ -2,14 +2,16 @@
 // person camera, the shipped HUD, 390 x 844 @2 by default), with draw calls and triangles per frame.
 //
 // Usage: node tools/vis-strata-shots.mjs [--out artifacts/r3/vis] [--seed 7] [--q balanced]
-//          [--targets amberHollows,mushroomForest,lair:amberHollows,gate:1,torch:amberHollows]
+//          [--targets amberHollows,mushroomForest,lair:amberHollows,gate:1,torch:amberHollows,go:vista@2]
 //          [--views 2] [--size 390x844] [--dpr 2] [--port 4175] [--hud 1] [--sonar 0] [--prod 0]
 //          [--eval "<js run in the page after each view; its JSON result is printed>"]
 //
 // A target is a biome id (WORLD's `__DD__.goto`: a cavern of that biome, then for view 2 a spawn
 // point of the same biome at least 20 m away), `lair:<biome>` (the lair's entrance, facing its
 // centre), `gate:<stratum>` (the gate's stand, facing the seal) or `torch:<biome>` (a few torches
-// placed by the wall in front of the eye: the torch light). Each view faces the most open direction
+// placed by the wall in front of the eye: the torch light) or `go:<where>[:which][@stratum]` (WORLD's
+// structures through `__DD__.goto`: vista, vistaFloor, river, works, vault, secret, site:<name>, heart,
+// facing what they are about). Each view faces the most open direction
 // from the eye (rays through the voxels). With --sonar 1 every view also fires the sonar and captures
 // mid-sweep.
 import { chromium } from '@playwright/test';
@@ -44,12 +46,19 @@ try {
   }
   await page.evaluate(async ({ q, hud, seed }) => {
     const st = document.createElement('style');
-    st.textContent = '.dd-discovery,.dd-hint,.dd-toasts,.dd-toast,.dd-tutorial,.dd-arrival{display:none!important}' + (hud === '1' ? '' : '.dd-ui{display:none!important}');
+    st.textContent = '.dd-discovery,.dd-hint,.dd-toasts,.dd-toast,.dd-tutorial,.dd-tut,.dd-arrival{display:none!important}' + (hud === '1' ? '' : '.dd-ui{display:none!important}');
     document.head.appendChild(st);
     const g = window.__DD__.game;
     g.updateSettings({ quality: q });
     await g.newGame(Number(seed));
-    g.renderer.preset = { ...g.renderer.preset, fpsCap: 4 };
+    // The real game with its tutorial done (its bubble would sit over the view).
+    (g.quests ?? g.loop?.quests)?.skipTutorial?.();
+    // No creatures in the frame (MOBS captures its own): the spawner off, the field cleared.
+    window.__DD__.mobs?.auto?.(false);
+    window.__DD__.mobs?.clear?.();
+    // The game's own loop all but stopped (a frame every 20 s): every frame of a view is rendered by
+    // D.step, and a screenshot only composites the last one (no SwiftShader render of its own).
+    g.renderer.preset = { ...g.renderer.preset, fpsCap: 0.05 };
   }, { q: opt.q, hud: opt.hud, seed: opt.seed });
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
@@ -59,12 +68,17 @@ try {
   for (const spec of targets) {
     const [target, nViews] = spec.split('*');
     for (let view = 1; view <= Number(nViews ?? opt.views); view++) {
-      const name = `${target.replace(':', '-')}-${view}`;
+      const name = `${target.replace(/[:@]/g, '-')}-${view}`;
       const res = await page.evaluate(async ({ target, view }) => {
         const D = window.__DD__;
         const g = D.game;
-        const [kind, arg] = target.includes(':') ? target.split(':') : ['biome', target];
+        const [kind, arg] = target.startsWith('go:') ? ['go', ''] : target.startsWith('fx:') ? ['fx', ''] : target.includes(':') ? target.split(':') : ['biome', target];
         let look = null;
+        let tall = false;
+        let deep = false;
+        // fx:<name>[@stratum]: a VIS moment, triggered after the camera is set (heartWake, heartRelight,
+        // geyser, weather:<biome>), captured a few seconds into it.
+        let fx = null;
         // A standable cell near (x, y, z): the floor under it (down to 14 m) in a small spiral.
         const stand = (x, y, z) => {
           for (let r = 0; r <= 5; r++)
@@ -107,12 +121,135 @@ try {
             if (at) D.teleport(at[0], at[1], at[2]);
             look = l.centre;
           }
+        } else if (kind === 'go') {
+          // go:<where>[:which][@stratum]: a WORLD structure (vista, vistaFloor, river, works, vault,
+          // secret, ravine, site:<name>, heart), facing what it is about.
+          const [rest, st] = target.slice(3).split('@');
+          const [where, which] = rest.split(':');
+          if (st && g.strata.current !== Number(st)) await D.stratum(Number(st));
+          const L = g.strata.layout;
+          // A site's centre can be inside its own piece (the Grand Cap's stem): its vantage below
+          // stands on the rim anyway.
+          const siteHere = where === 'site' ? L.sites.find((x) => x.name === which || x.id === which) : null;
+          const p = where === 'heart' ? await D.goto('heart') : (await D.goto(where, which)) ?? (siteHere ? [...siteHere.centre] : null);
+          if (!p) return { err: `goto ${where} failed` };
+          // A walkable cell at (x, z), the highest between y0 and y1 (feet on rock, head room).
+          const standTop = (x, y0, y1, z) => {
+            const ix = Math.floor(x), iz = Math.floor(z);
+            for (let y = Math.floor(y0); y >= Math.floor(y1); y--) if (!D.isSolid(ix, y, iz) && !D.isSolid(ix, y + 1, iz) && D.isSolid(ix, y - 1, iz)) return [ix + 0.5, y, iz + 0.5];
+            return null;
+          };
+          if (where === 'vista' && L.vista) {
+            // Out to the balcony's lip (the last walkable step towards the deep), looking down into it.
+            const b = L.vista.balcony, c = L.vista.centre;
+            const dx = c[0] - b[0], dz = c[2] - b[2], len = Math.hypot(dx, dz) || 1;
+            let lip = null;
+            for (let d = 0; d < Math.min(len, 16); d += 0.5) {
+              const at = standTop(b[0] + (dx / len) * d, b[1] + 1, b[1] - 1, b[2] + (dz / len) * d);
+              if (!at) break;
+              lip = at;
+            }
+            if (lip) {
+              const back = standTop(lip[0] - (dx / len) * 1.2, lip[1] + 1, lip[1] - 1, lip[2] - (dz / len) * 1.2) ?? lip;
+              D.teleport(back[0], back[1], back[2]);
+            }
+            look = c;
+            deep = true;
+          } else if (where === 'river' && L.rivers?.[0]) {
+            // On the bank a little way down from the spring, looking downstream along the water.
+            const pts = L.rivers[0].points;
+            const i = Math.min(pts.length - 1, 8 + view * 9);
+            const a = pts[i], b = pts[Math.min(pts.length - 1, i + 5)];
+            const dx = b[0] - a[0], dz = b[2] - a[2], len = Math.hypot(dx, dz) || 1;
+            let at = null;
+            for (const off of [2.2, 3.0, 3.8, 4.6]) {
+              for (const side of [1, -1]) {
+                at = standTop(a[0] - (dz / len) * side * off - (dx / len) * 2, a[1] + 2.5, a[1] - 0.4, a[2] + (dx / len) * side * off - (dz / len) * 2);
+                if (at) break;
+              }
+              if (at) break;
+            }
+            if (at) D.teleport(at[0], at[1], at[2]);
+            look = pts[Math.min(pts.length - 1, i + 9)];
+            deep = true;
+          }
+          else if (where === 'vistaFloor' && L.vista) look = L.falls?.[0]?.bottom ?? L.vista.centre;
+          else if (where === 'works' && L.dungeon) look = L.dungeon.hall;
+          else if (where === 'heart' && L.heart) look = [L.heart.centre[0], L.heart.centre[1] + 6, L.heart.centre[2]];
+          else if (where === 'site') {
+            // A named place: seen from its rim (the most open side), looking at its heart.
+            const site = L.sites.find((x) => x.name === which || x.id === which);
+            if (site) {
+              const c = site.centre;
+              let best = null;
+              for (let k = 0; k < 16; k++) {
+                const a = (k / 16) * Math.PI * 2 + view * 0.9;
+                for (const rk of [0.85, 0.6]) {
+                  const r = Math.max(5, Math.min(14, site.radius * rk));
+                  const at = D.standableNear(c[0] + Math.cos(a) * r, c[1], c[2] + Math.sin(a) * r);
+                  if (!at) continue;
+                  // A clear line to the centre (rays through the voxels), room round the eye (no
+                  // wall at arm's length), and the site's own biome underfoot.
+                  let clear = 0;
+                  const dx = c[0] - at[0], dy = c[1] + 1 - (at[1] + 1.6), dz = c[2] - at[2];
+                  const len = Math.hypot(dx, dy, dz);
+                  for (let d = 0.5; d < len; d += 0.5) {
+                    if (D.isSolid(Math.floor(at[0] + (dx / len) * d), Math.floor(at[1] + 1.6 + (dy / len) * d), Math.floor(at[2] + (dz / len) * d))) break;
+                    clear = d;
+                  }
+                  let room = 0;
+                  for (let ox = -2; ox <= 2; ox++) for (let oz = -2; oz <= 2; oz++) if (!D.isSolid(Math.floor(at[0]) + ox, Math.floor(at[1]) + 1, Math.floor(at[2]) + oz)) room++;
+                  const same = L.biomeAt(at[0], at[1], at[2]) === site.biome ? 6 : 0;
+                  const score = Math.min(clear, len) / Math.max(1, len) * 10 + room * 0.4 + same;
+                  if (!best || score > best.score) best = { at, score };
+                }
+              }
+              if (best) D.teleport(best.at[0], best.at[1], best.at[2]);
+              // Tall pieces are looked up at (the Grand Cap's gills, the World Root, the frozen fall).
+              const lift = { grandCap: 8, worldRoot: 6, frozenFalls: 6, colonnade: 4, crystalChoir: 3, lanternVault: 3 }[site.name] ?? 1;
+              look = [c[0], c[1] + lift, c[2]];
+              tall = lift > 1;
+            }
+          }
+          if (look && view > 1 && !['site', 'vista', 'river'].includes(where)) {
+            // A second view of it from a few metres to the side.
+            const at = D.standableNear(p[0] + (look[2] - p[2]) * 0.15, p[1], p[2] - (look[0] - p[0]) * 0.15);
+            if (at) D.teleport(at[0], at[1], at[2]);
+          }
+        } else if (kind === 'fx') {
+          const [rest, st] = target.slice(3).split('@');
+          if (st && g.strata.current !== Number(st)) await D.stratum(Number(st));
+          const L = g.strata.layout;
+          fx = rest;
+          if (rest === 'heartWake' || rest === 'heartRelight') {
+            if (!L.heart) return { err: 'no heart' };
+            const h = L.heart;
+            // From the chamber's rim, looking up at the Heart.
+            const at = D.standableNear(h.centre[0] + h.radius * (view > 1 ? -0.55 : 0.6), h.centre[1], h.centre[2] + h.radius * 0.25);
+            if (at) D.teleport(at[0], at[1], at[2]);
+            look = [h.centre[0], h.centre[1] + 6, h.centre[2]];
+          } else if (rest === 'geyser') {
+            const vents = L.props.filter((p) => p.kind === 'gasVent');
+            const v = vents[(view * 7) % Math.max(1, vents.length)];
+            if (!v) return { err: 'no vents' };
+            const at = D.standableNear(v.x + 5, v.y, v.z + 3) ?? D.standableNear(v.x - 5, v.y, v.z - 3);
+            if (at) D.teleport(at[0], at[1], at[2]);
+            look = [v.x, v.y + 2.5, v.z];
+          } else if (rest.startsWith('weather:')) {
+            const b = rest.split(':')[1];
+            const cav = L.caverns.filter((c) => c.biome === b).sort((a, c) => c.radius[0] * c.radius[2] - a.radius[0] * a.radius[2]);
+            const c = cav[(view - 1) % Math.max(1, cav.length)];
+            if (!c) return { err: `no ${b} cavern` };
+            const at = stand(c.centre[0], c.centre[1], c.centre[2]);
+            if (at) D.teleport(at[0], at[1], at[2]);
+          }
         } else if (kind === 'gate') {
           if (g.strata.current !== Number(arg)) await D.stratum(Number(arg));
           const p = await D.goto('gate');
           if (!p) return { err: 'no gate' };
           look = g.strata.layout.gate.centre;
         }
+        D.mobs?.clear?.();
         const px = g.player.x, py = g.player.y, pz = g.player.z;
         const eye = [px, py + 1.62, pz];
         // The most open direction: rays through the voxels (prefer 10-35 m of clear air).
@@ -120,15 +257,29 @@ try {
         let pitch = -0.08;
         if (look) {
           yaw = Math.atan2(-(look[0] - eye[0]), -(look[2] - eye[2]));
-          pitch = Math.max(-0.35, Math.min(0.2, Math.atan2(look[1] + 1 - eye[1], Math.hypot(look[0] - eye[0], look[2] - eye[2]))));
+          pitch = Math.max(deep ? -0.5 : -0.35, Math.min(tall ? 0.45 : 0.2, Math.atan2(look[1] + 1 - eye[1], Math.hypot(look[0] - eye[0], look[2] - eye[2]))));
         } else {
           let best = -1;
+          // Light along the way (the world light volume: lamps, glowing things): a lit focal point
+          // weighs as much as open air.
+          const W = g.session.world;
+          const Lt = g.session.light?.data ?? null;
+          const litAt = (x, y, z) => {
+            if (!Lt || x < 0 || y < 0 || z < 0 || x >= W.sx || y >= W.sy || z >= W.sz) return 0;
+            const i = (x + y * W.sx + z * W.sx * W.sy) * 4;
+            return (Lt[i] + Lt[i + 1] + Lt[i + 2]) / 765;
+          };
           for (let k = 0; k < 32; k++) {
             const a = (k / 32) * Math.PI * 2;
             const dx = -Math.sin(a), dz = -Math.cos(a);
             let d = 0;
-            for (; d < 40; d += 0.5) if (D.isSolid(Math.floor(eye[0] + dx * d), Math.floor(eye[1] - d * 0.05), Math.floor(eye[2] + dz * d))) break;
-            const score = Math.min(d, 32) + (view > 1 ? ((k * 37) % 5) : 0);
+            let lit = 0;
+            for (; d < 40; d += 0.5) {
+              const x = Math.floor(eye[0] + dx * d), y = Math.floor(eye[1] - d * 0.05), z = Math.floor(eye[2] + dz * d);
+              if (D.isSolid(x, y, z)) break;
+              lit += Math.max(litAt(x, y, z), litAt(x, y + 2, z)) / (1 + d / 12);
+            }
+            const score = Math.min(d, 32) + Math.min(lit, 30) * 0.8 + (view > 1 ? ((k * 37) % 5) : 0);
             if (score > best) {
               best = score;
               yaw = a;
@@ -177,18 +328,45 @@ try {
         }
         g.player.yaw = yaw + Math.PI;
         D.look(yaw, pitch);
-        D.step(30);
-        return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), biome: D.biomeHere(), stratum: g.strata.current };
+        // ~1 s of game time (the biome look, the air and the light settle; both snap on a teleport)
+        // in three rendered frames: each is a full SwiftShader render at the capture size.
+        D.step(3, 0.34);
+        if (fx) {
+          const v = g.vis;
+          const P = g.player;
+          let ok = true;
+          if (fx === 'heartWake') v.heart.awaken();
+          else if (fx === 'heartRelight') v.heart.start();
+          else if (fx === 'geyser') ok = v.geysers.erupt(P.x, P.y, P.z, 40);
+          else if (fx.startsWith('weather:')) ok = v.weather.start(g.session.world, P.x, P.y, P.z);
+          if (!ok) return { err: `fx ${fx} did not start here` };
+          // Into the moment: the Heart's acts at ~3 s, a geyser at ~1.3 s, the weather at ~6 s.
+          if (fx === 'geyser') D.step(4, 0.33);
+          else D.step(fx.startsWith('weather') ? 12 : 6, 0.5);
+        }
+        return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), biome: D.biomeHere(), stratum: g.strata.current, ...(fx ? { fx, report: g.vis.report().weather ?? null } : {}) };
       }, { target, view });
       if (res.err) {
         console.log(`[${name}] ${res.err}`);
         continue;
       }
       await page.waitForTimeout(Number(opt.wait));
-      await page.evaluate(() => window.__DD__.meshIdle?.());
-      await page.waitForTimeout(500);
+      // The chunks meshed since, then the frame the screenshot shows.
+      await page.evaluate(() => {
+        window.__DD__.meshIdle?.();
+        window.__DD__.step(1, 0.02);
+      });
+      await page.waitForTimeout(300);
       const file = `${opt.out}/${name}.png`;
-      await page.screenshot({ path: file, timeout: 180000 });
+      const ts = Date.now();
+      try {
+        await page.screenshot({ path: file, timeout: 240000 });
+      } catch (e) {
+        // A busy machine can stall one frame for minutes: log it and go on with the next view.
+        console.log(`[${name}] screenshot failed after ${((Date.now() - ts) / 1000).toFixed(0)} s: ${String(e.message).split('\n')[0]}`);
+        continue;
+      }
+      console.log(`[${name}] shot in ${((Date.now() - ts) / 1000).toFixed(1)} s (${((Date.now() - t0) / 1000).toFixed(0)} s in)`);
       const r = await page.evaluate(() => {
         const D = window.__DD__;
         const r = D.report();

@@ -41,6 +41,38 @@ export interface HazardProbe {
   health: number;
 }
 
+/** A creature's element (MOBS' MobElement), for what its landed blows do beside the damage. */
+export type Element = 'none' | 'frost' | 'acid' | 'fire' | 'spore' | 'void' | 'shock';
+
+/**
+ * What a landed elemental blow adds (cut by the ward of its meter, nothing under its potion):
+ * - a bump of the matching meter (frost → cold, fire → heat, acid and spore → gas, void → dark): in
+ *   its own biome it brings the hurt closer; elsewhere the meter shows it and fades;
+ * - fire and acid keep biting for a moment (`dot` hp/s for `seconds`, piercing armour);
+ * - the void drinks `oil` seconds of the lantern's flame.
+ */
+export const ELEMENT_FX: Record<Element, { meter: Ward | null; bump: number; dot?: number; seconds?: number; oil?: number }> = {
+  none: { meter: null, bump: 0 },
+  shock: { meter: null, bump: 0 },
+  frost: { meter: 'cold', bump: 0.2 },
+  fire: { meter: 'heat', bump: 0.2, dot: 2, seconds: 3 },
+  acid: { meter: 'gas', bump: 0.12, dot: 1.5, seconds: 4 },
+  spore: { meter: 'gas', bump: 0.2 },
+  void: { meter: 'dark', bump: 0.15, oil: 8 },
+};
+
+/** The meter level at which a building hazard is announced (once per kind per WARN_GAP s). */
+export const WARN_LEVEL = 0.4;
+export const WARN_GAP = 90;
+
+export interface HitResult {
+  meter: Ward | null;
+  /** Lantern seconds the blow drank (the void). */
+  oil: number;
+  /** A lingering burn started (fire, acid). */
+  dot: boolean;
+}
+
 export interface HazardStep {
   /** The meter's kind (null: nothing building up) and its level 0..1. */
   kind: Ward | null;
@@ -56,6 +88,8 @@ export interface HazardStep {
   /** The meter just became full (hurting), or just emptied. */
   startedHurting: boolean;
   stoppedHurting: boolean;
+  /** The meter just rose past WARN_LEVEL (announce it with its counter; rate-limited per kind). */
+  warn: boolean;
 }
 
 const METER: Record<Ward, WorldHazard[]> = { cold: ['cold', 'chill'], gas: ['gas'], heat: ['lava'], dark: ['dark', 'void'] };
@@ -70,7 +104,13 @@ export class Hazards {
   private kind: Ward | null = null;
   private hurting = false;
   private scratch = 0;
-  private readonly out: HazardStep = { kind: null, level: 0, damage: 0, blunt: 0, burn: 1, fallFactor: 1, startedHurting: false, stoppedHurting: false };
+  /** A lingering burn (fire, acid): hp/s, seconds left, and the ward that cuts it. */
+  private dotRate = 0;
+  private dotLeft = 0;
+  private dotWard: Ward = 'heat';
+  private clock = 0;
+  private readonly warnedAt: Record<Ward, number> = { cold: -Infinity, gas: -Infinity, heat: -Infinity, dark: -Infinity };
+  private readonly out: HazardStep = { kind: null, level: 0, damage: 0, blunt: 0, burn: 1, fallFactor: 1, startedHurting: false, stoppedHurting: false, warn: false };
 
   get meter(): number {
     return this.level;
@@ -85,6 +125,40 @@ export class Hazards {
     this.kind = null;
     this.hurting = false;
     this.scratch = 0;
+    this.dotRate = 0;
+    this.dotLeft = 0;
+  }
+
+  /** Seconds of a lingering burn left (fire, acid), 0 when none. */
+  get burning(): number {
+    return this.dotLeft;
+  }
+
+  /**
+   * A creature's landed elemental blow (ELEMENT_FX): bumps the matching meter (unless another hazard
+   * holds it), starts a lingering burn, or drinks lantern oil; each cut by its ward, nothing under its
+   * potion. The meter's rise is announced like the world's (`warn` on the next step).
+   */
+  hit(element: Element, wards: Readonly<Record<Ward, number>>, potions: Readonly<Partial<Record<Ward, number>>>): HitResult {
+    const fx = ELEMENT_FX[element] ?? ELEMENT_FX.none;
+    const res: HitResult = { meter: null, oil: 0, dot: false };
+    const m = fx.meter;
+    if (!m || (potions[m] ?? 0) > 0) return res;
+    const cut = 1 - Math.max(0, Math.min(1, wards[m] ?? 0));
+    if (cut <= 0) return res;
+    res.meter = m;
+    if (fx.bump > 0 && (this.kind === null || this.kind === m || this.level < 0.05)) {
+      this.kind = m;
+      this.level = Math.min(0.95, this.level + fx.bump * cut);
+    }
+    if (fx.dot && fx.seconds) {
+      this.dotRate = Math.max(this.dotRate * (this.dotLeft > 0 ? 1 : 0), fx.dot * cut);
+      this.dotLeft = Math.max(this.dotLeft, fx.seconds);
+      this.dotWard = m;
+      res.dot = true;
+    }
+    if (fx.oil) res.oil = fx.oil * cut;
+    return res;
   }
 
   update(dt: number, p: HazardProbe): Readonly<HazardStep> {
@@ -95,7 +169,10 @@ export class Hazards {
     o.fallFactor = 1;
     o.startedHurting = false;
     o.stoppedHurting = false;
+    o.warn = false;
     const step = dt > 0 && Number.isFinite(dt) ? Math.min(dt, 0.25) : 0;
+    this.clock += step;
+    const before = this.level;
     const s = Math.max(0, Math.min(1, p.strength));
     const z = Math.max(0, Math.min(1, p.zone));
     const meter = meterOf(p.kind);
@@ -158,6 +235,17 @@ export class Hazards {
       o.damage += dmg;
     }
     if (p.inLava && !p.inCamp) o.damage += 30 * (1 - 0.7 * ward) * step;
+    // A lingering burn (fire, acid): its ward and potion still hold it back as it bites; camp puts it out.
+    if (this.dotLeft > 0) {
+      const t = Math.min(step, this.dotLeft);
+      this.dotLeft = Math.max(0, this.dotLeft - step);
+      const cut = (p.potions[this.dotWard] ?? 0) > 0 ? 0 : 1 - Math.max(0, Math.min(1, p.wards[this.dotWard] ?? 0));
+      if (!p.inCamp) o.damage += this.dotRate * cut * t;
+      if (this.dotLeft === 0 || p.inCamp) {
+        this.dotLeft = 0;
+        this.dotRate = 0;
+      }
+    }
     if (p.kind === 'thorns' && p.moving && z > 0 && !p.inCamp) {
       this.scratch += step;
       if (this.scratch >= 4) {
@@ -168,6 +256,11 @@ export class Hazards {
 
     o.startedHurting = this.hurting && !was;
     o.stoppedHurting = !this.hurting && was;
+    // Announce a meter rising past the warning level (the world's build-up, not a blow's bump).
+    if (this.kind && effRise > 0 && before < WARN_LEVEL && this.level >= WARN_LEVEL && this.clock - this.warnedAt[this.kind] >= WARN_GAP) {
+      this.warnedAt[this.kind] = this.clock;
+      o.warn = true;
+    }
     o.kind = this.kind;
     o.level = this.level;
     return o;

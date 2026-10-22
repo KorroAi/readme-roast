@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen } from './r3';
+import { PHONE, boot, centreOf, closeTripCard, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): outposts and fast travel with real touches at 390 x 844 (BRIEF §0.4, §0.6). A hotbar
 // slot is filled by a long-press (the Bag opens on "choose for slot N"), the Outpost Kit is set down
@@ -20,10 +20,13 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
 
   // A long-press on the free slot (6) opens the Bag to fill it; a tap on the kit puts it there.
   const slot = await centreOf(page, 'hotbar:5');
-  await touch.hold(slot, 800, 9);
-  expect(await waitScreen(page, 'inventory'), 'the long-press opened the Bag').toBe(true);
+  // Held until the Bag opens (a long-press is timed on the page, which may draw slowly).
+  await touch.down(slot, 9);
+  const opened = await waitScreen(page, 'inventory', 8);
+  await touch.up();
+  expect(opened, 'the long-press opened the Bag').toBe(true);
   await expect(page.locator('.dd-m3-banner')).toBeVisible();
-  await page.locator('[data-key="item:outpostKit"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="item:outpostKit"]'));
   expect(await waitScreen(page, 'none'), 'choosing the kit closed the Bag').toBe(true);
   expect(await page.evaluate(() => window.__DD__.game.loop.hotbarView().slots[5].item)).toBe('outpostKit');
 
@@ -69,15 +72,19 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   expect(await untilGame(page, async () => (await hud(page)).interact?.icon === 'outpost', 6), 'the outpost chip').toBe(true);
   await tapControl(page, touch, 'interact');
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.loop.bed)) === outpost.id, 6), 'rested: the bed is the outpost').toBe(true);
+  // A rest ends the trip there (LOOP): its card may come up first.
+  await closeTripCard(page, touch);
 
   // The Map: from the outpost, travel to the camp.
   await tapControl(page, touch, 'map');
   expect(await waitScreen(page, 'map')).toBe(true);
   await expect(page.locator('[data-key="travelrow:camp"] .dd-btn')).toBeEnabled();
-  await page.locator('[data-key="travelrow:camp"] .dd-btn').tap();
+  await tapEl(page, touch, page.locator('[data-key="travelrow:camp"] .dd-btn'));
   expect(await waitEvent(page, 'player:travelled', 30), 'travelled').toBe(true);
   expect((await uiEvents(page, 'player:travelled'))[0].payload.to).toBe('camp');
   expect(await untilGame(page, async () => page.evaluate(() => window.__DD__.game.inCamp), 6), 'at the camp').toBe(true);
+  // Back at the camp, the trip's card may come up (a trip with an outpost set down): close it.
+  await closeTripCard(page, touch);
 
   // And back: the outpost's row, from the camp.
   await page.evaluate(() => window.__DD__.ui.clear());
@@ -85,7 +92,7 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   expect(await waitScreen(page, 'map')).toBe(true);
   const row = page.locator(`[data-key="travelrow:${outpost.id}"] .dd-btn`);
   await expect(row).toBeEnabled();
-  await row.tap();
+  await tapEl(page, touch, row);
   expect(await waitEvent(page, 'player:travelled', 30)).toBe(true);
   const p = await player(page);
   expect(Math.hypot(p.x - outpost.x, p.z - outpost.z), 'back beside the outpost').toBeLessThan(4);

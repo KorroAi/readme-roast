@@ -30,11 +30,9 @@ page.on('pageerror', (e) => logs.push(`[pageerror] ${e.message}\n${e.stack}`));
 const cdp = await page.context().newCDPSession(page);
 const touchEv = (type, pts, id = 5) =>
   cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p) => ({ x: p.x, y: p.y, id, radiusX: 8, radiusY: 8, force: 1 })) });
-const tap = async (x, y) => {
-  await touchEv('touchStart', [{ x, y }]);
-  await page.waitForTimeout(60);
-  await touchEv('touchEnd', []);
-};
+// A tap's start and end go together: under load a CDP touch is acked in seconds, and a start awaited
+// alone reaches the page as a long-press.
+const tap = (x, y) => Promise.all([touchEv('touchStart', [{ x, y }]), touchEv('touchEnd', [])]);
 const drag = async (x0, y0, x1, y1, holdMs = 0) => {
   const at = (k) => ({ x: x0 + (x1 - x0) * k, y: y0 + (y1 - y0) * k });
   await Promise.all([touchEv('touchStart', [{ x: x0, y: y0 }]), touchEv('touchMove', [at(0.125)])]);
@@ -50,12 +48,15 @@ const screenOf = (p) =>
     if (v.z > 1) return null;
     return { x: ((v.x + 1) / 2) * innerWidth, y: ((1 - v.y) / 2) * innerHeight };
   }, p);
-const clock = () => page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value);
+// Game time (the shader clock); on a page without the game (the UI sandbox) the wall clock.
+const clock = () => page.evaluate(() => window.__DD__?.game?.session?.rig?.uniforms?.uTime?.value ?? performance.now() / 1000);
 let failed = false;
 try {
-  // DD_QUERY: an address query for the run (e.g. 'gen=strata').
-  await page.goto(`${url}index.html${process.env.DD_QUERY ? `?${process.env.DD_QUERY}` : ''}`);
-  await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 180000 });
+  // DD_QUERY: an address query for the run (e.g. 'gen=strata'). DD_PAGE: another page of the dev
+  // server instead of the game (e.g. 'src/ui/dev/sandbox.html?scene=hud:arrival', the UI sandbox).
+  const pagePath = process.env.DD_PAGE ?? `index.html${process.env.DD_QUERY ? `?${process.env.DD_QUERY}` : ''}`;
+  await page.goto(`${url}${pagePath}`);
+  await page.waitForFunction(() => window.__DD__?.ready || window.__UI__ !== undefined, null, { timeout: 180000 });
   for (const step of steps) {
     try {
       if (step.eval) {

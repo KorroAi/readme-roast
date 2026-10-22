@@ -39,6 +39,7 @@ uniform float uTime;
 uniform float uSeed;
 uniform float uIntensity;
 uniform float uSceneEncode;
+uniform vec4 uTint; // rgb a magic flame's colour, a how much (0: fire)
 in vec2 vUv;
 in float vFade;
 layout(location = 0) out highp vec4 fragColor;
@@ -68,13 +69,20 @@ void main() {
   vec3 col = mix(vec3(0.8, 0.12, 0.02), vec3(1.0, 0.42, 0.06), smoothstep(0.06, 0.32, heat));
   col = mix(col, vec3(1.0, 0.72, 0.3), smoothstep(0.38, 0.7, heat));
   col = mix(col, vec3(1.0, 0.93, 0.78), smoothstep(0.78, 0.98, heat));
+  // Round 3: a guardian's brazier burns in its biome's light (deep at the tips, its hue in the body,
+  // a pale core): blue in the grottoes, green in the jungle, violet over the abyss.
+  if (uTint.a > 0.001) {
+    vec3 tc = mix(uTint.rgb * 0.35, uTint.rgb, smoothstep(0.06, 0.45, heat));
+    tc = mix(tc, mix(uTint.rgb, vec3(1.0), 0.6), smoothstep(0.7, 0.98, heat));
+    col = mix(col, tc, uTint.a);
+  }
   vec3 c = col * heat * (1.3 + 1.4 * heat) * uIntensity * vFade;
   c = uSceneEncode > 0.5 ? sqrt(c / (1.0 + c)) : c;
   fragColor = vec4(c, 1.0); // additive (SRC_ALPHA, ONE)
 }
 `;
 
-export function createFlameMaterial(lighting: LightingUniforms, seed: number, width: number, height: number): THREE.ShaderMaterial {
+export function createFlameMaterial(lighting: LightingUniforms, seed: number, width: number, height: number, tint: readonly [number, number, number] | null = null): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
     uniforms: {
@@ -83,6 +91,7 @@ export function createFlameMaterial(lighting: LightingUniforms, seed: number, wi
       uSeed: { value: seed },
       uSize: { value: new THREE.Vector2(width, height) },
       uIntensity: { value: 1 },
+      uTint: { value: tint ? new THREE.Vector4(tint[0], tint[1], tint[2], 1) : new THREE.Vector4(0, 0, 0, 0) },
     },
     vertexShader: vert,
     fragmentShader: FLAME_FRAG,

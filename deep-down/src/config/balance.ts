@@ -224,8 +224,12 @@ export function worldGen(): 'legacy' | 'strata' {
 
 /** Round 3 (WORLD): the strata generator's knobs (world/gen/strata). */
 export const STRATA_GEN = {
-  /** Generator version of the strata (saves keep their per-stratum edits only while it matches). */
-  genVersion: 1,
+  /**
+   * Generator version of the strata (saves keep their per-stratum edits only while it matches). 2: the
+   * traps mended (ladders, hollows filled), chambers spaced by both radii, shared tunnel mouths kept
+   * level, worms off every plan floor, ravines with a landing, mine sets, the nests' kinds.
+   */
+  genVersion: 2,
   /** Mean spacing (m) of finds along walked tunnels: a find, a prop, a light, a creature or a fork. */
   findSpacing: 12,
   /** About one chest per this many metres of walked tunnel. */
@@ -241,6 +245,8 @@ export const STRATA_GEN = {
   lairRadius: 11,
   /** Reveal a lair when the explorer comes this close (m). */
   lairReveal: 34,
+  /** The explored map: how far the explorer's view maps an open cave (m; a tunnel maps to its walls). */
+  mapSight: 14,
 } as const;
 
 export const LIGHT = {

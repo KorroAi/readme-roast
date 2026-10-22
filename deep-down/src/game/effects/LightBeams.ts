@@ -49,6 +49,7 @@ precision highp float;
 precision highp sampler3D;
 ${LIGHTING_GLSL}
 uniform sampler3D uNoise;
+uniform float uIntensity;
 in vec3 vWorldPos;
 in vec3 vNormal;
 in float vT;
@@ -66,7 +67,7 @@ void main() {
   float dust = textureLod(uNoise, q, 0.0).r * 0.65 + textureLod(uNoise, q * 2.3 + 0.37, 0.0).g * 0.35;
   float near = smoothstep(1.5, 5.0, vDepth);
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
-  vec3 col = vColor * core * ends * (0.55 + 0.9 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w;
+  vec3 col = vColor * core * ends * (0.55 + 0.9 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
   // Additive over the scene: on the 8-bit fallback the target holds sqrt(x / (1 + x)), where a
   // faint glow added as sceneOut(col) would be strongly amplified; its slope at a dark scene (~1.4)
   // keeps the beam as faint there as on HDR targets.
@@ -134,7 +135,7 @@ export class LightBeams {
     g.computeBoundingSphere();
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
-      uniforms: { ...lighting, uNoise: { value: noise } },
+      uniforms: { ...lighting, uNoise: { value: noise }, uIntensity: { value: 1 } },
       vertexShader: vert,
       fragmentShader: frag,
       transparent: true,
@@ -146,6 +147,12 @@ export class LightBeams {
     this.mesh.renderOrder = 8;
     this.mesh.name = 'lightBeams';
     this.mesh.visible = beams.length > 0;
+  }
+
+  /** Round 3: the beams' brightness (1 as built; the Heart's column rises with the relighting). */
+  set intensity(v: number) {
+    this.material.uniforms.uIntensity.value = v;
+    this.mesh.visible = v > 0.001 && (this.mesh.geometry.index?.count ?? 0) > 0;
   }
 
   dispose(): void {

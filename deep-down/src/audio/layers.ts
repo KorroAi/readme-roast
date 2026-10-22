@@ -32,6 +32,8 @@ export class LoopGraph {
   readonly out: GainNode;
   /** The stereo position of a positional layer (null: centred, no panner). */
   readonly panner: StereoPannerNode | null = null;
+  /** A positional layer's lowpass: closes when rock stands between the ear and the source. */
+  readonly muffle: BiquadFilterNode | null = null;
   private readonly nodes: AudioNode[] = [];
   private readonly sources: AudioScheduledSourceNode[] = [];
 
@@ -39,10 +41,19 @@ export class LoopGraph {
     this.out = ctx.createGain();
     this.out.gain.value = 0;
     let head: AudioNode = this.out;
+    if (pan) {
+      const m = ctx.createBiquadFilter();
+      m.type = 'lowpass';
+      m.frequency.value = OPEN_CUTOFF;
+      m.Q.value = 0;
+      this.muffle = m;
+      this.nodes.push(m);
+      head = head.connect(m);
+    }
     if (pan && typeof ctx.createStereoPanner === 'function') {
       this.panner = ctx.createStereoPanner();
       this.nodes.push(this.panner);
-      head = this.out.connect(this.panner);
+      head = head.connect(this.panner);
     }
     head.connect(dest);
     if (send) head.connect(this.gain(send.amount)).connect(send.to);
@@ -107,6 +118,9 @@ export class LoopGraph {
 
 /** Seconds a layer stays built after going silent, so brief dips do not rebuild it. */
 const LINGER = 2.5;
+/** A positional layer's lowpass in the open, and behind rock (audio/probe occlusionOf). */
+export const OPEN_CUTOFF = 16000;
+export const MUFFLED_CUTOFF = 650;
 
 /**
  * A looping layer that is built when its level rises above silence and torn down after a
@@ -116,6 +130,7 @@ export abstract class LazyLayer {
   private graph: LoopGraph | null = null;
   private level: ParamTarget | null = null;
   private panTarget: ParamTarget | null = null;
+  private muffleTarget: ParamTarget | null = null;
   private quiet = 0;
 
   constructor(
@@ -144,6 +159,7 @@ export abstract class LazyLayer {
         this.graph = new LoopGraph(this.ctx, this.dest, this.send, this.positional);
         this.level = new ParamTarget(this.graph.out.gain, this.fade, 0.0005);
         if (this.graph.panner) this.panTarget = new ParamTarget(this.graph.panner.pan, 0.15, 0.02);
+        if (this.graph.muffle) this.muffleTarget = new ParamTarget(this.graph.muffle.frequency, 0.35, 25);
         this.build(this.graph);
       }
       this.level!.set(level, now);
@@ -159,12 +175,20 @@ export abstract class LazyLayer {
     this.panTarget?.set(Math.max(-1, Math.min(1, pan)), now);
   }
 
+  /** How muffled a positional layer is: 0 in the open, 1 behind solid rock (its lowpass closes). */
+  setOcclusion(occlusion: number, now: number): void {
+    const o = Number.isFinite(occlusion) ? Math.max(0, Math.min(1, occlusion)) : 0;
+    // Exponential between the two cutoffs: each step of rock darkens it by a similar ratio.
+    this.muffleTarget?.set(OPEN_CUTOFF * Math.pow(MUFFLED_CUTOFF / OPEN_CUTOFF, o), now);
+  }
+
   stop(): void {
     if (!this.graph) return;
     this.graph.dispose();
     this.graph = null;
     this.level = null;
     this.panTarget = null;
+    this.muffleTarget = null;
     this.onTeardown();
   }
 }

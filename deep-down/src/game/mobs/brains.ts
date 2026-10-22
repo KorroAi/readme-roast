@@ -721,6 +721,7 @@ function fuse(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
       m.gait += dt * 2;
       if (sim.distToPlayer(m, ctx) <= d.reach && m.stateTime > 0.4 && sim.seesPlayer(m, ctx)) {
         m.fused = true;
+        m.fuseAt = sim.clock;
         m.timer = 0;
         m.setState('windup');
         sim.addMarker(m, 'disc', m.position.x, fly ? sim.floorY(m.position.x, m.position.y, m.position.z) : m.foot.y, m.position.z, d.blast ?? 2.4);

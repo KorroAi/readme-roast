@@ -81,6 +81,41 @@ export class ExploredMap {
     return n;
   }
 
+  /**
+   * Mark what the explorer sees from (x, y, z) (feet): a small disc round the feet, then a fan of
+   * rays at eye height across the open cave (a cavern is mapped as far as `radius`, a tunnel to its
+   * walls), each column marked at the floor the ray finds under it (so the map keeps the relief).
+   * `solid(x, y, z)` reads the world. Returns how many columns were new.
+   */
+  markSight(solid: (x: number, y: number, z: number) => boolean, x: number, y: number, z: number, radius = 14, rays = 56): number {
+    let n = this.markAround(x, z, 3, y);
+    const eye = Math.floor(y + 1.6);
+    const floorUnder = (cx: number, cz: number): number => {
+      for (let yy = eye; yy >= eye - 9; yy--) if (solid(cx, yy - 1, cz) && !solid(cx, yy, cz)) return yy;
+      return -1;
+    };
+    for (let k = 0; k < rays; k++) {
+      const a = (k / rays) * Math.PI * 2;
+      const dx = Math.cos(a);
+      const dz = Math.sin(a);
+      let lastX = -1;
+      let lastZ = -1;
+      for (let d = 1; d <= radius; d += 0.5) {
+        const cx = Math.floor(x + dx * d);
+        const cz = Math.floor(z + dz * d);
+        if (cx === lastX && cz === lastZ) continue;
+        lastX = cx;
+        lastZ = cz;
+        // A wall at eye height and below it stops the view (the wall's own column shows).
+        const wall = solid(cx, eye, cz) && solid(cx, eye - 1, cz);
+        const f = wall ? y : floorUnder(cx, cz);
+        if (this.markExplored(cx, cz, f >= 0 ? f : y)) n++;
+        if (wall) break;
+      }
+    }
+    return n;
+  }
+
   /** Share of the stratum's columns explored (0..1). */
   fraction(): number {
     return this.count / (this.sx * this.sz);

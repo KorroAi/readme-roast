@@ -206,12 +206,22 @@ export class Progression {
   // ------------------------------------------------------------------------------------
   // Lifecycle
 
+  /**
+   * LOOP (round 3): in the strata the loop's tutorial and guide teach mining, the pick-up, the camp
+   * and the Workbench: the hub's 1.x first-time hints for them would only repeat (or contradict) it.
+   */
+  private quietOldHints(): void {
+    if (!this.strata) return;
+    for (const h of STRATA_QUIET_HINTS) this.hintsShown.add(h);
+  }
+
   /** Fresh game: no records, no cache, no trip. */
   reset(): void {
     this.records = new Records();
     this.setCache(null);
     this.cold.reset();
     this.hintsShown.clear();
+    this.quietOldHints();
     this.extra = strip(defaultProgression());
     this.spot.reset();
     this.turnBackShown = false;
@@ -229,6 +239,7 @@ export class Progression {
     this.cold.reset();
     this.hintsShown.clear();
     for (const h of p.hintsShown) this.hintsShown.add(h);
+    this.quietOldHints();
     this.extra = strip(p);
     // Drop unknown node ids (a save from a build with other nodes).
     this.extra.stations = this.extra.stations.filter((id) => isNodeId(id) && NODES[id].result.kind === 'station');
@@ -502,7 +513,8 @@ export class Progression {
     // seam once it reads compass.kind; the Next line carries the target's walk meanwhile).
     out.campBearing = this.campBearing;
     out.campDistance = this.campDistance;
-    if (this.cache) {
+    // LOOP (round 3): the cache's needle only in its own stratum.
+    if (this.cacheHere(this.cache)) {
       const c = this.cacheOut;
       c.bearing = this.cacheBearing;
       c.distance = this.cacheDistance;
@@ -673,6 +685,8 @@ export class Progression {
     }
     const life = this.extra.life;
     life.caches++;
+    // LOOP (round 3): the chest orders and the trip card count it.
+    g.loop.chestOpened();
     g.particles.sparkle(spec.x, spec.y + 0.6, spec.z, 0xffd9a0, 10, g.rng, 1.4);
     if (spec.secret) {
       life.secrets++;
@@ -884,7 +898,9 @@ export class Progression {
     }
     // One cache at a time: a second black-out destroys the first, even when it leaves nothing.
     const [x, y, z] = count > 0 ? this.cacheCell() : [0, 0, 0];
-    const { cache } = replaceCache(this.cache, items, { x: x + 0.5, y, z: z + 0.5, depth: Math.max(0, Math.round(WORLD.depthOffset - y)) });
+    // LOOP (round 3): the stratum it lies in (shown, guided to and picked up only there).
+    const stratum = this.loadedStratum();
+    const { cache } = replaceCache(this.cache, items, { x: x + 0.5, y, z: z + 0.5, depth: Math.max(0, Math.round(WORLD.depthOffset - y)), ...(stratum !== null ? { stratum } : {}) });
     this.setCache(cache);
     this.cold.reset();
     if (cache || replaced > 0) g.bus.emit('cache:created', { x: cache?.x ?? 0, y: cache?.y ?? 0, z: cache?.z ?? 0, count, replaced });
@@ -971,9 +987,22 @@ export class Progression {
     }
   }
 
+  /** Round 3 (LOOP): the loaded stratum (null in the old world). */
+  private loadedStratum(): number | null {
+    const s = (this.game as unknown as { strata?: { current?: number; layout?: unknown } | null }).strata;
+    return s && s.layout && typeof s.current === 'number' ? s.current : null;
+  }
+
+  /** Round 3 (LOOP): the cache lies in the loaded stratum (always, in the old world or an older save). */
+  private cacheHere(c: CacheState | null): c is CacheState {
+    if (!c) return false;
+    const n = this.loadedStratum();
+    return n === null || c.stratum === undefined || c.stratum === n;
+  }
+
   private updateCachePickup(): void {
     const c = this.cache;
-    if (!c) return;
+    if (!this.cacheHere(c)) return;
     const g = this.game;
     const p = g.player;
     const d = Math.hypot(c.x - p.x, c.y - p.y, c.z - p.z);
@@ -1023,7 +1052,7 @@ export class Progression {
     if (this.cachePropShown || props.has(CACHE_PROP_ID)) props.remove(CACHE_PROP_ID);
     this.cachePropShown = false;
     const c = this.cache;
-    if (c) {
+    if (this.cacheHere(c)) {
       props.add({ id: CACHE_PROP_ID, kind: 'satchel', x: c.x, y: c.y, z: c.z, rotY: 0.6, scale: 1, anchor: null, emitters: [], seed: 7 });
       this.cachePropShown = true;
     }
@@ -1044,7 +1073,7 @@ export class Progression {
 
   private computeCacheField(): void {
     const c = this.cache;
-    if (!c) return;
+    if (!this.cacheHere(c)) return;
     const w = this.game.session.world;
     if (!this.cacheField) {
       this.cacheField = new HomeField(w);
@@ -1450,6 +1479,9 @@ export function summarizeSave(d: SaveData): SaveSummary {
     finale: d.progression.finale,
   };
 }
+
+/** The hub's 1.x first-time hints the strata's tutorial and guide replace (Game.tutorial ids). */
+const STRATA_QUIET_HINTS: readonly string[] = ['mine', 'pickup', 'workbench', 'camp', 'move', 'look', 'lanternstone'];
 
 function strip(p: ProgressionSave): Omit<ProgressionSave, 'expeditions' | 'trip' | 'records' | 'cache' | 'hintsShown'> {
   const { expeditions: _e, trip: _t, records: _r, cache: _c, hintsShown: _h, ...rest } = p;

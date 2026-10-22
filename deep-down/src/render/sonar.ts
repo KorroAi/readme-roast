@@ -179,6 +179,8 @@ export class SonarPulse {
     this.radius = Math.max(4, radius);
     u.uSonar.value.set(origin.x, origin.y, origin.z, 0);
     u.uSonarFx.value.set(SONAR.band, 1, this.radius, 1);
+    // The lantern's own pale gold (the Heart's finale tints the same shell rose, then gold).
+    u.uSonarTint?.value.setRGB(1, 0.8, 0.5);
     this.t = 0;
     this.pings++;
     const cells = scanFinds(this.o.world(), origin.x, origin.y, origin.z, this.radius);

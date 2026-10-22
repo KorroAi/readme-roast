@@ -26,8 +26,8 @@ export interface SceneStage {
   name: string;
   mix?: LayerMix;
   score?: ScoreId;
-  /** Called once when the stage begins (stingers, events). */
-  enter?: (now: number) => void;
+  /** Called once when the stage begins (stingers, events, a guardian's phase). */
+  enter?: (now: number, player: MusicPlayer) => void;
 }
 
 export interface StageReport extends MixStats {
@@ -42,6 +42,8 @@ export interface SceneResult {
   whole: MixStats;
   maxVoices: number;
   maxDecks: number;
+  /** Decks alive when the scene ends (a faded deck is released once rung out). */
+  finalDecks: number;
   /** Notes started per layer. */
   played: Record<string, number>;
   channels: [Float32Array, Float32Array];
@@ -76,7 +78,7 @@ export function renderMusicScene(first: ScoreId, stages: readonly SceneStage[], 
   let maxDecks = 0;
   for (const st of stages) {
     if (st.score) player.play(st.score, ctx.currentTime, { fadeIn: 1.5, fadeOut: 2.5 });
-    st.enter?.(ctx.currentTime);
+    st.enter?.(ctx.currentTime, player);
     let stageVoices = 0;
     const frames = Math.round(st.seconds * fps);
     for (let f = 0; f < frames; f++) {
@@ -101,7 +103,7 @@ export function renderMusicScene(first: ScoreId, stages: readonly SceneStage[], 
     return out;
   };
   const channels: [Float32Array, Float32Array] = [join(all[0]), join(all[1])];
-  return { sampleRate, stages: reports, whole: mixStats(channels, sampleRate), maxVoices, maxDecks, played: { ...player.played }, channels };
+  return { sampleRate, stages: reports, whole: mixStats(channels, sampleRate), maxVoices, maxDecks, finalDecks: player.deckCount, played: { ...player.played }, channels };
 }
 
 export const CALM: LayerMix = { bed: 1, motif: 1, tension: 0, combat: 0 };

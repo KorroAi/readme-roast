@@ -559,7 +559,8 @@ export function stampDungeon(st: CarveState, seed: number, reserved: Reserved): 
   for (const [u, v, kind] of [[8, -4, 'crate'], [9, -4, 'barrel'], [16, 4, 'brokenCart'], [13, 4, 'pickaxeRack'], [10, 4, 'crate'], [17, -4, 'ropeCoil'], [3, 1, 'barrel'], [22, -3, 'crate'], [22, 3, 'crate']] as Array<[number, number, string]>) {
     dressing.push({ p: at(u, v, y), kind, rotY: rot + rng.range(-0.3, 0.3) });
   }
-  for (let u = 7; u <= 17; u += 2) dressing.push({ p: at(u, 0, y), kind: 'rail', rotY: rot });
+  // The track runs down the hall (the rail model's length is its local x: rotY turns +x onto dir).
+  for (let u = 7; u <= 17; u += 2) dressing.push({ p: at(u, 0, y), kind: 'rail', rotY: Math.atan2(-dz, dx) });
   return {
     id: `works_${plan.stratum}`,
     biome: n.biome,
@@ -977,6 +978,35 @@ function otherTunnelNear(st: CarveState, x: number, z: number, edge: number, r: 
   return false;
 }
 
+/**
+ * A walking line within r cells of (x, z), other than chamber `n`'s own lines across its floor (from
+ * its centre to its mouths): a crack in a chamber's floor may run beside those (the floor is wide), not
+ * through a mouth or a tunnel.
+ */
+function walkLineNear(st: CarveState, x: number, z: number, r: number, n: PlanNode): boolean {
+  const { sx, sz } = st.world;
+  const inner = Math.max(n.rx, n.rz) * 0.8;
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    const xx = x + dx;
+    const zz = z + dz;
+    if (xx < 0 || zz < 0 || xx >= sx || zz >= sz || !st.corridor[xx + zz * sx]) continue;
+    if (st.chamberOf[xx + zz * sx] === n.id + 1 && Math.hypot(xx + 0.5 - n.x, zz + 0.5 - n.z) < inner) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Chamber n's own columns within r cells of (x, z) (its wall: the guard's dilated band round it). */
+function nearChamber(st: CarveState, x: number, z: number, n: PlanNode, r: number): boolean {
+  const { sx, sz } = st.world;
+  for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    const xx = x + dx;
+    const zz = z + dz;
+    if (xx >= 0 && zz >= 0 && xx < sx && zz < sz && st.chamberOf[xx + zz * sx] === n.id + 1) return true;
+  }
+  return false;
+}
+
 function hasCorridorNear(st: CarveState, x: number, z: number, r: number): boolean {
   const { sx, sz } = st.world;
   for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
@@ -1009,10 +1039,20 @@ export function carveRavines(st: CarveState, seed: number, reserved: Reserved): 
   const out: RavineOut[] = [];
   for (const biome of plan.biomes) {
     const want = BIOMES[biome].shape.shafts >= 0.3 ? 2 : 1;
-    const hosts = plan.nodes.filter((n) => n.biome === biome && (n.kind === 'cavern' || n.kind === 'room') && !n.river && n.role === null && n.y >= 22);
-    for (let t = 0; t < hosts.length * 3 && out.filter((r) => r.biome === biome).length < want; t++) {
-      const n = hosts[rng.int(0, hosts.length - 1)];
-      const a = rng.range(0, Math.PI * 2);
+    // Every chamber of the biome high enough for a drop, in a shuffled order, each tried in sixteen
+    // directions round its wall (a crack needs rock clear of every tunnel, gallery and curated place).
+    const hosts = plan.nodes.filter((n) => n.biome === biome && (n.kind === 'cavern' || n.kind === 'room') && !n.river && n.role === null && n.y >= 21);
+    for (let i = hosts.length - 1; i > 0; i--) {
+      const j = rng.int(0, i);
+      [hosts[i], hosts[j]] = [hosts[j], hosts[i]];
+    }
+    const tries: Array<[PlanNode, number]> = [];
+    const turn = rng.range(0, Math.PI * 2);
+    for (const n of hosts) for (let k = 0; k < 16; k++) tries.push([n, turn + (k / 16) * Math.PI * 2]);
+    const used = new Set<number>();
+    for (const [n, a] of tries) {
+      if (out.filter((r) => r.biome === biome).length >= want) break;
+      if (used.has(n.id)) continue;
       const ux = Math.cos(a);
       const uz = Math.sin(a);
       const startR = Math.max(n.rx, n.rz) * 0.55;
@@ -1025,12 +1065,23 @@ export function carveRavines(st: CarveState, seed: number, reserved: Reserved): 
         const x = Math.floor(n.x + ux * (startR + s));
         const z = Math.floor(n.z + uz * (startR + s));
         if (!inZone(st, x, 2, z, 6)) ok = false;
-        else if (hasCorridorNear(st, x, z, 3) || reserved[x + z * w.sx]) ok = false;
+        else if (walkLineNear(st, x, z, 3, n) || reserved[x + z * w.sx]) ok = false;
         else {
           const ch = st.chamberOf[x + z * w.sx];
           if (ch && ch !== n.id + 1) ok = false;
-          if (!ch && st.floorY[x + z * w.sx] >= 0) ok = false;
+          // Outside its chamber the crack runs in rock: no floor of the plan there (but the chamber's
+          // own rim band, which the guard dilates, is its wall).
+          if (!ch && st.floorY[x + z * w.sx] >= 0 && !nearChamber(st, x, z, n, 3)) ok = false;
         }
+      }
+      // The pocket at its far end stays in rock too (it never opens into a passage's floor).
+      const px0 = n.x + ux * (startR + len);
+      const pz0 = n.z + uz * (startR + len);
+      for (let dz = -4; dz <= 4 && ok; dz++) for (let dx = -4; dx <= 4 && ok; dx++) {
+        const x = Math.floor(px0) + dx;
+        const z = Math.floor(pz0) + dz;
+        if (!inZone(st, x, 2, z, 4)) ok = false;
+        else if (reserved[x + z * w.sx] || (st.floorY[x + z * w.sx] >= 0 && st.chamberOf[x + z * w.sx] !== n.id + 1)) ok = false;
       }
       if (!ok) continue;
       // Carve: a 2-3 m wide crack, its floor falling from the rim to the pocket.
@@ -1038,16 +1089,21 @@ export function carveRavines(st: CarveState, seed: number, reserved: Reserved): 
       for (let s = 0; s <= len; s += 0.5) {
         const cx = n.x + ux * (startR + s);
         const cz = n.z + uz * (startR + s);
-        const wdt = 1.1 + 0.5 * Math.sin((s / len) * Math.PI) + 0.3 * st.noise.noise2(cx / 4, cz / 4);
-        for (let k = -2; k <= 2; k++) {
-          const x = Math.floor(cx - uz * k * 0.6);
-          const z = Math.floor(cz + ux * k * 0.6);
-          if (Math.abs(k * 0.6) > wdt) continue;
+        // A disc of at least 1.05 m round the crack's line: the floor at its foot is one walk (a band
+        // two cells wide whatever its heading, never cells that meet at a corner only).
+        const wdt = Math.max(1.05, 0.95 + 0.45 * Math.sin((s / len) * Math.PI) + 0.3 * st.noise.noise2(cx / 4, cz / 4));
+        for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+          const x = Math.floor(cx) + dx;
+          const z = Math.floor(cz) + dz;
+          if (Math.hypot(x + 0.5 - cx, z + 0.5 - cz) > wdt) continue;
+          // Nothing behind the crack's start: the chamber's floor there is the rope's landing.
+          if ((x + 0.5 - (n.x + ux * startR)) * ux + (z + 0.5 - (n.z + uz * startR)) * uz < -0.3) continue;
           for (let y = bottomY; y < n.y + 3; y++) if (y < n.y || get(st, x, y, z) !== B.AIR) put(st, x, y, z, B.AIR);
           reserved[x + z * w.sx] = 1;
         }
       }
       // The pocket at the far end.
+      used.add(n.id);
       const ex = n.x + ux * (startR + len);
       const ez = n.z + uz * (startR + len);
       for (let dz = -3; dz <= 3; dz++) for (let dx = -3; dx <= 3; dx++) {
@@ -1061,8 +1117,9 @@ export function carveRavines(st: CarveState, seed: number, reserved: Reserved): 
         const z = Math.floor(n.z + uz * (startR + s) + ux * k * 0.6);
         if (!SOLID[get(st, x, bottomY - 1, z)]) put(st, x, bottomY - 1, z, BIOMES[biome].hosts[0]);
       }
-      // A low lip round the opening (one block: stepped over on purpose, not walked off by mistake).
-      for (let s = 0; s <= len; s += 0.5) for (const k of [-3, 3]) {
+      // A low lip round the opening (one block: stepped over on purpose, not walked off by mistake),
+      // open at the crack's near end, where the rope comes up.
+      for (let s = 2.5; s <= len; s += 0.5) for (const k of [-3, 3]) {
         const x = Math.floor(n.x + ux * (startR + s) - uz * k * 0.6);
         const z = Math.floor(n.z + uz * (startR + s) + ux * k * 0.6);
         if (get(st, x, n.y, z) === B.AIR && SOLID[get(st, x, n.y - 1, z)] && !st.corridor[x + z * w.sx]) put(st, x, n.y, z, BIOMES[biome].hosts[1]);
@@ -1077,10 +1134,24 @@ export function carveRavines(st: CarveState, seed: number, reserved: Reserved): 
           rope.push([rx, y, rz]);
         }
       }
-      // Its anchor stone at the rim (beside the rope, never on it).
-      const sxA = Math.floor(rx - ux * 1.6);
-      const szA = Math.floor(rz - uz * 1.6);
-      if (sxA !== rx || szA !== rz) putAir(st, sxA, n.y, szA, BIOMES[biome].hosts[1]);
+      // The landing at the rope's top: the chamber's floor just behind the crack's start, two cells
+      // clear to head height (the climber steps off there), kept clear of every later pass.
+      // The two cells behind the rope (back toward the chamber), face to face with it.
+      const [bx, bz] = Math.abs(ux) >= Math.abs(uz) ? [-Math.sign(ux), 0] : [0, -Math.sign(uz)];
+      const landing: Array<[number, number]> = [
+        [rx + bx, rz + bz],
+        [rx + 2 * bx, rz + 2 * bz],
+      ];
+      for (const [x, z] of landing) {
+        if (x === rx && z === rz) continue;
+        if (!SOLID[get(st, x, n.y - 1, z)]) put(st, x, n.y - 1, z, BIOMES[biome].hosts[0]);
+        for (let y = n.y; y <= n.y + 2; y++) put(st, x, y, z, B.AIR);
+        reserved[x + z * w.sx] = 1;
+      }
+      // Its anchor stone beside the rope's top (to the side: the landing stays open).
+      const sxA = Math.floor(rx - uz * 1.6);
+      const szA = Math.floor(rz + ux * 1.6);
+      if ((sxA !== rx || szA !== rz) && !landing.some(([x, z]) => x === sxA && z === szA) && SOLID[get(st, sxA, n.y - 1, szA)]) putAir(st, sxA, n.y, szA, BIOMES[biome].hosts[1]);
       out.push({ id: `ravine_${n.id}_${out.length}`, biome, top: [rx + 0.5, n.y, rz + 0.5], bottom: [ex, bottomY, ez], rope });
     }
   }

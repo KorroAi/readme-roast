@@ -197,6 +197,8 @@ void main() {
   vec3 samplePos = vWorldPos + n * 0.35;
   vec4 ls = lightSample(samplePos);
   vec3 lantern = lanternLight(samplePos, vWorldPos, n, max(ls.a, 0.3), 0.0);
+  // The companion's moving warm light (VIS's glowLight, round 3): a foe it zaps is lit by it too.
+  lantern += glowLight(vWorldPos, n);
   vec3 env = ambientFrom(ls, n);
   float cavity = 0.86 + 0.14 * smoothstep(0.25, 0.7, h);
   vec3 color = nearShoulder(albedo * (env * cavity + lantern), albedo * lantern);
@@ -383,3 +385,6 @@ export function createInstancedMobMaterial(lighting: LightingUniforms, boneTex: 
     depthWrite: !see && !hull,
   });
 }
+
+/** The creatures' material sources and its variants' defines, for the static checks in tests. */
+export const MOB_MATERIAL_SHADERS = { vertex, fragment, variants: ['', 'INSTANCED', 'INSTANCED HULL', 'INSTANCED TRANSLUCENT', 'INSTANCED SMOKE', 'HULL', 'TRANSLUCENT', 'SMOKE'] } as const;

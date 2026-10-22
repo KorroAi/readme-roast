@@ -10,7 +10,7 @@ export const expanse = {
   'stuck.material.gem': 'Gems: violet pockets in the Geode behind the Root Galleries, in the Lantern Vault and the Underhall. They need a Copper Pickaxe.',
   'stuck.material.flashCharge': 'Flash Charges are made at the Forge from glimmer, copper and stone.',
   'item.gem': 'Gem',
-  'item.gem.desc': 'A violet geode stone. The Forge sets them in spear heads.',
+  'item.gem.desc': 'A violet geode stone. Once the trader teaches gem cutting, the Forge sets it in a weapon or armour.',
   'item.flashCharge': 'Flash Charge',
   'item.flashCharge.desc': 'A glass bulb of glimmer dust. Crack it and the dark flinches.',
   // Rarity (the highlight legend: the first-time card and the journal).

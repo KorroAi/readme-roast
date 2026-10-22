@@ -44,6 +44,7 @@ export const controls = {
   'hud3.distUp': '{m} m ↑',
   'hud3.distDown': '{m} m ↓',
   'hud3.phase': 'Phase {n}/{total}',
+  'hud3.open': 'Open!',
   'hud3.combo': 'Vein ×{n}',
   'hud3.warded': 'Warded',
   'hud3.slot': 'Slot {n}: {item}',
@@ -59,7 +60,7 @@ export const controls = {
   'm3.close': 'Close',
   'm3.help.bag': 'Everything you carry, by kind. Tap an item for what it does: eat food, drink potions, wear gear, or put it on the hotbar. Hold a hotbar slot in play to choose what goes in it. At camp or an outpost, bank your finds.',
   'm3.help.craft': 'Make everything here. Each card shows what it needs (green: you have it, red: short) and where (by hand, Workbench, Furnace, Forge, Alchemy Table). Stand by a station to use it. Craft once, or five at a time.',
-  'm3.help.map': 'The stratum you are in, as far as you have explored it. Markers show the camp, outposts, guardians\' lairs, the Gate, Halden\'s pages and chests you have seen. Travel between outposts from here.',
+  'm3.help.map': 'The stratum you are in, as far as you have explored it: lighter ground is higher, and the thin lines step every 4 m. Markers show the camp, outposts, guardians\' lairs, the Gate, the places you have found (the vista, the river, the Halden works, secret rooms), Halden\'s pages, chests, and your pack if the lantern went out. Travel between the camp and your outposts from here.',
   'm3.help.quests': 'Your goal: relight the Heart. Each stratum has two guardians; their Heart Shards open its Gate. Side tasks and camp orders give rewards: track one and the HUD shows it.',
   'm3.help.bestiary': 'Every creature you meet gets a page. Scan it with Sonar or defeat it to complete the page and earn its bonus.',
 
@@ -92,6 +93,7 @@ export const controls = {
   'm3.craft.stationNear': '{name} · here',
   'm3.craft.new': 'New',
   'm3.craft.at': 'at: {station}',
+  'm3.craft.focus': 'Make this next',
 
   // The Map
   'm3.map.title': 'Map',
@@ -125,6 +127,14 @@ export const controls = {
   'm3.map.m.cache': 'Your pack',
   'm3.map.m.shrine': 'Shrine',
   'm3.map.m.nest': 'Nest',
+  'm3.map.m.vista': 'Vista',
+  'm3.map.m.river': 'Underground river',
+  'm3.map.m.works': 'Halden works',
+  'm3.map.m.secret': 'Secret room',
+  'm3.map.m.place': 'Place',
+  'm3.map.m.ravine': 'Ravine',
+  'm3.map.cacheLabel': '{count} items wait here',
+  'm3.map.places': 'Places found: {n} of {total}',
 
   // Quests
   'm3.quests.title': 'Quests',
@@ -152,6 +162,7 @@ export const controls = {
   'm3.best.title': 'Bestiary',
   'm3.best.none': 'No creature met yet.',
   'm3.best.found': '{n} of {total} recorded',
+  'm3.best.complete': '{n} complete',
   'm3.best.unknown': 'Unknown creature',
   'm3.best.unmet': 'Not met yet.',
   'm3.best.scanned': 'Scanned',
@@ -171,11 +182,17 @@ export const controls = {
   'set3.motion.auto': 'Like the device',
   'set3.motion.reduce': 'Reduced',
   'set3.replayTips': 'Show the first-time tips again',
+  'set3.language': 'Language',
+  'set3.language.auto': 'Auto ({name})',
   'set3.tipsReset': 'The tips will show again',
   'set3.seed': 'World seed: {seed}',
   'menu3.seed': 'Seed (optional)',
   'menu3.seedHint': 'Leave empty for a new random world, or type a seed to share one.',
   'menu3.start': 'Start the expedition',
+  'menu3.cardShards': '{n}/12 shards',
+  'menu3.cardTime': '{time} played',
+  'menu3.minutes': '{n} min',
+  'menu3.hours': '{h} h {m}',
 
   // The milestone cards (feats, Heart Shards, bestiary pages)
   'ms3.feat': 'Feat',
@@ -187,6 +204,11 @@ export const controls = {
   'ms3.shardLine': '{have} of {total} Heart Shards',
   'ms3.petLevel': '{name} reached level {level}',
   'ms3.petLevelLine': 'It shines brighter, senses further and zaps harder.',
+
+  // The trip card (LOOP's trip summary in the strata)
+  'trip3c.kicker': 'Trip {n}',
+  'trip3c.go': 'Head out again',
+  'trip3c.craft': 'Craft',
 
   // The black-out card
   'bo3.title': 'The lantern went out',

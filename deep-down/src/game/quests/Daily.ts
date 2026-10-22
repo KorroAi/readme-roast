@@ -1,5 +1,5 @@
 import type { ItemId } from '../../config/items';
-import { t, type TextKey } from '../../i18n';
+import { language, t, type TextKey } from '../../i18n';
 import { Rng } from '../../core/rng';
 
 /**
@@ -16,7 +16,7 @@ export interface DailyDef {
   seed: number;
   goal: DailyGoal;
   mods: DailyMod[];
-  /** "2026-10-22" (UTC). */
+  /** "22 October 2026" (UTC, in the active language). */
   date: string;
   /** "Daily Descent · 2026-10-22", the goal's line, the modifiers' lines. */
   title: string;
@@ -32,6 +32,16 @@ export function dayOf(now = Date.now()): number {
   return Math.floor(now / 86_400_000);
 }
 
+/** A day's date in the active language ("22 October 2026", « 22 octobre 2026 »), ISO without Intl. */
+export function dateText(day: number): string {
+  const at = new Date(Math.floor(day) * 86_400_000);
+  try {
+    return new Intl.DateTimeFormat(language() === 'fr' ? 'fr-FR' : 'en-GB', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' }).format(at);
+  } catch {
+    return at.toISOString().slice(0, 10);
+  }
+}
+
 /** The daily descent of a day: the same for every player. */
 export function daily(day = dayOf()): DailyDef {
   const d = Math.floor(day);
@@ -45,7 +55,7 @@ export function daily(day = dayOf()): DailyDef {
     const second = MODS[Math.floor(rng.next() * MODS.length) % MODS.length];
     if (second !== first && !(first === 'gift' && second === 'fragile') && !(first === 'fragile' && second === 'gift')) mods.push(second);
   }
-  const date = new Date(d * 86_400_000).toISOString().slice(0, 10);
+  const date = dateText(d);
   return {
     day: d,
     seed,

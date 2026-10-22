@@ -19,7 +19,7 @@ import { WEAPONS } from '../../config/weapons';
 import { isBreakable, rarityOf } from '../../config/rarity';
 import { PLAYER } from '../../config/balance';
 import { OUTPOST, STATIONS, type StationId } from '../../config/stations';
-import { t, type TextKey } from '../../i18n';
+import { hasText, t, type TextKey } from '../../i18n';
 import { raycastVoxels } from '../../world/raycast';
 import type { HudState, InteractView, MapMarker, MapSource, MapView, ReticleKind, TrackerLine } from '../../ui/types';
 import type { MenuScreen, UiControl } from '../../ui/hud/actions';
@@ -68,11 +68,23 @@ export interface StrataLike {
     arrival: { x: number; y: number; z: number };
     regionMap: Uint8Array;
     biomeAt(x: number, y: number, z: number): BiomeId;
+    // WORLD's §6 places (read by shape; absent in older layouts).
+    vista?: { id: string; name: string; balcony: [number, number, number] } | null;
+    rivers?: Array<{ id: string; kind: 'water' | 'lava'; points: Array<[number, number, number]>; spring: [number, number, number] }>;
+    dungeon?: { id: string; entry: [number, number, number] } | null;
+    secrets?: Array<{ id: string; centre: [number, number, number]; chest: string }>;
+    ravines?: Array<{ id: string; top: [number, number, number] }>;
+    nests?: Array<{ id: string; p: [number, number, number] }>;
+    caverns?: Array<{ centre: [number, number, number] }>;
   } | null;
   readonly map: { sx: number; sz: number; revision: number; has(x: number, z: number): boolean; heightAt(x: number, z: number): number; fraction(): number } | null;
   readonly biomeHere: BiomeId | null;
   depth?(y: number): number;
   isRevealed(id: string): boolean;
+  /** Named places (vista, river, works, set pieces, secrets) and whether each was reached. */
+  namedSites?(): ReadonlyArray<{ id: string; kind: string; name?: string; centre: [number, number, number] }>;
+  isFound?(id: string): boolean;
+  readonly works?: { isOpen(): boolean } | null;
   reveal?(id: string, how: 'sonar' | 'page' | 'near' | 'debug'): boolean;
   readonly outposts: ReadonlyArray<{ id: string; stratum: number; x: number; y: number; z: number; biome: BiomeId }>;
   travelTo?(id: string): Promise<boolean>;
@@ -110,9 +122,30 @@ export function bearingTo(yaw: number, dx: number, dz: number): number {
 
 const hex = (rgb: readonly number[]) => (Math.round(Math.min(1, rgb[0]) * 255) << 16) | (Math.round(Math.min(1, rgb[1]) * 255) << 8) | Math.round(Math.min(1, rgb[2]) * 255);
 
+/**
+ * The span of floor heights a stratum's Map tints and contours over (feet y, low to high), from
+ * where its finds and halls stand (chests, pages, lairs, caverns, the gate, the arrival), padded.
+ */
+export function heightRangeOf(layout: { chests: Array<{ p: readonly number[] }>; pages: Array<{ p: readonly number[] }>; lairs: Array<{ centre: readonly number[] }>; gate: { centre: readonly number[] }; arrival: { y: number }; caverns?: Array<{ centre: readonly number[] }> }): [number, number] {
+  let lo = layout.arrival.y;
+  let hi = layout.arrival.y;
+  const add = (y: number) => {
+    if (!Number.isFinite(y)) return;
+    if (y < lo) lo = y;
+    if (y > hi) hi = y;
+  };
+  for (const c of layout.chests) add(c.p[1]);
+  for (const p of layout.pages) add(p.p[1]);
+  for (const l of layout.lairs) add(l.centre[1]);
+  for (const c of layout.caverns ?? []) add(c.centre[1]);
+  add(layout.gate.centre[1]);
+  return [Math.floor(lo - 4), Math.ceil(hi + 4)];
+}
+
 interface Throw {
   item: ItemId;
-  kind: 'bomb' | 'flare';
+  /** What bursts where it lands: a Blast Bomb, a Flash Charge (its use names the weapon), or a flare. */
+  kind: 'bomb' | 'flash' | 'flare';
   x: number;
   y: number;
   z: number;
@@ -140,7 +173,9 @@ export class ActionLayer {
   private readonly origin = new THREE.Vector3();
   private readonly ray = new THREE.Vector3();
   /** The minimap's source, rebuilt when the stratum, its layout or its explored map is a new object. */
-  private mapCache: { rev: number; map: object; layout: object; src: MapSource } | null = null;
+  private mapCache: { rev: number; map: object; layout: object; src: MapSource; cacheKey: string; found: number } | null = null;
+  /** The stratum a black-out left the pack in (the cache itself records only x, y, z). */
+  private cacheStratum: number | null = null;
   private readonly markers: MapMarker[] = [];
   private tipShown = new Set<string>();
 
@@ -148,8 +183,26 @@ export class ActionLayer {
   private lastHurt: { what: 'mob' | 'fall' | 'hazard' | 'cold'; kind?: string; hazard?: string; at: number } | null = null;
   private hazardKind: string | null = null;
 
+  /** Bumped by the events that change the places on the Map (see foundCount). */
+  private placesRev = 0;
+  private wasSprint = false;
+
   constructor(private readonly game: Game) {
     const bus = game.bus;
+    const placesMoved = () => {
+      this.placesRev++;
+    };
+    bus.on('world:site', placesMoved);
+    bus.on('world:lairRevealed', placesMoved);
+    bus.on('world:worksOpened', placesMoved);
+    bus.on('mob:guardianDefeated', placesMoved);
+    // The pack a black-out leaves lies in this stratum (the Map marks it there only).
+    bus.on('player:died', () => {
+      const { strata } = this.seams();
+      this.cacheStratum = strata?.layout ? strata.current : null;
+      this.placesRev++;
+    });
+    bus.on('cache:recovered', placesMoved);
     bus.on('mob:attack', (e) => {
       if (e.landed) this.lastHurt = { what: 'mob', kind: e.kind, at: this.time };
     });
@@ -199,7 +252,9 @@ export class ActionLayer {
     return this.dash.iframes;
   }
 
-  reset(): void {
+  /** @param session a new session (the title screen): also forget where the last pack was left. */
+  reset(session = false): void {
+    if (session) this.cacheStratum = null;
     this.lastHurt = null;
     this.dash.reset();
     this.sonar.cooldown.reset();
@@ -227,6 +282,9 @@ export class ActionLayer {
     const p = g.player;
     p.sprint = !blocked && !riding && input.sprint;
     p.jumpHeld = !blocked && input.jumpHeld;
+    // A sprint's start: the lens widens a touch (speed felt, no shake).
+    if (p.sprint && !this.wasSprint) g.cameraRig.kickFov(3);
+    this.wasSprint = p.sprint;
 
     // Report look and move for the tutorial (a few times a second).
     if (!blocked && (input.lookDX !== 0 || input.lookDY !== 0) && this.time - this.lookAt > USED_EVERY) {
@@ -271,6 +329,8 @@ export class ActionLayer {
       if (this.dash.tryDash()) {
         dashDirection(input.moveX || input.autoMoveX, input.moveY || input.autoMoveY, g.cameraRig.moveYaw, this.dir);
         p.dash(this.dir.x, this.dir.z);
+        // The burst reads as speed: the lens widens a little and eases back (no shake).
+        g.cameraRig.kickFov(6);
         g.bus.emit('player:dash', { x: p.x, y: p.y, z: p.z, iframes: this.dash.iframes });
         g.tapStop();
         this.used('dash');
@@ -467,8 +527,10 @@ export class ActionLayer {
     g.cameraRig.rayThrough(0, 0, this.origin, this.ray);
     const hit = raycastVoxels(g.session.world, this.origin.x, this.origin.y, this.origin.z, this.ray.x, this.ray.y, this.ray.z, THROW_RANGE);
     const d = hit ? Math.max(0.5, hit.distance - 0.3) : THROW_RANGE;
-    this.throws.push({ item: held, kind: use.kind, x: this.origin.x + this.ray.x * d, y: this.origin.y + this.ray.y * d, z: this.origin.z + this.ray.z * d, t: d / THROW_SPEED + 0.15 });
-    g.bus.emit('weapon:swing', { weapon: use.kind, ranged: true });
+    // A bomb's use names its weapon (the Flash Charge scares and dazzles, the Blast Bomb blasts).
+    const kind: Throw['kind'] = use.kind === 'flare' ? 'flare' : use.weapon === 'flash' ? 'flash' : 'bomb';
+    this.throws.push({ item: held, kind, x: this.origin.x + this.ray.x * d, y: this.origin.y + this.ray.y * d, z: this.origin.z + this.ray.z * d, t: d / THROW_SPEED + 0.15 });
+    g.bus.emit('weapon:swing', { weapon: kind, ranged: true });
   }
 
   private updateThrows(dt: number): void {
@@ -480,11 +542,13 @@ export class ActionLayer {
       if (th.t > 0) continue;
       this.throws.splice(i, 1);
       const mobs = g.mobs as unknown as { blast?(x: number, y: number, z: number, r: number, dmg: number): number; flash(x: number, y: number, z: number, r: number, dmg?: number): number } | undefined;
+      // The Blast Bomb blasts (WEAPONS.bomb); the Flash Charge dazzles and scares (WEAPONS.flash, its
+      // own damage); a flare only scares.
       const w = (WEAPONS as Record<string, { damage: number; area?: number } | undefined>)[th.kind === 'bomb' ? 'bomb' : 'flash'];
       const radius = w?.area ?? (th.kind === 'bomb' ? 3.5 : 6);
-      const count = th.kind === 'bomb' ? mobs?.blast?.(th.x, th.y, th.z, radius, w?.damage ?? 30) ?? 0 : mobs?.flash(th.x, th.y, th.z, radius, 0) ?? 0;
+      const count = th.kind === 'bomb' ? mobs?.blast?.(th.x, th.y, th.z, radius, w?.damage ?? 30) ?? 0 : mobs?.flash(th.x, th.y, th.z, radius, th.kind === 'flash' ? w?.damage ?? 0 : 0) ?? 0;
       g.particles.sparkle(th.x, th.y, th.z, th.kind === 'bomb' ? 0xffa45a : 0xfff1c4, th.kind === 'bomb' ? 18 : 12, g.rng, 2.4);
-      g.bus.emit('weapon:flash', { x: th.x, y: th.y, z: th.z, radius, count });
+      g.bus.emit('weapon:flash', { x: th.x, y: th.y, z: th.z, radius, count, kind: th.kind });
     }
   }
 
@@ -575,9 +639,20 @@ export class ActionLayer {
     const hz = lh?.hazard;
     h.hazard = hz && hz.kind && (hz.level > 0.02 || hz.warded > 0) ? { kind: hz.kind, level: hz.level, warded: hz.warded } : null;
     // The guardian's bar (MOBS).
-    const mobs = g.mobs as unknown as { activeGuardian?(): { name: string; hp: number; max: number; phase: number; phases: number } | null } | undefined;
+    const mobs = g.mobs as unknown as { activeGuardian?(): { name: string; hp: number; max: number; phase: number; phases: number; vulnerable?: boolean; window?: number; telegraph?: string | null } | null } | undefined;
     const gs = mobs?.activeGuardian?.() ?? null;
-    h.guardian = gs ? { name: gs.name, hp: gs.hp, max: gs.max, phase: gs.phase, phases: gs.phases } : null;
+    if (gs) {
+      // The open guard (a closing window) and the wind-up's plain line (MOBS's text key).
+      const gb = h.guardian ?? { name: '', hp: 0, max: 1, phase: 1, phases: 1, open: null, telegraph: null };
+      gb.name = gs.name;
+      gb.hp = gs.hp;
+      gb.max = gs.max;
+      gb.phase = gs.phase;
+      gb.phases = gs.phases;
+      gb.open = gs.vulnerable ? Math.max(0, Math.min(1, gs.window ?? 1)) : null;
+      gb.telegraph = gs.telegraph && hasText(gs.telegraph) ? t(gs.telegraph as TextKey) : null;
+      h.guardian = gb;
+    } else h.guardian = null;
     // The companion's chip (MOBS: a tamed Lampling).
     const cv = (g.mobs as unknown as { companion?(): { name: string; level: number; xp: number; next: number | null; state: 'follow' | 'scout' | 'fight'; glow: number } | null } | undefined)?.companion?.() ?? null;
     if (cv) {
@@ -721,33 +796,61 @@ export class ActionLayer {
         height: (x, z) => map.heightAt(x, z),
         biomeColors: colors,
         markers: this.markers,
+        heightRange: heightRangeOf(layout),
         playerX: p.x,
         playerZ: p.z,
         yaw: g.cameraRig.yaw,
       };
       this.markers.length = 0;
-      c = this.mapCache = { rev: -1, map, layout, src };
+      c = this.mapCache = { rev: -1, map, layout, src, cacheKey: '', found: -1 };
     }
     const src = c.src;
     src.playerX = p.x;
     src.playerZ = p.z;
     src.yaw = g.cameraRig.yaw;
-    // Markers: rebuilt when the explored map changed (pages and chests show once their column is seen).
-    if (c.rev !== map.revision || this.markers.length === 0) {
+    // Markers: rebuilt when the explored map changed (pages and chests show once their column is seen),
+    // when a named place is reached, or when the pack left behind appears or goes.
+    const cache = this.cacheHere();
+    const cacheKey = cache ? `${Math.round(cache.x)},${Math.round(cache.z)}` : '';
+    const found = this.foundCount();
+    if (c.rev !== map.revision || this.markers.length === 0 || c.cacheKey !== cacheKey || c.found !== found) {
       c.rev = map.revision;
+      c.cacheKey = cacheKey;
+      c.found = found;
       const m = this.markers;
       m.length = 0;
       const seen = (x: number, z: number) => map.has(x, z);
+      const isFound = (id: string) => strata.isFound?.(id) ?? false;
+      const siteTitle = (name: string | undefined) => (name && hasText(`site.${name}.title`) ? t(`site.${name}.title` as TextKey) : undefined);
       // The camp (stratum I: its fire), or this stratum's arrival (the lift landing).
       const fire = layout.campSite?.fire;
       if (fire) m.push({ kind: 'camp', x: fire[0] + 0.5, z: fire[2] + 0.5 });
       else m.push({ kind: 'camp', x: layout.arrival.x, z: layout.arrival.z, label: t('m3.map.lift') });
-      for (const l of layout.lairs) if (strata.isRevealed(l.id)) m.push({ kind: 'lair', x: l.centre[0], z: l.centre[2], id: l.id, label: t(BIOMES[l.biome].name) });
+      for (const l of layout.lairs) if (strata.isRevealed(l.id)) m.push({ kind: 'lair', x: l.centre[0], z: l.centre[2], id: l.id, label: t(BIOMES[l.biome].name), done: this.guardianBeaten(l.biome) });
       if (seen(layout.gate.centre[0], layout.gate.centre[2])) m.push({ kind: 'gate', x: layout.gate.centre[0], z: layout.gate.centre[2] });
       const live = g.session.liveProps;
       for (const pg of layout.pages) if (seen(pg.p[0], pg.p[2])) m.push({ kind: 'page', x: pg.p[0], z: pg.p[2], id: pg.id, done: !live.has(pg.prop) });
       for (const ch of layout.chests) if (seen(ch.p[0], ch.p[2])) m.push({ kind: 'chest', x: ch.p[0], z: ch.p[2], id: ch.id, done: !live.has(ch.prop) });
       for (const o of strata.outposts) if (o.stratum === strata.current) m.push({ kind: 'outpost', x: o.x, z: o.z, id: o.id });
+      // WORLD's places: the vista's balcony, the river's spring, the works, set pieces and secrets once
+      // reached (the vista and the works also once their spot is seen), ravines and nests once seen.
+      const sites = strata.namedSites?.() ?? [];
+      const vista = layout.vista;
+      if (vista && (isFound(vista.id) || seen(vista.balcony[0], vista.balcony[2]))) m.push({ kind: 'vista', x: vista.balcony[0], z: vista.balcony[2], id: vista.id, label: siteTitle(vista.name) });
+      for (const rv of layout.rivers ?? []) {
+        const site = sites.find((s) => s.id === rv.id);
+        if (isFound(rv.id) || seen(rv.spring[0], rv.spring[2])) m.push({ kind: 'river', x: rv.spring[0], z: rv.spring[2], id: rv.id, label: siteTitle(site?.name ?? (rv.kind === 'lava' ? 'lavaRiver' : 'river')) });
+      }
+      const works = layout.dungeon;
+      if (works && (isFound(works.id) || seen(works.entry[0], works.entry[2]))) m.push({ kind: 'works', x: works.entry[0], z: works.entry[2], id: works.id, label: siteTitle('works'), done: strata.works?.isOpen() ?? false });
+      for (const sp of sites) if (sp.kind === 'setPiece' && isFound(sp.id)) m.push({ kind: 'place', x: sp.centre[0], z: sp.centre[2], id: sp.id, label: siteTitle(sp.name) });
+      for (const sc of layout.secrets ?? []) if (isFound(sc.id)) m.push({ kind: 'secret', x: sc.centre[0], z: sc.centre[2], id: sc.id, label: siteTitle('secret'), done: !live.has(sc.chest) });
+      for (const rv of layout.ravines ?? []) if (seen(rv.top[0], rv.top[2])) m.push({ kind: 'ravine', x: rv.top[0], z: rv.top[2], id: rv.id });
+      for (const ne of layout.nests ?? []) if (seen(ne.p[0], ne.p[2])) m.push({ kind: 'nest', x: ne.p[0], z: ne.p[2], id: ne.id });
+      // The pack a black-out left (its stratum's map only).
+      if (cache) m.push({ kind: 'cache', x: cache.x, z: cache.z, id: 'cache', label: t('m3.map.cacheLabel', { count: cache.count }) });
+      // The river's explored stretches.
+      src.lines = this.riverLines(layout.rivers ?? [], seen);
       void loop;
       src.revision++;
     }
@@ -771,6 +874,49 @@ export class ActionLayer {
     return src;
   }
 
+  /** The pack a black-out left, when it lies in the loaded stratum (null otherwise). */
+  private cacheHere(): { x: number; z: number; count: number } | null {
+    const c = this.game.progression.cache;
+    if (!c) {
+      this.cacheStratum = null;
+      return null;
+    }
+    const { strata } = this.seams();
+    const at = (c as { stratum?: number }).stratum ?? this.cacheStratum ?? strata?.current ?? 1;
+    if (strata?.layout && at !== strata.current) return null;
+    let count = 0;
+    for (const k in c.items) count += c.items[k as ItemId] ?? 0;
+    return { x: c.x, z: c.z, count };
+  }
+
+  /** Bumps when a place is reached, a lair revealed, the works opened or a guardian beaten (the markers follow). */
+  private foundCount(): number {
+    return this.placesRev;
+  }
+
+  private guardianBeaten(biome: BiomeId): boolean {
+    const mobs = this.game.mobs as unknown as { guardiansBeaten?(): readonly string[] } | undefined;
+    return mobs?.guardiansBeaten?.().includes(biome) ?? false;
+  }
+
+  /** The river's explored stretches as polylines (a run breaks where the column is unexplored). */
+  private riverLines(rivers: NonNullable<NonNullable<StrataLike['layout']>['rivers']>, seen: (x: number, z: number) => boolean): MapSource['lines'] {
+    const out: Array<{ kind: 'water' | 'lava'; runs: number[][] }> = [];
+    for (const rv of rivers) {
+      const runs: number[][] = [];
+      let run: number[] | null = null;
+      for (const p of rv.points) {
+        if (seen(p[0], p[2])) {
+          if (!run) runs.push((run = []));
+          run.push(p[0], p[2]);
+        } else run = null;
+      }
+      const kept = runs.filter((r) => r.length >= 4);
+      if (kept.length) out.push({ kind: rv.kind, runs: kept });
+    }
+    return out;
+  }
+
   /** The Map screen's view (null in the first version's world). */
   mapView(): MapView | null {
     const src = this.mapSource();
@@ -790,6 +936,7 @@ export class ActionLayer {
       }
     const travel = this.travelList();
     const def = STRATA[(layout.stratum - 1) | 0];
+    const named = strata.namedSites?.() ?? [];
     return {
       source: src,
       stratum: layout.stratum,
@@ -797,6 +944,7 @@ export class ActionLayer {
       biomes: layout.biomes.map((b, i) => ({ name: t(BIOMES[b].name), color: src.biomeColors[i], explored: tot[i] ? exp[i] / tot[i] : 0 })),
       travel,
       seed: String(strata.seed),
+      places: named.length ? { found: named.filter((s) => strata.isFound?.(s.id)).length, total: named.length } : undefined,
     };
   }
 

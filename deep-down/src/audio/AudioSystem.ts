@@ -4,15 +4,17 @@ import type { EventBus, GameEvents } from '../core/events';
 import { lerp, saturate, smoothstep } from '../core/math';
 import { Rng } from '../core/rng';
 import { DEFAULT_SETTINGS } from '../save/types';
-import { BEDS, BiomeBed, CAMP_BED, EMITTER_LEVEL, HazardLayer, emitterLayer, type BedRecipe } from './ambience';
+import { BiomeBed, EMITTERS, HazardLayer, bedRecipeOf, emitterLayer, type BedRecipe } from './ambience';
 import { AUDIBLE_EVENTS, sfxForEvent } from './eventMap';
 import { busTarget, createMixGraph, type MixGraph } from './graph';
 import { IntensityTracker, type CombatImpulse, type IntensityState } from './intensity';
 import { LanternLoop, ParamTarget, type LazyLayer } from './layers';
-import { CATEGORY_CAP, DUCKS, Ducker, categoryOf, type VoiceCategory } from './mixer';
+import { CATEGORY_CAP, DUCKS, Ducker, categoryOf, densityDuck, type VoiceCategory } from './mixer';
 import { MusicPlayer } from './MusicPlayer';
-import type { AudioProbe, AudioScene, EmitterKind, HazardName, SonarReveal } from './probe';
-import { guardianScoreFor, type ScoreId } from './scores';
+import type { LayerMix } from './MusicScheduler';
+import type { AudioProbe, AudioScene, EmitterKind, HazardName, HeardEmitter, SonarReveal } from './probe';
+import { BIOME_SCORES, SCORES, guardianScoreFor, isGuardianScore, type ScoreId } from './scores';
+import { KEYED, majorKeyOf, shiftTo } from './harmony';
 import { SFX, playSfx, type BusName, type SfxName, type SfxParams } from './sfx';
 import type { SynthTarget, Voice } from './synth';
 import { moodFor, volumeToGain, type MoodName } from './theory';
@@ -30,6 +32,10 @@ const CONTROL_PERIOD = 1 / 15;
 const SEED = 0xdeedd0;
 
 const LANTERN_LEVEL = 0.1;
+/** Health under this fraction: the explorer's heart is heard. */
+const LOW_HEALTH = 0.3;
+/** The beds' overall level (round 3: +1.6 dB, so a cave's air is felt on a phone under the score). */
+const BED_LEVEL = 1.2;
 
 // Category ducking (pause, menus, death).
 const PAUSE_MUSIC = 0.45;
@@ -43,31 +49,41 @@ const MAX_STEP = 0.25;
 const RESUME_RETRY = 0.5;
 /** A new biome must hold this long under the feet before the score and the bed follow it. */
 const BIOME_SETTLE = 2;
-/** At most this many positional loops (waterfalls, vents, lava, fires...) at once. */
+/** At most this many positional loops (falls, the river, vents, lava, fires...) at once, and this many features' one-shots. */
 const EMITTER_SLOTS = 4;
+const SHOT_SLOTS = 3;
 /** Sonar echoes per pulse (the rarest and the lairs first). */
 const SONAR_ECHOES = 7;
 /** The ending theme plays this long after 'quest:ending', then free play's scores return. */
 const ENDING_SECONDS = 150;
+/** A button's click and a specific UI sound within this many seconds are one gesture. */
+const UI_PAIR = 0.12;
+/**
+ * The lesser cues a story beat (a guardian's fall, a gate, a descent, a discovery, the Heart...)
+ * shadows: in the same moment they only blur it (the tracker shows the new step anyway). Shadowed for
+ * STORY_SHADOW s after the beat, and cut if they began within STORY_PAIR s before it.
+ */
+const LESSER: ReadonlySet<string> = new Set(['quest.step', 'tutorial.step', 'loop.unlock', 'ui.hint', 'guide.way', 'bestiary.page', 'bestiary.complete', 'reward.pouch', 'ui.card']);
+const STORY_SHADOW = 2.5;
+const STORY_PAIR = 0.2;
 
 /** Without a biome (the title, the old world): a score per depth mood. */
 const MOOD_SCORE: Record<MoodName, ScoreId> = { camp: 'camp', shallow: 'amberHollows', mid: 'crystalGeode', deep: 'obsidianAbyss' };
 const MENU_SCREENS = new Set(['inventory', 'crafting', 'map', 'quests', 'bestiary', 'journal', 'board', 'settings', 'pause', 'summary']);
-const RARITY_PITCH: Record<string, number> = { common: 1, uncommon: 1.122, rare: 1.26, epic: 1.335, legendary: 1.498 };
+/** The sonar echoes climb with rarity on E F# G A B (written in D major like every cue: audio/harmony). */
+const RARITY_PITCH: Record<string, number> = { common: 1, uncommon: 1.122, rare: 1.189, epic: 1.335, legendary: 1.498 };
 const RARITY_RANK: Record<string, number> = { common: 0, uncommon: 1, rare: 2, epic: 3, legendary: 4 };
-
-/** One-shots near features (bubbles at a bog pool, sparks over lava, a vent's hiss). */
-const EMITTER_SHOTS: Partial<Record<EmitterKind, { name: SfxName; every: number }>> = {
-  bubbles: { name: 'amb.bubble', every: 1.6 },
-  lava: { name: 'amb.lavaPop', every: 3 },
-  gasVent: { name: 'amb.hiss', every: 5 },
-  emberVent: { name: 'amb.lavaPop', every: 4 },
-};
 
 const NO_PARAMS: SfxParams = {};
 const RESOLVED: Promise<void> = Promise.resolve();
 const noop = (): void => {};
 const finiteOr = (v: number, fallback: number): number => (Number.isFinite(v) ? v : fallback);
+
+/** Stereo position (-1..1, times `width`) of a source at (dx, dz) from the ear, given the ear's right vector. */
+export function panOf(dx: number, dz: number, rx: number, rz: number, width = 0.8): number {
+  const h = Math.hypot(dx, dz);
+  return h > 0.5 ? Math.max(-1, Math.min(1, (dx * rx + dz * rz) / h)) * width : 0;
+}
 
 type AudioContextClass = typeof AudioContext;
 
@@ -85,8 +101,24 @@ function hasTransientActivation(): boolean {
 /** The events the score and the mix listen to besides the sounds (eventMap). */
 const DIRECTOR_EVENTS: ReadonlyArray<keyof GameEvents> = [
   'mob:telegraph', 'mob:attack', 'mob:hit', 'mob:died', 'mob:shot', 'mob:guardianAwake', 'mob:guardianPhase', 'mob:guardianReset',
-  'mob:guardianDefeated', 'world:biome', 'world:stratum', 'quest:ending', 'player:died', 'player:damaged', 'camp:entered', 'player:respawned',
+  'mob:guardianDefeated', 'world:biome', 'world:stratum', 'quest:heartLit', 'quest:ending', 'player:died', 'player:damaged', 'camp:entered',
+  'player:respawned', 'hazard:changed', 'guide:hint',
 ];
+
+/** A guardian's theme opens on its call (the ostinato and the horn, no drums) for this long, then the fight. */
+const GUARDIAN_CALL = 3.2;
+const GUARDIAN_CALL_MIX: Readonly<LayerMix> = { bed: 0.85, motif: 1, tension: 1, combat: 0 };
+const GUARDIAN_FIGHT_MIX: Readonly<LayerMix> = { bed: 0.7, motif: 0.85, tension: 0.75, combat: 1 };
+/** After a biome change, another one within this many seconds must hold longer (a border walk never ping-pongs the score). */
+const BIOME_RECENT = 15;
+const BIOME_SETTLE_RECENT = 6;
+/** The Heart relit, then the Dark Heart: the major sting holds the score at most this long before the fight's theme. */
+const HEART_LIT_HOLD = 5;
+/** The 'heartLit' sting resolves to D major (MusicScheduler.sting). */
+const HEART_LIT_KEY = 62;
+
+/** Events with a world position and no stereo of their own: placed round the listener. */
+const PLACED_EVENTS: ReadonlySet<keyof GameEvents> = new Set<keyof GameEvents>(['world:rockfall', 'moths:startled', 'station:placed', 'player:placed', 'weapon:flash']);
 
 /** Every event the AudioSystem subscribes to (once each). */
 export const LISTENED_EVENTS: ReadonlyArray<keyof GameEvents> = [...new Set([...AUDIBLE_EVENTS, ...DIRECTOR_EVENTS])];
@@ -191,19 +223,55 @@ export class AudioSystem {
   private candidateFor = 0;
   private stratum = 1;
   private pendingArrival: BiomeId | null = null;
+  /** The biome the score was in when the arrival became pending (its border settle is no reason to forget it). */
+  private pendingFrom: BiomeId | null = null;
+  /** The ending theme plays from `endingAt` (after the last victory's sting) until `endingUntil`. */
+  private endingAt = 0;
   private endingUntil = 0;
   private holdScoreUntil = 0;
   private quietAfterVictory = 0;
-  private guardianEvent: { kind: string; heart: boolean } | null = null;
+  private guardianEvent: { kind: string; heart: boolean; phase: number } | null = null;
+  /** When the current guardian theme began (its call, then the fight). */
+  private guardianSince = -Infinity;
+  /** When the score last followed the explorer into another biome. */
+  private biomeChangedAt = -Infinity;
   private wasLoading = false;
   // The beds and the features.
   private bedKey = '';
+  private bedRecipe: BedRecipe | null = null;
   private clocks: ShotClock[] = [];
   private emitterClocks = new Map<EmitterKind, number>();
+  private readonly wantLoops = new Map<EmitterKind, { level: number; pan: number; occlusion: number }>();
+  private readonly heardScratch: Array<{ e: HeardEmitter; near: number; through: number; loud: number }> = [];
   private warned: Record<HazardName, number> = { cold: 0, gas: 0, heat: 0, dark: 0 };
+  /** When LOOP last marked a hazard starting to hurt ('hazard:changed'). */
+  private onsetAt: Record<HazardName, number> = { cold: -Infinity, gas: -Infinity, heat: -Infinity, dark: -Infinity };
   private sonarSeen = 0;
   private readonly echoes: Array<{ at: number; name: SfxName; params: SfxParams }> = [];
   private lastScreen = 'none';
+  /** The last generic button click (it gives way to a specific UI sound of the same gesture). */
+  private lastClick: { e: SfxVoice; at: number } | null = null;
+  private lastSpecificUi = -Infinity;
+  /** The Dark Heart's last beat (MOBS' 'guardian.heartbeat'). */
+  private darkHeartAt = -Infinity;
+  /** The last story beat, the lesser cues just played, and how many were shadowed (debug). */
+  private storyAt = -Infinity;
+  private readonly lesser: Array<{ e: SfxVoice; at: number }> = [];
+  private shadowed = 0;
+  /** How many times each sound has started (debug, tests). */
+  private readonly playedCount = new Map<string, number>();
+  /** The low-health heartbeat's next beat, and the last hazard warning (its own heartbeat). */
+  private beatIn = 0;
+  private hazardWarnedAt = -Infinity;
+  /** Climbing's rhythm: the next grab, and which hand. */
+  private climbIn = 0;
+  private climbHand = false;
+  // The cues follow the music's key (audio/harmony): semitones from D, and a victory's tonic major for a while.
+  private keyShift = 0;
+  private victoryKey: number | null = null;
+  private victoryKeyUntil = 0;
+  /** A guardian fell this moment: its fall rings the shard, so LOOP's shard cue stays quiet. */
+  private guardianFellAt = -Infinity;
 
   constructor(private readonly bus: EventBus<GameEvents>) {
     for (const type of LISTENED_EVENTS) this.listen(type);
@@ -338,14 +406,27 @@ export class AudioSystem {
   stats(): {
     state: string; sfxVoices: number; musicVoices: number; mood: MoodName | null; time: number;
     score: ScoreId | null; intensity: IntensityState; danger: number; heat: number; biome: BiomeId | null; bed: string; beds: number; emitters: number; decks: number;
+    /** Semitones the keyed cues move now; the guardian fight's phase the score plays. */
+    key: number; phase: number;
+    /** Live one-shot voices per category, and the feature loops sounding (their kinds). */
+    categories: Record<VoiceCategory, number>; loops: EmitterKind[];
+    /** The current deck's stem levels (bed, motif, tension, combat, sting), null without a score. */
+    stems: Record<string, number> | null;
+    /** How many times each sound has started so far, the score's sting notes, the lesser cues shadowed by a story beat. */
+    played: Record<string, number>;
+    stingNotes: number;
+    shadowed: number;
   } {
     const live = this.live;
+    const now = live?.ctx.currentTime ?? 0;
+    const categories = { step: 0, creature: 0, blow: 0, mining: 0, ambient: 0, ui: 0, pickup: 0, echo: 0, other: 0 } as Record<VoiceCategory, number>;
+    for (const cat of Object.keys(categories) as VoiceCategory[]) categories[cat] = this.voices.count(now, (e) => e.cat === cat);
     return {
       state: live?.ctx.state ?? 'none',
       sfxVoices: this.voices.size,
       musicVoices: live?.music.activeVoices ?? 0,
       mood: this.mood,
-      time: live?.ctx.currentTime ?? 0,
+      time: now,
       score: live?.music.score ?? null,
       intensity: this.intensity.state,
       danger: this.intensity.danger,
@@ -355,7 +436,28 @@ export class AudioSystem {
       beds: live?.beds.size ?? 0,
       emitters: live ? [...live.emitters.values()].filter((l) => l.live).length : 0,
       decks: live?.music.deckCount ?? 0,
+      key: this.keyShift,
+      phase: live?.music.scheduler?.phase ?? 1,
+      categories,
+      loops: live ? [...live.emitters.entries()].filter(([, l]) => l.live).map(([k]) => k) : [],
+      stems: live?.music.levels() ?? null,
+      played: Object.fromEntries(this.playedCount),
+      stingNotes: live?.music.played.sting ?? 0,
+      shadowed: this.shadowed,
     };
+  }
+
+  /**
+   * The score's beat grid: seconds until its next beat and the beat's length (s), for a sound that
+   * wants to fall on the music's beat (the Dark Heart's heartbeat); null without a running score.
+   */
+  nextBeat(): { in: number; beat: number; bpm: number } | null {
+    const live = this.live;
+    const s = live?.music.scheduler;
+    if (!live || !s || live.ctx.state !== 'running') return null;
+    const now = live.ctx.currentTime;
+    const at = s.beatAfter(now);
+    return Number.isFinite(at) ? { in: Math.max(0, at - now), beat: s.beatDur, bpm: s.score.bpm } : null;
   }
 
   /** Current output peak in [0, 1] (debug/tests). Taps the final output on first use. */
@@ -485,8 +587,15 @@ export class AudioSystem {
       this.direct(type, payload);
       if (!this.live) return;
       if (this.paused && type === 'player:footstep') return;
-      const req = sfxForEvent(type, payload);
-      if (req) this.play(req.name, this.placed(type, payload, req.params));
+      let req = sfxForEvent(type, payload);
+      // A flash where a thrown thing landed, metres away, is a flare catching (a Flash Charge bursts at the explorer).
+      if (type === 'weapon:flash' && req?.name === 'weapon.flash' && this.scene) {
+        const p = payload as GameEvents['weapon:flash'] & { kind?: string };
+        if (p.kind === undefined && Math.hypot(p.x - this.scene.lx, p.z - this.scene.lz) > 3) req = { name: 'use.flare', params: req.params };
+      }
+      // A guardian's fall rings its shard (MOBS' voice): the shard taken in the same moment stays quiet.
+      const echoOfFall = req?.name === 'loop.shard' && (this.live.ctx.currentTime - this.guardianFellAt) < 1.5;
+      if (req && !echoOfFall) this.play(req.name, this.placed(type, payload, req.params));
       if (type === 'player:damaged') this.muffle(req?.params.intensity ?? 0.5);
       if (type === 'player:died') this.duckMusic(4);
     } catch (err) {
@@ -496,14 +605,12 @@ export class AudioSystem {
 
   /** Events with a world position and no stereo of their own are placed round the listener. */
   private placed<K extends keyof GameEvents>(type: K, payload: GameEvents[K], params: SfxParams): SfxParams {
-    if (params.pan !== undefined || (type !== 'companion:ore' && type !== 'world:lever' && type !== 'world:rockfall')) return params;
+    if (params.pan !== undefined || !PLACED_EVENTS.has(type)) return params;
     const p = payload as unknown as { x?: number; y?: number; z?: number };
     const sc = this.scene;
     if (!sc || !Number.isFinite(p.x) || !Number.isFinite(p.z)) return params;
-    const dx = p.x! - sc.lx;
-    const dz = p.z! - sc.lz;
-    const d = Math.hypot(dx, dz);
-    return d > 0.5 ? { ...params, pan: Math.max(-1, Math.min(1, (dx * sc.rx + dz * sc.rz) / d)) * 0.8 } : params;
+    const pan = panOf(p.x! - sc.lx, p.z! - sc.lz, sc.rx, sc.rz, 0.8);
+    return pan !== 0 ? { ...params, pan } : params;
   }
 
   /** What events do to the score: blows heat the fight, guardians, biomes, the ending. */
@@ -528,50 +635,107 @@ export class AudioSystem {
         if (p.phase === 'fly') heat('shot', saturate(Number(p.gain) || 0));
         break;
       case 'mob:guardianAwake':
-        this.guardianEvent = { kind: String(p.kind), heart: p.kind === 'heartOfDark' };
+        this.guardianEvent = { kind: String(p.kind), heart: p.kind === 'heartOfDark', phase: 1 };
         break;
-      case 'mob:guardianPhase':
+      case 'mob:guardianPhase': {
+        // The fight tightens: a drum roll into a brass stab, and the theme's next phase from the next beat.
+        const phase = Number(p.phase) || 1;
+        if (this.guardianEvent) this.guardianEvent.phase = phase;
+        this.live?.music.setPhase(phase);
         this.live?.music.sting('phase', now);
         break;
+      }
       case 'mob:guardianReset':
         this.guardianEvent = null;
         break;
-      case 'mob:guardianDefeated':
+      case 'mob:guardianDefeated': {
         this.guardianEvent = null;
-        // The lair falls quiet on a major chord; the biome's score returns after a breath.
+        // A guardian falls on a major chord; the Dark Heart on the Heart's own (the light comes back).
+        // The biome's score returns after a breath.
+        const heart = p.kind === 'heartOfDark' || p.shard === 'heart';
+        this.guardianFellAt = now;
         if (this.live) {
-          const len = this.live.music.sting('victory', now);
+          const score = this.live.music.score;
+          const len = this.live.music.sting(heart ? 'heartLit' : 'victory', now);
           this.holdScoreUntil = now + Math.max(4, len);
           this.quietAfterVictory = now + len + 3;
+          // The cues of this moment (the shard's ring, the rewards) sound in the victory's major key.
+          this.victoryKey = heart ? HEART_LIT_KEY : score ? SCORES[score].tonic : null;
+          this.victoryKeyUntil = this.quietAfterVictory;
+          this.followKey(now);
         }
         this.intensity.reset();
         break;
+      }
+      case 'quest:heartLit':
+        // The twelve shards relight the Heart: its major chord speaks before the Dark Heart answers.
+        if (this.live) {
+          const len = this.live.music.sting('heartLit', now);
+          this.holdScoreUntil = now + Math.min(HEART_LIT_HOLD, Math.max(2, len));
+          this.victoryKey = HEART_LIT_KEY;
+          this.victoryKeyUntil = now + len + 2;
+          this.followKey(now);
+        }
+        break;
       case 'world:biome':
-        if (p.first) this.pendingArrival = p.biome as BiomeId;
+        if (p.first) {
+          this.pendingArrival = p.biome as BiomeId;
+          this.pendingFrom = this.biome;
+        }
         break;
       case 'world:stratum':
         this.stratum = Number(p.stratum) || this.stratum;
         this.intensity.reset();
+        // The new stratum's first biome is taken at once, not after a border's settle.
+        this.biome = null;
+        this.candidate = null;
+        this.biomeChangedAt = -Infinity;
         break;
       case 'quest:ending':
-        this.endingUntil = now + ENDING_SECONDS;
-        this.holdScoreUntil = 0;
+        // The ending's theme comes in once the last victory's sting has spoken.
+        this.endingAt = Math.max(now, this.holdScoreUntil);
+        this.endingUntil = this.endingAt + ENDING_SECONDS;
         break;
       case 'player:died':
       case 'player:respawned':
       case 'camp:entered':
         this.intensity.reset();
         break;
+      case 'hazard:changed':
+        if (p.kind === 'cold' || p.kind === 'gas' || p.kind === 'heat' || p.kind === 'dark') this.onsetAt[p.kind] = now;
+        break;
+      case 'guide:hint':
+        if (typeof p.id === 'string' && p.id.startsWith('hazard:')) this.hazardWarnedAt = now;
+        break;
     }
   }
 
-  private play(name: SfxName, params: SfxParams, at?: number): void {
+  private play(name: SfxName, paramsIn: SfxParams, at?: number): void {
     const live = this.live;
     if (!live || this.backgrounded) return;
+    // The cues written in D major sound in the music's key (audio/harmony).
+    const params = this.keyShift !== 0 && paramsIn.transpose === undefined && KEYED.has(name) ? { ...paramsIn, transpose: this.keyShift } : paramsIn;
     // While the first gesture is resuming the context, only the UI sound that caused it may queue.
     if (live.ctx.state !== 'running' && !(this.resuming && name.startsWith('ui.'))) return;
     const d = SFX[name];
     const now = live.ctx.currentTime;
+    // A button's generic click gives way to the specific sound of the same gesture (a page turned,
+    // the bag, the hotbar), whichever of the two the page dispatches first.
+    const specificUi = name.startsWith('ui.') && name !== 'ui.click' && name !== 'ui.error';
+    if (name === 'ui.click' && now - this.lastSpecificUi < UI_PAIR) return;
+    if (specificUi) {
+      this.lastSpecificUi = now;
+      const click = this.lastClick;
+      if (click && now - click.at < UI_PAIR) {
+        click.e.v.kill(now, 0.015);
+        this.voices.remove(click.e);
+        this.lastClick = null;
+      }
+    }
+    if (LESSER.has(name) && now - this.storyAt < STORY_SHADOW) {
+      this.shadowed++;
+      return;
+    }
     if (!this.gate.allow(name, now, d.minGap)) return;
     // Too far to matter (a creature at the edge of hearing).
     if ((params.gain ?? 1) < 0.02) return;
@@ -586,7 +750,26 @@ export class AudioSystem {
     if (!this.voices.admit(now, d.priority)) return;
     try {
       const v = playSfx(live.targets[d.bus], name, params, Math.max(now + 0.005, at ?? 0));
-      this.voices.add({ v, cat }, now, v.end, d.priority);
+      const entry: SfxVoice = { v, cat };
+      this.voices.add(entry, now, v.end, d.priority);
+      this.playedCount.set(name, (this.playedCount.get(name) ?? 0) + 1);
+      if (name === 'guardian.heartbeat') this.darkHeartAt = now;
+      if (name === 'ui.click') this.lastClick = { e: entry, at: now };
+      if (LESSER.has(name)) {
+        this.lesser.push({ e: entry, at: now });
+        if (this.lesser.length > 4) this.lesser.shift();
+      }
+      if (d.priority >= 4 && d.bus === 'sfx') {
+        // A story beat: the lesser cues of the same moment step aside.
+        this.storyAt = now;
+        for (const l of this.lesser) {
+          if (now - l.at > STORY_PAIR) continue;
+          l.e.v.kill(now, 0.04);
+          this.voices.remove(l.e);
+          this.shadowed++;
+        }
+        this.lesser.length = 0;
+      }
       const duck = DUCKS[name] ?? (d.priority >= 4 && d.bus === 'sfx' ? { music: 0.5, ambience: 0.6, hold: Math.min(3, d.length * 0.7) } : null);
       if (duck) this.ducker.add(duck, now);
     } catch (err) {
@@ -622,11 +805,14 @@ export class AudioSystem {
     if (s.atCamp || menuMode) this.intensity.reset();
     this.intensity.update(dt, scene && !s.atCamp ? scene.danger : 0);
     // The biome under the feet, once it has settled.
-    this.followBiome(scene, dt);
+    this.followBiome(scene, dt, now);
     this.directScore(live, now, s, scene);
-    live.music.setMix(this.intensity.layerMix(), now);
-    // Ducking.
-    for (const b of ['music', 'ambience'] as const) live.ducks[b].set(this.ducker.target(b, now), now);
+    this.followKey(now);
+    live.music.setMix(this.scoreMix(live, now, scene), now);
+    // Ducking: story beats, and the score and beds easing back under a dense fight's voices.
+    const dense = densityDuck(this.voices.count(now, (e) => e.cat === 'creature' || e.cat === 'blow'));
+    live.ducks.music.set(Math.min(this.ducker.target('music', now), dense.music), now);
+    live.ducks.ambience.set(Math.min(this.ducker.target('ambience', now), dense.ambience), now);
     // The lantern.
     const lanternOn = s.lanternLit && !this.paused && !s.inMenu;
     live.lantern.setLevel(lanternOn ? LANTERN_LEVEL * (0.35 + 0.65 * Math.sqrt(saturate(s.lanternFuel))) : 0, now, dt);
@@ -635,11 +821,14 @@ export class AudioSystem {
     this.features(live, now, dt, scene);
     this.hazards(live, now, dt, scene);
     this.sonar(now, scene);
+    this.climb(dt, scene);
+    this.heartbeat(dt, now, s, scene);
     this.menus(scene);
-    live.reverb.set(0.3 + 0.9 * saturate(s.openness), now);
+    // The space: how open it is round the ear, and the biome's surfaces (halls ring, earth swallows).
+    live.reverb.set((0.3 + 0.9 * saturate(s.openness)) * (this.bedRecipe?.space ?? 1), now);
   }
 
-  private followBiome(scene: AudioScene | null, dt: number): void {
+  private followBiome(scene: AudioScene | null, dt: number, now: number): void {
     const here = scene?.biome ?? null;
     if (here === this.biome) {
       this.candidate = null;
@@ -650,16 +839,37 @@ export class AudioSystem {
       this.candidateFor = 0;
     }
     this.candidateFor += dt;
-    // The first biome of a stratum (or after a load) is taken at once; borders must settle.
-    if (this.biome === null || this.candidateFor >= BIOME_SETTLE || here === null) {
+    // The first biome of a stratum (or after a load) is taken at once; borders must settle, longer
+    // when the score changed only a moment ago (walking along a border never ping-pongs it).
+    const settle = now - this.biomeChangedAt < BIOME_RECENT ? BIOME_SETTLE_RECENT : BIOME_SETTLE;
+    if (this.biome === null || this.candidateFor >= settle || here === null) {
+      if (this.biome !== null && here !== null) this.biomeChangedAt = now;
       this.biome = here;
       this.candidate = null;
     }
   }
 
+  /** The key the cues follow: a victory's tonic major for a while, else the playing score's major key. */
+  private followKey(now: number): void {
+    const id = this.live?.music.score ?? null;
+    if (this.victoryKey !== null && now < this.victoryKeyUntil) this.keyShift = shiftTo(this.victoryKey);
+    else if (id) this.keyShift = shiftTo(majorKeyOf(SCORES[id]));
+    // No score (a breather between decks, a load): the last key holds.
+  }
+
+  /** The layers the score plays: a guardian's call then its fight; otherwise the danger's mix. */
+  private scoreMix(live: Live, now: number, scene: AudioScene | null): Readonly<LayerMix> {
+    const id = live.music.score;
+    const fighting = scene ? scene.guardian !== null : this.guardianEvent !== null;
+    if (id && isGuardianScore(id) && fighting) return now - this.guardianSince < GUARDIAN_CALL ? GUARDIAN_CALL_MIX : GUARDIAN_FIGHT_MIX;
+    return this.intensity.layerMix();
+  }
+
   /** Which score plays now, and how it comes in. */
   private directScore(live: Live, now: number, s: AudioWorldState, scene: AudioScene | null): void {
     const music = live.music;
+    // The depth mood: the old world's scores (and the stats) follow it.
+    this.mood = moodFor(s.depth, s.atCamp, this.mood);
     if (now < this.holdScoreUntil) return;
     const loading = scene?.loading === true;
     if (loading) {
@@ -671,7 +881,7 @@ export class AudioSystem {
     let id: ScoreId | null;
     let fade = { fadeIn: 2, fadeOut: 2.5, delay: 1 };
     const fight = scene ? scene.guardian : this.guardianEvent;
-    if (now < this.endingUntil) {
+    if (now >= this.endingAt && now < this.endingUntil) {
       id = 'ending';
       fade = { fadeIn: 2.5, fadeOut: 2, delay: 1.5 };
     } else if (scene?.mode === 'menu') {
@@ -686,39 +896,62 @@ export class AudioSystem {
       fade = { fadeIn: 2.5, fadeOut: 1.8, delay: 1.5 };
     } else if (this.biome) {
       id = this.biome;
-    } else if (!scene) {
-      this.mood = moodFor(s.depth, s.atCamp, this.mood);
+    } else if (!scene || !scene.strata) {
+      // The old hand-made world (or no game attached): a score per depth mood.
       id = MOOD_SCORE[this.mood];
-    } else id = 'amberHollows';
-    if (this.wasLoading) {
+    } else {
+      // A stratum has just swapped in and its biome is not known yet: keep a biome score, else wait.
+      id = music.score && (BIOME_SCORES as readonly string[]).includes(music.score) ? music.score : null;
+    }
+    if (this.wasLoading && id !== null) {
       fade = { fadeIn: 1.2, fadeOut: 0.5, delay: 0.8 };
       this.wasLoading = false;
     }
-    if (now < this.quietAfterVictory && id !== music.score) fade = { ...fade, delay: Math.max(fade.delay, this.quietAfterVictory - now) };
-    if (id !== music.score) music.play(id, now, fade);
-    // A biome's first visit: its motif stated plainly once the deck is in.
+    // After a victory the lair falls quiet a breath before the biome's score; the ending rises out of the chord.
+    if (id === 'ending' && now < this.quietAfterVictory) fade = { fadeIn: 1.8, fadeOut: 2, delay: 0.3 };
+    else if (now < this.quietAfterVictory && id !== music.score) fade = { ...fade, delay: Math.max(fade.delay, this.quietAfterVictory - now) };
+    if (id !== music.score) {
+      music.play(id, now, fade);
+      if (id && isGuardianScore(id)) this.guardianSince = now + fade.delay;
+    }
+    // A guardian's phase (the probe's GuardianState is authoritative; the events' copy otherwise).
+    if (fight && id && isGuardianScore(id)) {
+      if ('phases' in fight) music.setPhase(fight.phase, fight.phases);
+      else music.setPhase(fight.phase);
+    }
+    // A biome's first visit: its motif stated plainly once its deck is in (after the camp, for the
+    // starter biome the camp sits in); a fight or another biome first forgets it.
     if (this.pendingArrival && music.score === this.pendingArrival) {
       music.sting('arrival', now + fade.delay);
       this.pendingArrival = null;
-    } else if (this.pendingArrival && (s.atCamp || fight)) this.pendingArrival = null;
+    } else if (this.pendingArrival && (fight || (this.biome !== null && this.biome !== this.pendingArrival && this.biome !== this.pendingFrom))) this.pendingArrival = null;
   }
 
   private beds(live: Live, now: number, dt: number, s: AudioWorldState, scene: AudioScene | null): void {
     const menuMode = scene?.mode === 'menu';
-    const key = s.atCamp || menuMode ? 'camp' : this.biome ?? (scene ? 'amberHollows' : `depth`);
-    const recipe: BedRecipe = key === 'camp' ? CAMP_BED : key === 'depth' ? BEDS[this.mood === 'deep' ? 'obsidianAbyss' : this.mood === 'mid' ? 'crystalGeode' : 'amberHollows'] : BEDS[key as BiomeId];
+    let key: string;
+    // Under the loading screen the cave falls silent (the next one is another place).
+    if (scene?.loading) key = '';
+    else if (s.atCamp || menuMode) key = 'camp';
+    else if (this.biome) key = this.biome;
+    // A stratum has just swapped in and its biome comes on the next tick: the bed holds (or stays silent).
+    else if (scene?.strata) key = this.bedKey;
+    // The old world: a bed per depth mood.
+    else key = 'depth';
     if (key !== this.bedKey) {
       this.bedKey = key;
-      this.clocks = recipe.shots.map((shot) => ({ name: shot.name, next: this.interval(shot.every) * 0.5 }));
+      this.bedRecipe = key ? bedRecipeOf(key, this.mood) : null;
+      this.clocks = this.bedRecipe ? this.bedRecipe.shots.map((shot) => ({ name: shot.name, next: this.interval(shot.every) * 0.5 })) : [];
     }
-    if (!live.beds.has(key)) live.beds.set(key, new BiomeBed(live.ctx, live.graph.noise, live.graph.buses.ambience.input, recipe, { to: live.graph.buses.ambience.wet, amount: 0.35 }));
+    const recipe = this.bedRecipe;
+    if (key && recipe && !live.beds.has(key)) live.beds.set(key, new BiomeBed(live.ctx, live.graph.noise, live.graph.buses.ambience.input, recipe, { to: live.graph.buses.ambience.wet, amount: 0.35 }));
     const depth01 = smoothstep(45, 145, s.depth % 90 + 45);
     const k = 1 - Math.exp(-dt / 2.2);
     for (const [bk, bed] of live.beds) {
       bed.target = bk === key ? 1 : 0;
       bed.weight += (bed.target - bed.weight) * k;
       if (bed.target === 0 && bed.weight < 0.002) bed.weight = 0;
-      bed.update(now, dt, 1, depth01, saturate(s.openness));
+      bed.update(now, dt, BED_LEVEL, depth01, saturate(s.openness));
       if (bed.target === 0 && bed.weight === 0 && !bed.audible) {
         bed.stop();
         live.beds.delete(bk);
@@ -728,42 +961,53 @@ export class AudioSystem {
 
   /** Positional loops near the listener: the nearest few emitters, panned, by distance. */
   private features(live: Live, now: number, dt: number, scene: AudioScene | null): void {
-    const want = new Map<EmitterKind, { level: number; pan: number }>();
-    if (scene && !this.paused) {
+    const want = this.wantLoops;
+    want.clear();
+    if (scene && !this.paused && !scene.loading) {
+      // The loudest first (four quiet crystals never take every slot from the river): the loops within
+      // their slots, the one-shots within theirs.
+      const heard = this.heardScratch;
+      heard.length = 0;
       for (const e of scene.emitters) {
-        if (want.size >= EMITTER_SLOTS && !want.has(e.kind)) continue;
-        if (want.has(e.kind)) continue;
-        const dx = e.x - scene.lx;
-        const dz = e.z - scene.lz;
-        const d = Math.hypot(dx, (e.y - scene.ly) * 1.3, dz);
-        const near = Math.max(0, 1 - d / e.range);
+        const def = EMITTERS[e.kind];
+        const near = Math.max(0, 1 - e.d / e.range);
         if (near <= 0) continue;
-        const level = EMITTER_LEVEL[e.kind] * e.strength * Math.pow(near, 1.5);
-        const pan = Math.hypot(dx, dz) > 0.5 ? ((dx * scene.rx + dz * scene.rz) / Math.hypot(dx, dz)) * 0.85 : 0;
-        want.set(e.kind, { level, pan });
+        // Behind rock a feature is quieter as well as darker.
+        const through = 1 - 0.55 * saturate(e.occlusion);
+        const loud = (def.level > 0 ? def.level : (def.shot?.gain ?? 0) * 0.25) * e.strength * Math.pow(near, 1.5) * through;
+        heard.push({ e, near, through, loud });
+      }
+      heard.sort((a, b) => b.loud - a.loud);
+      let loops = 0;
+      let shots = 0;
+      for (const { e, near, through } of heard) {
+        const def = EMITTERS[e.kind];
+        const pan = panOf(e.x - scene.lx, e.z - scene.lz, scene.rx, scene.rz, 0.85);
+        if (def.level > 0 && loops < EMITTER_SLOTS) {
+          loops++;
+          want.set(e.kind, { level: def.level * e.strength * Math.pow(near, 1.5) * through, pan, occlusion: e.occlusion });
+        }
+        if (def.shot && shots < SHOT_SLOTS) {
+          shots++;
+          this.featureShot(e.kind, def.shot, Math.pow(near, 0.8) * e.strength * through, pan, dt);
+        }
       }
     } else if (!scene) {
       // No probe: the campfire by the old landmark distance.
       const fire = this.world.nearFire;
-      if (fire > 0) want.set('fire', { level: 0.45 * Math.pow(saturate(fire), 1.4), pan: 0 });
+      if (fire > 0) want.set('fire', { level: 0.45 * Math.pow(saturate(fire), 1.4), pan: 0, occlusion: 0 });
     }
     for (const [kind, w] of want) {
       let layer = live.emitters.get(kind);
-      if (!layer) {
-        layer = emitterLayer(kind, live.ctx, live.graph.noise, live.graph.buses.ambience.input, { to: live.graph.buses.ambience.wet, amount: 0.5 });
+      if (layer === undefined) {
+        const made = emitterLayer(kind, live.ctx, live.graph.noise, live.graph.buses.ambience.input, { to: live.graph.buses.ambience.wet, amount: 0.5 });
+        if (!made) continue;
+        layer = made;
         live.emitters.set(kind, layer);
       }
       layer.setLevel(w.level, now, dt);
       layer.setPan(w.pan, now);
-      // Its one-shots, placed with it.
-      const shot = EMITTER_SHOTS[kind];
-      if (shot && w.level > 0.03) {
-        const next = (this.emitterClocks.get(kind) ?? 0) - dt;
-        if (next <= 0) {
-          this.play(shot.name, { pan: w.pan, gain: Math.min(1, 0.4 + w.level * 2), pitch: this.rng.range(0.85, 1.2) });
-          this.emitterClocks.set(kind, this.interval(shot.every));
-        } else this.emitterClocks.set(kind, next);
-      }
+      layer.setOcclusion(w.occlusion, now);
     }
     for (const [kind, layer] of live.emitters) {
       if (want.has(kind)) continue;
@@ -772,16 +1016,35 @@ export class AudioSystem {
     }
   }
 
+  /** A feature's one-shot on its own clock (`k` 0..1: how near and how strong), placed with it. */
+  private featureShot(kind: EmitterKind, shot: { name: SfxName; every: number; gain: number }, k: number, pan: number, dt: number): void {
+    if (k < 0.06) return;
+    const next = (this.emitterClocks.get(kind) ?? this.interval(shot.every) * 0.3) - dt;
+    if (next > 0) {
+      this.emitterClocks.set(kind, next);
+      return;
+    }
+    this.play(shot.name, { pan, gain: Math.min(1, shot.gain * k), pitch: this.rng.range(0.85, 1.2) });
+    this.emitterClocks.set(kind, this.interval(shot.every));
+  }
+
   /** The hazard layer follows the meter; warnings as it passes half and nearly full. */
   private hazards(live: Live, now: number, dt: number, scene: AudioScene | null): void {
     const kind = scene?.hazard ?? null;
     const level = scene?.hazardLevel ?? 0;
     live.hazard.update(this.paused ? null : kind, level, now, dt);
+    // LOOP warns as a meter passes 40 % ('guide:hint', in the hazard's voice) and marks the onset of
+    // the hurt ('hazard:changed'); the AudioSystem adds the strong warning near full (unless the onset
+    // has just spoken), re-armed once the meter has eased below 35 %.
     for (const k of ['cold', 'gas', 'heat', 'dark'] as const) {
       const l = k === kind ? level : 0;
-      const step = l >= 0.85 ? 2 : l >= 0.5 ? 1 : 0;
-      if (step > this.warned[k]) this.play(`hazard.${k}`, { intensity: step === 2 ? 1 : 0.5 });
-      if (step > this.warned[k] || l < 0.35) this.warned[k] = l < 0.35 ? 0 : Math.max(this.warned[k], step);
+      if (l >= 0.85 && this.warned[k] === 0) {
+        this.warned[k] = 2;
+        if (now - this.onsetAt[k] > 1.2) {
+          this.play(`hazard.${k}`, { intensity: 1 });
+          this.hazardWarnedAt = now;
+        }
+      } else if (l < 0.35) this.warned[k] = 0;
     }
   }
 
@@ -798,7 +1061,7 @@ export class AudioSystem {
       const dx = c.x - scene.lx;
       const dz = c.z - scene.lz;
       const d = Math.hypot(dx, c.y - scene.ly, dz);
-      const pan = Math.hypot(dx, dz) > 0.5 ? ((dx * scene.rx + dz * scene.rz) / Math.hypot(dx, dz)) * 0.8 : 0;
+      const pan = panOf(dx, dz, scene.rx, scene.rz, 0.8);
       const gain = 0.55 + 0.45 * Math.max(0, 1 - d / 48);
       const rarity = c.rarity ?? 'common';
       const name: SfxName = c.kind === 'lair' ? 'sonar.lair' : c.kind === 'gate' ? 'sonar.gate' : c.kind === 'chest' || c.kind === 'page' || c.kind === 'outpost' || c.kind === 'secret' ? 'sonar.chest' : RARITY_RANK[rarity] >= 3 ? 'sonar.rare' : 'sonar.ping';
@@ -816,6 +1079,42 @@ export class AudioSystem {
       this.echoes.splice(i, 1);
       if (e.at > now - 0.5) this.play(e.name, e.params);
     }
+  }
+
+  /**
+   * Climbing a ladder or a rope: a hand over hand about every metre of climb (faster climbing, quicker
+   * grabs), up or down; nothing while the explorer hangs still.
+   */
+  private climb(dt: number, scene: AudioScene | null): void {
+    const speed = Math.abs(scene?.climbSpeed ?? 0);
+    if (!scene?.climbing || speed < 0.4 || this.paused) {
+      this.climbIn = 0;
+      return;
+    }
+    this.climbIn -= dt;
+    if (this.climbIn > 0) return;
+    this.climbIn = Math.max(0.28, Math.min(0.6, 1 / speed));
+    // The two hands sound a little apart; climbing down is a shade lower.
+    this.climbHand = !this.climbHand;
+    const pitch = (this.climbHand ? 1.04 : 0.96) * (scene.climbSpeed < 0 ? 0.92 : 1);
+    this.play(scene.climbing === 'rope' ? 'climb.rope' : 'climb.ladder', { pitch, gain: 0.7 + 0.3 * Math.min(1, speed / 3.2) });
+  }
+
+  /**
+   * Low health (under 30 %): the explorer's heart, quickening from 66 to 104 beats a minute as it
+   * drops; never at camp or in a menu, and quiet while a hazard warning (its own heartbeat) speaks.
+   */
+  private heartbeat(dt: number, now: number, s: AudioWorldState, scene: AudioScene | null): void {
+    const hp = scene?.health ?? 1;
+    if (!scene || hp >= LOW_HEALTH || hp <= 0 || s.atCamp || s.inMenu || this.paused || scene.mode !== 'playing' || now - this.hazardWarnedAt < 2.5) {
+      this.beatIn = Math.min(this.beatIn, 0.3);
+      return;
+    }
+    this.beatIn -= dt;
+    if (this.beatIn > 0) return;
+    const fear = 1 - hp / LOW_HEALTH;
+    this.beatIn = 60 / (66 + 38 * fear);
+    this.play('player.heartbeat', { intensity: fear, gain: 0.55 + 0.45 * fear });
   }
 
   /** A menu closing (a screen back to the game) clicks shut. */
@@ -846,7 +1145,7 @@ export class AudioSystem {
 
   /** The bed's one-shots, each on its own clock. */
   private ambientOneShots(dt: number, s: AudioWorldState): void {
-    const recipe = this.bedKey === 'camp' ? CAMP_BED : BEDS[this.bedKey as BiomeId];
+    const recipe = this.bedRecipe;
     if (!recipe) return;
     for (let i = 0; i < this.clocks.length; i++) {
       const c = this.clocks[i];
@@ -854,6 +1153,8 @@ export class AudioSystem {
       if (c.next > 0) continue;
       const shot = recipe.shots[i];
       if (!shot) continue;
+      // The Heart's chamber: the Dark Heart's own beat (MOBS' voice) replaces the bed's.
+      if (shot.name === 'amb.heartbeat' && (this.live?.ctx.currentTime ?? 0) - this.darkHeartAt < 4) continue;
       c.next = this.interval(shot.every * (s.atCamp ? 1.5 : 1));
       const pitch = shot.pitch ? this.rng.range(shot.pitch[0], shot.pitch[1]) : 1;
       this.play(shot.name, { pan: this.rng.range(-1, 1) * (shot.pan ?? 0.7), gain: this.rng.range(shot.gain[0], shot.gain[1]), pitch });

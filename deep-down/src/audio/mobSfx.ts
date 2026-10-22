@@ -446,6 +446,105 @@ export const MOB_SFX = {
     // The Heart Shard's ring.
     [987.8, 1318.5, 1975.5].forEach((f, i) => bell(v, t + 2.3 + i * 0.12, f, 0.1, 1.6));
   }, 2),
+  // A guardian's wind-ups, one voice per pattern (learnt by ear: the next blow is known before it is
+  // seen). The summon calls ('guardian.call'), the volley hisses ('mob.hiss'), the burrow rumbles.
+  /** Slam: a deep creak rising as the weight is lifted, a grinding band climbing under it (the stomp lands after). */
+  'guardian.tell.slam': def(0.9, 0.5, 4, 1.4, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.04);
+    const src = v.osc('sawtooth', 38 * k, t, t + 1.25);
+    src.frequency.setValueAtTime(38 * k, t);
+    src.frequency.exponentialRampToValueAtTime(72 * k, t + 1.1);
+    src.connect(v.filter('lowpass', 420, 2.4)).connect(v.swell(t, 0.5, 0.34, 0.5, 0.15)).connect(v.out);
+    const g = swellNoise(v, t, 'brown', 'bandpass', 220, 1.6, 0.26, 0.6, 0.4, 0.12);
+    g.frequency.setValueAtTime(200, t);
+    g.frequency.exponentialRampToValueAtTime(760, t + 1.1);
+    for (let i = 0; i < 4; i++) noiseBurst(v, t + 0.2 + i * v.rand(0.18, 0.26), 'pink', 'bandpass', v.rand(300, 520), 3, 0.12, 0.08);
+  }, 0.6),
+  /** Shockwave: a hum building in pitch and tremble, a pulse as it breaks ("jump"). */
+  'guardian.tell.ring': def(0.85, 0.55, 4, 1.3, (v) => {
+    const t = v.t;
+    const o = v.osc('sine', 110, t, t + 1.1);
+    o.frequency.setValueAtTime(96, t);
+    o.frequency.exponentialRampToValueAtTime(230, t + 0.95);
+    const env = v.swell(t, 0.7, 0.3, 0.2, 0.15);
+    o.connect(env).connect(v.out);
+    v.lfo(env.gain, 6, 0.1, t, t + 1.05, 'triangle');
+    const hi = v.osc('triangle', 880, t + 0.3, t + 1.05);
+    hi.frequency.setValueAtTime(700, t + 0.3);
+    hi.frequency.exponentialRampToValueAtTime(1760, t + 0.95);
+    hi.connect(v.swell(t + 0.3, 0.5, 0.05, 0.1, 0.1)).connect(v.out);
+    thud(v, t + 0.95, 90, 40, 0.5, 0.25);
+  }, 0.5),
+  /** Charge: two scrapes of a hoof (or a claw) on rock, a snort, a low growl: it is coming down the lane. */
+  'guardian.tell.charge': def(0.85, 0.35, 4, 1.2, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.05);
+    for (const at of [0.04, 0.38]) {
+      const f = swellNoise(v, t + at, 'pink', 'lowpass', 700, 0.9, 0.3, 0.02, 0.1, 0.12);
+      f.frequency.setValueAtTime(900, t + at);
+      f.frequency.exponentialRampToValueAtTime(260, t + at + 0.22);
+    }
+    const sn = swellNoise(v, t + 0.68, 'white', 'bandpass', 900 * k, 1.4, 0.24, 0.03, 0.06, 0.16);
+    sn.frequency.setValueAtTime(1100 * k, t + 0.68);
+    sn.frequency.exponentialRampToValueAtTime(500 * k, t + 0.9);
+    const g = v.osc('sawtooth', 58 * k, t + 0.1, t + 1.0);
+    g.connect(v.filter('lowpass', 380, 2)).connect(v.swell(t + 0.1, 0.4, 0.2, 0.3, 0.2)).connect(v.out);
+  }, 0.5),
+  /** Eruptions: a rumble rolling under the floor toward the listener, cracks running ahead of it. */
+  'guardian.tell.line': def(0.85, 0.5, 4, 1.3, (v) => {
+    const t = v.t;
+    const r = swellNoise(v, t, 'brown', 'lowpass', 120, 0.8, 0.5, 0.75, 0.15, 0.25);
+    r.frequency.setValueAtTime(90, t);
+    r.frequency.exponentialRampToValueAtTime(320, t + 0.95);
+    // The grinding of the floor about to split (the mids carry it on a phone).
+    const m = swellNoise(v, t + 0.1, 'pink', 'bandpass', 300, 1.4, 0.3, 0.6, 0.15, 0.2);
+    m.frequency.setValueAtTime(240, t + 0.1);
+    m.frequency.exponentialRampToValueAtTime(520, t + 0.95);
+    for (let i = 0; i < 7; i++) noiseBurst(v, t + 0.15 + i * 0.12 + v.rand(0, 0.04), 'white', 'bandpass', v.rand(1600, 2600), 4, 0.12 + i * 0.015, 0.035);
+    thud(v, t + 0.02, 55, 32, 0.35, 0.4);
+  }, 0.5),
+  /** Dive: a rising, wavering screech as it climbs and marks its spot ("dash"). */
+  'guardian.tell.dive': def(0.75, 0.55, 4, 1.2, (v, p) => {
+    const t = v.t;
+    const k = (p.pitch ?? 1) * v.vary(0.05);
+    const o = v.osc('sawtooth', 320 * k, t, t + 0.95);
+    o.frequency.setValueAtTime(300 * k, t);
+    o.frequency.exponentialRampToValueAtTime(840 * k, t + 0.85);
+    v.lfo(o.frequency, 9, 22 * k, t, t + 0.95);
+    o.connect(v.filter('bandpass', 1200 * k, 2.2)).connect(v.swell(t, 0.5, 0.16, 0.25, 0.2)).connect(v.out);
+    swellNoise(v, t + 0.2, 'white', 'highpass', 3000, 0.8, 0.06, 0.4, 0.2, 0.2);
+  }, 0.5),
+  /**
+   * A guardian's guard opens (after an attack): the tell to strike. A heavy exhale with a clank of
+   * plates parting, then two rising chimes in a bright fifth ("now!"), never shrill.
+   */
+  'guardian.open': def(0.85, 0.45, 4, 1.4, (v) => {
+    const t = v.t;
+    const f = swellNoise(v, t, 'pink', 'lowpass', 900, 0.8, 0.32, 0.06, 0.18, 0.55);
+    f.frequency.setValueAtTime(1300, t);
+    f.frequency.exponentialRampToValueAtTime(260, t + 0.7);
+    thud(v, t, 140 * v.vary(0.04), 60, 0.35, 0.22);
+    noiseBurst(v, t + 0.02, 'white', 'bandpass', 2400, 3, 0.12, 0.05);
+    bell(v, t + 0.12, 659.3, 0.11, 0.9);
+    bell(v, t + 0.3, 987.8, 0.12, 1.0);
+  }, 0.4),
+  /**
+   * The Dark Heart's beat (lub-dub), heard through the chamber: two deep, soft-edged thumps and a
+   * low swell between them. It quickens with each phase (the sim sets the tempo).
+   */
+  'guardian.heartbeat': def(0.9, 0.55, 3, 1.0, (v) => {
+    const t = v.t;
+    // The deep body of each thump (felt on headphones) and its knock in the mids (heard on a phone).
+    for (const [at, f, a] of [[0, 62, 0.75], [0.19, 54, 0.55]] as const) {
+      thud(v, t + at, f, f * 0.55, a, 0.34);
+      thud(v, t + at, 170, 95, a * 0.55, 0.12);
+      noiseBurst(v, t + at, 'pink', 'bandpass', 420, 1.1, a * 0.28, 0.07);
+    }
+    swellNoise(v, t, 'brown', 'lowpass', 160, 0.7, 0.3, 0.02, 0.05, 0.3);
+    const o = v.osc('sine', 41, t, t + 0.8);
+    o.connect(v.swell(t + 0.02, 0.12, 0.16, 0.2, 0.4)).connect(v.out);
+  }, 0.3),
   // ---- Weapons (FP's viewmodels; FP emits the 'weapon:*' events).
   /** A blade or the pick cutting the air. */
   'weapon.whoosh': def(0.6, 0.06, 2, 0.35, (v, p) => {

@@ -92,6 +92,14 @@ export class Lantern {
    * Add burn time in the field (e.g. a Lantern Ember), capped at the capacity.
    * @returns the seconds actually added.
    */
+  /** Round 3 (LOOP): the void drinks `seconds` of flame (never below empty). @returns seconds taken. */
+  drain(seconds: number): number {
+    if (!(seconds > 0)) return 0;
+    const taken = Math.min(this.fuelS, seconds);
+    this.fuelS -= taken;
+    return taken;
+  }
+
   add(seconds: number): number {
     if (!(seconds > 0) || !Number.isFinite(seconds)) return 0;
     const before = this.fuelS;

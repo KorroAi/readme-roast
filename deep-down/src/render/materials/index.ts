@@ -249,11 +249,15 @@ const STRATA_SURFACES: Record<string, BlockSurface> = {
   HEART_STONE: rock('heartStone', 'heartStone'),
   GATE_SEAL: plainOf('gateSeal', 1),
   CRACKED_WALL: rock('crackedWall', 'crackedWall'),
+  // The Halden works: the iron-bound vault door, and the glyph plates pressed in order.
+  HALDEN_DOOR: plainOf('haldenDoor', 0),
+  PRESSURE_PLATE: { top: 'pressurePlate', side: 'masonry', bottom: 'masonryTop', family: FAMILY.NONE, rigidity: 1 },
+  DOOR: plainOf('builtDoor', 0),
 };
 const blockIdByName = B as unknown as Record<string, number>;
 for (const [k, surf] of Object.entries(STRATA_SURFACES)) if (blockIdByName[k] !== undefined) BLOCK_SURFACES[blockIdByName[k]] = surf;
 // Built things look like their old twins.
-for (const [k, like] of [['BUILT_PLANK', B.PLANK], ['BUILT_BRICK', B.ANCIENT_BRICK], ['DOOR', B.PLANK]] as const) if (blockIdByName[k] !== undefined) BLOCK_SURFACES[blockIdByName[k]] = BLOCK_SURFACES[like];
+for (const [k, like] of [['BUILT_PLANK', B.PLANK], ['BUILT_BRICK', B.ANCIENT_BRICK]] as const) if (blockIdByName[k] !== undefined) BLOCK_SURFACES[blockIdByName[k]] = BLOCK_SURFACES[like];
 
 // Round 3: a visible block with no surface of its own yet looks like WORLD's PAINT_AS stand-in.
 for (const d of BLOCKS) {

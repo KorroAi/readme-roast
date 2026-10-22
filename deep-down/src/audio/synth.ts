@@ -32,14 +32,17 @@ export class Voice {
   private readonly sources: AudioScheduledSourceNode[] = [];
   private last: AudioScheduledSourceNode | null = null;
   private released = false;
+  /** Transposition of every tone of the sound, in cents (oscillator detune; the LFOs stay put). */
+  private readonly cents: number;
 
   constructor(
     private readonly target: SynthTarget,
     /** Start time of the sound in context seconds. */
     readonly t: number,
-    opts: { gain?: number; wet?: number; pan?: number } = {},
+    opts: { gain?: number; wet?: number; pan?: number; transpose?: number } = {},
   ) {
     const ctx = (this.ctx = target.ctx);
+    this.cents = Number.isFinite(opts.transpose) ? Math.max(-1200, Math.min(1200, (opts.transpose ?? 0) * 100)) : 0;
     this.end = t;
     this.out = ctx.createGain();
     this.out.gain.value = opts.gain ?? 1;
@@ -78,6 +81,16 @@ export class Voice {
   }
 
   osc(type: OscillatorType, freq: number, start: number, stop: number): OscillatorNode {
+    const o = this.rawOsc(type, freq, start, stop);
+    if (this.cents !== 0) {
+      // Transposed up, a tone never passes 0.45 of the sample rate (it would fold back or clamp).
+      const room = 1200 * Math.log2((this.ctx.sampleRate * 0.45) / Math.max(1, Math.abs(freq)));
+      o.detune.value = Math.min(this.cents, Math.max(0, room));
+    }
+    return o;
+  }
+
+  private rawOsc(type: OscillatorType, freq: number, start: number, stop: number): OscillatorNode {
     const o = this.ctx.createOscillator();
     o.type = type;
     o.frequency.value = freq;
@@ -147,7 +160,7 @@ export class Voice {
 
   /** Low-frequency oscillator wired into `param` with the given depth. */
   lfo(param: AudioParam, rate: number, depth: number, start: number, stop: number, type: OscillatorType = 'sine'): void {
-    this.osc(type, rate, start, stop).connect(this.gain(depth)).connect(param);
+    this.rawOsc(type, rate, start, stop).connect(this.gain(depth)).connect(param);
   }
 
   /** Done building: release every node once the last source has stopped. Returns the end time. */

@@ -17,6 +17,7 @@ export interface SoundParams {
   material?: string;
   progress?: number;
   tier?: number;
+  transpose?: number;
 }
 
 export interface SoundDef {

@@ -71,6 +71,25 @@ export const MOBS_RULES = {
   /** A quiet stretch longer than this (s, random in the band) brings an encounter (20-40 s in the deep). */
   encounterMin: 20,
   encounterMax: 38,
+  /**
+   * The quiet (s, [min, max] by stratum 1..6) after a fight before the next hunting pack comes
+   * (spawner.huntQuiet; shorter at night and with a dying flame): a fight starts every 20-40 s in
+   * the deep, measured on the real strata (tools/mob-density.ts).
+   */
+  huntQuiet: [[0, 0], [19, 34], [17, 31], [16, 29], [15, 28], [14, 27], [13, 26]] as ReadonlyArray<readonly [number, number]>,
+  /** Ambushers (mimics, ceiling droppers, lurkers, wisps) waiting ahead at once, by stratum, and the gap between two. */
+  ambushers: [0, 1, 1, 1, 2, 2, 2] as readonly number[],
+  ambushGap: 24,
+  /** A hunter is placed only where the air joins it to the explorer within this many steps (an ambusher ahead: more). */
+  huntReach: 36,
+  ambushReach: 44,
+  /** The flow field's reach (steps): hunters round rock by it; the spawner's reach is read off it. */
+  flowReach: 44,
+  /** A nest's brood never lands closer to the explorer than this (m), and the nest stirs this long first (s). */
+  nestMinDist: 6,
+  nestStir: 1.3,
+  /** An exploder struck down before its fuse has burned this long (s) only pops (its tell had no time to read). */
+  fuseRipe: 0.35,
   /** Nests: a pack while the explorer is within `nestRange` m, at most every `nestGap` s; quiet after `nestKills`. */
   nestRange: 24,
   nestGap: 12,
@@ -96,6 +115,8 @@ export const MOBS_RULES = {
   chaseTire: 4.5,
   /** Placed light this bright (0..1 of the light volume: a torch's pool) keeps swarmers off. */
   torchFear: 0.5,
+  /** A blow of at least this share of a charger's health, while it paws, breaks its charge. */
+  staggerFrac: 0.2,
 } as const;
 
 /** Drops: each entry lists item ids in preference order (the first one the game knows is used). */

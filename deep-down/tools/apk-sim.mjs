@@ -6,25 +6,30 @@
 // test: a real Android WebView may still differ.
 //
 // Usage: node tools/apk-sim.mjs [path/to/deep-down-debug.apk]
+//        node tools/apk-sim.mjs --www path/to/web-build   (the files the APK would package, served the same way)
 // SwiftShader under load is slow: every wait allows minutes, and the load average is printed so
 // a timeout on a busy machine can be told apart from a real failure.
 import { chromium } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, existsSync } from 'node:fs';
 import { loadavg, tmpdir } from 'node:os';
-import { join, extname } from 'node:path';
+import { join, extname, resolve } from 'node:path';
 
-const apk = process.argv[2] ?? 'android/build/deep-down-debug.apk';
-const dir = mkdtempSync(join(tmpdir(), 'dd-apk-'));
-execFileSync('unzip', ['-q', apk, 'assets/www/*', '-d', dir]);
-const www = join(dir, 'assets/www');
+const wwwArg = process.argv.indexOf('--www');
+const apk = wwwArg >= 0 ? null : process.argv[2] ?? 'android/build/deep-down-debug.apk';
+let www;
+if (apk) {
+  const dir = mkdtempSync(join(tmpdir(), 'dd-apk-'));
+  execFileSync('unzip', ['-q', apk, 'assets/www/*', '-d', dir]);
+  www = join(dir, 'assets/www');
+} else www = resolve(process.argv[wwwArg + 1] ?? 'dist');
 const HOST = 'appassets.androidplatform.net';
 const MIME = { html: 'text/html', js: 'text/javascript', mjs: 'text/javascript', css: 'text/css', json: 'application/json', png: 'image/png', svg: 'image/svg+xml', wasm: 'application/wasm', webmanifest: 'application/manifest+json', txt: 'text/plain' };
 const WAIT = 180_000;
 const load = () => loadavg().map((n) => n.toFixed(2)).join(' ');
 const t0 = Date.now();
 const since = () => `${((Date.now() - t0) / 1000).toFixed(1)} s`;
-console.log(`apk-sim: ${apk}; load average ${load()}`);
+console.log(`apk-sim: ${apk ?? `web build ${www}`}; load average ${load()}`);
 
 const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true, deviceScaleFactor: 2 });
@@ -69,18 +74,21 @@ try {
   await page.getByRole('button', { name: /New Expedition/i }).tap();
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: WAIT });
   check(true, `New Expedition starts play (${since()})`);
-  const icons = await page.evaluate(() => [...document.querySelectorAll('img')].filter((i) => i.complete && i.naturalWidth > 0).length);
-  // Generated icons are data: PNGs (the shell must let them through): decode one for real.
-  const heart = await page.evaluate(async () => {
-    const el = [...document.querySelectorAll('[style]')].find((e) => e.style.getPropertyValue('--heart-1'));
-    const url = el?.style.getPropertyValue('--heart-1').match(/url\("(.*)"\)/)?.[1];
+  // Generated icons are data: PNGs (the shell must let them through): decode one for real (round 3:
+  // the hotbar's pick, painted by ui/itemArt).
+  const icon = await page.evaluate(async () => {
+    const el = [...document.querySelectorAll('.dd-slot-icon')].find((e) => /url\("data:image\/png/.test(e.style.backgroundImage));
+    const url = el?.style.backgroundImage.match(/url\("(.*)"\)/)?.[1];
     if (!url) return 0;
     const img = new Image();
     img.src = url;
     await img.decode();
     return img.naturalWidth;
   });
-  check(heart > 0, `HUD heart icon (data: PNG) decodes (${heart} px)`);
+  check(icon > 0, `hotbar item icon (data: PNG) decodes (${icon} px)`);
+  // The round 3 HUD and pads are on screen: the stratum, the Action pad, the minimap.
+  const hud = await page.evaluate(() => ({ stratum: document.querySelector('.dd-where-stratum')?.textContent ?? '', action: !!document.querySelector('.dd-pad-action'), minimap: !!document.querySelector('.dd-minimap') }));
+  check(hud.stratum === 'I' && hud.action && hud.minimap, `the action layout's HUD is up (stratum ${hud.stratum}, Action pad, minimap)`);
   const saved = await page.evaluate(() => window.__DD__.save());
   const stored = await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('deepdown.save')).length);
   check(saved && stored > 0, `save written to localStorage on the app origin (${stored} keys)`);

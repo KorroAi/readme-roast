@@ -155,6 +155,10 @@ export interface GuardianBarView {
   /** 1-based phase and how many (the Heart has 3). */
   phase: number;
   phases: number;
+  /** Its guard is open: the window's share left (1 as it opens, 0 as it shuts); null while closed. */
+  open?: number | null;
+  /** The attack it winds up now, said plainly ("Charge: step off the lane"), or null. */
+  telegraph?: string | null;
 }
 
 export interface HudSlot {
@@ -181,9 +185,14 @@ export interface TutorialView {
   total: number;
 }
 
-/** A map marker (minimap and Map screen), world coordinates. */
+/**
+ * A map marker (minimap and Map screen), world coordinates. Round 3 places (WORLD's §6 stretch):
+ * 'vista' (the landmark hall's balcony), 'river' (the underground river's spring), 'works' (the
+ * Halden works' entry), 'secret' (a secret room found), 'place' (a named set piece found), 'ravine'
+ * (a ravine's rope down, once seen); 'cache' is the pack a black-out left.
+ */
 export interface MapMarker {
-  kind: 'camp' | 'outpost' | 'lair' | 'gate' | 'page' | 'chest' | 'objective' | 'cache' | 'shrine' | 'nest';
+  kind: 'camp' | 'outpost' | 'lair' | 'gate' | 'page' | 'chest' | 'objective' | 'cache' | 'shrine' | 'nest' | 'vista' | 'river' | 'works' | 'secret' | 'place' | 'ravine';
   x: number;
   z: number;
   /** Text for the Map screen's legend and the tapped marker. */
@@ -191,6 +200,13 @@ export interface MapMarker {
   id?: string;
   /** Done (a beaten lair, an opened chest, a read page): drawn dim. */
   done?: boolean;
+}
+
+/** A line on the map (the underground river): only its explored stretches, as x, z pairs. */
+export interface MapLine {
+  kind: 'water' | 'lava';
+  /** One polyline per explored stretch: [x0, z0, x1, z1, ...] in world metres. */
+  runs: ReadonlyArray<readonly number[]>;
 }
 
 /**
@@ -212,6 +228,10 @@ export interface MapSource {
   /** The tint of each biome index (sRGB hex). */
   biomeColors: readonly number[];
   markers: readonly MapMarker[];
+  /** Lines drawn over the caves (the river's explored stretches); absent: none. */
+  lines?: readonly MapLine[];
+  /** The stratum's floor heights span (feet y, low to high), for the Map's elevation tint and contours. */
+  heightRange?: readonly [number, number];
   /** The explorer (world x, z) and the view's yaw (radians, the camera's). */
   playerX: number;
   playerZ: number;
@@ -227,6 +247,8 @@ export interface MapView {
   travel: Array<{ id: string; name: string; x: number; z: number; here: boolean; can: boolean; reason: string | null; stratum: number }>;
   /** The seed of this expedition (shown on the map and in Settings). */
   seed: string;
+  /** Named places of this stratum reached / in all (vistas, the river, the works, set pieces, secrets). */
+  places?: { found: number; total: number };
 }
 
 export interface BestiaryEntryView {
@@ -266,6 +288,16 @@ export interface SaveSummary {
   cacheWaiting: boolean;
   /** The black stone has answered (the finale was reached). */
   finale?: boolean;
+  /** Round 3: the expedition the save holds (the title's Continue card), absent for a 1.x save. */
+  expedition?: {
+    stratum: number;
+    /** The stratum's display name and its two biomes' names. */
+    stratumName: string;
+    biomes: string[];
+    deepest: number;
+    shards: number;
+    seed: number;
+  };
 }
 
 /** Round 3: the black-out card's story (where, what did it, where the explorer wakes). */
@@ -568,6 +600,23 @@ export interface UiActions {
   setControlPrefs(p: Partial<import('./controlPrefs').ControlPrefs>): void;
   /** Forget which first-time tips were shown (Settings), so they show again. */
   replayTips?(): void;
+  /** The strata world is loaded (else the first version's hand-made world: its report and end card). */
+  strata?(): boolean;
+  /** Today's Daily Descent for the title (LOOP's), null when there is none. */
+  daily?(): DailyCard | null;
+  /** Start today's Daily Descent (a new expedition on its seed, its goal and modifiers on). */
+  newDaily?(): void;
+  /** The strata's end card (LOOP's endingView), null outside the strata. */
+  endingView?(): { title: string; body: string; free: string; lines: Array<{ label: string; value: string }> } | null;
+}
+
+/** The title's Daily Descent button: today's goal and modifiers, the best time today. */
+export interface DailyCard {
+  title: string;
+  goalText: string;
+  modTexts: string[];
+  /** "12 min 5 s", or null before a run is done today. */
+  best: string | null;
 }
 
 export interface DiscoveryNotice {

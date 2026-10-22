@@ -276,14 +276,40 @@
   margin: 0 0 10px;
 }
 .dd-menu3 .dd-m3-station {
+  display: inline-flex;
+  align-items: center;
   padding: 4px 8px;
   border: 1px solid rgba(148, 139, 125, 0.45);
   color: var(--bone-500);
   font: 700 calc(11px * var(--s)) / 1.2 var(--font);
 }
+/* The station filter: a chip per station (the thumb floor), the one shown lit amber. */
+.dd-menu3 button.dd-m3-station {
+  min-height: 48px;
+  min-width: 48px;
+  padding: 0 12px;
+  justify-content: center;
+  background: rgba(9, 13, 19, 0.72);
+  border-radius: 0;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-menu3 button.dd-m3-station:active {
+  background: rgba(255, 179, 92, 0.18);
+}
 .dd-menu3 .dd-m3-station.near {
   border-color: var(--verdigris-300);
   color: var(--verdigris-300);
+}
+.dd-menu3 button.dd-m3-station.cur {
+  border-color: var(--amber-300);
+  background: rgba(255, 179, 92, 0.16);
+  color: var(--amber-300);
+}
+.dd-menu3 .dd-m3-station.bank {
+  border-style: dashed;
 }
 .dd-menu3 .dd-m3-cards {
   display: grid;
@@ -407,13 +433,14 @@
   inset: 0;
   pointer-events: none;
 }
+/* A pin's hit area is the 48 px thumb floor; its mark is the 20 px dot in the middle. */
 .dd-menu3 .dd-m3-pin {
   --pin: #fff;
   position: absolute;
-  left: -15px;
-  top: -15px;
-  width: 30px;
-  height: 30px;
+  left: -24px;
+  top: -24px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -427,7 +454,7 @@
 .dd-menu3 .dd-m3-pin::before {
   content: '';
   position: absolute;
-  inset: 5px;
+  inset: 14px;
   border-radius: 50%;
   background: var(--pin);
   box-shadow: 0 0 0 2px rgba(5, 8, 13, 0.9), 0 0 10px color-mix(in srgb, var(--pin) 60%, transparent);
@@ -437,10 +464,32 @@
 .dd-menu3 .dd-m3-pin.k-objective::before {
   border-radius: 4px;
   transform: rotate(45deg);
-  inset: 6px;
+  inset: 15px;
 }
 .dd-menu3 .dd-m3-pin.k-objective::before {
   animation: dd-m3-pin-pulse 1.6s ease-in-out infinite;
+}
+/* The places (vista, river, works, set pieces, secrets) and the pack left behind: a rounded square. */
+.dd-menu3 .dd-m3-pin:is(.k-vista, .k-river, .k-works, .k-place, .k-secret, .k-cache)::before {
+  border-radius: 6px;
+  inset: 13px;
+}
+.dd-menu3 .dd-m3-pin.k-cache::before {
+  animation: dd-m3-pin-pulse 1.6s ease-in-out infinite;
+}
+.dd-menu3 .dd-m3-pin:is(.k-ravine, .k-nest)::before {
+  inset: 17px;
+  opacity: 0.85;
+}
+.dd-menu3 .dd-m3-places {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start !important;
+  gap: 8px;
+  margin-top: 10px;
+}
+.dd-menu3 .dd-m3-places .dd-m3-legendglyph {
+  --pin: #fff0c8;
 }
 @keyframes dd-m3-pin-pulse {
   50% {
@@ -522,8 +571,8 @@
   gap: 6px;
 }
 .dd-menu3 .dd-m3-mapctl {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -799,13 +848,86 @@
   display: grid;
   gap: 8px;
 }
+.dd-menu3 .dd-m3-bestmeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 0 0 8px;
+  font: 700 calc(12.5px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-bestmeta .dd-m3-prog {
+  flex: 1 1 100%;
+  height: 6px;
+}
+/* A page: the creature's mark (its kind in a ring), then its name, lore and what was learnt. */
 .dd-menu3 .dd-m3-beast {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
   padding: 10px 12px;
   border: 1px solid rgba(94, 66, 32, 0.8);
   background: rgba(9, 13, 19, 0.6);
 }
+.dd-menu3 .dd-m3-beastbody {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.dd-menu3 .dd-m3-beastglyph {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  color: var(--amber-300);
+  background: radial-gradient(circle at 40% 35%, rgba(255, 179, 92, 0.22), rgba(9, 13, 19, 0.6) 70%);
+  box-shadow: 0 0 0 1px rgba(176, 130, 63, 0.7);
+}
+.dd-menu3 .dd-m3-beastsvg,
+.dd-menu3 .dd-m3-beastsvg svg {
+  display: grid;
+  width: 24px;
+  height: 24px;
+}
+.dd-menu3 .dd-m3-beast.r-being .dd-m3-beastglyph {
+  color: var(--rune-200);
+  background: radial-gradient(circle at 40% 35%, rgba(82, 232, 245, 0.2), rgba(9, 13, 19, 0.6) 70%);
+  box-shadow: 0 0 0 1px rgba(82, 232, 245, 0.5);
+}
+.dd-menu3 .dd-m3-beast:is(.r-guardian, .r-boss) .dd-m3-beastglyph {
+  color: #ff8a7a;
+  background: radial-gradient(circle at 40% 35%, rgba(255, 106, 90, 0.25), rgba(9, 13, 19, 0.6) 70%);
+  box-shadow: 0 0 0 1px rgba(255, 106, 90, 0.7);
+}
+/* Unmet: a dark silhouette with a question mark and MOBS's hint, a short row. */
+.dd-menu3 .dd-m3-beast.unknown {
+  padding: 8px 12px;
+  border-style: dashed;
+  background: rgba(6, 8, 12, 0.55);
+}
+.dd-menu3 .dd-m3-beast.unknown .dd-m3-beastglyph {
+  color: rgba(239, 231, 216, 0.16);
+  background: rgba(0, 0, 0, 0.45);
+  box-shadow: 0 0 0 1px rgba(148, 139, 125, 0.35);
+}
+.dd-menu3 .dd-m3-beast.unknown .dd-m3-beastglyph i {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 800 20px / 1 var(--font-lintel, var(--font));
+  font-style: normal;
+  color: var(--bone-500);
+}
 .dd-menu3 .dd-m3-beast.unknown h3 {
   color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-beast.unknown .dd-m3-desc {
+  margin: 3px 0 0;
+  font-size: calc(12px * var(--s));
 }
 .dd-menu3 .dd-m3-beast.complete {
   border-color: var(--verdigris-300);
@@ -813,6 +935,20 @@
 .dd-menu3 .dd-m3-beast.r-guardian,
 .dd-menu3 .dd-m3-beast.r-boss {
   border-color: rgba(255, 106, 90, 0.7);
+}
+.dd-menu3 .dd-m3-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.dd-menu3 .dd-m3-badgeglyph,
+.dd-menu3 .dd-m3-badgeglyph svg {
+  display: inline-grid;
+  width: 15px;
+  height: 15px;
+}
+.dd-menu3 .dd-m3-bonus {
+  margin: 6px 0 0;
 }
 .dd-menu3 .dd-m3-beasthead {
   display: flex;
@@ -883,6 +1019,162 @@
   font: 700 16px / 1 var(--font);
   text-align: center;
   letter-spacing: 0.1em;
+}
+/* The trip card (round 3): back at camp, what the trip brought. */
+.dd-trip3 {
+  display: grid;
+  place-items: center;
+  padding: max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom));
+}
+.dd-trip3 .dd-trip3-card {
+  box-sizing: border-box;
+  width: min(420px, 100%);
+  max-height: min(86vh, 720px);
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 14px;
+  border: 1px solid rgba(176, 130, 63, 0.8);
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(255, 179, 92, 0.14), transparent 60%),
+    linear-gradient(rgba(12, 15, 21, 0.97), rgba(8, 10, 14, 0.97));
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+}
+.dd-trip3 .dd-trip3-card.blackout {
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgba(255, 106, 90, 0.12), transparent 60%),
+    linear-gradient(rgba(12, 12, 16, 0.97), rgba(7, 8, 11, 0.97));
+}
+.dd-trip3 .dd-trip3-head {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  text-align: center;
+}
+.dd-trip3 .dd-trip3-glyph {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  color: var(--amber-300);
+  filter: drop-shadow(0 0 8px rgba(255, 179, 92, 0.6));
+}
+.dd-trip3 .dd-trip3-glyph svg {
+  width: 34px;
+  height: 34px;
+}
+.dd-trip3 .dd-trip3-kicker {
+  margin: 4px 0 0;
+  font: 800 calc(11px * var(--s)) / 1.2 var(--font);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--bone-500);
+}
+.dd-trip3 .dd-trip3-title {
+  margin: 0;
+  font: 400 calc(24px * var(--s)) / 1.15 var(--font-lintel);
+  color: var(--bone-100);
+}
+.dd-trip3 .dd-trip3-body {
+  margin-top: 12px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.dd-trip3 .dd-trip3-records {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+}
+.dd-trip3 .dd-trip3-records li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 207, 90, 0.55);
+  background: rgba(255, 207, 90, 0.08);
+  font: 800 calc(12px * var(--s)) / 1.3 var(--font);
+  color: #ffe6a6;
+}
+.dd-trip3 .dd-trip3-star {
+  color: #ffcf5a;
+  text-shadow: 0 0 8px rgba(255, 207, 90, 0.8);
+}
+.dd-trip3 .dd-trip3-next {
+  margin: 12px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--amber-300);
+  background: rgba(255, 179, 92, 0.07);
+  font: 600 calc(13px * var(--s)) / 1.35 var(--font);
+  color: var(--bone-100);
+}
+.dd-trip3 .dd-trip3-next b {
+  color: var(--amber-300);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.85em;
+}
+.dd-trip3 .dd-trip3-actions {
+  display: grid;
+  grid-template-columns: 1fr 1.4fr;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* The title's Continue card: the expedition the save holds (round 3). */
+.dd-menu .dd-continue-card {
+  box-sizing: border-box;
+  width: min(300px, 86vw);
+  margin: -2px auto 6px;
+  padding: 8px 12px 9px;
+  border: 1px solid rgba(176, 130, 63, 0.55);
+  border-top: 0;
+  background: linear-gradient(rgba(10, 13, 19, 0.82), rgba(10, 13, 19, 0.62));
+  color: var(--bone-300);
+  font: 600 calc(12px * var(--s)) / 1.35 var(--font);
+  text-align: center;
+}
+.dd-menu .dd-continue-card p {
+  margin: 0;
+}
+.dd-menu .dd-cc-stratum {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--bone-100);
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.dd-menu .dd-cc-roman {
+  font: 400 calc(17px * var(--s)) / 1 var(--font-lintel);
+  color: var(--amber-300);
+}
+.dd-menu .dd-cc-biomes {
+  color: var(--bone-300);
+}
+.dd-menu .dd-cc-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 4px 10px;
+  margin-top: 4px !important;
+  color: var(--bone-500);
+}
+.dd-menu .dd-cc-shards {
+  display: inline-flex;
+  gap: 2px;
+}
+.dd-menu .dd-cc-shards i {
+  width: 5px;
+  height: 8px;
+  transform: skewX(-12deg);
+  background: rgba(255, 255, 255, 0.12);
+}
+.dd-menu .dd-cc-shards i.on {
+  background: #ff8a5c;
+  box-shadow: 0 0 5px rgba(255, 138, 92, 0.8);
 }
 .dd-settings-seed {
   margin: 4px 0 0;
@@ -1092,4 +1384,29 @@
 .dd-menu3 .dd-m3-gemtext b {
   color: var(--bone-100);
   font-weight: 800;
+}
+
+/* LOOP's suggested recipe (the tutorial's torches, the pick the next gate asks for): ringed. */
+.dd-menu3 .dd-m3-card.focus {
+  position: relative;
+  border-color: #7ef0c0;
+  box-shadow: 0 0 0 2px rgba(126, 240, 192, 0.35), 0 0 18px rgba(126, 240, 192, 0.35);
+  animation: dd-m3-focus 1.6s ease-in-out infinite;
+}
+.dd-menu3 .dd-m3-focus {
+  margin: -2px 0 6px;
+  font: 800 calc(10.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7ef0c0;
+}
+@keyframes dd-m3-focus {
+  50% {
+    box-shadow: 0 0 0 4px rgba(126, 240, 192, 0.18), 0 0 26px rgba(126, 240, 192, 0.5);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-menu3 .dd-m3-card.focus {
+    animation: none;
+  }
 }

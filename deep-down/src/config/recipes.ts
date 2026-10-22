@@ -439,6 +439,8 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'torch', alt: 4, n: 4, category: 'building', station: 'hand', inputs: { glowvine: 1, coal: 1 } }),
   r({ out: 'torch', alt: 5, n: 5, category: 'building', station: 'hand', inputs: { sulphur: 1, plank: 1 } }),
   r({ out: 'torch', alt: 6, n: 4, category: 'building', station: 'hand', inputs: { emberite: 1, plank: 1 } }),
+  // The woodless deep: a coal of emberite in a stone cup burns for hours.
+  r({ out: 'torch', alt: 7, n: 3, category: 'building', station: 'hand', inputs: { emberite: 1, stone: 2 } }),
   r({ out: 'ladder', n: 3, category: 'building', station: 'workbench', inputs: { plank: 3 } }),
   r({ out: 'rope', n: 2, category: 'building', station: 'workbench', inputs: { fungalWood: 2, gel: 1 } }),
   r({ out: 'rope', alt: 2, n: 3, category: 'building', station: 'workbench', inputs: { rootFibre: 3 } }),
@@ -455,9 +457,14 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'forge', alt: 3, category: 'stations', station: 'workbench', inputs: { brick: 8, silverIngot: 2 } }),
   r({ out: 'alchemyTable', category: 'stations', station: 'workbench', inputs: { fungalWood: 4, glowcap: 4, amber: 2, copperIngot: 1 } }),
   r({ out: 'alchemyTable', alt: 2, category: 'stations', station: 'workbench', inputs: { plank: 4, glass: 3, gel: 2 } }),
+  // The woodless deep (V, VI): brick and glass, bound with what the creatures there leave.
+  r({ out: 'alchemyTable', alt: 3, category: 'stations', station: 'workbench', inputs: { brick: 6, glass: 4, venomSac: 1 } }),
+  r({ out: 'alchemyTable', alt: 4, category: 'stations', station: 'workbench', inputs: { brick: 6, glass: 4, voidEssence: 1 } }),
   r({ out: 'outpostKit', category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, copperIngot: 2 } }),
   r({ out: 'outpostKit', alt: 2, category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, ironIngot: 2 } }),
   r({ out: 'outpostKit', alt: 3, category: 'stations', station: 'workbench', inputs: { plank: 6, torch: 4, rope: 2, silverIngot: 1 } }),
+  r({ out: 'outpostKit', alt: 4, category: 'stations', station: 'workbench', inputs: { brick: 8, torch: 4, rope: 2, sunmetalIngot: 1 } }),
+  r({ out: 'outpostKit', alt: 5, category: 'stations', station: 'workbench', inputs: { brick: 8, torch: 4, rope: 2, embersteelIngot: 1 } }),
   // --- Smelting at the Furnace (fuel per craft).
   r({ out: 'copperIngot', category: 'smelting', station: 'furnace', inputs: { copperOre: 2 }, fuel: 1 }),
   r({ out: 'ironIngot', category: 'smelting', station: 'furnace', inputs: { ironOre: 2 }, fuel: 1 }),

@@ -261,10 +261,18 @@ export class StratumManager {
   update(dt: number, x: number, y: number, z: number): void {
     const l = this.layout;
     if (!l || this.busy) return;
+    // The open gate's shaft is the way down: stepping into its pit (which has no way back up) descends.
+    const g = l.gate;
+    if (g.next && Math.abs(x - g.centre[0]) < 1.7 && Math.abs(z - g.centre[2]) < 1.7 && y < g.centre[1] - 1.5 && y > g.centre[1] - 6 && this.gateOpen()) {
+      void this.descend();
+      return;
+    }
     this.exploreTimer -= dt;
     if (this.exploreTimer <= 0) {
       this.exploreTimer = 0.25;
-      this.explored?.markAround(x, z, 7, y);
+      // What the lantern lights, as far as the cave is open (UI's request: caverns map as caverns).
+      const w = this.host.session.world;
+      this.explored?.markSight((cx, cy, cz) => w.isSolid(cx, cy, cz), x, y, z, STRATA_GEN.mapSight);
     }
     const b = l.biomeAt(x, y, z);
     if (b !== this.biome) {

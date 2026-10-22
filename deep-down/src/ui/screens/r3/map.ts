@@ -1,6 +1,6 @@
 import { t, type TextKey } from '../../../i18n';
 import { h } from '../../dom';
-import { MARKER_COLOR, MARKER_GLYPH, MapRaster } from '../../hud/Minimap';
+import { LINE_COLOR, MARKER_COLOR, MARKER_GLYPH, MapRaster } from '../../hud/Minimap';
 import { iconSvg } from '../../hud/glyphs';
 import type { MapMarker, MapSource, MapView } from '../../types';
 import type { ScreenHost } from '../host';
@@ -18,7 +18,16 @@ const MARKER_LABEL: Record<MapMarker['kind'], TextKey> = {
   cache: 'm3.map.m.cache',
   shrine: 'm3.map.m.shrine',
   nest: 'm3.map.m.nest',
+  vista: 'm3.map.m.vista',
+  river: 'm3.map.m.river',
+  works: 'm3.map.m.works',
+  secret: 'm3.map.m.secret',
+  place: 'm3.map.m.place',
+  ravine: 'm3.map.m.ravine',
 };
+
+/** The legend's order: the ways first (camp, outposts, the objective, the gate), then lairs, places, finds. */
+export const LEGEND_ORDER: ReadonlyArray<MapMarker['kind']> =['camp', 'outpost', 'objective', 'gate', 'lair', 'cache', 'vista', 'river', 'works', 'place', 'secret', 'page', 'chest', 'ravine', 'nest', 'shrine'];
 
 /** Zoom limits (CSS px per metre) and the default view's span around the explorer (m). */
 export const MAP_ZOOM_MAX = 14;
@@ -91,6 +100,8 @@ export function buildMap(host: ScreenHost): HTMLElement {
     img.data.set(raster.rgba);
     fctx.putImageData(img, 0, 0);
   }
+  // The edge of the known: a warm halo round what was explored (blurred once here, drawn smooth).
+  const halo = haloCanvas(raster);
 
   const canvas = h('canvas', { class: 'dd-m3-map', role: 'img', 'aria-label': t('m3.map.aria', { name: v.stratumName }) });
   const layer = h('div', { class: 'dd-m3-maplayer' });
@@ -167,9 +178,52 @@ export function buildMap(host: ScreenHost): HTMLElement {
         ctx.lineTo(bx0 + src.width * cam.zoom, Math.round(y) + 0.5);
       }
       ctx.stroke();
-      // The explored caves, crisp texels.
+      // The halo, smooth, under the explored caves (crisp texels).
+      if (halo) {
+        ctx.imageSmoothingEnabled = true;
+        ctx.globalAlpha = 0.5;
+        ctx.drawImage(halo, bx0, by0, src.width * cam.zoom, src.depth * cam.zoom);
+        ctx.globalAlpha = 1;
+      }
       ctx.imageSmoothingEnabled = false;
       ctx.drawImage(fogCanvas, bx0, by0, src.width * cam.zoom, src.depth * cam.zoom);
+      // The underground river's explored stretches: a soft glow, then the bright line.
+      for (const line of src.lines ?? []) {
+        for (const [w, a] of [[5, 0.22], [2, 0.95]] as const) {
+          ctx.strokeStyle = LINE_COLOR[line.kind];
+          ctx.globalAlpha = a;
+          ctx.lineWidth = Math.max(1, w * Math.min(1.6, Math.max(0.6, cam.zoom / 3)));
+          ctx.lineCap = 'round';
+          ctx.lineJoin = 'round';
+          for (const run of line.runs) {
+            ctx.beginPath();
+            for (let j = 0; j + 1 < run.length; j += 2) {
+              const [x, y] = mapToView(cam, run[j], run[j + 1], size);
+              if (j === 0) ctx.moveTo(x, y);
+              else ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+          }
+        }
+        ctx.globalAlpha = 1;
+      }
+      // The explorer's view: a soft cone ahead of the arrow.
+      const [ex, ey] = mapToView(cam, src.playerX, src.playerZ, size);
+      const ahead = -Math.PI / 2 - src.yaw;
+      const reach = 42;
+      const cone = ctx.createRadialGradient(ex, ey, 4, ex, ey, reach);
+      cone.addColorStop(0, 'rgba(255, 226, 170, 0.32)');
+      cone.addColorStop(1, 'rgba(255, 226, 170, 0)');
+      ctx.fillStyle = cone;
+      ctx.beginPath();
+      ctx.moveTo(ex, ey);
+      ctx.arc(ex, ey, reach, ahead - 0.55, ahead + 0.55);
+      ctx.closePath();
+      ctx.fill();
+      // The stratum's edge.
+      ctx.strokeStyle = 'rgba(176, 130, 63, 0.35)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(Math.round(bx0) + 0.5, Math.round(by0) + 0.5, Math.round(src.width * cam.zoom), Math.round(src.depth * cam.zoom));
     }
     for (const { m, b } of pins) {
       const [x, y] = mapToView(cam, m.x, m.z, size);
@@ -303,8 +357,9 @@ export function buildMap(host: ScreenHost): HTMLElement {
   view.append(h('div', { class: 'dd-m3-mapctls' }, zoomBtn(1.5, '+', t('m3.map.zoomIn'), 'map:zoomIn'), zoomBtn(1 / 1.5, '−', t('m3.map.zoomOut'), 'map:zoomOut'), centreBtn));
   showCaption();
 
-  // The legend: the kinds of marker on this map, with their glyphs and counts.
-  const kinds = [...new Set(src.markers.map((m) => m.kind))];
+  // The legend: the kinds of marker on this map, with their glyphs and counts (the ways first).
+  const present = new Set(src.markers.map((m) => m.kind));
+  const kinds = LEGEND_ORDER.filter((k) => present.has(k));
   const legend = h(
     'ul',
     { class: 'dd-m3-legend' },
@@ -365,6 +420,7 @@ export function buildMap(host: ScreenHost): HTMLElement {
     h('h3', { class: 'dd-m3-section', text: t('m3.map.biomes') }),
     h('p', { class: 'dd-m3-meta dim', text: t('m3.map.exploredAll', { pct: explored }) }),
     biomes,
+    v.places ? h('p', { class: 'dd-m3-meta dd-m3-places' }, glyphEl('star', 'dd-m3-legendglyph'), h('span', { text: t('m3.map.places', { n: v.places.found, total: v.places.total }) })) : null,
     h('h3', { class: 'dd-m3-section', text: t('m3.map.fastTravel') }),
     travel,
     travelNote,
@@ -375,4 +431,37 @@ export function buildMap(host: ScreenHost): HTMLElement {
 
 function markerName(m: MapMarker): string {
   return m.label ? `${t(MARKER_LABEL[m.kind])} · ${m.label}` : t(MARKER_LABEL[m.kind]);
+}
+
+/**
+ * The halo of the known (one texel per column, like the raster): every explored column glows amber,
+ * blurred by a couple of columns where the canvas filter exists (else the smooth upscale still
+ * softens it). Null without a 2D context (tests).
+ */
+function haloCanvas(r: MapRaster): HTMLCanvasElement | null {
+  if (typeof document === 'undefined' || typeof ImageData === 'undefined') return null;
+  const mask = document.createElement('canvas');
+  mask.width = r.width;
+  mask.height = r.depth;
+  const mctx = mask.getContext('2d');
+  if (!mctx) return null;
+  const img = new ImageData(r.width, r.depth);
+  const px = img.data;
+  const src = r.rgba;
+  for (let i = 0; i < r.width * r.depth; i++) {
+    if (src[i * 4 + 3] === 0) continue;
+    px[i * 4] = 255;
+    px[i * 4 + 1] = 186;
+    px[i * 4 + 2] = 104;
+    px[i * 4 + 3] = 255;
+  }
+  mctx.putImageData(img, 0, 0);
+  const out = document.createElement('canvas');
+  out.width = r.width;
+  out.height = r.depth;
+  const octx = out.getContext('2d');
+  if (!octx) return mask;
+  if ('filter' in octx) octx.filter = 'blur(2.5px)';
+  octx.drawImage(mask, 0, 0);
+  return out;
 }

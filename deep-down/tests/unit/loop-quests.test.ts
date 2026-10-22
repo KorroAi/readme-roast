@@ -527,3 +527,506 @@ describe('the loop in a stratum: hazards through the hub', () => {
     expect(ITEMS.warmingTonic.use).toMatchObject({ kind: 'ward', hazard: 'cold' });
   });
 });
+
+describe('hazards (2): elemental blows, the warnings, the zones, thorns and flares', () => {
+  const probe = (over: Partial<HazardProbe> = {}): HazardProbe => ({
+    kind: 'none', strength: 0, zone: 0, inLava: false, nearWarmth: false, lit: true, inCamp: false, moving: true,
+    wards: { cold: 0, gas: 0, heat: 0, dark: 0 }, potions: {}, health: 100, ...over,
+  });
+  const none = { cold: 0, gas: 0, heat: 0, dark: 0 };
+
+  it('a frost blow bumps the cold meter (none under its tonic or the full Fur set); it fades away from the cold', () => {
+    const hz = new Hazards();
+    expect(hz.hit('frost', none, {}).meter).toBe('cold');
+    expect(hz.active).toBe('cold');
+    expect(hz.meter).toBeCloseTo(0.2, 5);
+    for (let i = 0; i < 40; i++) hz.update(0.25, probe());
+    expect(hz.meter).toBe(0);
+    const tonic = new Hazards();
+    expect(tonic.hit('frost', none, { cold: 30 }).meter).toBeNull();
+    expect(tonic.meter).toBe(0);
+    const fur = new Hazards();
+    fur.hit('frost', { ...none, cold: 1 }, {});
+    expect(fur.meter).toBe(0);
+    // Shock and plain blows add nothing.
+    expect(new Hazards().hit('shock', none, {}).meter).toBeNull();
+  });
+
+  it('fire keeps biting for a moment (about 6 hp), cut by the heat ward; the camp puts it out', () => {
+    const hz = new Hazards();
+    expect(hz.hit('fire', none, {}).dot).toBe(true);
+    let dmg = 0;
+    for (let i = 0; i < 20; i++) dmg += hz.update(0.25, probe()).damage;
+    expect(dmg).toBeGreaterThan(5.5);
+    expect(dmg).toBeLessThan(6.5);
+    expect(hz.burning).toBe(0);
+    const half = new Hazards();
+    half.hit('fire', { ...none, heat: 0.5 }, {});
+    let d2 = 0;
+    for (let i = 0; i < 20; i++) d2 += half.update(0.25, probe({ wards: { ...none, heat: 0.5 } })).damage;
+    expect(d2).toBeLessThan(dmg * 0.6);
+    const camp = new Hazards();
+    camp.hit('acid', none, {});
+    expect(camp.update(0.25, probe({ inCamp: true })).damage).toBe(0);
+    expect(camp.burning).toBe(0);
+  });
+
+  it('a meter rising past the warning level is announced once (not again for 90 s), not a blow\'s bump', () => {
+    const hz = new Hazards();
+    let warns = 0;
+    for (let i = 0; i < 4 * 40; i++) if (hz.update(0.25, probe({ kind: 'cold', strength: 0.7, zone: 1 })).warn) warns++;
+    expect(warns).toBe(1);
+    const bump = new Hazards();
+    bump.hit('frost', none, {});
+    bump.hit('frost', none, {});
+    bump.hit('frost', none, {});
+    expect(bump.update(0.25, probe()).warn).toBe(false);
+  });
+
+  it('the hub: a frost blow in the Frost Caverns, the first-time line, the void drinking oil', () => {
+    const { h, loop } = game();
+    h.strata.enter(4);
+    h.strata.biomeHere = 'frostCaverns';
+    h.inCamp = false;
+    h.bus.emit('mob:attack', { id: 1, kind: 'icefang', damage: 5, landed: true, element: 'frost' } as GameEvents['mob:attack']);
+    h.bus.emit('mob:attack', { id: 1, kind: 'icefang', damage: 5, landed: true, element: 'frost' } as GameEvents['mob:attack']);
+    expect(loop.hazards.meter).toBeGreaterThan(0.3);
+    expect(of(h, 'guide:hint').filter((e) => e.id === 'element:frost')).toHaveLength(1);
+    // A missed blow does nothing.
+    const before = loop.hazards.meter;
+    h.bus.emit('mob:attack', { id: 1, kind: 'icefang', damage: 5, landed: false, element: 'frost' } as GameEvents['mob:attack']);
+    expect(loop.hazards.meter).toBe(before);
+    const fuel = h.lanternFuel.fuel;
+    h.bus.emit('mob:attack', { id: 2, kind: 'voidEye', damage: 5, landed: true, element: 'void' } as GameEvents['mob:attack']);
+    expect(h.lanternFuel.fuel).toBeCloseTo(fuel - 8, 5);
+  });
+
+  it('the warning names the counter carried (its hotbar slot), else what to do', () => {
+    const { h, loop } = game();
+    expect(loop.hazardFix('cold')).toMatchObject({ item: null, target: null, text: en['hazard.fix.cold'] });
+    h.backpack.add('warmingTonic', 2);
+    loop.learn('warmingTonic');
+    const fix = loop.hazardFix('cold');
+    expect(fix.item).toBe('warmingTonic');
+    expect(fix.text).toContain('2');
+    expect(fix.target === 'bag' || /^hotbar:\d$/.test(String(fix.target))).toBe(true);
+    // The cold building in the Frost Caverns says it once, with the tonic.
+    h.strata.enter(4);
+    h.strata.biomeHere = 'frostCaverns';
+    h.inCamp = false;
+    for (let i = 0; i < 4 * 30; i++) loop.update(0.25);
+    const warn = of(h, 'toast').filter((e) => String(e.text).startsWith(en['hazard.warn.cold']));
+    expect(warn).toHaveLength(1);
+    expect(String(warn[0].text)).toContain(en['item.warmingTonic']);
+  });
+
+  it('walking into a hazard zone of WORLD\'s gives its line once per stratum', () => {
+    const { h, loop } = game();
+    h.strata.enter(3);
+    h.strata.biomeHere = 'haldenMines';
+    h.inCamp = false;
+    (h.strata.layout as unknown as { hazards: unknown[] }).hazards = [{ kind: 'rockfall', centre: [0, 10, 0], radius: 8, strength: 0.4 }];
+    for (let i = 0; i < 8; i++) loop.update(0.25);
+    h.player.x = 40;
+    for (let i = 0; i < 8; i++) loop.update(0.25);
+    h.player.x = 0;
+    for (let i = 0; i < 8; i++) loop.update(0.25);
+    expect(of(h, 'guide:hint').filter((e) => e.id === 'zone:rockfall')).toHaveLength(1);
+    expect(en['hazard.zone.rockfall']).toBeTruthy();
+  });
+
+  it('the Glowroot\'s vines scratch an explorer brushing past them (armour softens it)', () => {
+    const { h, loop } = game();
+    h.strata.enter(4);
+    h.strata.biomeHere = 'glowrootJungle';
+    h.inCamp = false;
+    const vine = { x: 1, y: 10, z: 0 };
+    (h as { session: unknown }).session = { world: { get: (x: number, y: number, z: number) => (x === vine.x && y === vine.y && z === vine.z ? B.GLOW_VINE : B.AIR) }, liveProps: new Map(), props: { add() {}, remove() {}, has: () => false, setLift() {} }, setBlock() {}, removeProp() {} };
+    for (let i = 0; i < 4 * 12; i++) {
+      h.player.z = (i % 2) * 0.3;
+      loop.update(0.25);
+    }
+    expect(h.health.current).toBeLessThan(PLAYER.maxHealth);
+    const hurt = h.health.current;
+    h.player.x = 30;
+    for (let i = 0; i < 4 * 12; i++) {
+      h.player.z = (i % 2) * 0.3;
+      loop.update(0.25);
+    }
+    expect(h.health.current).toBe(hurt);
+  });
+
+  it('a thrown flare\'s light keeps the dark back where it lands', () => {
+    const { h, loop } = game();
+    h.strata.enter(5);
+    h.strata.biomeHere = 'sunkenCity';
+    h.inCamp = false;
+    h.backpack.add('flare', 2);
+    h.lanternFuel.drain(h.lanternFuel.fuel);
+    expect(loop.consumeThrown('flare')).toBe(true);
+    h.bus.emit('weapon:flash', { x: 2, y: 10, z: 0, radius: 6, count: 0 });
+    for (let i = 0; i < 4 * 30; i++) loop.update(0.25);
+    expect(h.health.current).toBe(PLAYER.maxHealth);
+    // Without the flare the dark creeps in once the flame is out.
+    const { h: h2, loop: l2 } = game();
+    h2.strata.enter(5);
+    h2.strata.biomeHere = 'sunkenCity';
+    h2.inCamp = false;
+    h2.lanternFuel.drain(h2.lanternFuel.fuel);
+    for (let i = 0; i < 4 * 30; i++) l2.update(0.25);
+    expect(h2.health.current).toBeLessThan(PLAYER.maxHealth);
+    // A bomb's flash is not a flare (UI's 'weapon:flash' says what landed).
+    const { h: h3, loop: l3 } = game();
+    h3.backpack.add('flare', 1);
+    l3.consumeThrown('flare');
+    h3.bus.emit('weapon:flash', { x: 0, y: 10, z: 0, radius: 4, count: 0, kind: 'bomb' } as GameEvents['weapon:flash']);
+    expect((l3 as unknown as { flares: unknown[] }).flares).toHaveLength(0);
+    h3.bus.emit('weapon:flash', { x: 0, y: 10, z: 0, radius: 6, count: 0, kind: 'flare' } as GameEvents['weapon:flash']);
+    expect((l3 as unknown as { flares: unknown[] }).flares).toHaveLength(1);
+  });
+});
+
+describe('the hidden places of each biome (WORLD\'s named sites)', () => {
+  const withSites = (h: TestHost, sites: Array<{ id: string; biome: BiomeId; kind: string; name: string }>) => {
+    (h.strata.layout as unknown as { sites: unknown[] }).sites = sites.map((x) => ({ ...x, centre: [0, 10, 0], radius: 10 }));
+  };
+
+  it('counts each biome\'s places from the layout, pays the task, and two feats', () => {
+    const { h, loop } = game();
+    withSites(h, [
+      { id: 's1', biome: 'amberHollows', kind: 'setPiece', name: 'honeycomb' },
+      { id: 's2', biome: 'amberHollows', kind: 'secret', name: 'secret' },
+      { id: 's3', biome: 'amberHollows', kind: 'vista', name: 'honeyCathedral' },
+      { id: 's4', biome: 'mushroomForest', kind: 'setPiece', name: 'grandCap' },
+      { id: 's5', biome: 'mushroomForest', kind: 'secret', name: 'secret' },
+      { id: 'x', biome: 'mushroomForest', kind: 'mineCamp', name: '' },
+    ]);
+    loop.update(0.1);
+    const task = () => loop.quests.view().biomes.find((b) => b.biome === 'amberHollows')!.tasks.find((x) => x.id === 'task:amberHollows.places')!;
+    expect(task()).toMatchObject({ have: 0, need: 3, done: false });
+    expect(task().text).toBe(en['task.places'].replace('{biome}', en['biome.amberHollows.name']).replace('{have}', '0').replace('{need}', '3'));
+    const site = (id: string, biome: BiomeId) => h.bus.emit('world:site', { id, kind: 'setPiece', name: 'x', biome, stratum: 1 as StratumIndex });
+    site('s1', 'amberHollows');
+    site('s1', 'amberHollows');
+    expect(task().have).toBe(1);
+    site('s2', 'amberHollows');
+    site('s3', 'amberHollows');
+    expect(task().done).toBe(true);
+    expect(of(h, 'quest:done').some((e) => e.id === 'task:amberHollows.places')).toBe(true);
+    site('s4', 'mushroomForest');
+    site('s5', 'mushroomForest');
+    loop.update(1.1);
+    expect(loop.quests.feats.has('placesAll')).toBe(true);
+    expect(loop.quests.feats.has('places10')).toBe(false);
+    // Saved and restored.
+    const save = JSON.parse(JSON.stringify(loop.toSave()));
+    const h2 = host();
+    const l2 = new Loop(h2);
+    l2.wire();
+    l2.fromSave(save);
+    expect(l2.quests.placesSummary()).toEqual({ found: 5, stratumDone: true });
+    expect(l2.quests.view().biomes.find((b) => b.biome === 'amberHollows')!.tasks.find((x) => x.id === 'task:amberHollows.places')).toMatchObject({ have: 3, need: 3, done: true });
+  });
+
+  it('a biome of a stratum not entered yet asks for its set piece and secret room', () => {
+    const { loop } = game();
+    const t = loop.quests.view().biomes.find((b) => b.biome === 'magmaVeins')!.tasks.find((x) => x.id === 'task:magmaVeins.places')!;
+    expect(t.need).toBe(2);
+  });
+
+  it('the trip card counts the places found on the trip', () => {
+    const { h, loop } = game();
+    h.bus.emit('camp:left', {});
+    h.inCamp = false;
+    loop.update(30);
+    h.bus.emit('world:site', { id: 'v', kind: 'vista', name: 'honeyCathedral', biome: 'amberHollows', stratum: 1 as StratumIndex });
+    h.inCamp = true;
+    h.bus.emit('camp:entered', {});
+    loop.update(0.1);
+    const s = loop.lastTrip();
+    expect(s?.places).toBe(1);
+    expect(s?.lines.some((l) => l.label === en['trip3.places'] && l.value === '1')).toBe(true);
+  });
+});
+
+describe('guidance (2): the tutorial points and waits for no one; rumours of the lairs; the Craft menu\'s focus', () => {
+  it('the tracker says where the tutorial stands; the bubble says what to do', () => {
+    const { loop } = game(true);
+    expect(loop.quests.main()).toMatchObject({ kind: 'tutorial', text: en['quest.step.tutorial'], progress: { have: 0, need: TUTORIAL.length } });
+    expect(loop.quests.tutorialStep()?.line).toBe(en['tut.look']);
+  });
+
+  it('on the mining step the compass points at the nearest open vein the pick can break', () => {
+    const { h, loop } = game(true);
+    const ore = { x: 6, y: 10, z: 2 };
+    const deep = { x: 2, y: 10, z: 3 };
+    h.inCamp = false;
+    (h as { session: unknown }).session = {
+      world: {
+        get: (x: number, y: number, z: number) => {
+          if (x === ore.x && y === ore.y && z === ore.z) return B.COPPER_ORE;
+          // A buried vein (no open face) and a vein too hard for the rusty pick, both nearer.
+          if (x === deep.x && y === deep.y && z === deep.z) return B.COPPER_ORE;
+          if (Math.abs(x - deep.x) + Math.abs(y - deep.y) + Math.abs(z - deep.z) === 1) return B.SLATE;
+          if (x === 3 && y === 10 && z === -1) return B.FROST_IRON;
+          return B.AIR;
+        },
+      },
+      liveProps: new Map(), props: { add() {}, remove() {}, has: () => false, setLift() {} }, setBlock() {}, removeProp() {},
+    };
+    for (let i = 0; i < 3; i++) h.bus.emit('ui:used', { control: 'look' });
+    for (let i = 0; i < 4; i++) h.bus.emit('ui:used', { control: 'move' });
+    expect(loop.quests.tutorialStep()?.id).toBe('mine');
+    loop.update(0.3);
+    const tg = loop.quests.main().target;
+    expect(tg).toMatchObject({ x: 6.5, y: 10.5, z: 2.5, kind: 'point', stratum: 1 });
+    expect(loop.hud(0).compass).not.toBeNull();
+    h.bus.emit('block:broken', { x: 6, y: 10, z: 2, block: B.COPPER_ORE });
+    expect(loop.quests.main().target).toBeNull();
+  });
+
+  it('a step left alone moves on by itself (the tutorial never blocks), only while playing', () => {
+    const { h, loop } = game(true);
+    for (let i = 0; i < 3; i++) h.bus.emit('ui:used', { control: 'look' });
+    for (let i = 0; i < 4; i++) h.bus.emit('ui:used', { control: 'move' });
+    expect(loop.quests.tutorialStep()?.id).toBe('mine');
+    for (let i = 0; i < 149; i++) loop.update(1, false);
+    expect(loop.quests.tutorialStep()?.id).toBe('mine');
+    for (let i = 0; i < 151; i++) loop.update(1);
+    expect(loop.quests.tutorialStep()?.id).not.toBe('mine');
+    for (const s of TUTORIAL) expect(s.timeout, s.id).toBeGreaterThan(0);
+  });
+
+  it('after 90 s without a lead the rumour points near the nearest unrevealed lair, with the stuck hint', () => {
+    const { h, loop } = game();
+    h.inCamp = false;
+    loop.update(1);
+    expect(loop.quests.main()).toMatchObject({ id: 'main:s1.lairs', target: null });
+    for (let i = 0; i < 92; i++) loop.update(1);
+    const tg = loop.quests.main().target;
+    expect(tg?.kind).toBe('point');
+    const lair = h.strata.layout!.lairs[0];
+    expect(Math.hypot(tg!.x - lair.entrance[0], tg!.z - lair.entrance[2])).toBeLessThanOrEqual(14.01);
+    expect(of(h, 'guide:hint').some((e) => e.id === 'stuck:lairs')).toBe(true);
+    // Once a lair is known the arrow goes to it exactly.
+    h.strata.reveal(lair.id);
+    loop.update(0.3);
+    expect(loop.quests.main()).toMatchObject({ kind: 'main', target: { x: lair.entrance[0], z: lair.entrance[2], kind: 'lair' } });
+  });
+
+  it('the Crafting menu opens on the tutorial\'s torches, and on the pick the quest asks for', () => {
+    const { h, loop } = game(true);
+    h.backpack.add('fungalWood', 2);
+    h.backpack.add('coal', 2);
+    loop.learn('fungalWood');
+    loop.learn('coal');
+    expect(loop.craftView().focus ?? null).toBeNull();
+    for (let i = 0; i < 3; i++) h.bus.emit('ui:used', { control: 'look' });
+    for (let i = 0; i < 4; i++) h.bus.emit('ui:used', { control: 'move' });
+    h.bus.emit('block:broken', { x: 0, y: 0, z: 0, block: B.COPPER_ORE });
+    h.bus.emit('item:picked', { item: 'copperOre', count: 1 });
+    expect(loop.quests.tutorialStep()?.id).toBe('craft');
+    expect(loop.craftView().focus).toEqual({ category: 'building', recipe: 'torch' });
+    // The prepare step: both shards of stratum I, no copper pick yet.
+    loop.quests.skipTutorial();
+    h.bus.emit('mob:guardianDefeated', { id: 1, kind: 'amberMatriarch', biome: 'amberHollows', shard: 'amberHollows', x: 0, y: 0, z: 0 } as GameEvents['mob:guardianDefeated']);
+    h.bus.emit('mob:guardianDefeated', { id: 2, kind: 'mycelord', biome: 'mushroomForest', shard: 'mushroomForest', x: 0, y: 0, z: 0 } as GameEvents['mob:guardianDefeated']);
+    loop.learn('copperIngot');
+    expect(loop.quests.mainRawStep().step).toBe('prepare');
+    expect(loop.craftView().focus).toEqual({ category: 'tools', recipe: 'copperPick' });
+  });
+});
+
+describe('camp orders (2): paid on the arrival\'s own deposit; the needs follow the explorer down', () => {
+  it('a delivery done by the bag banked on arrival is paid on that same arrival', () => {
+    const { h, loop } = game();
+    const book = loop.quests.book;
+    book.list = [{ id: 'order:x', kind: 'deliver', item: 'copperOre', need: 5, have: 0, reward: { torch: 3 }, daily: false, stratum: 1 }, ...book.list.filter((o) => o.daily)];
+    h.inCamp = true;
+    h.bus.emit('camp:entered', {});
+    expect(of(h, 'order:paid')).toHaveLength(0);
+    h.bus.emit('items:banked', { total: 6, items: { copperOre: 6 } });
+    expect(of(h, 'order:paid').map((e) => e.id)).toEqual(['order:x']);
+    expect(book.list.filter((o) => !o.daily)).toHaveLength(3);
+  });
+
+  it('an order not started, made for a shallower stratum, is replaced; one under way stays', () => {
+    const { h, loop } = game();
+    const book = loop.quests.book;
+    const keep = { id: 'order:keep', kind: 'hunt' as const, item: null, need: 6, have: 2, reward: { torch: 3 }, daily: false, stratum: 1 };
+    const stale = { id: 'order:stale', kind: 'hunt' as const, item: null, need: 6, have: 0, reward: { torch: 3 }, daily: false, stratum: 1 };
+    book.list = [keep, stale, ...book.list.filter((o) => o.daily)];
+    h.strata.enter(2);
+    h.strata.enter(3);
+    h.bus.emit('camp:entered', {});
+    const ids = book.list.map((o) => o.id);
+    expect(ids).toContain('order:keep');
+    expect(ids).not.toContain('order:stale');
+    expect(book.list.filter((o) => !o.daily && o.id !== 'order:keep').every((o) => o.stratum === 3)).toBe(true);
+    expect(of(h, 'toast').some((e) => e.text === en['order.renewed'])).toBe(true);
+  });
+});
+
+describe('the side tracker\'s suggested craft (what the descent needs next)', () => {
+  it('a weapon before the guardians, the ward of a hazard stratum, a brighter lantern, an outpost', () => {
+    const { h, loop } = game();
+    // Stratum I, the lairs step, no weapon: nothing visible yet (no copper bar or hide known).
+    expect(loop.advice()).toBeNull();
+    for (const id of ['copperIngot', 'hide', 'fungalWood', 'gel', 'fang'] as ItemId[]) loop.learn(id);
+    const a = loop.advice();
+    expect(a?.why).toBe('weapon');
+    expect(['machete', 'spear', 'sling']).toContain(a?.item);
+    loop.update(0.3);
+    const side = loop.quests.side();
+    expect(side).toMatchObject({ id: `advice:${a!.item}`, kind: 'side', title: en['advice.title'] });
+    // A tracked task wins.
+    loop.quests.track('task:amberHollows.mine');
+    expect(loop.quests.side()?.id).toBe('task:amberHollows.mine');
+    loop.quests.track(null);
+    loop.gear.grant('machete');
+    expect(loop.advice()).toBeNull();
+    loop.update(0.3);
+    expect(loop.quests.side()?.kind).not.toBe('side');
+    // Stratum IV: the Fur set (chest first), then the next piece.
+    h.strata.enter(2);
+    h.strata.enter(3);
+    h.strata.enter(4);
+    for (const id of ['frostFur', 'silverIngot', 'chitin'] as ItemId[]) loop.learn(id);
+    loop.gear.grant('sword');
+    expect(loop.advice()).toMatchObject({ why: 'armour', item: 'furCoat', hazard: en['hazard.noun.cold'] });
+    loop.update(0.3);
+    expect(loop.quests.side()?.text).toBe(en['advice.armour'].replace('{item}', en['item.furCoat']).replace('{hazard}', en['hazard.noun.cold']));
+    for (const id of ['furCoat', 'furHood', 'furBoots'] as ItemId[]) loop.gear.grant(id);
+    // A lantern three tiers behind (the copper one is known: glass, amber, copper bars).
+    for (const id of ['glass', 'amber'] as ItemId[]) loop.learn(id);
+    expect(loop.advice()).toMatchObject({ why: 'lantern', item: 'copperLantern' });
+  });
+});
+
+describe('the earlier deep\'s feats', () => {
+  it('a 1.x explorer\'s feats show earned in the Quests screen, under their own names', () => {
+    const { h, loop } = game();
+    (h as unknown as { progression: unknown }).progression = { extra: { feats: ['firstStone', 'answer', 'nope'] } };
+    const feats = loop.quests.view().feats;
+    const legacy = feats.filter((f) => f.id.startsWith('legacy:'));
+    expect(legacy.map((f) => f.id)).toEqual(['legacy:firstStone', 'legacy:answer']);
+    expect(legacy.every((f) => f.earned)).toBe(true);
+    expect(legacy[0].name).toBe(en['feat3.legacy'].replace('{name}', en['feat.firstStone.name']));
+    expect(feats.length).toBe(FEATS3.length + 2);
+  });
+});
+
+describe('the trip card says where the trip ended', () => {
+  it('back at camp; at a lower stratum\'s lift; rested at an outpost (the next trip starts there); a black-out', () => {
+    const { h, loop } = game();
+    const out = () => { h.bus.emit('camp:left', {}); h.inCamp = false; loop.update(30); };
+    const home = () => { h.inCamp = true; h.bus.emit('camp:entered', {}); loop.update(0.1); h.inCamp = false; };
+    out();
+    h.bus.emit('block:broken', { x: 0, y: 0, z: 0, block: B.COPPER_ORE });
+    home();
+    expect(loop.lastTrip()).toMatchObject({ where: 'camp', title: en['trip3.title'] });
+    out();
+    h.strata.enter(2);
+    h.strata.enter(3);
+    loop.update(1);
+    home();
+    expect(loop.lastTrip()).toMatchObject({ where: 'lift', title: en['trip3.title.lift'].replace('{stratum}', 'III') });
+    out();
+    const o = loop.placeOutpost({ x: 5, y: 10, z: 5 })!;
+    loop.update(25);
+    expect(loop.restAtOutpost(o.id)).toBe(true);
+    loop.update(0.1);
+    expect(loop.lastTrip()).toMatchObject({ where: 'outpost', title: en['trip3.title.outpost'] });
+    expect(loop.trip.active).toBe(true);
+    loop.update(30);
+    h.bus.emit('player:died', { lost: null } as unknown as GameEvents['player:died']);
+    loop.update(0.1);
+    expect(loop.lastTrip()).toMatchObject({ outcome: 'blackout', where: 'outpost', title: en['trip3.blackout.outpost'] });
+  });
+});
+
+describe('the whole descent, step by step (BRIEF §0.3)', () => {
+  it('tutorial → six strata (lairs, guardians, the pick, the gate, the descent) → the Heart → its guardian → the ending → free play', async () => {
+    const { h, loop } = game(true);
+    const q = loop.quests;
+    const seen: string[] = [];
+    const step = () => {
+      loop.update(0.3);
+      const m = q.mainRawStep();
+      const v = q.main();
+      if (seen[seen.length - 1] !== m.id) seen.push(m.id);
+      expect(v.text.length, m.id).toBeGreaterThan(5);
+      expect(/\{[a-z]+\}/i.test(v.text), v.text).toBe(false);
+      return { m, v };
+    };
+    expect(step().m.step).toBe('tutorial');
+    q.skipTutorial();
+    h.inCamp = false;
+    const picks = NEXT_PICK as Record<number, ItemId | null>;
+    for (let n = 1; n <= 6; n++) {
+      expect(h.strata.current).toBe(n);
+      expect(step().m).toMatchObject({ step: 'lairs', stratum: n });
+      for (const lair of h.strata.layout!.lairs) {
+        h.strata.reveal(lair.id);
+        const g = step();
+        expect(g.m).toMatchObject({ step: 'guardian', biome: lair.biome });
+        expect(g.v.target).toMatchObject({ kind: 'lair', stratum: n });
+        defeat(h, lair.biome);
+      }
+      if (n < 6) {
+        expect(step().m.step).toBe('prepare');
+        loop.gear.grant(picks[n] as ItemId);
+        h.bus.emit('gear:equipped', { item: picks[n] as ItemId, slot: 'pick' });
+        const g = step();
+        expect(g.m.step).toBe('gate');
+        expect(g.v.target?.kind).toBe('gate');
+        expect(q.useGate()).toBe('opened');
+        expect(step().m.step).toBe('descend');
+        expect(q.useGate()).toBe('descend');
+        await Promise.resolve();
+      }
+    }
+    expect(q.shards.size).toBe(12);
+    const heart = step();
+    expect(heart.m.step).toBe('heart');
+    expect(heart.v.target?.kind).toBe('heart');
+    h.player.x = 128;
+    h.player.z = 240;
+    expect(step().m.step).toBe('boss');
+    expect(q.heartLit).toBe(true);
+    defeat(h, 'heart');
+    expect(step().m.step).toBe('free');
+    expect(of(h, 'quest:ending')).toHaveLength(1);
+    expect(q.view().free).toBe(true);
+    // The chain, in order: 1 tutorial + per stratum lairs, 2 guardians (+ lairs again between), prepare, gate, descend.
+    expect(seen[0]).toBe('main:tutorial');
+    expect(seen.filter((s) => s.endsWith('.gate'))).toHaveLength(5);
+    expect(seen.filter((s) => s.includes('.guardian.'))).toHaveLength(12);
+    expect(seen.slice(-3)).toEqual(['main:s6.heart', 'main:s6.boss', 'main:s6.free']);
+    // The feats of the descent, and every stratum's step in the Quests screen done.
+    for (let i = 0; i < 3; i++) loop.update(1);
+    for (const f of ['firstGuardian', 'stratum2', 'stratum3', 'stratum4', 'stratum5', 'stratum6', 'sixShards', 'allShards', 'heart', 'sunPick']) expect(q.feats.has(f), f).toBe(true);
+    expect(q.view().main.every((s) => s.steps.every((x) => x.done))).toBe(true);
+  });
+});
+
+describe('chest orders', () => {
+  it('an "open 4 chests" order counts the chests opened, and the trip card too', () => {
+    const { h, loop } = game();
+    const book = loop.quests.book;
+    book.list = [{ id: 'order:c', kind: 'chests', item: null, need: 2, have: 0, reward: { torch: 2 }, daily: false, stratum: 1 }, ...book.list.filter((o) => o.daily)];
+    h.bus.emit('camp:left', {});
+    h.inCamp = false;
+    loop.update(1);
+    loop.chestOpened();
+    loop.chestOpened();
+    expect(book.list[0].have).toBe(2);
+    expect(of(h, 'toast').some((e) => e.text === en['order.ready'])).toBe(true);
+    h.inCamp = true;
+    h.bus.emit('camp:entered', {});
+    loop.update(0.1);
+    expect(of(h, 'order:paid').map((e) => e.id)).toContain('order:c');
+    expect(loop.lastTrip()?.chests).toBe(2);
+    expect(en['order.chests']).toBeTruthy();
+  });
+});

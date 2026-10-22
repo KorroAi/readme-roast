@@ -18,7 +18,20 @@ type Ev = { type: string; payload: any };
 
 const SEED = 7;
 
+/** Console errors of the page (a shader that fails to compile prints one: its material never draws). */
+const consoleErrors = new WeakMap<Page, string[]>();
+
+function shaderErrors(page: Page): string[] {
+  return (consoleErrors.get(page) ?? []).filter((e) => /Shader Error|WebGLProgram|redefinition|VALIDATE_STATUS|compile/i.test(e));
+}
+
 async function boot(page: Page): Promise<void> {
+  const errs: string[] = [];
+  consoleErrors.set(page, errs);
+  page.on('console', (m) => {
+    if (m.type() === 'error') errs.push(m.text());
+  });
+  page.on('pageerror', (e) => errs.push(e.message));
   await page.goto('/index.html?gen=strata');
   await page.waitForFunction(() => window.__DD__?.ready && window.__DD__.state().mode === 'menu', null, { timeout: LOADED_CEILING_MS, polling: 250 });
   await page.evaluate(async (seed) => {
@@ -86,19 +99,23 @@ async function closeIn(page: Page, m: MobView, dist: number): Promise<void> {
   await page.evaluate(([x, y, z]) => (window.__DD__ as any).mobs.lookAt(x, y, z, 0), [m.x, m.y, m.z] as const);
 }
 
-/** Tap a creature on screen until it dies (re-aiming each time). @returns the taps used. */
-async function tapUntilDead(page: Page, touch: Touch, id: number, maxTaps: number, reach = 1.9, only?: () => Promise<boolean>): Promise<number> {
+/** Tap a creature on screen until it dies (re-aiming each time), within `seconds`. @returns the taps used. */
+async function tapUntilDead(page: Page, touch: Touch, id: number, maxTaps: number, reach = 1.9, only?: () => Promise<boolean>, seconds = 150): Promise<number> {
   let taps = 0;
-  for (let i = 0; i < maxTaps * 3 && taps < maxTaps; i++) {
+  const t0 = Date.now();
+  while (taps < maxTaps && Date.now() - t0 < seconds * 1000) {
     const m = await mob(page, id);
     if (!m || m.state === 'dying') break;
     if (only && !(await only())) {
-      await page.waitForTimeout(150);
+      await page.waitForTimeout(120);
       continue;
     }
     await closeIn(page, m, reach);
     const pt = await screenOf(page, [m.x, m.y, m.z]);
-    if (!pt) continue;
+    if (!pt) {
+      await page.waitForTimeout(100);
+      continue;
+    }
     await touch.tap({ x: Math.round(pt.x), y: Math.round(pt.y) });
     taps++;
     await page.waitForTimeout(240);
@@ -129,8 +146,24 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
       return f ? dd.mobs.spawn(k, f[0], f[1], f[2], { asleep: false }) : dd.mobs.spawnAhead(k, 4, 0, { asleep: false });
     }, [kind] as const);
     expect(id, `${kind} stands in ${biome}`).not.toBeNull();
-    // Let it come at the explorer (its first blows, told).
+    // Let it come at the explorer (its first blows, told), watching for its marker on the ground (a
+    // charger's lane, a brute's slam circle) and the telegraph decals actually drawn while it is down.
+    let marked = false;
+    let decalsDrawn = false;
     await page.waitForFunction((i) => (window.__DD__ as any).mobs.events('mob:attack').some((e: Ev) => e.payload.id === i), id, { timeout: 60_000, polling: 250 });
+    for (let k = 0; k < 40 && !(marked && decalsDrawn); k++) {
+      const seen = await page.evaluate((i) => {
+        const dd = window.__DD__ as any;
+        const own = dd.mobs.markers().some((mk: { owner: number }) => mk.owner === i);
+        const mesh = dd.game.mobs.group.getObjectByName('mobTelegraphs');
+        return { own, drawn: own && !!mesh?.visible && mesh.geometry.instanceCount > 0 };
+      }, id);
+      marked ||= seen.own;
+      decalsDrawn ||= seen.drawn;
+      if (!(marked && decalsDrawn)) await page.waitForTimeout(250);
+    }
+    expect(marked, `${kind}: its blow marked on the ground`).toBe(true);
+    expect(decalsDrawn, `${kind}: the telegraph decals drawn`).toBe(true);
     const taps = await tapUntilDead(page, touch, id as number, 40);
     await page.waitForFunction((i) => (window.__DD__ as any).mobs.events('mob:died').some((e: Ev) => e.payload.id === i), id, { timeout: 30_000, polling: 250 });
     const log = await events(page);
@@ -146,12 +179,15 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
     console.log(`[mobs] ${biome}: ${kind} beaten in ${taps} taps, ${own.filter((e) => e.type === 'mob:attack').length} blows at the explorer, loot ${picked}`);
     expect(picked, `${kind}: its loot reached the bag`).toBe(true);
   }
+  expect(shaderErrors(page), 'every creature shader compiled').toEqual([]);
 });
 
-test('a guardian beaten end to end: it wakes in its lair, its bar on the HUD, told patterns, phase two, its fall, the shard paid', async ({ page }) => {
+test('a guardian beaten end to end with real taps: asleep in its lair, its bar, told patterns struck in its open guard, phase two, its fall, the shard paid', async ({ page }) => {
   await boot(page);
   const touch = await Touch.attach(page);
   await arm(page, 'greatAxe');
+  // The strata world (WORLD's hooks): stratum I, then into the Amber Hollows.
+  expect(await page.evaluate(() => (window.__DD__ as any).stratum(1))).toBe(1);
   await goBiome(page, 'amberHollows');
   const lair = await page.evaluate(() => (window.__DD__ as any).strata().lairs.find((l: any) => l.biome === 'amberHollows'));
   expect(lair, 'the Amber Hollows lair').toBeTruthy();
@@ -189,27 +225,26 @@ test('a guardian beaten end to end: it wakes in its lair, its bar on the HUD, to
   // It fights: told patterns (a wind-up with a marker on the ground).
   await page.waitForFunction(() => (window.__DD__ as any).mobs.events('mob:telegraph').length >= 2, null, { timeout: 60_000, polling: 250 });
   const id = g0.id;
-  // Strike when its guard is open (after each attack), with real taps.
+  // Its open guard is told (the window's share runs 1 → 0 on the HUD's state).
+  await page.waitForFunction(() => ((window.__DD__ as any).mobs.guardian()?.window ?? 0) > 0.5, null, { timeout: 60_000, polling: 100 });
+  // Strike only while its guard is open (after each attack), with real taps, until it falls.
   const open = async () => {
     const m = await mob(page, id);
     return !!m && (m.state === 'recoil' || m.state === 'stunned');
   };
-  let taps = await tapUntilDead(page, touch, id, 14, 2.6, open);
-  let m = await mob(page, id);
-  // The rest (a long fight under SwiftShader): the debug blow brings it down, through its phases.
-  for (let k = 0; k < 16 && m && m.state !== 'dying'; k++) {
-    await page.evaluate(([i, d]) => (window.__DD__ as any).mobs.hit(i, d), [id, (m.maxHp ?? 90) * 0.25] as const);
-    await page.waitForTimeout(400);
-    m = await mob(page, id);
-  }
-  if (m && m.state !== 'dying') taps += await tapUntilDead(page, touch, id, 10, 2.6);
+  const taps = await tapUntilDead(page, touch, id, 90, 2.6, open, 420);
   await page.waitForFunction(() => (window.__DD__ as any).mobs.events('mob:guardianDefeated').length > 0, null, { timeout: 60_000, polling: 250 });
   const log = await events(page);
   const phases = log.filter((e) => e.type === 'mob:guardianPhase');
   const def = log.find((e) => e.type === 'mob:guardianDefeated')!;
+  const hits = log.filter((e) => e.type === 'mob:hit' && e.payload.id === id);
   expect(phases.length, 'its second phase').toBeGreaterThan(0);
   expect(def.payload.shard).toBe('amberHollows');
-  expect(log.filter((e) => e.type === 'mob:hit' && e.payload.id === id).length, 'struck').toBeGreaterThan(3);
+  expect(hits.length, 'struck by taps').toBeGreaterThan(3);
+  // Struck in its open guard: those blows found the weak spot.
+  expect(hits.filter((e) => e.payload.weak).length, 'blows in its open guard').toBeGreaterThan(2);
+  // No debug blow: every hit came from a tap (the weapon's swing).
+  expect(log.filter((e) => e.type === 'weapon:hit' && e.payload.mob === id).length, 'every blow a swing').toBe(hits.length);
   // LOOP pays the shard on 'mob:guardianDefeated' (its quest counts it, and its loot bundle).
   const shard = await page
     .waitForFunction(() => (window.__DD__ as any).game.quests.shards.has('amberHollows'), null, { timeout: 15_000, polling: 250 })
@@ -290,6 +325,17 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
   await page.waitForFunction(() => (window.__DD__ as any).mobs.events('companion:tamed').length > 0, null, { timeout: 10_000, polling: 200 });
   const view = await page.evaluate(() => (window.__DD__ as any).game.mobs.companion());
   expect(view).toMatchObject({ kind: 'lampling', level: 1 });
+  // Its own moving warm light (VIS lights the rock round it from this).
+  const light = await page.evaluate(() => (window.__DD__ as any).mobs.companionLight());
+  expect(light?.glow ?? 0, 'the companion glows').toBeGreaterThan(0.3);
+  // LOOP's items: one friend is enough for a lure; a Glow Treat is experience.
+  const items = await page.evaluate(() => {
+    const g = (window.__DD__ as any).game;
+    const p = g.player;
+    const before = g.mobs.companion().xp;
+    return { has: g.mobs.hasCompanion(), lure: g.mobs.lureLampling(p.x, p.y, p.z, 10), fed: g.mobs.feedCompanion(1, 30), gained: g.mobs.companion().xp - before };
+  });
+  expect(items).toEqual({ has: true, lure: false, fed: true, gained: 3 });
   expect(await page.evaluate(() => (window.__DD__ as any).game.backpack.count('glowcap'))).toBe(1);
   // It follows the explorer a few metres on.
   await page.evaluate(() => {

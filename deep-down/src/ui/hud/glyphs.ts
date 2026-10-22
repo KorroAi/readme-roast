@@ -42,6 +42,15 @@ const P: Record<string, string> = {
   snow: '<path d="M12 3v18M4.2 7.5l15.6 9M4.2 16.5l15.6-9" stroke-width="1.9"/><path d="M9.5 4.5 12 7l2.5-2.5M9.5 19.5 12 17l2.5 2.5" stroke-width="1.5"/>',
   gas: '<path d="M4 15c2-2 4 2 6 0s4 2 6 0 4 2 4 2M4 10c2-2 4 2 6 0s4 2 6 0 4 2 4 2" stroke-width="1.9"/>',
   eye: '<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z" stroke-width="1.8"/><circle cx="12" cy="12" r="2.6" fill="currentColor" stroke="none"/>',
+  // Round 3 map places (WORLD's §6 stretch): the vista, the river, the works, secrets, set pieces, ravines, nests.
+  vista: '<path d="M2.5 19 8.5 10l3.5 4.5 3-3.5 6.5 8z" stroke-width="1.8"/><circle cx="16.5" cy="6" r="2" stroke-width="1.6"/>',
+  river: '<path d="M3 8c3-2.5 6 2.5 9 0s6 2.5 9 0M3 13c3-2.5 6 2.5 9 0s6 2.5 9 0M3 18c3-2.5 6 2.5 9 0s6 2.5 9 0" stroke-width="1.8"/>',
+  works: '<circle cx="12" cy="12" r="3" stroke-width="1.8"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" stroke-width="2"/>',
+  secret: '<circle cx="12" cy="9.5" r="3.5" stroke-width="1.9"/><path d="M12 13v7.5M12 17h3M12 20h2" stroke-width="1.9"/>',
+  star: '<path d="M12 3.5l2.5 5.3 5.8.7-4.3 4 1.1 5.7L12 16.4l-5.1 2.8 1.1-5.7-4.3-4 5.8-.7z" stroke-width="1.7"/>',
+  ravine: '<path d="M3 6h6l3 13 3-13h6" stroke-width="1.9"/><path d="M12 4v8" stroke-width="1.4" stroke-dasharray="1.5 2"/>',
+  claw: '<path d="M6 20c1-6 1.5-10 4-15M11 20c.5-5 1.5-9 4.5-13M16 20c0-4 1-7.5 3.5-10" stroke-width="2"/>',
+  nest: '<ellipse cx="9" cy="14" rx="3" ry="4" stroke-width="1.7"/><ellipse cx="15.5" cy="13" rx="3" ry="4" stroke-width="1.7"/><path d="M3.5 18.5c3 2.5 14 2.5 17 0" stroke-width="1.8"/>',
   arrow: '<path d="M12 3 19 20 12 16 5 20z" fill="currentColor" stroke="#05080d" stroke-width="1.4" stroke-linejoin="round"/>',
 };
 

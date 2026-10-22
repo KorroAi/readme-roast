@@ -36,6 +36,9 @@ uniform float uHeight;
 uniform vec3 uColor;
 uniform vec3 uGlint;
 uniform vec3 uMist;
+uniform float uSelfLit; // 1: a lava fall (its own light: no dimming by the light volume)
+uniform float uNatural; // 1: a strata fall: water lit by the cave round it (its own glow is the biome's only)
+uniform vec3 uTone;     // the lit water's colour (a strata fall)
 in vec2 vUv;
 in vec3 vWorldPos;
 in vec3 vViewPos;
@@ -63,6 +66,8 @@ float vnoise(vec2 p) {
 void main() {
   float t = uTime;
   vec3 col;
+  // How much water (matter that takes the cave's light) this fragment holds (a strata fall).
+  float matter = 0.0;
   if (vKind == 0) {
     float fall = 1.0 - vUv.y; // 0 at the lip, 1 at the foot
     float h0 = vUv.y * uHeight; // metres above the foot
@@ -99,6 +104,7 @@ void main() {
     float foot = 1.0 - smoothstep(0.9, 1.0, fall) * 0.7;
     float body = (0.12 + 0.88 * streak) * (0.55 + 0.45 * smoothstep(1.0, 0.4, abs(x))) * sheet * edge;
     col = (uColor * body * 0.8 + uGlint * glint * sheet * edge * 0.45) * lip * foot;
+    matter = (body * 0.9 + glint * sheet * edge * 0.6) * lip * foot;
   } else if (vKind == 1) {
     // Mist: a soft cloud rising off the foot, churning slowly.
     vec2 q = vUv * 2.0 - 1.0;
@@ -106,6 +112,7 @@ void main() {
     float r = length(q * vec2(1.0, 1.25));
     float a = (1.0 - smoothstep(0.15, 1.0, r)) * smoothstep(-1.0, -0.55, q.y);
     col = uMist * a * (0.45 + 0.75 * n);
+    matter = a * (0.45 + 0.75 * n) * 0.22;
   } else {
     // Splash ring on the pool: ripples running out from where the water lands.
     vec2 q = vUv * 2.0 - 1.0;
@@ -118,15 +125,22 @@ void main() {
     float churn = vnoise(q * 6.0 + vec2(t * 0.7, t * 0.4));
     float a = (1.0 - smoothstep(0.1, 1.0, r));
     col = uMist * a * (ripples * 0.35 + (1.0 - smoothstep(0.0, 0.35, r)) * (0.5 + 0.5 * churn));
+    matter = a * (ripples * 0.35 + (1.0 - smoothstep(0.0, 0.35, r)) * (0.5 + 0.5 * churn)) * 0.3;
   }
   // A faint glimmer of its own; it brightens a little where lamps or crystals light the air.
   vec4 ls = lightSample(vWorldPos);
-  col *= 0.6 + 0.5 * min(dot(ls.rgb, vec3(0.3, 0.5, 0.2)), 1.0);
+  col *= mix(0.6 + 0.5 * min(dot(ls.rgb, vec3(0.3, 0.5, 0.2)), 1.0), 1.0 + 0.25 * sin(uTime * 1.3 + vWorldPos.y * 0.4), uSelfLit);
   float depth = length(vViewPos);
   // The haze absorbs it like any emission (the zone's absorb share, uAtmos.z), so from the ledge
   // it still reads as the Hollow's cold landmark; fade right in front of the lens so it never blinds.
   float fog = atmosphere(vWorldPos, depth, ls.rgb).a;
   col *= (1.0 - fog * uAtmos.z) * smoothstep(1.0, 6.0, depth) * uAtmos.w;
+  // Round 3: a strata fall is water lit by the cave round it (the lantern, the placed lights, the cool
+  // fill): pale where a lamp lights it, a dim veil in the dark; spray catches the same light.
+  if (uNatural > 0.5) {
+    vec3 env = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos), 0.5, 1.0) * 0.55;
+    col += env * uTone * matter * (1.0 - fog) * smoothstep(1.0, 6.0, depth);
+  }
   fragColor = vec4(sceneOut(col), 1.0); // additive blending
 }
 `;
@@ -140,27 +154,58 @@ void main() {
  * the zone haze takes it at distance. It stays below the bloom threshold: it is scenery, not a
  * light source competing with the path. One draw call.
  */
+/**
+ * The colours of a fall (linear, additive): the water's cold luminous sheet, or round 3's lava fall
+ * (stratum VI's vista): a glowing molten sheet with smoke-red haze at its foot, lit by itself.
+ */
+const FALL_LOOK = {
+  water: { color: [0.06, 0.2, 0.27], glint: [0.3, 0.85, 1.0], mist: [0.045, 0.12, 0.155], selfLit: 0 },
+  lava: { color: [1.1, 0.3, 0.05], glint: [1.6, 0.9, 0.35], mist: [0.16, 0.035, 0.012], selfLit: 1 },
+} as const;
+
+export type FallKind = keyof typeof FALL_LOOK;
+
+/** A strata fall's look (VisDirector, from its biome): lit by the cave, its glow the biome's water glow. */
+export interface FallTone {
+  /** The bioluminescence of the biome's water (linear rgb x amount; 0 = none). */
+  glow: readonly [number, number, number];
+}
+
 export class Waterfall {
   readonly group = new THREE.Group();
   private readonly material: THREE.ShaderMaterial;
   private readonly geometry: THREE.BufferGeometry;
   private mistTimer = 0;
+  readonly kind: FallKind;
 
   constructor(
     lighting: LightingUniforms,
     top: THREE.Vector3,
     private readonly bottom: THREE.Vector3,
     width = 3.4,
+    kind: FallKind = 'water',
+    tone: FallTone | null = null,
   ) {
     const height = top.y - bottom.y;
+    this.kind = kind;
+    const base = FALL_LOOK[kind] ?? FALL_LOOK.water;
+    // Round 3: a strata water fall glows only with its biome's bioluminescence; the cave lights it.
+    const natural = kind === 'water' && tone !== null;
+    const tg = tone?.glow ?? [0, 0, 0];
+    const look = natural
+      ? { color: [0.008 + tg[0] * 0.07, 0.012 + tg[1] * 0.07, 0.014 + tg[2] * 0.07], glint: [0.12 + tg[0] * 0.5, 0.18 + tg[1] * 0.5, 0.2 + tg[2] * 0.5], mist: [0.004 + tg[0] * 0.03, 0.006 + tg[1] * 0.03, 0.008 + tg[2] * 0.03], selfLit: 0 }
+      : base;
     this.material = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3,
       uniforms: {
         ...lighting,
         uHeight: { value: height },
-        uColor: { value: new THREE.Color(0.06, 0.2, 0.27) },
-        uGlint: { value: new THREE.Color(0.3, 0.85, 1.0) },
-        uMist: { value: new THREE.Color(0.045, 0.12, 0.155) },
+        uColor: { value: new THREE.Color(...look.color) },
+        uGlint: { value: new THREE.Color(...look.glint) },
+        uMist: { value: new THREE.Color(...look.mist) },
+        uSelfLit: { value: look.selfLit },
+        uNatural: { value: natural ? 1 : 0 },
+        uTone: { value: new THREE.Color(0.34, 0.4, 0.44) },
       },
       vertexShader: vert,
       fragmentShader: frag,
@@ -171,7 +216,7 @@ export class Waterfall {
     });
     const pos: number[] = [];
     const uv: number[] = [];
-    const kind: number[] = [];
+    const kinds: number[] = [];
     const corner: number[] = [];
     const index: number[] = [];
     const quad = (p: number[][], k: number, c: number[][] = [[0, 0], [0, 0], [0, 0], [0, 0]]) => {
@@ -180,7 +225,7 @@ export class Waterfall {
       for (let i = 0; i < 4; i++) {
         pos.push(...p[i]);
         uv.push(...uvs[i]);
-        kind.push(k);
+        kinds.push(k);
         corner.push(...c[i]);
       }
       index.push(v0, v0 + 1, v0 + 2, v0, v0 + 2, v0 + 3);
@@ -193,7 +238,11 @@ export class Waterfall {
       quad([[top.x - dx, bottom.y, top.z - dz], [top.x + dx, bottom.y, top.z + dz], [top.x + dx, top.y, top.z + dz], [top.x - dx, top.y, top.z - dz]], 0);
     }
     // Mist: three billboards of different sizes rising off the foot.
-    for (const [r, h, ox, oz] of [[4.5, 5.5, 0, 0], [3.2, 4, 1.2, -0.8], [3.6, 7, -1, 0.9]]) {
+    // A strata fall's spray is smaller (it is lit by the cave, not a glowing cloud).
+    const ms = natural ? 0.62 : 1;
+    for (const [r0, h0, ox, oz] of [[4.5, 5.5, 0, 0], [3.2, 4, 1.2, -0.8], [3.6, 7, -1, 0.9]]) {
+      const r = r0 * ms;
+      const h = h0 * ms;
       const c = [bottom.x + ox, bottom.y + 0.2, bottom.z + oz];
       quad([c, c, c, c], 1, [[-r, 0], [r, 0], [r, h], [-r, h]]);
     }
@@ -204,7 +253,7 @@ export class Waterfall {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-    g.setAttribute('aKind', new THREE.Float32BufferAttribute(kind, 1));
+    g.setAttribute('aKind', new THREE.Float32BufferAttribute(kinds, 1));
     g.setAttribute('aCorner', new THREE.Float32BufferAttribute(corner, 2));
     g.setIndex(index);
     g.computeBoundingSphere();
@@ -221,9 +270,15 @@ export class Waterfall {
     if (cameraPos.distanceTo(this.bottom) > 70) return;
     this.mistTimer -= dt;
     if (this.mistTimer <= 0) {
-      this.mistTimer = 0.12;
-      particles.sparkle(this.bottom.x, this.bottom.y + 0.5, this.bottom.z, 0x7ff0ff, 1, rng, 1.2);
-      particles.dust(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0x8fc4d8, 2, rng, 1.0);
+      this.mistTimer = this.kind === 'lava' ? 0.2 : 0.12;
+      if (this.kind === 'lava') {
+        // Embers spat from where the lava lands, and a little dark smoke.
+        particles.sparkle(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0xffa040, 1, rng, 1.6);
+        particles.dust(this.bottom.x, this.bottom.y + 0.6, this.bottom.z, 0x3a2420, 1, rng, 1.4);
+      } else {
+        particles.sparkle(this.bottom.x, this.bottom.y + 0.5, this.bottom.z, 0x7ff0ff, 1, rng, 1.2);
+        particles.dust(this.bottom.x, this.bottom.y + 0.4, this.bottom.z, 0x8fc4d8, 2, rng, 1.0);
+      }
     }
   }
 

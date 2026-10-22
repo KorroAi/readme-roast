@@ -70,9 +70,22 @@ const roofAbove = (st: CarveState, x: number, y: number, z: number, max = 40) =>
   return y + max;
 };
 
-/** Dress every chamber with its biome's columns, and the tunnels with their biome's details. */
-export function dressBiomes(st: CarveState, seed: number): Decor {
+/**
+ * Dress every chamber with its biome's columns, and the tunnels with their biome's details. Curated
+ * columns (`reserved`: the ravines' cracks and landings, the vista's ramp, the river...) and the
+ * cells round them stay clear (a crystal spire on a rope's landing would close the way back up).
+ */
+export function dressBiomes(st: CarveState, seed: number, reserved?: Uint8Array): Decor {
   const rng = new Rng(seed ^ 0xd2e55);
+  const nearReserved = (x: number, z: number, r: number) => {
+    if (!reserved) return false;
+    for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+      const xx = x + dx;
+      const zz = z + dz;
+      if (xx >= 0 && zz >= 0 && xx < st.plan.sx && zz < st.plan.sz && reserved[xx + zz * st.plan.sx]) return true;
+    }
+    return false;
+  };
   const decor: Decor = { lights: [], lakes: [], pools: [], columns: 0 };
   for (const n of st.plan.nodes) {
     const b = BIOMES[n.biome];
@@ -85,7 +98,7 @@ export function dressBiomes(st: CarveState, seed: number): Decor {
       const r = rng.range(0.25, n.kind === 'lair' ? 0.85 : 0.75);
       const x = Math.floor(n.x + Math.cos(a) * n.rx * r);
       const z = Math.floor(n.z + Math.sin(a) * n.rz * r);
-      if (st.corridor[x + z * st.plan.sx]) continue;
+      if (st.corridor[x + z * st.plan.sx] || nearReserved(x, z, 6)) continue;
       // Lairs keep their arena clear: their columns stand round the rim.
       if (n.kind === 'lair' && r < 0.7) continue;
       const y = floorNear(st, x, n.y, z, 4);

@@ -72,6 +72,9 @@ uniform vec3 uOpenAmbient;
 uniform float uEmitGain;
 uniform vec4 uGlowLight;
 uniform vec3 uGlowColor;
+uniform float uBioWave;
+uniform float uTwinkle;
+uniform float uFlicker;
 uniform vec3 uFogColor;
 uniform vec3 uFogLow;
 uniform vec4 uFogPool;
@@ -332,10 +335,43 @@ vec3 glowLight(vec3 p, vec3 n) {
   return uGlowColor * ndl * f * f;
 }
 
+// Round 3 (VIS): the bioluminescent biomes breathe (the Mushroom Forest, the Glowroot Jungle; uBioWave
+// = their share of the biome mix round the explorer): a slow swell of light rolls through what glows
+// there (caps, vines, moss, the glowing decor), one crest about every 7 s and ~30 m apart, its front
+// bent by slow waves; never dark, never a strobe. 1 where uBioWave is 0.
+float bioBreath(vec3 p) {
+  if (uBioWave <= 0.001) return 1.0;
+  float bend = sin(p.x * 0.05 + uTime * 0.07) * 2.2 + sin(p.z * 0.043 - uTime * 0.05) * 2.6;
+  float ph = dot(p.xz, vec2(0.17, 0.11)) + bend - uTime * 0.85;
+  float crest = pow(0.5 + 0.5 * sin(ph), 4.0);
+  return 1.0 + uBioWave * (0.75 * crest - 0.18);
+}
+
 float hash13(vec3 p) {
   p = fract(p * 0.1031);
   p += dot(p, p.zyx + 31.32);
   return fract((p.x + p.y) * p.z);
+}
+
+// Round 3 (VIS): the old mine's lamps flicker (uFlicker = the Halden Mines' share of the mix), each
+// on its own (hashed by its metre cell): a faint quick tremble and, now and then, a short dip, as an
+// oil wick does. 1 where uFlicker is 0.
+float lampFlicker(vec3 p) {
+  if (uFlicker <= 0.001) return 1.0;
+  float h = hash13(floor(p) + 0.5);
+  float t = uTime * (1.0 + 0.6 * h);
+  float f = 0.94 + 0.04 * sin(t * 7.3 + h * 40.0) + 0.025 * sin(t * 12.7 + h * 17.0) - 0.12 * smoothstep(0.97, 1.0, sin(t * 0.61 + h * 9.0));
+  return mix(1.0, f, uFlicker);
+}
+
+// Round 3 (VIS): the glow-worm ceilings of the Root Galleries and the Flooded Grottoes twinkle (uTwinkle
+// = their share of the mix): each bead, hashed by its 6 cm cell, brightens and dims at its own slow
+// pace (3-5 s a breath), like a night sky. 1 where uTwinkle is 0.
+float bioTwinkle(vec3 p) {
+  if (uTwinkle <= 0.001) return 1.0;
+  float h = hash13(floor(p * 16.0));
+  float tw = 0.5 + 0.5 * sin(uTime * (1.2 + 1.0 * h) + h * 31.0);
+  return 1.0 + uTwinkle * (tw * tw * 0.9 - 0.35);
 }
 `;
 
@@ -567,6 +603,9 @@ export class LightingRig {
       // Round 3 (VIS): a small moving light (the companion's glow): xyz, w radius (0 = none), colour.
       uGlowLight: { value: new THREE.Vector4(0, 0, 0, 0) },
       uGlowColor: { value: new THREE.Color(0, 0, 0) },
+      uBioWave: { value: 0 },
+      uTwinkle: { value: 0 },
+      uFlicker: { value: 0 },
       uFogColor: { value: new THREE.Color() },
       uFogLow: { value: this.fogLow },
       uFogPool: { value: this.fogPool },

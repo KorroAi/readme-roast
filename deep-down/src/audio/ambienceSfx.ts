@@ -120,6 +120,16 @@ export const AMBIENCE_SFX = {
       v.osc('sine', v.rand(3000, 6000), at, at + 0.25).connect(v.perc(at, 0.001, 0.04, v.rand(0.1, 0.22))).connect(v.out);
     }
   }, 4),
+  /** Icicles knocking together: a few small glassy tinks, high and quick, ringing a moment. */
+  'amb.iceTink': sound('ambience', 0.55, 0.75, 0, 1.6, (v, p) => {
+    const t = v.t;
+    const k = p.pitch ?? 1;
+    const n = 2 + Math.floor(v.rand(0, 3));
+    for (let i = 0; i < n; i++) {
+      const at = t + i * v.rand(0.06, 0.22);
+      partials(v, at, v.rand(2600, 3600) * k, [1, 2.76, 5.4], [0.16, 0.05, 0.02], [0.35, 0.15, 0.06], 1);
+    }
+  }, 2),
   /** A cave bird's call: two whistles. */
   'amb.bird': sound('ambience', 0.55, 0.6, 0, 1.4, (v, p) => {
     const t = v.t;

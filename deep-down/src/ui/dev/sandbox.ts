@@ -1,4 +1,7 @@
 import { r3HudDefaults } from '../hud/hudDefaults';
+import { fixtureBestiary, fixtureDaily, fixtureEnding, fixtureLoop, fixtureMap, fixtureQuests, fixtureTrip, guardianName } from './r3fixtures';
+import { BIOMES } from '../../config/biomes';
+import { arrivalCard } from '../../game/quests/Guide';
 import { ITEMS, ITEM_IDS, type ItemId } from '../../config/items';
 import { NODES, type NodeId, type Place } from '../../config/recipes';
 import { RUNES_BY_GLYPH, RUNE_GLYPH } from '../../config/runes';
@@ -16,6 +19,7 @@ import { consumeEdges, createInputState } from '../../input/types';
 import { DEFAULT_SETTINGS, type ItemCounts, type Settings } from '../../save/types';
 import type { ExpeditionReport, HudState, InventoryView, JournalTab, JournalView, SaveSummary, ScreenId, SurveyView, UiActions } from '../types';
 import { UI } from '../UI';
+import { DEFAULT_CONTROL_PREFS, type ControlPrefs } from '../controlPrefs';
 
 /**
  * Development sandbox for the UI (src/ui/dev/sandbox.html; also built as the Visual Lab "UI Readability" view).
@@ -358,19 +362,62 @@ const actions: UiActions = {
     camp.backpack.dropStack(slot);
     bus.emit('inventory:changed', {});
   },
-  // Round 3: the sandbox has no LOOP, WORLD or MOBS behind it (the menus show their empty states).
-  loop: () => null,
+  // Round 3: the strata game's menus over the fixtures (ui/dev/r3fixtures: LOOP's real craft rules
+  // and hotbar, MOBS's real bestiary log, a painted stratum for the Map).
+  loop: () => loop3,
   openMenu: (screen) => ui.showScreen(screen === 'pause' ? 'pause' : screen),
-  getMap: () => null,
-  fastTravel: () => undefined,
-  getQuests: () => null,
-  trackQuest: () => undefined,
-  getBestiary: () => null,
-  skipTutorial: () => undefined,
-  getSeed: () => '1234',
-  getControlPrefs: () => ({ scale: 1, opacity: 0.86, patterns: false, motion: 'auto' }),
-  setControlPrefs: () => undefined,
+  getMap: () => map3,
+  fastTravel: (id) => {
+    ui.showScreen('none');
+    ui.toast(t('ctl.travelled'), 'good');
+    void id;
+  },
+  getQuests: () => ({ ...quests3, tracked: tracked3 }),
+  trackQuest: (id) => {
+    tracked3 = id;
+  },
+  getBestiary: () => fixtureBestiary(),
+  skipTutorial: () => {
+    hud.tutorial = null;
+  },
+  getSeed: () => '48151623',
+  getControlPrefs: () => ({ ...prefs3 }),
+  setControlPrefs: (p) => {
+    prefs3 = { ...prefs3, ...p };
+    ui.setControlPrefs(prefs3);
+  },
+  // The first version's report scene ('summary') runs as the hand-made world did.
+  strata: () => !legacyScene,
+  daily: () => fixtureDaily(),
+  newDaily: () => startPlaying(),
+  endingView: () => fixtureEnding(),
 };
+const loop3 = fixtureLoop(bus);
+const map3 = fixtureMap();
+const quests3 = fixtureQuests();
+let tracked3: string | null = 'order.1';
+let legacyScene = false;
+let prefs3: ControlPrefs = { ...DEFAULT_CONTROL_PREFS };
+
+/** The round 3 HUD fields of the fixture expedition (stratum I, the tracker on the second guardian). */
+function r3Hud(): void {
+  Object.assign(hud, {
+    biomeName: t(BIOMES.amberHollows.name),
+    stratum: 1,
+    depth: 38,
+    reticle: 'mine',
+    reticleProgress: 0.45,
+    reticleName: t('block.copperOre'),
+    tracker: { main: { id: quests3.current.id, text: quests3.current.text, have: 1, need: 2 }, side: { id: 'order.1', text: quests3.orders[0].text, have: 4, need: 8 } },
+    objectiveArrow: { bearing: 0.7, distance: 46, vertical: -1 },
+    guardian: null,
+    hazard: null,
+    companion: { name: t('mob.lampling' as TextKey), level: 2, progress: 0.4, state: 'follow', glow: 0.6 },
+    interact: null,
+    tutorial: null,
+  });
+}
+r3Hud();
 
 const ui = new UI(document.getElementById('ui') as HTMLElement, actions, bus, input);
 ui.applySettings(settings);
@@ -386,18 +433,23 @@ function startPlaying(): void {
 }
 
 // Input the fake game consumed, so tests can check what the touch controls produced.
-const seen = { jump: 0, interact: 0, inventory: 0, pause: 0, lookDX: 0, lookDY: 0, maxMoveY: 0, miningFrames: 0, taps: 0, tapX: 0, tapY: 0, locks: 0 };
-let lastInteract: string | null = null;
+const seen = { jump: 0, interact: 0, inventory: 0, pause: 0, lookDX: 0, lookDY: 0, maxMoveY: 0, miningFrames: 0, taps: 0, tapX: 0, tapY: 0, locks: 0, action: 0, actionFrames: 0, dash: 0, sonar: 0, place: 0, hotbar: -1, open: '', sprintFrames: 0 };
 
 function frame(): void {
   if (mode === 'playing') {
     hud.backpackUsed = camp.backpack.usedSlots;
     hud.backpackMax = camp.backpack.slotCount;
+    // Round 3: the hotbar and the minimap from the fixtures.
+    const hb = loop3.hotbarView();
+    hud.hotbar = loop3.hudSlots();
+    hud.hotbarSelected = hb.selected;
+    hud.canPlace = hb.mode === 'place';
+    ui.touch.setPlaceVisible?.(hud.canPlace);
+    // The Interact chip: the round 3 view, else the first version's label (a station's).
+    ui.touch.setInteract?.(hud.interact ?? (hud.interactLabel ? { icon: 'station', verb: t('ctl.verb.craft'), label: hud.interactLabel } : null));
+    ui.setMap(map3.source);
+    if (input.hotbarPressed >= 0) loop3.selectHotbar(input.hotbarPressed);
     ui.setHud(hud);
-    if (hud.interactLabel !== lastInteract) {
-      lastInteract = hud.interactLabel;
-      ui.touch.setInteractVisible(lastInteract);
-    }
     if (input.jumpPressed) seen.jump++;
     if (input.interactPressed) seen.interact++;
     if (input.inventoryPressed) seen.inventory++;
@@ -409,13 +461,23 @@ function frame(): void {
       seen.tapY = input.tapY;
     }
     if (input.lockAssistPressed) seen.locks++;
+    // Round 3: the right-thumb pads, the hotbar and the menu requests.
+    if (input.actionPressed) seen.action++;
+    if (input.actionHeld) seen.actionFrames++;
+    if (input.dashPressed) seen.dash++;
+    if (input.sonarPressed) seen.sonar++;
+    if (input.placePressed) seen.place++;
+    if (input.sprint) seen.sprintFrames++;
+    if (input.hotbarPressed >= 0) seen.hotbar = input.hotbarPressed;
+    if (input.openRequest) seen.open = input.openRequest;
     seen.lookDX += input.lookDX;
     seen.lookDY += input.lookDY;
     seen.maxMoveY = Math.max(seen.maxMoveY, input.moveY);
     if (!ui.isBlockingInput()) {
       if (input.pausePressed) actions.pause();
       else if (input.inventoryPressed) actions.openInventory();
-      else if (input.interactPressed && hud.interactLabel) actions.openCrafting('workbench');
+      else if (input.openRequest) actions.openMenu(input.openRequest);
+      else if (input.interactPressed && (hud.interact || hud.interactLabel)) actions.openCrafting('workbench');
     }
   }
   consumeEdges(input);
@@ -440,6 +502,10 @@ function scene(name: string): void {
   });
   reportOpen = report;
   resetCamp();
+  r3Hud();
+  ui.state.trip = null;
+  ui.state.ending = null;
+  legacyScene = id === 'summary';
   savedAt = Date.now() - 7 * 60_000;
   settings = { ...DEFAULT_SETTINGS };
   ui.applySettings(settings);
@@ -449,6 +515,38 @@ function scene(name: string): void {
     ui.showScreen(screen);
   };
   switch (id) {
+    // Round 3: the strata game's screens over the fixtures.
+    case 'bag':
+      play('inventory');
+      ui.state.bagTab = 'all';
+      ui.state.bagSel = arg === 'gear' ? 'copperPick' : 'torch';
+      if (arg === 'assign') ui.state.assignSlot = 5;
+      ui.refresh();
+      break;
+    case 'craft':
+      if (arg === 'forge') {
+        loop3.near.add('forge');
+        ui.focusCraft('forge');
+      }
+      play('crafting');
+      ui.state.craftTab = arg === 'forge' ? 'weapons' : 'building';
+      ui.refresh();
+      break;
+    case 'map':
+      play('map');
+      break;
+    case 'quests':
+      play('quests');
+      ui.state.questsTab = (arg as typeof ui.state.questsTab | undefined) ?? 'main';
+      ui.refresh();
+      break;
+    case 'bestiary':
+      play('bestiary');
+      break;
+    case 'trip':
+      play();
+      bus.emit('trip:summary', { summary: fixtureTrip(arg === 'blackout' ? 'blackout' : 'returned') });
+      break;
     case 'menu':
       mode = 'menu';
       if (arg === 'nosave') savedAt = null;
@@ -479,6 +577,24 @@ function scene(name: string): void {
         actions.updateSettings({ showFps: true });
         ui.hint(t('hint.tooHard', { tool: t('equip.copperPickaxe') }), 60_000);
         ui.toast(t('hint.backpackFull'), 'warn');
+        // Round 3: a guardian fight in the cold: its bar, the hazard meter, the reticle on the foe.
+        Object.assign(hud, {
+          reticle: 'attack',
+          reticleName: null,
+          hazard: { kind: 'cold', level: 0.64, warded: 0 },
+          guardian: { name: guardianName('amberHollows'), hp: 380, max: 600, phase: 2, phases: 2 },
+          interact: { icon: 'chest', verb: t('ctl.verb.open'), label: t('m3.map.m.chest') },
+        });
+        ui.damageNumber(0.56, 0.42, 12, 'hit');
+        ui.damageNumber(0.6, 0.38, 24, 'weak');
+      } else if (arg === 'tutorial') {
+        hud.tutorial = { target: 'action', line: t('tut.mine' as TextKey), step: 3, total: 11 };
+      } else if (arg === 'look') {
+        hud.tutorial = { target: 'look', line: t('tut.look' as TextKey), step: 1, total: 11 };
+      } else if (arg === 'arrival') {
+        // LOOP's real card for a first visit (the tutorial's bubble steps aside for it).
+        hud.tutorial = { target: 'action', line: t('tut.mine' as TextKey), step: 3, total: 11 };
+        ui.arrival(arrivalCard('mushroomForest', true));
       } else {
         ui.pickup({ item: 'copperOre', count: 1 });
         ui.pickup({ item: 'copperOre', count: 1 });
@@ -548,6 +664,8 @@ function scene(name: string): void {
       break;
     case 'ending':
       camp.finale = true;
+      // Round 3: the strata's end card (the first version's with ':legacy').
+      if (arg !== 'legacy') ui.state.ending = fixtureEnding();
       play('ending');
       break;
     case 'about':
@@ -576,7 +694,8 @@ function scene(name: string): void {
       mode = 'playing';
       ui.setGameplayActive(false);
       reportOpen = blackoutReport;
-      ui.showDeath({ stone: 6, copperOre: 3, glimmerShard: 1 });
+      // Round 3: the black-out card's story (what did it, where, where the explorer wakes).
+      ui.showDeath({ stone: 6, copperOre: 3, glimmerShard: 1 }, arg === 'legacy' ? undefined : { cause: t('bo3.cause.mob', { name: t('mob.gritBoar' as TextKey) }), depth: 62, biome: t(BIOMES.amberHollows.name), stratum: 1, wake: t('bo3.wakeCamp') });
       break;
   }
 }

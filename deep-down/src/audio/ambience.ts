@@ -3,6 +3,7 @@ import type { NoiseBank } from './buffers';
 import { CampfireLoop, CaveBed, CrystalHum, LazyLayer, LoopGraph, ParamTarget, type LayerSend } from './layers';
 import type { EmitterKind, HazardName } from './probe';
 import type { SfxName } from './sfx';
+import type { MoodName } from './theory';
 
 /**
  * The beds (round 3, AUDIO): each biome's sound of the cave, built from a few looping layers (the
@@ -38,6 +39,8 @@ export interface BedShot {
 export interface BedRecipe {
   /** The room tone: the cave bed's cutoff, air band, sub and level. */
   room: { level: number; cutoff: number; air: number; sub: number };
+  /** The space's reverb (a scale of the reverb return): carved halls and crystal ring on, earth and fungi swallow. */
+  space?: number;
   layers: readonly BedLayerDef[];
   shots: readonly BedShot[];
 }
@@ -48,66 +51,79 @@ const rumble = (every: number): BedShot => ({ name: 'amb.rumble', every, gain: [
 /** Each biome's bed (keyed by BIOMES[b].ambience = 'amb.<biome>'). */
 export const BEDS: Record<BiomeId, BedRecipe> = {
   amberHollows: {
+    space: 1.0,
     room: { level: 0.42, cutoff: 320, air: 0.08, sub: 0.03 },
     layers: [{ kind: 'wind', level: 0.05, tone: 520, rate: 0.05 }],
     shots: [drip(4.5, 0.95, 1.2), { name: 'amb.trickle', every: 24, gain: [0.4, 0.7], pan: 0.8 }, rumble(70)],
   },
   mushroomForest: {
+    space: 0.8,
     room: { level: 0.36, cutoff: 300, air: 0.06, sub: 0.02 },
     layers: [{ kind: 'hum', level: 0.07, tone: 196, rate: 0.11 }, { kind: 'shimmer', level: 0.025, tone: 1318, rate: 0.2 }],
     shots: [{ name: 'amb.spore', every: 9, gain: [0.4, 0.8], pitch: [0.85, 1.2], pan: 0.9 }, drip(8, 1, 1.3), { name: 'amb.moth', every: 26, gain: [0.4, 0.7], pan: 0.8 }],
   },
   rootGalleries: {
+    space: 0.75,
     room: { level: 0.4, cutoff: 280, air: 0.05, sub: 0.04 },
     layers: [{ kind: 'wind', level: 0.04, tone: 380, rate: 0.04 }],
     shots: [{ name: 'amb.root', every: 14, gain: [0.5, 0.9], pitch: [0.85, 1.15], pan: 0.85 }, { name: 'amb.trickle', every: 18, gain: [0.4, 0.8], pan: 0.8 }, drip(10, 0.85, 1)],
   },
   floodedGrottoes: {
+    space: 1.2,
     room: { level: 0.34, cutoff: 360, air: 0.1, sub: 0.03 },
     layers: [{ kind: 'water', level: 0.2, tone: 900, rate: 0.18 }],
     shots: [drip(2.6, 0.9, 1.3), { name: 'amb.splash', every: 16, gain: [0.4, 0.8], pitch: [0.8, 1.2], pan: 0.85 }],
   },
   crystalGeode: {
+    space: 1.3,
     room: { level: 0.32, cutoff: 340, air: 0.12, sub: 0.02 },
     layers: [{ kind: 'shimmer', level: 0.05, tone: 1760, rate: 0.17 }, { kind: 'wind', level: 0.03, tone: 900, rate: 0.06 }],
     shots: [{ name: 'amb.chime', every: 7, gain: [0.35, 0.8], pitch: [0.85, 1.25], pan: 0.9 }, drip(6, 1.1, 1.4)],
   },
   haldenMines: {
+    space: 0.85,
     room: { level: 0.4, cutoff: 300, air: 0.06, sub: 0.03 },
     layers: [{ kind: 'wind', level: 0.035, tone: 450, rate: 0.05 }],
     shots: [{ name: 'amb.creak', every: 12, gain: [0.5, 0.9], pitch: [0.85, 1.15], pan: 0.85 }, { name: 'amb.pick', every: 30, gain: [0.35, 0.6], pan: 0.9 }, { name: 'amb.rail', every: 45, gain: [0.35, 0.6], pan: 0.9 }, drip(9)],
   },
   frostCaverns: {
+    space: 1.2,
     room: { level: 0.3, cutoff: 400, air: 0.14, sub: 0.02 },
     layers: [{ kind: 'wind', level: 0.12, tone: 760, rate: 0.07 }],
     shots: [{ name: 'amb.ice', every: 11, gain: [0.45, 0.9], pitch: [0.8, 1.2], pan: 0.9 }, { name: 'amb.iceCrack', every: 26, gain: [0.4, 0.8], pan: 0.9 }, drip(12, 1.2, 1.5)],
   },
   glowrootJungle: {
+    space: 0.8,
     room: { level: 0.34, cutoff: 320, air: 0.08, sub: 0.02 },
     layers: [{ kind: 'insects', level: 0.03, tone: 4200, rate: 0.12 }, { kind: 'hum', level: 0.04, tone: 220, rate: 0.09 }],
     shots: [{ name: 'amb.bird', every: 13, gain: [0.35, 0.75], pitch: [0.85, 1.2], pan: 0.9 }, { name: 'amb.frog', every: 15, gain: [0.4, 0.8], pitch: [0.85, 1.15], pan: 0.85 }, drip(5)],
   },
   sulphurBog: {
+    space: 0.9,
     room: { level: 0.36, cutoff: 260, air: 0.06, sub: 0.04 },
     layers: [{ kind: 'gloop', level: 0.12, tone: 380, rate: 0.35 }, { kind: 'hiss', level: 0.025, tone: 2600, rate: 0.13 }],
     shots: [{ name: 'amb.bubble', every: 3.2, gain: [0.4, 0.9], pitch: [0.75, 1.3], pan: 0.85 }, { name: 'amb.hiss', every: 20, gain: [0.35, 0.6], pan: 0.8 }],
   },
   sunkenCity: {
+    space: 1.35,
     room: { level: 0.36, cutoff: 300, air: 0.11, sub: 0.03 },
     layers: [{ kind: 'wind', level: 0.06, tone: 620, rate: 0.035 }],
     shots: [{ name: 'amb.cityEcho', every: 17, gain: [0.4, 0.75], pitch: [0.85, 1.1], pan: 0.9 }, { name: 'amb.farBell', every: 40, gain: [0.35, 0.6], pitch: [0.9, 1.1], pan: 0.9 }, drip(11)],
   },
   magmaVeins: {
+    space: 0.95,
     room: { level: 0.4, cutoff: 240, air: 0.05, sub: 0.05 },
     layers: [{ kind: 'roar', level: 0.1, tone: 260, rate: 0.07 }],
     shots: [{ name: 'amb.lavaPop', every: 5.5, gain: [0.4, 0.85], pitch: [0.8, 1.2], pan: 0.85 }, { name: 'amb.hiss', every: 14, gain: [0.35, 0.65], pan: 0.8 }, rumble(35)],
   },
   obsidianAbyss: {
+    space: 1.3,
     room: { level: 0.32, cutoff: 220, air: 0.1, sub: 0.04 },
     layers: [{ kind: 'drone', level: 0.06, tone: 110, rate: 0.05 }, { kind: 'wind', level: 0.05, tone: 300, rate: 0.03 }],
     shots: [{ name: 'amb.voidWhisper', every: 19, gain: [0.35, 0.7], pan: 0.95 }, { name: 'amb.voidTone', every: 23, gain: [0.35, 0.7], pitch: [0.8, 1.2], pan: 0.9 }],
   },
   heart: {
+    space: 1.35,
     room: { level: 0.34, cutoff: 220, air: 0.06, sub: 0.06 },
     layers: [{ kind: 'drone', level: 0.07, tone: 73.4, rate: 0.04 }, { kind: 'hum', level: 0.04, tone: 146.8, rate: 0.05 }],
     shots: [{ name: 'amb.heartbeat', every: 2.6, gain: [0.55, 0.75], pan: 0.1 }, { name: 'amb.voidWhisper', every: 28, gain: [0.3, 0.55], pan: 0.95 }],
@@ -116,10 +132,18 @@ export const BEDS: Record<BiomeId, BedRecipe> = {
 
 /** The camp's bed: the fire carries it; a quiet room and the odd drip. */
 export const CAMP_BED: BedRecipe = {
+  space: 0.8,
   room: { level: 0.22, cutoff: 300, air: 0.04, sub: 0.02 },
   layers: [],
   shots: [drip(12)],
 };
+
+/** The bed for a key: 'camp', a biome, or (the old world, no biome) the depth mood's nearest biome. */
+export function bedRecipeOf(key: string, mood: MoodName | null): BedRecipe {
+  if (key === 'camp') return CAMP_BED;
+  if (Object.prototype.hasOwnProperty.call(BEDS, key)) return BEDS[key as BiomeId];
+  return BEDS[mood === 'deep' ? 'obsidianAbyss' : mood === 'mid' ? 'crystalGeode' : 'amberHollows'];
+}
 
 // ---------------------------------------------------------------------------------------
 // The bed layers
@@ -159,10 +183,19 @@ export class HumLayer extends LazyLayer {
   }
 }
 
-/** Water: lapping (low-passed noise under a quick, uneven flutter) and a trickle band above it. */
+/**
+ * Water: lapping (low-passed noise under a quick, uneven flutter) and a trickle band above it. A
+ * fall (`splash` > 0.3) gets a bright splash band and, by `roar`, a broad roar under it.
+ */
 export class WaterLayer extends LazyLayer {
-  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, private readonly tone: number, private readonly rate: number, positional = false, private readonly bright = false) {
+  private readonly splash: number;
+  private readonly roar: number;
+
+  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, private readonly tone: number, private readonly rate: number, positional = false, bright: boolean | { splash: number; roar: number } = false) {
     super(ctx, noise, dest, 0.6, null, positional);
+    const b = typeof bright === 'object' ? bright : bright ? { splash: 0.5, roar: 0.6 } : { splash: 0.18, roar: 0 };
+    this.splash = b.splash;
+    this.roar = b.roar;
   }
 
   protected build(g: LoopGraph): void {
@@ -171,14 +204,63 @@ export class WaterLayer extends LazyLayer {
     g.loop(this.noise.pink).connect(lp).connect(lap).connect(g.out);
     g.lfo(lap.gain, 3.1 * (this.rate / 0.18), 0.22);
     g.lfo(lap.gain, 4.7 * (this.rate / 0.18), 0.15);
-    const trickle = g.filter('bandpass', this.bright ? 3200 : 2400, this.bright ? 1.2 : 3);
-    const tg = g.gain(this.bright ? 0.5 : 0.18);
+    const fall = this.splash > 0.3;
+    const trickle = g.filter('bandpass', fall ? 3200 : 2400, fall ? 1.2 : 3);
+    const tg = g.gain(this.splash);
     g.loop(this.noise.white).connect(trickle).connect(tg).connect(g.out);
-    g.lfo(trickle.frequency, 0.9, this.bright ? 600 : 400);
-    if (this.bright) {
-      // A waterfall's weight: a broad roar under the splash.
-      g.loop(this.noise.brown).connect(g.filter('lowpass', 700, 0)).connect(g.gain(0.6)).connect(g.out);
+    g.lfo(trickle.frequency, 0.9, fall ? 600 : 400);
+    // A fall's weight: a broad roar under the splash.
+    if (this.roar > 0) g.loop(this.noise.brown).connect(g.filter('lowpass', 700, 0)).connect(g.gain(this.roar)).connect(g.out);
+  }
+}
+
+/**
+ * A river babbling over stones: two narrow bands of noise whose centres and levels wander at
+ * unrelated rates (the bubbling of water round rocks), over a low flow and a little sparkle.
+ */
+export class RiverLayer extends LazyLayer {
+  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, positional = true) {
+    super(ctx, noise, dest, 0.7, null, positional);
+  }
+
+  protected build(g: LoopGraph): void {
+    g.loop(this.noise.brown).connect(g.filter('lowpass', 520, 0)).connect(g.gain(0.45)).connect(g.out);
+    for (const [f, q, a, r1, r2, r3] of [[880, 4, 0.5, 2.3, 5.1, 3.7], [1650, 5, 0.32, 3.1, 6.7, 4.3]] as const) {
+      const band = g.filter('bandpass', f, q);
+      const bubble = g.gain(a);
+      g.loop(this.noise.pink, 0.9).connect(band).connect(bubble).connect(g.out);
+      g.lfo(band.frequency, r1, f * 0.3);
+      g.lfo(band.frequency, r2, f * 0.18);
+      g.lfo(bubble.gain, r3, a * 0.6);
     }
+    g.loop(this.noise.white, 0.7).connect(g.filter('bandpass', 3800, 1.5)).connect(g.gain(0.06)).connect(g.out);
+  }
+}
+
+/** The void's spires: low sines beating against near twins, a phone-audible fifth above, a slow swell. */
+export class VoidHumLayer extends LazyLayer {
+  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, private readonly tone = 98) {
+    super(ctx, noise, dest, 1.2, null, true);
+  }
+
+  protected build(g: LoopGraph): void {
+    const am = g.gain(0.7);
+    am.connect(g.out);
+    g.lfo(am.gain, 0.11, 0.3);
+    const f = this.tone;
+    for (const [r, a] of [[1, 0.35], [1.006, 0.3], [2.003, 0.25], [3.0, 0.16], [4.24, 0.06]] as const) g.osc('sine', f * r).connect(g.gain(a)).connect(am);
+  }
+}
+
+/** An oil lamp or a lantern post: a soft breath of flame and the odd small crackle. */
+export class LampLoop extends LazyLayer {
+  constructor(ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode) {
+    super(ctx, noise, dest, 0.4, null, true);
+  }
+
+  protected build(g: LoopGraph): void {
+    g.loop(this.noise.pink).connect(g.filter('bandpass', 640, 0.8)).connect(g.gain(0.4)).connect(g.out);
+    g.loop(this.noise.crackle, 1.4).connect(g.filter('highpass', 1400, 0)).connect(g.gain(0.22)).connect(g.out);
   }
 }
 
@@ -351,15 +433,51 @@ export class BiomeBed {
 // ---------------------------------------------------------------------------------------
 // Positional loops and the hazard layer
 
-/** How each emitter kind sounds, and its level at full strength. */
-export const EMITTER_LEVEL: Record<EmitterKind, number> = {
-  waterfall: 0.5, gasVent: 0.16, emberVent: 0.18, bubbles: 0.3, lava: 0.32, fire: 0.45, torch: 0.16, crystal: 0.07,
+/** How a feature sounds: its loop's level at full strength a metre away (0: one-shots only), and its one-shots. */
+export interface EmitterDef {
+  level: number;
+  /** One-shots placed with it: mean seconds apart, and their gain at full strength. */
+  shot?: { name: SfxName; every: number; gain: number };
+}
+
+export const EMITTERS: Record<EmitterKind, EmitterDef> = {
+  // Water: the vista's great fall, the small cascades off ledges, the river babbling down its tunnel.
+  waterfall: { level: 0.5, shot: { name: 'amb.splash', every: 6, gain: 0.7 } },
+  cascade: { level: 0.28 },
+  river: { level: 0.26, shot: { name: 'amb.splash', every: 14, gain: 0.45 } },
+  // Vents, pools and lava.
+  gasVent: { level: 0.16, shot: { name: 'amb.hiss', every: 5, gain: 0.7 } },
+  emberVent: { level: 0.18, shot: { name: 'amb.lavaPop', every: 4, gain: 0.6 } },
+  bubbles: { level: 0.3, shot: { name: 'amb.bubble', every: 1.6, gain: 0.8 } },
+  lava: { level: 0.32, shot: { name: 'amb.lavaPop', every: 3, gain: 0.8 } },
+  lavaFall: { level: 0.45, shot: { name: 'amb.lavaPop', every: 2, gain: 0.85 } },
+  // Fire and light: the camp's fire, a lair's braziers and placed forges, lamps, torches.
+  fire: { level: 0.45 },
+  brazier: { level: 0.22 },
+  lamp: { level: 0.08 },
+  torch: { level: 0.16 },
+  // Crystals ring (and chime now and then), the void's spires hum and call.
+  crystal: { level: 0.07, shot: { name: 'amb.chime', every: 9, gain: 0.45 } },
+  void: { level: 0.12, shot: { name: 'amb.voidTone', every: 13, gain: 0.5 } },
+  // A ravine's updraft.
+  draft: { level: 0.14 },
+  // One-shots only: resin dripping, spore puffs, icicles knocking, the mines' timbers, rubble.
+  drips: { level: 0, shot: { name: 'amb.drip', every: 2.2, gain: 0.7 } },
+  spores: { level: 0, shot: { name: 'amb.spore', every: 6, gain: 0.7 } },
+  ice: { level: 0, shot: { name: 'amb.iceTink', every: 5, gain: 0.6 } },
+  timber: { level: 0, shot: { name: 'amb.creak', every: 9, gain: 0.6 } },
+  rubble: { level: 0, shot: { name: 'amb.trickle', every: 7, gain: 0.7 } },
 };
 
-export function emitterLayer(kind: EmitterKind, ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, send: LayerSend | null): LazyLayer {
+/** A feature's loop (built only while audible), or null for one-shot-only kinds. */
+export function emitterLayer(kind: EmitterKind, ctx: BaseAudioContext, noise: NoiseBank, dest: AudioNode, send: LayerSend | null): LazyLayer | null {
   switch (kind) {
     case 'waterfall':
-      return new WaterLayer(ctx, noise, dest, 1600, 0.3, true, true);
+      return new WaterLayer(ctx, noise, dest, 1600, 0.3, true, { splash: 0.5, roar: 0.6 });
+    case 'cascade':
+      return new WaterLayer(ctx, noise, dest, 1300, 0.45, true, { splash: 0.42, roar: 0.12 });
+    case 'river':
+      return new RiverLayer(ctx, noise, dest);
     case 'gasVent':
       return new HissLayer(ctx, noise, dest, 2400, 0.4, true);
     case 'emberVent':
@@ -368,12 +486,27 @@ export function emitterLayer(kind: EmitterKind, ctx: BaseAudioContext, noise: No
       return new GloopLayer(ctx, noise, dest, 450, 0.6, true);
     case 'lava':
       return new RoarLayer(ctx, noise, dest, 320, 0.12, true);
+    case 'lavaFall':
+      return new RoarLayer(ctx, noise, dest, 240, 0.09, true);
     case 'fire':
+    case 'brazier':
       return new PositionalFire(ctx, noise, dest);
+    case 'lamp':
+      return new LampLoop(ctx, noise, dest);
     case 'torch':
       return new TorchLoop(ctx, noise, dest);
     case 'crystal':
       return new PositionalCrystal(ctx, noise, dest, send);
+    case 'void':
+      return new VoidHumLayer(ctx, noise, dest);
+    case 'draft':
+      return new WindLayer(ctx, noise, dest, 420, 0.08, true);
+    case 'drips':
+    case 'spores':
+    case 'ice':
+    case 'timber':
+    case 'rubble':
+      return null;
   }
 }
 

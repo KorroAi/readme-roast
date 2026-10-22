@@ -1,4 +1,4 @@
-import { t } from '../../i18n';
+import { LANGUAGES, detectLanguage, t } from '../../i18n';
 import { SETTINGS_LIMITS } from '../../save/settings';
 import type { Settings } from '../../save/types';
 import { h } from '../dom';
@@ -112,6 +112,17 @@ export function buildSettings(host: ScreenHost): HTMLElement {
               host.rerender();
             },
             'motion',
+          ),
+          // The language (a per-device preference): the device's, or one of the game's.
+          segmented(
+            t('set3.language'),
+            [
+              { value: 'auto', text: t('set3.language.auto', { name: (LANGUAGES.find((l) => l.code === detectLanguage()) ?? LANGUAGES[0]).name }) },
+              ...LANGUAGES.map((l) => ({ value: l.code, text: l.name })),
+            ],
+            prefs.language,
+            (language) => a.setControlPrefs({ language }),
+            'language',
           ),
           btn(t('set3.replayTips'), () => {
             a.replayTips?.();

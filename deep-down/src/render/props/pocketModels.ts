@@ -23,13 +23,17 @@ import { IRON, FIRE } from './palette';
 
 type Build = (m: ModelBuilder, rng: Rng, o: PropModelOptions) => void;
 
+/** The curtain's radius per variant (m): it never spreads past the level roof round its light (Pocket.spread). */
+export const WORM_SPREAD = [0.45, 0.9, 1.35] as const;
+
 /** Glow-worm threads: dozens of silk lines with a bright bead each, mostly short, a few long. */
 function glowWorms(bead: number, silk: number): Build {
-  return (m, rng) => {
-    const n = rng.int(26, 38);
+  return (m, rng, o) => {
+    const spread = WORM_SPREAD[Math.max(0, Math.min(2, o.variant | 0))];
+    const n = Math.round(rng.int(26, 38) * (0.45 + 0.55 * (spread / 1.35)));
     for (let i = 0; i < n; i++) {
       const a = rng.range(0, Math.PI * 2);
-      const r = Math.sqrt(rng.next()) * 1.35;
+      const r = Math.sqrt(rng.next()) * spread;
       const x = Math.cos(a) * r;
       const z = Math.sin(a) * r;
       // Lengths skewed short: the curtain is dense near the roof, a few threads reach low.
@@ -317,6 +321,8 @@ export interface Pocket {
   biome: string | null;
   /** The roof cell the pocket's model hangs from. */
   roof: number | null;
+  /** How far (cells, 0..2) the roof stays level round it: the glow-worm curtain spreads no further. */
+  spread?: number;
 }
 
 /**
@@ -338,7 +344,20 @@ export function findPockets(world: VoxelWorld, biomeAt: ((x: number, y: number, 
       roof = y + k;
       break;
     }
-    out.push({ x, y, z, id, biome: biomeAt ? (biomeAt(x + 0.5, y, z + 0.5) ?? null) : null, roof });
+    // The level roof round it: every cell of a ring is rock at the roof's height with air under it.
+    let spread = 0;
+    if (roof !== null)
+      for (let r = 1; r <= 2; r++) {
+        let level = true;
+        for (let dz = -r; dz <= r && level; dz++)
+          for (let dx = -r; dx <= r && level; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+            if (!SOLID[world.get(x + dx, roof, z + dz)] || SOLID[world.get(x + dx, roof - 1, z + dz)]) level = false;
+          }
+        if (!level) break;
+        spread = r;
+      }
+    out.push({ x, y, z, id, biome: biomeAt ? (biomeAt(x + 0.5, y, z + 0.5) ?? null) : null, roof, spread });
   }
   return out;
 }
@@ -374,7 +393,8 @@ export function pocketProps(pockets: readonly Pocket[], seed: number): PropSpec[
       anchor: [p.x, p.roof, p.z],
       emitters: [],
       seed: s,
-      modelVariant: (s % 2) + 4 * drop,
+      // Glow worms: the curtain as wide as the level roof allows; the rest: a seeded look (and the drop).
+      modelVariant: /^glowWorms/.test(kind) ? Math.max(0, Math.min(2, p.spread ?? 2)) : (s % 2) + 4 * drop,
     });
   }
   return out;

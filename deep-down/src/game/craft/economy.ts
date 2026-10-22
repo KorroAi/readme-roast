@@ -64,8 +64,12 @@ export interface StratumSupply {
 export const PACE = {
   /** Walking while exploring, looking round and climbing (the walk is 4.2 m/s, the sprint 6.5). */
   exploreSpeed: 2.4,
-  /** Share of the ore blocks passed that an explorer mines anyway (it is the game), and at most. */
-  mineBase: 0.25,
+  /**
+   * Blocks an explorer mines anyway per metre walked (it is the game: a vein every 15-20 m), spread
+   * over the ores passed; a budget of time, not a share of the veins, so denser strata do not make the
+   * walk longer. At most `mineShare` of the blocks passed are in reach of a pick swing.
+   */
+  mineAnywayPerMetre: 0.22,
   mineShare: 0.8,
   /** Per block mined: aiming and stepping to the next one (s). */
   blockOverhead: 0.45,
@@ -270,6 +274,8 @@ export function yieldsOf(s: StratumSupply, phi: number, pickTier: number, weapon
 export interface Potential {
   free: Counts;
   ores: Array<{ ore: OreSupply; blocks: number; seconds: number }>;
+  /** Metres walked, and the seconds it takes. */
+  metres: number;
   walk: number;
   fight: number;
   chests: number;
@@ -289,7 +295,8 @@ export function potentialOf(s: StratumSupply, phi: number, pickTier: number, wea
     ores.push({ ore: o, blocks: o.blocks * f * PACE.mineShare, seconds: t });
   }
   for (const c of s.chests) for (const [id, n] of Object.entries(expectedLoot(c.kind, c.tier, c.biome)) as Array<[ItemId, number]>) add(id, n * f);
-  const walk = (s.tunnelMetres * f) / PACE.exploreSpeed;
+  const metres = s.tunnelMetres * f;
+  const walk = metres / PACE.exploreSpeed;
   const kills = walk / PACE.encounterSeconds;
   const totalW = s.creatures.reduce((a, c) => a + c.weight, 0) || 1;
   let fight = 0;
@@ -301,7 +308,7 @@ export function potentialOf(s: StratumSupply, phi: number, pickTier: number, wea
     fight += k * (c.hp / Math.max(0.5, weaponDps) + PACE.fightOverhead);
     for (const [id, n] of Object.entries(c.drops) as Array<[ItemId, number]>) add(id, n * k);
   }
-  return { free, ores, walk, fight, chests: s.chests.length * f * PACE.chestSeconds, kills: killed };
+  return { free, ores, metres, walk, fight, chests: s.chests.length * f * PACE.chestSeconds, kills: killed };
 }
 
 export interface MinePlan {
@@ -323,9 +330,12 @@ export function minePlan(p: Potential, want: Counts): MinePlan {
   let seconds = 0;
   let blocks = 0;
   const left = new Map(p.ores.map((o) => [o, o.blocks]));
-  // The veins mined anyway along the way (PACE.mineBase of what the walk passes).
+  // The veins mined anyway along the way: PACE.mineAnywayPerMetre of the walk, spread over the ores
+  // passed in proportion to their blocks.
+  const passed = p.ores.reduce((a, o) => a + o.blocks, 0);
+  const anyway = Math.min(passed, p.metres * PACE.mineAnywayPerMetre);
   for (const o of p.ores) {
-    const b = (o.blocks * PACE.mineBase) / PACE.mineShare;
+    const b = passed > 0 ? (o.blocks / passed) * anyway : 0;
     left.set(o, o.blocks - b);
     blocks += b;
     seconds += b * o.seconds;

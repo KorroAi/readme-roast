@@ -1,11 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { B, SOLID } from '../../src/config/blocks';
+import { B } from '../../src/config/blocks';
 import { BIOMES, PAGE_PLAN, STRATUM_SIZE, allOres, stratumDef, type StratumIndex } from '../../src/config/biomes';
 import { hash32 } from '../../src/core/math';
 import { reachNear, walkBfs } from '../../src/world/gen/strata/content';
 import { generateStratum } from '../../src/world/gen/strata/generateStratum';
 import { SET_PIECES } from '../../src/world/gen/strata/structures';
 import { withBiomeAt, type StratumLayout, type V3 } from '../../src/world/gen/strata/types';
+import { SOLID } from '../../src/config/blocks';
+import { TrapScratch, WORST_SOLID, homewardStates, isState, walkStates } from '../../src/world/gen/strata/traps';
 
 /**
  * Round 3 (WORLD): the strata generator's promises (BRIEF §0.1, §6), checked on every stratum of one
@@ -15,10 +17,17 @@ import { withBiomeAt, type StratumLayout, type V3 } from '../../src/world/gen/st
  */
 const SEED = 12345;
 const layouts = new Map<number, StratumLayout & { timings: { totalMs: number } }>();
+/** CPU milliseconds each stratum took (the machine is shared: wall time under load is not the budget's measure). */
+const cpuMs = new Map<number, number>();
 
 beforeAll(() => {
-  for (let n = 1; n <= 6; n++) layouts.set(n, generateStratum(SEED, n));
-}, 180_000);
+  for (let n = 1; n <= 6; n++) {
+    const c0 = process.cpuUsage();
+    layouts.set(n, generateStratum(SEED, n));
+    const c = process.cpuUsage(c0);
+    cpuMs.set(n, (c.user + c.system) / 1000);
+  }
+}, 240_000);
 
 const L = (n: number) => layouts.get(n)!;
 const hashBlocks = (b: Uint8Array) => {
@@ -29,6 +38,33 @@ const hashBlocks = (b: Uint8Array) => {
 const openOf = (l: StratumLayout, extra: V3[] = []) => new Set([...l.gate.seal, ...(l.dungeon?.door ?? []), ...extra].map(([x, y, z]) => l.world.index(x, y, z)));
 const near = (seen: Uint8Array, l: StratumLayout, p: readonly number[], r = 4) => reachNear(seen, l.world, [p[0], p[1], p[2]], r, 3) !== null;
 const arrivalOf = (l: StratumLayout): V3 => [l.arrival.x, l.arrival.y, l.arrival.z];
+
+/**
+ * Trapped states of a stratum (traps.ts): reached by the walk (or a climb) from the arrival with no walk
+ * or climb back to it, the works' door, the cracked walls and the Heart's door open; `worst`: every
+ * breakable block mined too (the worst a pick can do).
+ */
+function trapsOf(l: StratumLayout, worst: boolean): number {
+  const w = l.world;
+  const d = { sx: w.sx, sy: w.sy, sz: w.sz };
+  const b = w.blocks.slice();
+  for (const [x, y, z] of [...(l.dungeon?.door ?? []), ...(l.stratum === 6 ? l.gate.seal : [])]) b[w.index(x, y, z)] = B.AIR;
+  for (let i = 0; i < b.length; i++) if (b[i] === B.CRACKED_WALL) b[i] = B.AIR;
+  const S = worst ? WORST_SOLID : SOLID;
+  const sc = new TrapScratch(d);
+  const n = walkStates(b, S, d, [l.arrival.x, l.arrival.y, l.arrival.z], sc.a, sc.q);
+  const reached = sc.q.slice(0, n);
+  const targets: number[] = [];
+  const c = l.camp;
+  for (let z = Math.ceil(c.min[2]); z <= Math.floor(c.max[2]); z++)
+    for (let y = Math.max(1, Math.ceil(c.min[1])); y <= Math.min(w.sy - 3, Math.floor(c.max[1])); y++)
+      for (let x = Math.ceil(c.min[0]); x <= Math.floor(c.max[0]); x++) if (isState(b, S, w.sx, w.index(x, y, z))) targets.push(w.index(x, y, z));
+  homewardStates(b, S, d, targets, sc.b, sc.q);
+  let trapped = 0;
+  for (const i of reached) if (!sc.b[i]) trapped++;
+  expect(n).toBeGreaterThan(20000);
+  return trapped;
+}
 
 describe('the strata generator (round 3)', () => {
   it('is deterministic per (seed, stratum), and another seed is another world', () => {
@@ -53,8 +89,9 @@ describe('the strata generator (round 3)', () => {
     }
     for (const b of l.biomes) expect(counts[b]).toBeGreaterThan(500);
     if (n === 6) expect(counts.heart).toBeGreaterThan(10);
-    // Generated well within the budget (BRIEF §4: generation and light under 7 s on this container).
-    expect(l.timings.totalMs).toBeLessThan(6000);
+    // Generated within the budget (BRIEF §4: generation and light under 7 s on this container), in CPU
+    // time: about 1.5 s on a quiet core, up to 4 s with the other specialists' jobs on the same CPUs.
+    expect(cpuMs.get(n)!, `stratum ${n}: ${cpuMs.get(n)!.toFixed(0)} ms cpu, ${l.timings.totalMs} ms wall`).toBeLessThan(5500);
   });
 
   it.each([1, 2, 3, 4, 5, 6])('stratum %i: every key place is walkable from the arrival, and the arrival from each of them', (n) => {
@@ -151,6 +188,33 @@ describe('the strata generator (round 3)', () => {
     }
     // Unique ids (saves name removed props by id).
     expect(new Set(l.props.map((p) => p.id)).size).toBe(l.props.length);
+  });
+
+  it.each([1, 2, 3, 4, 5, 6])('stratum %i: no trap: everything walked into has a walk or a climb back, as carved and with every breakable block mined', (n) => {
+    const l = L(n);
+    expect(trapsOf(l, false), 'as carved').toBe(0);
+    expect(trapsOf(l, true), 'every breakable block mined').toBe(0);
+    // Every ladder the mending put in stands on its own column, and every ravine's rope has its landing.
+    for (const r of l.ravines) {
+      const [tx, ty, tz] = r.rope[r.rope.length - 1];
+      const landing = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dz]) => isState(l.world.blocks, SOLID, l.world.sx, l.world.index(tx + dx, ty, tz + dz)) && SOLID[l.world.get(tx + dx, ty - 1, tz + dz)] === 1);
+      expect(landing, `${r.id} landing`).toBe(true);
+    }
+  });
+
+  it('dresses the Halden Mines\' drifts with mine sets across the passage, and lays its rails along the walls', () => {
+    const l = L(3);
+    const sets = l.props.filter((p) => p.kind === 'mineSet');
+    expect(sets.length).toBeGreaterThan(8);
+    for (const p of sets) expect(l.biomeAt(p.x, p.y, p.z)).toBe('haldenMines');
+    // A rail's two metres run along open floor (its ends are not in the rock).
+    for (const p of l.props.filter((q) => q.kind === 'rail' && q.id.includes('_rail_'))) {
+      const dx = Math.cos(p.rotY);
+      const dz = -Math.sin(p.rotY);
+      for (const s2 of [-0.9, 0.9]) expect(SOLID[l.world.get(Math.floor(p.x + dx * s2), Math.floor(p.y), Math.floor(p.z + dz * s2))], `${p.id}`).toBe(0);
+    }
+    // Nests breed one of their biome's roster swarmers.
+    for (let k = 1; k <= 6; k++) for (const ne of L(k).nests) expect(ne.kind === null || BIOMES[ne.biome].mobs.monsters.includes(ne.kind), ne.id).toBe(true);
   });
 
   it('places Halden pages by the page plan: four per stratum, 1..24 once each, the guardian pages pointing at their lairs', () => {

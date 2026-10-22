@@ -4,7 +4,8 @@ import { Renderer } from './render/Renderer';
 import { GOVERNOR, QualityGovernor, initialQuality } from './render/QualityGovernor';
 import { LocalStorageStore, SAVE_KEYS, SaveSystem } from './save/SaveSystem';
 import { UI } from './ui/UI';
-import { t } from './i18n';
+import { detectLanguage, language, setLanguage, t } from './i18n';
+import { languageOf, loadControlPrefs } from './ui/controlPrefs';
 import { BUILD, VERSION, VERSION_CODE } from './version';
 
 // Entry point and the release shell around the game: the crash panel, the Android bridge
@@ -386,6 +387,9 @@ function startGovernor(g: Game, state: AutoQState): QualityGovernor {
 const createUi: UiFactory = (root, actions, bus, input) => new UI(root, actions, bus, input);
 
 async function boot(): Promise<void> {
+  // The language first (the device's, or the one chosen in Settings): every word is built in it.
+  setLanguage(languageOf(loadControlPrefs(), () => detectLanguage()));
+  document.documentElement.lang = language();
   // index.html found the engine too old and already shows the 'update your WebView' message.
   if ((window as { __DD_UNSUPPORTED__?: boolean }).__DD_UNSUPPORTED__) return;
   if (!Renderer.isSupported()) {

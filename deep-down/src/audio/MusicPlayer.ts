@@ -22,6 +22,7 @@ export const MUSIC_PRIORITY = { sting: 4, bed: 3, lead: 3, bass: 2, counter: 1, 
 /** A score note's stealing priority (MUSIC_PRIORITY), given the score's lead timbre. */
 export function musicPriority(note: MusicNote, lead: string): number {
   if (note.layer === 'sting') return MUSIC_PRIORITY.sting;
+  if (note.prio !== undefined) return note.prio;
   const family = TIMBRES[note.voice]?.family ?? 'lead';
   if (family === 'drum') return MUSIC_PRIORITY.drum;
   if (note.layer === 'bed') return MUSIC_PRIORITY.bed;
@@ -35,8 +36,12 @@ export function musicPriority(note: MusicNote, lead: string): number {
  * speaker: the lead a few LU over the bed, the tension a little under the lead, a fight on a par.
  */
 export const LAYER_GAIN: Record<MusicLayer, number> = { bed: 1, motif: 1, tension: 1.3, combat: 1.05, sting: 1.1 };
-/** The score's overall level against the effects and the beds (deck gain). */
-export const MUSIC_LEVEL = 1.35;
+/**
+ * The score's overall level against the effects and the beds (deck gain). Round 3: +1.5 dB (1.35 ->
+ * 1.6) so the calm music is present on a phone at the default volumes (the walk measured -30.5 LUFS
+ * for the score alone, the limiter idle); in a fight the score still sits under the effects.
+ */
+export const MUSIC_LEVEL = 1.6;
 
 /** Stem fades (time constants, s): danger rises fast, ebbs slowly; a fight arrives on the beat. */
 const RISE: Record<MusicLayer, number> = { bed: 1.2, motif: 1.0, tension: 0.6, combat: 0.25, sting: 0.05 };
@@ -59,6 +64,8 @@ interface Deck {
   fading: boolean;
   /** When the deck's nodes can be released (its fade done, its notes rung out). */
   disposeAt: number;
+  /** Notes it has started (diagnostics: a fading deck starts none). */
+  started: number;
 }
 
 export interface PlayOptions {
@@ -99,6 +106,11 @@ export class MusicPlayer {
   /** Decks alive (the current one and any still fading out). */
   get deckCount(): number {
     return this.decks.length;
+  }
+
+  /** Every live deck: its score, whether it is fading out, and how many notes it has started (tests, debug). */
+  deckInfo(): Array<{ id: ScoreId; fading: boolean; started: number }> {
+    return this.decks.map((d) => ({ id: d.id, fading: d.fading, started: d.started }));
   }
 
   /** The current deck's composer (tests, debug). */
@@ -150,7 +162,7 @@ export class MusicPlayer {
     dry.gain.setTargetAtTime(level, now, fadeIn);
     wet?.gain.setTargetAtTime(level, now, fadeIn);
     this.seed = (this.seed * 1103515245 + 12345) >>> 0;
-    const deck: Deck = { id, scheduler: new MusicScheduler(score, this.seed, opts.delay ?? 0.6), dry, wet, stems, level, fading: false, disposeAt: Infinity };
+    const deck: Deck = { id, scheduler: new MusicScheduler(score, this.seed, opts.delay ?? 0.6), dry, wet, stems, level, fading: false, disposeAt: Infinity, started: 0 };
     this.decks.push(deck);
     this.current = deck;
   }
@@ -169,6 +181,11 @@ export class MusicPlayer {
     this.stem(d, 'motif', mix.motif * duck, now);
     this.stem(d, 'tension', mix.tension, now);
     this.stem(d, 'combat', mix.combat, now);
+  }
+
+  /** A guardian fight's phase for the current deck (MusicScheduler.setPhase); a new deck starts at 1. */
+  setPhase(phase: number, phases?: number): void {
+    this.current?.scheduler.setPhase(phase, phases);
   }
 
   /** A stinger on the current deck (its key and tempo). Returns its length in seconds. */
@@ -219,6 +236,7 @@ export class MusicPlayer {
     const v = playMusicNote(deck.stems[note.layer].target, note);
     this.voices.add({ v, deck }, note.time, v.end, priority);
     this.played[note.layer]++;
+    deck.started++;
   }
 
   private priorityOf(deck: Deck, note: MusicNote): number {

@@ -11,6 +11,13 @@ import { iconSvg } from '../hud/glyphs';
 
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI'];
 
+/** Time played, short: "42 min", "3 h 05". */
+export function playTimeText(seconds: number): string {
+  const m = Math.max(0, Math.floor(seconds / 60));
+  if (m < 60) return t('menu3.minutes', { n: m });
+  return t('menu3.hours', { h: Math.floor(m / 60), m: String(m % 60).padStart(2, '0') });
+}
+
 /** The Visual Lab button: dev builds, or ?lab for reviewers (never on a player's home screen). */
 function showLab(): boolean {
   return import.meta.env.DEV || new URLSearchParams(location.search).has('lab');
@@ -35,12 +42,40 @@ export function buildMenu(host: ScreenHost): HTMLElement {
     'data-key': 'seed',
   });
   const seed = () => (seedInput.value.trim() ? seedInput.value.trim() : undefined);
+  // Round 3: the expedition waiting behind Continue (its stratum, biomes, shards and time played).
+  const sum = hasSave ? a.getSaveSummary() : null;
+  const ex = sum?.expedition;
+  const card = ex
+    ? h(
+        'div',
+        { class: 'dd-continue-card', 'aria-hidden': 'true' },
+        h('p', { class: 'dd-cc-stratum' }, h('span', { class: 'dd-cc-roman', text: ROMAN[ex.stratum] ?? String(ex.stratum) }), h('span', { text: ex.stratumName })),
+        h('p', { class: 'dd-cc-biomes', text: ex.biomes.join(' · ') }),
+        h(
+          'p',
+          { class: 'dd-cc-meta' },
+          h('span', { class: 'dd-cc-shards' }, ...Array.from({ length: 12 }, (_, i) => h('i', { class: i < ex.shards ? 'on' : '' }))),
+          h('span', { text: t('menu3.cardShards', { n: ex.shards }) }),
+          h('span', { text: t('menu3.cardTime', { time: playTimeText(sum!.playTime) }) }),
+        ),
+      )
+    : null;
   const startNew = () => {
     if (!a.hasSave()) {
       a.newGame(seed());
       return;
     }
     host.confirm({ text: t('menu.confirmNew'), yes: t('menu.confirmYes'), no: t('menu.confirmNo'), onYes: () => a.newGame(seed()), danger: true });
+  };
+  // Round 3: today's Daily Descent (one seed, one goal and its modifiers for everyone today).
+  const daily = a.daily?.() ?? null;
+  const startDaily = () => {
+    if (!a.newDaily) return;
+    if (!a.hasSave()) {
+      a.newDaily();
+      return;
+    }
+    host.confirm({ text: t('menu.confirmNew'), yes: t('menu.confirmYes'), no: t('menu.confirmNo'), onYes: () => a.newDaily?.(), danger: true });
   };
 
   return h(
@@ -62,8 +97,16 @@ export function buildMenu(host: ScreenHost): HTMLElement {
               autofocus: true,
             })
           : null,
+        card,
         btn(t('menu.newGame'), startNew, { variant: hasSave ? 'secondary' : 'primary', key: 'new', autofocus: !hasSave }),
         h('details', { class: 'dd-seed' }, h('summary', { class: 'dd-seed-summary', text: t('menu3.seed') }), h('p', { class: 'dd-seed-hint', text: t('menu3.seedHint') }), seedInput),
+        daily
+          ? btn(t('daily3.name'), startDaily, {
+              sub: [daily.goalText, ...daily.modTexts, daily.best ? t('daily3.best', { time: daily.best }) : ''].filter(Boolean).join(' · '),
+              key: 'daily',
+              className: 'dd-daily-btn',
+            })
+          : null,
         h(
           'div',
           { class: 'dd-menu-row' },

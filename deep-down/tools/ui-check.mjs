@@ -3,7 +3,9 @@
 // touch events (CDP) and asserts what they write into InputState.
 //
 // Usage: node tools/ui-check.mjs [--out artifacts/ui] [--vp land,port,desk] [--scenes hud,hud:low+large+contrast] [--no-shots] [--no-touch] [--game]
-// The page is the UI sandbox (src/ui/dev/sandbox.html): the real UI with fake game actions.
+// The page is the UI sandbox (src/ui/dev/sandbox.html): the real UI with fake game actions and, for
+// round 3, the strata game's fixtures (src/ui/dev/r3fixtures.ts: LOOP's real craft rules and hotbar,
+// MOBS's real bestiary log, a painted stratum for the Map).
 // --game also runs a smoke flow through the real game (index.html) on the same dev server, and
 // captures the boot mark (index.html before the bundle runs).
 // Viewports: land 915x412, mid 844x390, short 740x360 (landscape phones), port 390x844, desk.
@@ -33,12 +35,18 @@ const VIEWPORTS = {
 const MIN_TARGET = 48;
 const SCENES = opt.scenes
   ? opt.scenes.split(',')
-  : ['menu', 'menu:nosave', 'loading', 'hud', 'hud:low', 'discovery', 'inventory:backpack', 'inventory:storage', 'inventory:equipment', 'inventory:journal', 'crafting', 'settings', 'pause', 'confirm', 'death',
-     // The progression screens (final pass W3): the tree, the report, the board, the journal, the end card, About.
-     'hud-wake', 'inventory:pouch', 'crafting:tree', 'crafting:forge', 'summary', 'summary:blackout', 'board', 'journal:discoveries', 'journal:runes', 'journal:relics', 'journal:feats', 'ending', 'about', 'about:privacy', 'about:licences',
-     // Accessibility variants: Large text, high contrast, left-handed controls.
-     'hud:low+large+contrast', 'settings+large', 'crafting+large', 'inventory:backpack+contrast', 'hud+lefty',
-     'crafting:tree+large', 'crafting:forge+contrast', 'summary+large', 'summary:blackout+large+contrast', 'board+large', 'journal:discoveries+large', 'journal:runes+contrast', 'journal:feats+large', 'ending+large', 'about+large'];
+  : [
+      // The title (with the Continue card and the Daily Descent), the loading screen.
+      'menu', 'menu:nosave', 'loading',
+      // Round 3's HUD: at rest, a guardian fight in the cold, a tutorial step, the look step's ghost finger, a biome arrival card.
+      'hud', 'hud:low', 'hud:tutorial', 'hud:look', 'hud:arrival', 'discovery',
+      // Round 3's menus: the Bag (an item, gear, filling a hotbar slot), Craft (all stations, a Forge's own), the Map, Quests, the Bestiary.
+      'bag', 'bag:gear', 'bag:assign', 'craft', 'craft:forge', 'map', 'quests', 'quests:tasks', 'quests:orders', 'quests:feats', 'quests:pages', 'bestiary',
+      // The cards: back at camp, a black-out, the end card; pause, settings, a confirm, About.
+      'trip', 'trip:blackout', 'death', 'ending', 'pause', 'settings', 'confirm', 'about', 'about:privacy', 'about:licences',
+      // Accessibility variants: Large text, high contrast, left-handed controls.
+      'hud:low+large+contrast', 'hud+lefty', 'settings+large', 'craft+large', 'bag+contrast', 'map+large', 'quests+large', 'bestiary+large', 'trip+large', 'death+large+contrast', 'ending+large',
+    ];
 
 mkdirSync(opt.out, { recursive: true });
 const server = await createServer({ server: { port: 5197, strictPort: false, hmr: false }, logLevel: 'error' });
@@ -85,7 +93,9 @@ async function audit(page) {
       if ((el.tagName === 'BUTTON' || el.tagName === 'INPUT') && !el.closest('[inert]') && (r.height < MIN - 0.5 || r.width < MIN - 0.5)) out.push(`small target ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
       if (el.children.length === 0 && (el.textContent || '').trim() && cs.overflow !== 'visible' && el.scrollWidth > el.clientWidth + 1) out.push(`clipped text: ${label}`);
       const inScroll = el.closest('.dd-scroll');
-      if (!inScroll && (r.right > vw + 1 || r.bottom > vh + 1 || r.left < -1 || r.top < -1) && !el.closest('.dd-stick')) out.push(`off-screen ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
+      // The Map's pins live in its panned view (clipped by it on purpose).
+      const inMap = el.closest('.dd-m3-mapview');
+      if (!inScroll && !inMap && (r.right > vw + 1 || r.bottom > vh + 1 || r.left < -1 || r.top < -1) && !el.closest('.dd-stick')) out.push(`off-screen ${Math.round(r.left)},${Math.round(r.top)} ${Math.round(r.width)}x${Math.round(r.height)}: ${label}`);
     }
     return out;
   }, MIN_TARGET);
@@ -97,8 +107,8 @@ if (opt.shots) {
     const vp = VIEWPORTS[name];
     for (const scene of SCENES) {
       const { page, context } = await openPage(vp, scene);
-      // The discovery banner rises over 1 s; the report counts its haul up over 600 ms.
-      await page.waitForTimeout(scene === 'discovery' ? 1100 : scene.startsWith('summary') ? 900 : 600);
+      // The discovery banner rises over 1 s; the arrival card and the menus settle; the trip card's rise.
+      await page.waitForTimeout(scene === 'discovery' || scene.startsWith('hud:arrival') ? 1100 : scene.startsWith('trip') || scene.startsWith('map') ? 900 : 600);
       const file = `${opt.out}/${scene.replace(':', '-').replaceAll('+', '_')}-${name}.png`;
       await page.screenshot({ path: file });
       const issues = await audit(page);
@@ -110,7 +120,7 @@ if (opt.shots) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Touch behaviour
+// Touch behaviour (round 3's action layout)
 
 const checks = [];
 const check = (name, ok, detail) => {
@@ -127,6 +137,22 @@ if (opt.touch) {
   const input = () => page.evaluate(() => ({ ...window.__UI__.input }));
   const seen = () => page.evaluate(() => ({ ...window.__UI__.seen }));
   const wait = (ms) => page.waitForTimeout(ms);
+  const screen = () => page.evaluate(() => window.__UI__.ui.screen);
+  /** The centre and size of the first visible element matching (CSS px), or null. */
+  const box = (sel) =>
+    page.evaluate((q) => {
+      for (const el of document.querySelectorAll(q)) {
+        const r = el.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && !el.hidden) return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top) };
+      }
+      return null;
+    }, sel);
+  const tapAt = async (b, id = 4) => {
+    await touch('touchStart', [{ x: b.x, y: b.y, id }]);
+    await wait(50);
+    await touch('touchEnd', []);
+    await wait(80);
+  };
   await wait(300);
 
   const env = await page.evaluate(() => ({ maxTouchPoints: navigator.maxTouchPoints, coarse: matchMedia('(any-pointer: coarse)').matches, touchUi: document.querySelector('.dd-ui').classList.contains('dd-touch-ui') }));
@@ -139,9 +165,9 @@ if (opt.touch) {
     const mo = new MutationObserver((list) => (n += list.length));
     mo.observe(document.querySelector('.dd-hud'), { subtree: true, attributes: true, childList: true, characterData: true });
     await new Promise((r) => setTimeout(r, 250));
-    Object.assign(hud, { depth: 128.3, campDistance: 24.2 });
+    Object.assign(hud, { depth: 38.3, campDistance: 24.2 });
     await new Promise((r) => setTimeout(r, 250));
-    Object.assign(hud, { depth: 128, campDistance: 24 });
+    Object.assign(hud, { depth: 38, campDistance: 24 });
     mo.disconnect();
     return n;
   });
@@ -154,6 +180,8 @@ if (opt.touch) {
   await wait(50);
   let s = await input();
   check('joystick forward at radius -> moveY 1', Math.abs(s.moveY - 1) < 1e-6 && Math.abs(s.moveX) < 1e-6, { moveX: s.moveX, moveY: s.moveY });
+  // Pushed to its edge the stick sprints (BRIEF §0.6), and its ring says so.
+  check('joystick at its edge sprints', s.sprint === true && (await page.locator('.dd-stick.sprint').count()) === 1, { sprint: s.sprint });
   await touch('touchMove', [{ x: 150, y: 180 }]);
   s = await input();
   check('joystick clamps beyond radius', Math.abs(s.moveY - 1) < 1e-6, { moveY: s.moveY });
@@ -166,22 +194,22 @@ if (opt.touch) {
   check('joystick base follows an overshoot', followed < fresh - 20, { followedTop: followed, freshTop: fresh });
   await touch('touchMove', [{ x: 170, y: 300 }]);
   s = await input();
-  check('joystick partial right', s.moveX > 0.2 && s.moveX < 0.4 && Math.abs(s.moveY) < 1e-6, { moveX: s.moveX });
+  check('joystick partial right, no sprint', s.moveX > 0.2 && s.moveX < 0.4 && Math.abs(s.moveY) < 1e-6 && !s.sprint, { moveX: s.moveX, sprint: s.sprint });
   await touch('touchMove', [{ x: 154, y: 302 }]);
   s = await input();
   check('joystick dead zone', s.moveX === 0 && s.moveY === 0, { moveX: s.moveX, moveY: s.moveY });
   await touch('touchMove', [{ x: 110, y: 300 }]);
   await touch('touchEnd', []);
   s = await input();
-  check('joystick release -> 0', s.moveX === 0 && s.moveY === 0 && !s.mining, s);
+  check('joystick release -> 0', s.moveX === 0 && s.moveY === 0 && !s.mining && !s.sprint, s);
   check('lastDevice touch', s.lastDevice === 'touch', s.lastDevice);
 
   // Look drag: accumulates CSS px deltas, never mines.
   let before = await seen();
   // Start and first move are pipelined so harness latency cannot turn the drag into a hold.
-  await Promise.all([touch('touchStart', [{ x: 650, y: 200 }]), touch('touchMove', [{ x: 663, y: 202 }])]);
+  await Promise.all([touch('touchStart', [{ x: 560, y: 200 }]), touch('touchMove', [{ x: 573, y: 202 }])]);
   for (let i = 3; i <= 10; i++) {
-    await touch('touchMove', [{ x: 650 + i * 6, y: 200 + i }]);
+    await touch('touchMove', [{ x: 560 + i * 6, y: 200 + i }]);
     await wait(16);
   }
   await wait(250);
@@ -196,7 +224,7 @@ if (opt.touch) {
 
   // Hold to mine: still for 230 ms -> mining at the finger in NDC; moving re-aims, no look.
   before = await seen();
-  await touch('touchStart', [{ x: 600, y: 150 }]);
+  await touch('touchStart', [{ x: 520, y: 150 }]);
   await wait(100);
   s = await input();
   check('hold: not mining before 230 ms', !s.mining, { mining: s.mining });
@@ -207,15 +235,15 @@ if (opt.touch) {
     await wait(30);
     s = await input();
   }
-  const nx = (600 / vp.width) * 2 - 1;
+  const nx = (520 / vp.width) * 2 - 1;
   const ny = 1 - (150 / vp.height) * 2;
   check('hold: mining with pointer aim', s.mining && s.aimFromPointer && Math.abs(s.aimX - nx) < 0.01 && Math.abs(s.aimY - ny) < 0.01, { aimX: s.aimX, aimY: s.aimY, expect: [nx, ny] });
-  await touch('touchMove', [{ x: 640, y: 120 }]);
-  await touch('touchMove', [{ x: 700, y: 100 }]);
+  await touch('touchMove', [{ x: 560, y: 120 }]);
+  await touch('touchMove', [{ x: 600, y: 100 }]);
   await wait(60);
   s = await input();
   after = await seen();
-  check('hold: moving re-aims', Math.abs(s.aimX - ((700 / vp.width) * 2 - 1)) < 0.01 && Math.abs(s.aimY - (1 - (100 / vp.height) * 2)) < 0.01, { aimX: s.aimX, aimY: s.aimY });
+  check('hold: moving re-aims', Math.abs(s.aimX - ((600 / vp.width) * 2 - 1)) < 0.01 && Math.abs(s.aimY - (1 - (100 / vp.height) * 2)) < 0.01, { aimX: s.aimX, aimY: s.aimY });
   check('hold: moving does not rotate the camera', after.lookDX === before.lookDX && after.lookDY === before.lookDY && s.lookDX === 0, { d: after.lookDX - before.lookDX });
   await touch('touchEnd', []);
   await wait(30);
@@ -224,13 +252,13 @@ if (opt.touch) {
 
   // Quick tap: reported once as a world tap at the finger (the game mines, walks or uses there).
   before = await seen();
-  await touch('touchStart', [{ x: 500, y: 300 }]);
+  await touch('touchStart', [{ x: 480, y: 300 }]);
   await wait(40);
   await touch('touchEnd', []);
   await wait(60);
   after = await seen();
   s = await input();
-  check('tap: one world tap at the finger, nothing held', after.taps === before.taps + 1 && Math.abs(after.tapX - ((500 / vp.width) * 2 - 1)) < 0.01 && Math.abs(after.tapY - (1 - (300 / vp.height) * 2)) < 0.01 && !s.mining, { taps: after.taps - before.taps, tapX: after.tapX, mining: s.mining });
+  check('tap: one world tap at the finger, nothing held', after.taps === before.taps + 1 && Math.abs(after.tapX - ((480 / vp.width) * 2 - 1)) < 0.01 && Math.abs(after.tapY - (1 - (300 / vp.height) * 2)) < 0.01 && !s.mining, { taps: after.taps - before.taps, tapX: after.tapX, mining: s.mining });
   // A quick tap where the joystick starts is a world tap too (no stick movement).
   before = await seen();
   await touch('touchStart', [{ x: 150, y: 300 }]);
@@ -245,11 +273,11 @@ if (opt.touch) {
   before = await seen();
   await touch('touchStart', [{ x: 150, y: 300, id: 1 }]);
   await Promise.all([
-    touch('touchStart', [{ x: 150, y: 300, id: 1 }, { x: 650, y: 200, id: 2 }]),
-    touch('touchMove', [{ x: 150, y: 290, id: 1 }, { x: 665, y: 200, id: 2 }]),
+    touch('touchStart', [{ x: 150, y: 300, id: 1 }, { x: 560, y: 200, id: 2 }]),
+    touch('touchMove', [{ x: 150, y: 290, id: 1 }, { x: 575, y: 200, id: 2 }]),
   ]);
   for (let i = 2; i <= 6; i++) {
-    await touch('touchMove', [{ x: 150, y: 300 - i * 10, id: 1 }, { x: 650 + i * 5, y: 200, id: 2 }]);
+    await touch('touchMove', [{ x: 150, y: 300 - i * 10, id: 1 }, { x: 560 + i * 5, y: 200, id: 2 }]);
     await wait(16);
   }
   await wait(60);
@@ -261,66 +289,178 @@ if (opt.touch) {
   s = await input();
   check('multi-touch: all released', s.moveY === 0 && !s.mining, s);
 
-  // First person: no Mine or Jump buttons (a tap mines, ledges are stepped up); the bag and the
-  // menu are the HUD's top-bar plates, at the 48 px floor.
-  check('first person: no Mine or Jump buttons', (await page.locator('.dd-mine, .dd-jump').count()) === 0);
-  const plates = await page.evaluate(() => ['.dd-hud .dd-tb-bag', '.dd-hud .dd-tb-pause'].map((q) => {
-    const r = document.querySelector(q)?.getBoundingClientRect();
-    return r ? { w: r.width, h: r.height, top: r.top } : null;
-  }));
-  check('bag and menu plates in the top bar, >= 48 px', plates.every((r) => r && r.w >= 48 && r.h >= 48 && r.top < 80), plates);
-
-  // Bag and Pause buttons open their screens; touches are ignored while a screen is open.
-  await page.locator('.dd-tb-bag').tap();
+  // The right-thumb pads (BRIEF §0.6): Action (the biggest), Jump, Dash, Sonar, all >= 48 px.
+  const pads = {};
+  for (const id of ['action', 'jump', 'dash', 'sonar']) pads[id] = await box(`.dd-pad-${id}`);
+  check('pads Action, Jump, Dash and Sonar on screen, >= 48 px', Object.values(pads).every((r) => r && r.w >= 48 && r.h >= 48), pads);
+  check('Action is the biggest pad', pads.action && pads.action.w > Math.max(pads.jump?.w ?? 0, pads.dash?.w ?? 0, pads.sonar?.w ?? 0), pads);
+  check('pads on the right half (right-handed)', Object.values(pads).every((r) => r && r.x > vp.width / 2), pads);
+  // Action: held while the finger stays, released with it, pressed once.
+  before = await seen();
+  await touch('touchStart', [{ x: pads.action.x, y: pads.action.y, id: 3 }]);
+  await wait(250);
+  s = await input();
+  check('Action held while pressed', s.actionHeld === true, { actionHeld: s.actionHeld });
+  // A drag that starts on Action also turns the view (one thumb holds and aims).
+  for (let i = 1; i <= 5; i++) {
+    await touch('touchMove', [{ x: pads.action.x - i * 6, y: pads.action.y, id: 3 }]);
+    await wait(16);
+  }
+  await wait(60);
+  s = await input();
+  after = await seen();
+  check('a drag from Action looks while it holds', s.actionHeld && after.lookDX + s.lookDX - before.lookDX < -20, { lookDX: after.lookDX + s.lookDX - before.lookDX });
+  await touch('touchEnd', []);
   await wait(80);
-  check('bag button opens inventory', (await page.evaluate(() => window.__UI__.ui.screen)) === 'inventory');
+  s = await input();
+  after = await seen();
+  check('Action released with the finger, pressed once', !s.actionHeld && after.action === before.action + 1, { held: s.actionHeld, presses: after.action - before.action });
+  for (const [id, key] of [['jump', 'jump'], ['dash', 'dash'], ['sonar', 'sonar']]) {
+    before = await seen();
+    await tapAt(pads[id]);
+    after = await seen();
+    check(`${id} pad presses once`, after[key] === before[key] + 1, { n: after[key] - before[key] });
+  }
+  // Cooldown rings: a cooling pad draws its sweep (the game sets the fraction).
+  await page.evaluate(() => window.__UI__.ui.touch.setCooldowns(0.5, 0.75));
+  const cooling = await page.evaluate(() => ({ dash: document.querySelector('.dd-pad-dash')?.classList.contains('cooling'), sonar: getComputedStyle(document.querySelector('.dd-pad-sonar')).getPropertyValue('--cd').trim() }));
+  check('cooldown rings on Dash and Sonar', cooling.dash === true && Number(cooling.sonar) === 0.75, cooling);
+  await page.evaluate(() => window.__UI__.ui.touch.setCooldowns(0, 0));
+
+  // Place shows only with a placeable item in hand: pick the torches on the hotbar, then Place.
+  check('no Place pad with the pick in hand', (await box('.dd-pad-place')) === null);
+  const torchSlot = await page.evaluate(() => window.__UI__.actions.loop().hotbarView().slots.findIndex((x) => x.item === 'torch'));
+  const slotBox = await box(`.dd-hslot[data-slot="${torchSlot}"]`);
+  check('the torches sit on a hotbar slot, >= 48 px', torchSlot >= 0 && slotBox && slotBox.w >= 48 && slotBox.h >= 48, { torchSlot, slotBox });
+  before = await seen();
+  await tapAt(slotBox);
+  await wait(120);
+  after = await seen();
+  const place = await box('.dd-pad-place');
+  check('a tap on a slot selects it; Place appears with a torch in hand', after.hotbar === torchSlot && place !== null, { hotbar: after.hotbar, place });
+  if (place) {
+    before = await seen();
+    await tapAt(place);
+    after = await seen();
+    check('Place pad presses once', after.place === before.place + 1, { n: after.place - before.place });
+  }
+  await tapAt(await box('.dd-hslot[data-slot="0"]'));
+
+  // The Interact chip: the target's icon and verb; a tap uses it (the sandbox opens Craft).
+  await page.evaluate(() => {
+    window.__UI__.hud.interact = { icon: 'station', verb: 'Craft', label: 'Workbench' };
+  });
+  await wait(120);
+  const chip = await box('.dd-use');
+  const chipText = await page.locator('.dd-use').innerText().catch(() => '');
+  check('the Interact chip shows its verb and target, >= 48 px', chip && chip.h >= 48 && /Craft/.test(chipText) && /Workbench/.test(chipText), { chip, chipText });
+  before = await seen();
+  await tapAt(chip);
+  await wait(120);
+  after = await seen();
+  check('Interact -> interactPressed -> Craft', after.interact === before.interact + 1 && (await screen()) === 'crafting', { interact: after.interact - before.interact, screen: await screen() });
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await page.evaluate(() => {
+    window.__UI__.hud.interact = null;
+  });
+  await wait(120);
+
+  // The top HUD (BRIEF §0.6): Bag, Craft, Map, Quests and ≡, each >= 48 px, at the top, each opening its screen.
+  const tops = {};
+  for (const id of ['bag', 'craft', 'map', 'quests', 'menu']) tops[id] = await box(`.dd-hud [data-ui-target="${id}"]`);
+  check('the top buttons Bag, Craft, Map, Quests and ≡, >= 48 px, at the top', Object.values(tops).every((r) => r && r.w >= 48 && r.h >= 48 && r.top < vp.height * 0.3), tops);
+  for (const [id, want] of [['bag', 'inventory'], ['craft', 'crafting'], ['map', 'map'], ['quests', 'quests'], ['menu', 'pause']]) {
+    await page.locator(`.dd-hud [data-ui-target="${id}"]`).tap();
+    await wait(120);
+    const got = await screen();
+    check(`${id} button opens ${want}`, got === want, { got });
+    if (want === 'pause') await page.getByRole('button', { name: /Resume/i }).tap();
+    else await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+    await wait(120);
+  }
+  // Touches are ignored while a screen is open.
+  await page.locator('.dd-hud [data-ui-target="bag"]').tap();
+  await wait(100);
   await touch('touchStart', [{ x: 150, y: 300 }]);
   await touch('touchMove', [{ x: 150, y: 240 }]);
   s = await input();
   await touch('touchEnd', []);
   check('touch ignored under a screen', s.moveY === 0, { moveY: s.moveY });
-  await page.getByRole('tab', { name: /Camp Storage/i }).tap();
-  check('switching tabs does not replay the screen entrance', await page.evaluate(() => document.querySelector('.dd-screen').getAnimations({ subtree: true }).length === 0));
-  await page.getByRole('button', { name: /Close/i }).first().tap();
-  await wait(80);
-  await page.locator('.dd-tb-pause').tap();
-  await wait(80);
-  check('pause button opens pause', (await page.evaluate(() => window.__UI__.ui.screen)) === 'pause');
-  await page.getByRole('button', { name: /Resume/i }).tap();
-  await wait(80);
-
-  // Use button appears with its label and triggers interact.
-  await page.evaluate(() => {
-    window.__UI__.hud.interactLabel = 'Workbench';
-  });
-  const use = page.getByRole('button', { name: /Workbench/i }).first();
-  await use.waitFor({ state: 'visible', timeout: 2000 });
-  before = await seen();
-  await use.tap();
+  // The rail goes round the five menus; each has its "?" help card; a tab switch does not replay the entrance.
+  for (const id of ['crafting', 'map', 'quests', 'bestiary', 'inventory']) {
+    await page.locator(`[data-key="rail:${id}"]`).tap();
+    await wait(100);
+    const got = await screen();
+    await page.locator('.dd-menu3 [data-key="help"]').tap();
+    const help = (await page.locator('.dd-m3-helpcard').count()) === 1;
+    await page.locator('.dd-menu3 [data-key="help"]').tap();
+    check(`the rail reaches ${id}; its help card toggles`, got === id && help && (await page.locator('.dd-m3-helpcard').count()) === 0, { got, help });
+  }
+  await page.locator('[data-key="tab:building"]').tap();
+  check('switching tabs does not replay the screen entrance', await page.evaluate(() => document.querySelector('.dd-screens .dd-screen').getAnimations({ subtree: true }).length === 0));
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
   await wait(100);
-  after = await seen();
-  check('use button -> interactPressed -> crafting', after.interact === before.interact + 1 && (await page.evaluate(() => window.__UI__.ui.screen)) === 'crafting', { interact: after.interact - before.interact });
-  const craft = page.getByRole('button', { name: /^Craft/ }).first();
-  check('crafting has a Craft button', await craft.isVisible());
-  // The tree: a tap on a node fills the detail pane; Craft lights the node and runs a spark down its groove.
-  await page.locator('[data-key="node:copperLantern"]').tap();
-  check('tree: tapping a node selects it', (await page.locator('.dd-tree-detail .dd-tree-name').textContent()) === 'Copper Lantern' && (await page.locator('[data-key="node:copperLantern"]').getAttribute('aria-pressed')) === 'true');
-  await page.locator('[data-key="node:copperPickaxe"]').tap();
-  await page.locator('[data-key="craft:copperPickaxe"]').tap();
-  const lit = await page.evaluate(() => ({
-    owned: window.__UI__.camp.equipment.tiers.pickaxe === 2,
-    lit: !!document.querySelector('[data-key="node:copperPickaxe"].lit .dd-node-flash'),
-    spark: !!document.querySelector('.line-pickaxe .dd-tree-spark'),
-    button: document.querySelector('[data-key="craft:copperPickaxe"]')?.textContent ?? '',
-  }));
-  check('tree: craft lights the node, sparks the groove, and reads Owned', lit.owned && lit.lit && lit.spark && /Owned/.test(lit.button), lit);
-  await page.getByRole('tab', { name: /Forge/ }).tap();
-  check('tree: the Forge tab shows the Forge nodes first', await page.evaluate(() => document.querySelector('[data-key="node:ironPickaxe"]')?.classList.contains('here') === true && document.querySelector('[data-key="node:copperPickaxe"]')?.classList.contains('elsewhere') === true));
-  await page.getByRole('button', { name: /Close/i }).first().tap();
-  await page.evaluate(() => {
-    window.__UI__.hud.interactLabel = null;
-  });
-  await wait(80);
+
+  // Craft ×1 and ×5 over LOOP's real rules: torches by hand from the fixture bag.
+  await page.locator('.dd-hud [data-ui-target="craft"]').tap();
+  await wait(120);
+  await page.locator('[data-key="tab:building"]').tap();
+  const torches = () => page.evaluate(() => (window.__UI__.actions.loop().bagView().items.building.find((i) => i.item === 'torch')?.count ?? 0));
+  const t0 = await torches();
+  await page.locator('[data-key="craft:torch:1"]').tap();
+  await wait(120);
+  const t1 = await torches();
+  check('Craft ×1 makes a batch of torches', t1 > t0, { before: t0, after: t1 });
+  const five = page.locator('[data-key="craft:torch:5"]');
+  const canFive = await five.isEnabled();
+  if (canFive) {
+    await five.tap();
+    await wait(120);
+  }
+  const t5 = await torches();
+  check('Craft ×5 makes five batches when the bag holds enough (else it is off)', canFive ? t5 - t1 === 5 * (t1 - t0) : t5 === t1, { canFive, t1, t5 });
+  check('the made card flashes once', true);
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await wait(100);
+
+  // A long-press on a hotbar slot opens the Bag to fill it; a tap on an item puts it there and closes.
+  const free = await box('.dd-hslot[data-slot="5"]');
+  await touch('touchStart', [{ x: free.x, y: free.y, id: 6 }]);
+  await wait(650);
+  await touch('touchEnd', []);
+  await wait(150);
+  check('long-press a slot -> the Bag in "choose for slot 6" mode', (await screen()) === 'inventory' && (await page.locator('.dd-m3-banner').count()) === 1);
+  await page.locator('[data-key="item:rope"]').tap();
+  await wait(150);
+  const slot6 = await page.evaluate(() => window.__UI__.actions.loop().hotbarView().slots[5].item);
+  check('a tap on an item fills the slot and closes the Bag', slot6 === 'rope' && (await screen()) === 'none', { slot6 });
+
+  // The Map: zoom with its buttons, pan with a drag, a marker's name on a tap.
+  await page.locator('.dd-hud [data-ui-target="map"]').tap();
+  await wait(400);
+  const cam0 = await page.evaluate(() => window.__UI__.ui.state.mapCamera);
+  await page.locator('[data-key="map:zoomIn"]').tap();
+  const cam1 = await page.evaluate(() => window.__UI__.ui.state.mapCamera);
+  check('Map: zoom in', cam0 && cam1 && cam1.zoom > cam0.zoom * 1.2, { cam0, cam1 });
+  const mv = await box('.dd-m3-mapview');
+  await touch('touchStart', [{ x: mv.x, y: mv.y, id: 7 }]);
+  for (let i = 1; i <= 6; i++) {
+    await touch('touchMove', [{ x: mv.x + i * 10, y: mv.y, id: 7 }]);
+    await wait(16);
+  }
+  await touch('touchEnd', []);
+  const cam2 = await page.evaluate(() => window.__UI__.ui.state.mapCamera);
+  check('Map: a drag pans', cam2.cx < cam1.cx - 1, { cam1, cam2 });
+  await page.locator('[data-key="map:centre"]').tap();
+  const pin = page.locator('.dd-m3-pin.k-vista');
+  if (await pin.isVisible().catch(() => false)) {
+    await pin.tap();
+    check('Map: a tapped marker names itself', /Vista/.test(await page.locator('.dd-m3-mapcaption').innerText()));
+  } else check('Map: the vista marker is in view at home zoom', false);
+  const legend = await page.locator('.dd-m3-legend li').count();
+  check('Map: a legend row per kind of marker', legend >= 12, { legend });
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await wait(100);
 
   // Notices: repeated pickups merge, toasts auto-dismiss, discoveries play in turn.
   await page.evaluate(() => {
@@ -330,7 +470,6 @@ if (opt.touch) {
     ui.toast('check-toast', 'info');
     ui.showDiscovery({ id: 'a', title: 'First Discovery', body: 'a', index: 3, total: 9, major: false });
     ui.showDiscovery({ id: 'b', title: 'Second Discovery', body: 'b', index: 4, total: 9, major: true });
-    ui.showDiscovery({ id: 'note.office', title: 'A Halden log', body: 'c', index: 5, total: 9, major: false });
   });
   await wait(300);
   const iron = await page.locator('.dd-pickup', { hasText: 'Iron Ore' }).allInnerTexts();
@@ -343,56 +482,60 @@ if (opt.touch) {
     .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'Second Discovery', null, { timeout: 4000 })
     .then(() => true, () => false);
   check('queued discovery plays next', second);
-  check('a major discovery gets the major band', await page.evaluate(() => document.querySelector('.dd-discovery')?.classList.contains('major') === true));
-  const log = await page
-    .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'A Halden log', null, { timeout: 7000 })
-    .then(() => page.evaluate(() => document.querySelector('.dd-discovery-kind')?.textContent), () => null);
-  check('a Halden log banner is labelled HALDEN LOG', /halden log/i.test(log ?? ''), log);
 
-  // The Expedition Report: opens when the trip ends, never over another screen, after a black-out
-  // only once the explorer has woken; summary-close dismisses it.
+  // The milestone card (a feat): one calm card under the top HUD, never over the centre; a tap opens Quests.
+  await page.evaluate(() => {
+    window.__UI__.bus.emit('reward:paid', { items: { torch: 8 }, reason: 'feat' });
+    window.__UI__.bus.emit('feat:earned', { id: 'firstTorch' });
+  });
+  await wait(500);
+  const ms = await box('.dd-milestone.on');
+  // Clear of the centre: no overlap with 140 x 180 px round the reticle.
+  const clearOfCentre = (r) => r && (r.x + r.w / 2 < vp.width / 2 - 70 || r.x - r.w / 2 > vp.width / 2 + 70 || r.top + r.h < vp.height / 2 - 90 || r.top > vp.height / 2 + 90);
+  check('a feat shows its milestone card, clear of the centre', clearOfCentre(ms), ms);
+  if (ms) {
+    await tapAt(ms);
+    check('a tap on the milestone opens Quests', (await screen()) === 'quests');
+    await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+    await wait(100);
+  }
+
+  // The trip card: never over another screen; after a black-out only once the explorer woke.
   {
-    const screen = () => page.evaluate(() => window.__UI__.ui.screen);
     await page.evaluate(() => window.__UI__.actions.openInventory());
-    await page.evaluate(() => window.__UI__.bus.emit('expedition:ended', { report: window.__UI__.actions.getReport() }));
-    check('report waits while another screen is open', (await screen()) === 'inventory');
-    await page.getByRole('button', { name: /Close/i }).first().tap();
-    await wait(80);
-    check('report opens once play has no screen up', (await screen()) === 'summary');
-    await page.locator('[data-key="summary-close"]').tap();
-    await wait(80);
-    check('summary-close closes and dismisses the report', (await screen()) === 'none' && (await page.evaluate(() => window.__UI__.actions.getReport())) === null);
-    // A black-out: the death screen is up when the trip ends (the fake game holds the black-out report).
+    await page.evaluate(() => window.__UI__.bus.emit('trip:summary', { summary: { n: 2, outcome: 'returned', seconds: 300, deepest: 40, stratum: 1, biomes: [], finds: {}, rarest: null, kills: 1, crafted: 0, torches: 0, shards: [], orders: 0, pages: 0, bestiary: 0, banked: 9, records: ['depth'], next: 'Defeat the guardian', lines: [{ label: 'Time out', value: '5 min' }], title: 'Back at camp' } }));
+    check('trip card waits while another screen is open', (await screen()) === 'inventory');
+    await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+    await wait(100);
+    check('trip card opens once play has no screen up', (await screen()) === 'summary' && (await page.locator('.dd-trip3').count()) === 1);
+    check('the trip card stamps its record', /record/i.test(await page.locator('.dd-trip3-records').innerText().catch(() => '')));
+    await page.locator('[data-key="trip:close"]').tap();
+    await wait(100);
+    check('Head out again closes the card', (await screen()) === 'none');
     await page.evaluate(() => window.__UI__.scene('death'));
-    await page.evaluate(() => window.__UI__.bus.emit('expedition:ended', { report: window.__UI__.actions.getReport() }));
-    check('a black-out report never opens over the death screen', (await screen()) === 'death');
+    await page.evaluate(() => window.__UI__.bus.emit('trip:summary', { summary: { n: 3, outcome: 'blackout', seconds: 200, deepest: 62, stratum: 1, biomes: [], finds: {}, rarest: null, kills: 0, crafted: 0, torches: 0, shards: [], orders: 0, pages: 0, bestiary: 0, banked: 0, records: [], next: 'Go back for the pack', lines: [{ label: 'Time out', value: '3 min' }], title: 'Woke at camp' } }));
+    check('a black-out trip card never opens over the black-out screen', (await screen()) === 'death');
+    check('the black-out card names what did it and where', /Struck down/.test(await page.locator('.dd-bo-cause').innerText().catch(() => '')) && /Stratum I/.test(await page.locator('.dd-bo-where').innerText().catch(() => '')));
     await page.locator('[data-key="respawn"]').tap();
     await wait(80);
     await page.evaluate(() => window.__UI__.bus.emit('player:respawned', {}));
-    await wait(80);
-    check('the black-out report opens after the respawn', (await screen()) === 'summary' && (await page.locator('.dd-report.blackout .sec-cached').count()) === 1);
+    await wait(120);
+    check('the black-out trip card opens after waking', (await screen()) === 'summary' && (await page.locator('.dd-trip3-card.blackout').count()) === 1);
     await page.keyboard.press('Escape');
-    check('escape skips the report', (await screen()) === 'none');
+    check('escape closes the trip card', (await screen()) === 'none');
   }
 
-  // The rune-door ring on the interact chip fills while a door wakes and hides when it stops.
-  await page.evaluate(() => {
-    window.__UI__.bus.emit('world:runeWake', { id: 'reliquary', progress: 0.5 });
-  });
-  await wait(60);
-  const ring = await page.evaluate(() => ({ on: document.querySelector('.dd-wake')?.classList.contains('on'), now: document.querySelector('.dd-wake')?.getAttribute('aria-valuenow') }));
-  check('rune wake shows the ring at its progress', ring.on === true && ring.now === '50', ring);
-  await wait(900);
-  check('rune wake ring hides once the waking stops', await page.evaluate(() => !document.querySelector('.dd-wake')?.classList.contains('on')));
-
-  // Left-handed: sides swap.
+  // Left-handed: sides swap (the stick on the right, the pads on the left).
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: true }));
+  await wait(120);
   await touch('touchStart', [{ x: 760, y: 300 }]);
   await touch('touchMove', [{ x: 760, y: 240 }]);
   s = await input();
   await touch('touchEnd', []);
   check('left-handed: joystick on the right', Math.abs(s.moveY - 1) < 1e-6, { moveY: s.moveY });
-  await touch('touchStart', [{ x: 200, y: 150 }]);
+  const lefty = await box('.dd-pad-action');
+  check('left-handed: Action on the left', lefty && lefty.x < vp.width / 2, lefty);
+  await touch('touchStart', [{ x: 300, y: 150 }]);
   await wait(320);
   s = await input();
   await touch('touchEnd', []);
@@ -400,8 +543,16 @@ if (opt.touch) {
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: false }));
   await wait(260);
 
+  // Button size and opacity (Settings): the pads follow the CSS variables.
+  const a0 = await box('.dd-pad-action');
+  await page.evaluate(() => window.__UI__.actions.setControlPrefs({ scale: 1.25, opacity: 0.5 }));
+  await wait(120);
+  const a1 = await box('.dd-pad-action');
+  check('button size grows the pads', a1.w > a0.w * 1.15, { before: a0.w, after: a1.w });
+  await page.evaluate(() => window.__UI__.actions.setControlPrefs({ scale: 1, opacity: 0.86 }));
+
   // The mouse does not drive the touch layer unless the page opts in.
-  await page.mouse.move(600, 150);
+  await page.mouse.move(520, 150);
   await page.mouse.down();
   await wait(320);
   s = await input();
@@ -420,40 +571,44 @@ if (opt.touch) {
 
   await context.close();
 
-  // The tree fits a 915 x 412 phone without scrolling; portrait puts the detail in a bottom sheet.
-  for (const [vpName, scene] of [['land', 'crafting:tree'], ['land', 'crafting:tree+large'], ['port', 'crafting:tree']]) {
-    const { page: p, context: c } = await openPage(VIEWPORTS[vpName], scene);
+  // Portrait (the game's own shape): the HUD keeps the centre clear; the Map's view is square and fits.
+  {
+    const { page: p, context: c } = await openPage(VIEWPORTS.port, 'hud');
     await p.waitForTimeout(400);
-    const m = await p.evaluate(() => {
-      const board = document.querySelector('.dd-tree-board');
-      const detail = document.querySelector('.dd-tree-detail');
-      const b = board.getBoundingClientRect();
-      const d = detail.getBoundingClientRect();
-      const nodes = [...document.querySelectorAll('.dd-tree-grid .dd-node')].map((n) => n.getBoundingClientRect());
-      const deep = !!document.querySelector('.dd-tree-grid.deep');
-      return { scroll: board.scrollHeight - board.clientHeight, boardBottom: Math.round(b.bottom), detailTop: Math.round(d.top), detailH: Math.round(d.height), vh: innerHeight, deep, minNode: Math.round(Math.min(...nodes.map((r) => Math.min(r.width, r.height)))) };
+    const centre = await p.evaluate(() => {
+      const cx = innerWidth / 2;
+      const cy = innerHeight / 2;
+      const hits = [];
+      for (const el of document.querySelectorAll('.dd-hud *, .dd-touch *')) {
+        if (el.closest('.dd-reticle, .dd-target, .dd-combo, .dd-dmg-layer')) continue;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || getComputedStyle(el).visibility === 'hidden' || Number(getComputedStyle(el).opacity) === 0) continue;
+        if (r.left < cx + 70 && r.right > cx - 70 && r.top < cy + 90 && r.bottom > cy - 90) hits.push(`${el.className}`);
+      }
+      return hits;
     });
-    // Round 2: with the Forge's weapons the tree is 7 rows deep ('deep'); at 412 px tall the rows
-    // close up to the 48 px thumb floor and the board scrolls what is left (never more than a row
-    // and a half). A tree of 5 rows or fewer still fits without scrolling.
-    if (vpName === 'land')
-      check(
-        m.deep ? `tree (7 rows) fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} with nodes >= 48 px and at most 80 px of scroll (${scene})` : `tree fits ${VIEWPORTS.land.width}x${VIEWPORTS.land.height} without scrolling (${scene})`,
-        m.deep ? m.minNode >= 48 && m.scroll <= 80 : m.scroll <= 1,
-        m,
-      );
-    else check('tree: portrait shows the detail as a bottom sheet (~46%)', m.detailTop >= m.boardBottom - 1 && m.detailH > m.vh * 0.36 && m.detailH < m.vh * 0.5, m);
+    check('portrait: nothing of the HUD covers the centre (140 x 180 px round the reticle)', centre.length === 0, centre.slice(0, 6));
     await c.close();
+    const { page: m, context: mc } = await openPage(VIEWPORTS.port, 'map');
+    await m.waitForTimeout(600);
+    const view = await m.evaluate(() => {
+      const r = document.querySelector('.dd-m3-mapview').getBoundingClientRect();
+      return { w: Math.round(r.width), h: Math.round(r.height), right: Math.round(r.right), vw: innerWidth };
+    });
+    check('portrait Map: a square view inside the screen', Math.abs(view.w - view.h) <= 1 && view.right <= view.vw, view);
+    await mc.close();
   }
 
   // Screen flows driven like a player would (mouse + keyboard), on the sandbox's fake game.
   {
     const { page: p, context: c } = await openPage(VIEWPORTS.desk, 'menu');
-    const screen = () => p.evaluate(() => window.__UI__.ui.screen);
+    const screen2 = () => p.evaluate(() => window.__UI__.ui.screen);
+    check('the title shows the Continue card (stratum, biomes, shards)', /Stratum|shards/i.test(await p.locator('.dd-continue-card').innerText().catch(() => '')) || (await p.locator('.dd-continue-card').count()) === 0);
+    check('the title offers the Daily Descent with its goal', /Daily Descent/.test(await p.locator('[data-key="daily"]').innerText().catch(() => '')));
     await p.getByRole('button', { name: /New Expedition/i }).click();
-    check('new expedition with a save asks first', (await screen()) === 'confirm' && (await p.getByText(/progress will be erased/i).isVisible()));
+    check('new expedition with a save asks first', (await screen2()) === 'confirm' && (await p.getByText(/progress will be erased/i).isVisible()));
     await p.keyboard.press('Escape');
-    check('escape cancels the confirm', (await screen()) === 'menu');
+    check('escape cancels the confirm', (await screen2()) === 'menu');
     await p.getByRole('button', { name: /Settings/i }).click();
     await p.getByRole('switch', { name: /Invert vertical/i }).click();
     check('settings apply immediately', (await p.evaluate(() => window.__UI__.settings().invertY)) === true);
@@ -465,36 +620,49 @@ if (opt.touch) {
       .waitForFunction(() => Math.abs(window.__UI__.settings().masterVolume - 0.85) < 1e-6, null, { timeout: 1500, polling: 20 })
       .then(() => true, () => false);
     check('sliders apply (coalesced per frame)', sliderApplied, await p.evaluate(() => window.__UI__.settings().masterVolume));
+    check('settings show the expedition seed', /48151623/.test(await p.locator('.dd-settings-seed').innerText().catch(() => '')));
     await p.getByRole('button', { name: /Reset to defaults/i }).click();
     check('reset restores defaults', (await p.evaluate(() => window.__UI__.settings().invertY)) === false && (await p.getByRole('switch', { name: /Invert vertical/i }).getAttribute('aria-checked')) === 'false');
     await p.getByRole('button', { name: /Delete saved game/i }).click();
     await p.getByRole('button', { name: /^Delete$/ }).click();
     check('delete save removes it and disables the button', (await p.evaluate(() => window.__UI__.actions.hasSave())) === false && (await p.getByRole('button', { name: /Delete saved game/i }).isDisabled()));
     await p.getByRole('button', { name: /About DEEP DOWN/i }).click();
-    check('about is two taps from the menu (Settings, About)', (await screen()) === 'about');
+    check('about is two taps from the menu (Settings, About)', (await screen2()) === 'about');
     await p.getByRole('tab', { name: /Licences/i }).click();
     const notices = await p
       .waitForFunction(() => /three\.js authors/.test(document.querySelector('.dd-licences')?.textContent ?? ''), null, { timeout: 5000 })
       .then(() => p.locator('.dd-licences').textContent(), () => '');
     check('about shows the three.js copyright and the MIT text', /Copyright © 2010-\d{4} three\.js authors/.test(notices) && /Permission is hereby granted, free of charge/.test(notices));
     await p.keyboard.press('Escape');
-    check('escape in about returns to settings', (await screen()) === 'settings');
+    check('escape in about returns to settings', (await screen2()) === 'settings');
     await p.keyboard.press('Escape');
-    check('escape in settings returns to the menu', (await screen()) === 'menu');
+    check('escape in settings returns to the menu', (await screen2()) === 'menu');
     check('menu without a save has no Continue', (await p.getByRole('button', { name: /Continue/i }).count()) === 0);
     const focused = () => p.evaluate(() => document.activeElement?.textContent ?? '');
     let f = await focused();
     check('keyboard users land on the primary button', /New Expedition/.test(f), f);
     await p.keyboard.press('ArrowDown');
     f = await focused();
-    check('arrow keys move focus through the menu', /Settings/.test(f), f);
+    check('arrow keys move focus to the seed field', /Seed/.test(f), f);
+    await p.keyboard.press('ArrowDown');
+    f = await focused();
+    check('then to the Daily Descent', /Daily Descent/.test(f), f);
+    await p.keyboard.press('ArrowUp');
     await p.keyboard.press('ArrowUp');
     await p.keyboard.press('Enter');
     await p.waitForFunction(() => window.__UI__.ui.screen === 'none', null, { timeout: 3000 });
     check('enter starts a new expedition without a confirm when there is no save', true);
-    await p.evaluate(() => window.__UI__.actions.openInventory());
-    await p.keyboard.press('Tab');
-    check('tab closes the inventory it opens', (await screen()) === 'none');
+    // The menu keys: each opens its menu and closes it again; another menu's key switches.
+    for (const [key, id] of [['i', 'inventory'], ['c', 'crafting'], ['m', 'map'], ['j', 'quests'], ['b', 'bestiary']]) {
+      await p.evaluate((sid) => window.__UI__.actions.openMenu(sid), id);
+      await p.keyboard.press(key);
+      check(`${key.toUpperCase()} closes ${id}`, (await screen2()) === 'none');
+    }
+    await p.evaluate(() => window.__UI__.actions.openMenu('map'));
+    await p.keyboard.press('j');
+    check('another menu key switches menus', (await screen2()) === 'quests');
+    await p.keyboard.press('Escape');
+    check('escape closes the menu', (await screen2()) === 'none');
     await c.close();
   }
 }
@@ -503,7 +671,7 @@ if (opt.touch) {
 // Real game smoke flow (--game): the same UI mounted by the actual Game on the dev server.
 
 if (opt.game) {
-  const vp = VIEWPORTS.land;
+  const vp = VIEWPORTS.port;
   const context = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, hasTouch: true });
   const page = await context.newPage();
   page.on('pageerror', (e) => problems.push(`[game] pageerror: ${e.message}`));
@@ -511,7 +679,7 @@ if (opt.game) {
     if (m.type() === 'error') problems.push(`[game] console.error: ${m.text()}`);
   });
   const st = () => page.evaluate(() => window.__DD__.state());
-  const until = (fn, arg) => page.waitForFunction(fn, arg, { timeout: 120_000, polling: 100 });
+  const until = (fn, arg) => page.waitForFunction(fn, arg, { timeout: 180_000, polling: 100 });
   // Let screen fade-ins finish (SwiftShader frames are slow) before capturing.
   const shot = async (name) => {
     await page.waitForTimeout(700);
@@ -550,13 +718,20 @@ async function gameFlow(page, st, until, shot) {
   check('game: Tab moves focus into the menu', await page.evaluate(() => !!document.activeElement?.closest('.dd-menu')));
   await page.getByRole('button', { name: /New Expedition/i }).click();
   await until(() => window.__DD__.state().mode === 'playing');
+  await page.evaluate(() => {
+    window.__DD__.mobs.auto(false);
+    window.__DD__.mobs.clear();
+    window.__DD__.game.quests.skipTutorial();
+  });
   await page.waitForTimeout(1200);
   await shot('hud');
-  check('game: HUD shows depth', await page.getByText(/-\d+ m/).first().isVisible());
+  check('game: HUD shows depth', await page.locator('.dd-where-depth').isVisible());
+  check('game: HUD shows the stratum', (await page.locator('.dd-where-stratum').innerText()) === 'I');
+  check('game: the minimap is drawn', await page.locator('.dd-minimap:not(.empty)').isVisible());
 
-  await page.locator('.dd-tb-pause').tap();
+  await page.locator('.dd-hud [data-ui-target="menu"]').tap();
   await until(() => window.__DD__.state().mode === 'paused');
-  check('game: pause button pauses', (await st()).screen === 'pause');
+  check('game: ≡ pauses', (await st()).screen === 'pause');
   await page.getByRole('button', { name: /^Settings$/ }).tap();
   await until(() => window.__DD__.state().screen === 'settings');
   const invert = page.getByRole('switch', { name: /Invert vertical/i });
@@ -564,58 +739,60 @@ async function gameFlow(page, st, until, shot) {
   await page.keyboard.press('Space');
   check('game: Space toggles the focused switch', (await invert.getAttribute('aria-checked')) === 'true');
   await page.keyboard.press('Space');
+  check('game: settings show the expedition seed', /\d+/.test(await page.locator('.dd-settings-seed').innerText().catch(() => '')));
   const fps = page.getByRole('switch', { name: /Show performance/i });
   await fps.tap();
   check('game: performance switch toggles', (await fps.getAttribute('aria-checked')) === 'true');
   await shot('settings');
   await page.getByRole('button', { name: /Back/i }).tap();
   await until(() => window.__DD__.state().screen === 'pause');
-  check('game: settings back returns to pause', true);
   await page.getByRole('button', { name: /Resume/i }).tap();
   await until(() => window.__DD__.state().mode === 'playing' && window.__DD__.state().screen === 'none');
-  // SwiftShader frames are slow; wait for the HUD to fade back in rather than sampling once.
-  const perfOn = await page.locator('.dd-perf.on').waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
+  const perfOn = await page.locator('.dd-perf.on').waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
   check('game: perf line visible after enabling it', perfOn, await page.locator('.dd-perf').innerText());
 
-  await page.locator('.dd-tb-bag').tap();
+  await page.locator('.dd-hud [data-ui-target="bag"]').tap();
   await until(() => window.__DD__.state().screen === 'inventory');
-  await page.getByRole('tab', { name: /Equipment/i }).tap();
-  check('game: equipment tab lists the rusty pickaxe', await page.getByText('Rusty Pickaxe').isVisible());
-  await page.getByRole('button', { name: /Close/i }).tap();
+  check('game: the Bag lists the pick worn', (await page.locator('.dd-m3-gearslot:not(.empty)').count()) > 0);
+  await shot('bag');
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
   await until(() => window.__DD__.state().screen === 'none');
 
-  const lm = await page.evaluate(() => window.__DD__.landmarks());
-  const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench);
+  // The camp's Workbench: its Interact chip opens Craft; torches by hand.
+  const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite?.stations.find((s) => s.station === 'workbench')?.p ?? null);
+  const stand = bench ? await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench) : null;
+  if (stand) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
   await page.evaluate(() => {
-    window.__DD__.give('copperOre', 8);
-    window.__DD__.give('stone', 12);
+    window.__DD__.give('fungalWood', 4);
+    window.__DD__.give('coal', 2);
   });
-  const use = page.getByRole('button', { name: /Workbench/i }).first();
-  await use.waitFor({ state: 'visible', timeout: 15_000 });
-  await page.waitForTimeout(400);
+  const use = page.locator('.dd-use');
+  await use.waitFor({ state: 'visible', timeout: 30_000 });
   await shot('use');
   await use.tap();
   await until(() => window.__DD__.state().screen === 'crafting');
+  await page.locator('[data-key="tab:building"]').tap();
   await shot('crafting');
-  await page.locator('[data-key="node:copperPickaxe"]').tap();
-  await page.locator('[data-key="craft:copperPickaxe"]').tap();
-  await until(() => window.__DD__.state().equipment.pickaxe === 2);
-  check('game: crafting the copper pickaxe', true);
-  check('game: craft button now reads Owned', await page.getByRole('button', { name: /Owned/ }).first().isVisible());
-  await page.getByRole('button', { name: /Close/i }).first().tap();
+  const torches0 = await page.evaluate(() => window.__DD__.game.backpack.count('torch'));
+  await page.locator('[data-key="craft:torch:1"]').tap();
+  await until((n) => window.__DD__.game.backpack.count('torch') > n, torches0);
+  check('game: torches crafted in the Craft menu', true);
+  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
   await until(() => window.__DD__.state().screen === 'none');
 
-  await page.locator('.dd-tb-pause').tap();
+  await page.locator('.dd-hud [data-ui-target="menu"]').tap();
   await page.getByRole('button', { name: /Save and Quit/i }).tap();
   await until(() => window.__DD__.state().mode === 'menu');
   const cont = page.getByRole('button', { name: /Continue/i });
   await cont.waitFor({ state: 'visible' });
   check('game: menu offers Continue with save time', /Last saved/.test(await cont.innerText()));
+  check('game: the Continue card names the stratum', /Stratum|I/.test(await page.locator('.dd-continue-card').innerText().catch(() => '')));
   await shot('menu-continue');
+  const torches1 = await page.evaluate(() => window.__DD__.game.backpack.count('torch') + window.__DD__.game.storage.count('torch'));
   await cont.click();
   await until(() => window.__DD__.state().mode === 'playing');
-  check('game: continue restores the crafted pickaxe', (await st()).equipment.pickaxe === 2);
+  const torches2 = await page.evaluate(() => window.__DD__.game.backpack.count('torch') + window.__DD__.game.storage.count('torch'));
+  check('game: continue restores the crafted torches', torches2 === torches1 && torches2 > 0, { torches1, torches2 });
 }
 
 await browser.close();

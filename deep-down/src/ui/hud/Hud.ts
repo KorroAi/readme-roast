@@ -21,6 +21,8 @@ const RING_C = 2 * Math.PI * 11;
 export const HOTBAR_LONG_PRESS_MS = 450;
 /** At most this many damage numbers at once (calm-but-nervous: few moving things). */
 const DMG_MAX = 3;
+/** At most this many pick-ups flying to the Bag at once. */
+const FLY_MAX = 3;
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 const HAZARD_GLYPH: Record<'cold' | 'gas' | 'heat' | 'dark', string> = { cold: 'snow', gas: 'gas', heat: 'flame', dark: 'eye' };
 
@@ -36,6 +38,16 @@ export interface HudActions {
 }
 
 const NOOP: HudActions = { bag() {}, menu() {}, open() {}, hotbar() {}, assign() {}, skipTutorial() {} };
+
+/**
+ * A tracker line's words without a count the HUD already draws in its count column ("Find the
+ * lairs (0/2)" → "Find the lairs"): only a trailing "n/need" that matches the step's need goes.
+ */
+export function trackerText(text: string, need: number | undefined): string {
+  if (!need) return text;
+  const m = /\s*[([]?\s*\d+\s*\/\s*(\d+)\s*[)\]]?\s*$/.exec(text);
+  return m && Number(m[1]) === need && m.index > 0 ? text.slice(0, m.index).trimEnd() : text;
+}
 
 /**
  * The round 3 HUD (BRIEF §0.6), out of the centre of the view:
@@ -82,6 +94,11 @@ export class Hud {
   private readonly guardianName: HTMLElement;
   private readonly guardianFill: HTMLElement;
   private readonly guardianPhase: HTMLElement;
+  private readonly guardianOpen: HTMLElement;
+  private readonly guardianWindow: HTMLElement;
+  private readonly guardianTele: HTMLElement;
+  private guardianOpenQ = -1;
+  private guardianTeleV: string | null = null;
   private readonly reticle: HTMLElement;
   private readonly ringArc: SVGCircleElement;
   private readonly comboEl: HTMLElement;
@@ -95,6 +112,9 @@ export class Hud {
   private readonly slots: Array<{ btn: HTMLButtonElement; icon: HTMLElement; count: HTMLElement; item: string | null; n: number }> = [];
   private readonly arrivalEl: HTMLElement;
   private readonly dmgLayer: HTMLElement;
+  /** Pick-ups on their way to the Bag (flyToBag). */
+  private readonly flyLayer: HTMLElement;
+  private bumpTimer = 0;
   /** The tamed companion's chip (a Lampling): its glow, level and progress ring. */
   private readonly petEl: HTMLButtonElement;
   private readonly petLevel: HTMLElement;
@@ -103,6 +123,9 @@ export class Hud {
   private petPingTimer = 0;
   private hintTimer = 0;
   private arrivalTimer = 0;
+  /** performance.now() when the arrival card ends (0: none up). The frame clock ends it too: under
+   * load a page's timers can lag its frames by seconds, and the tutorial's bubble waits on the card. */
+  private arrivalUntil = 0;
   private comboTimer = 0;
   /** Reduced motion (the device's, or Settings → Motion): no shakes, no floating numbers. */
   private get reduceMotion(): boolean {
@@ -180,7 +203,19 @@ export class Hud {
     this.guardianName = h('span', { class: 'dd-guardian-name' });
     this.guardianPhase = h('span', { class: 'dd-guardian-phase' });
     this.guardianFill = h('div', { class: 'dd-guardian-fill' });
-    this.guardian = h('div', { class: 'dd-guardian', role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('div', { class: 'dd-guardian-head' }, this.guardianName, this.guardianPhase), h('div', { class: 'dd-guardian-bar' }, this.guardianFill));
+    // Its guard open: an OPEN chip, and a sliver under the bar that shrinks as the window shuts.
+    this.guardianOpen = h('span', { class: 'dd-guardian-open', text: t('hud3.open') });
+    this.guardianWindow = h('div', { class: 'dd-guardian-window' });
+    // The wind-up said plainly ("Charge: step off the lane").
+    this.guardianTele = h('p', { class: 'dd-guardian-tele', role: 'status' });
+    this.guardian = h(
+      'div',
+      { class: 'dd-guardian', role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100 },
+      h('div', { class: 'dd-guardian-head' }, this.guardianName, this.guardianOpen, this.guardianPhase),
+      h('div', { class: 'dd-guardian-bar' }, this.guardianFill),
+      this.guardianWindow,
+      this.guardianTele,
+    );
     // The reticle.
     this.reticle = h('div', { class: 'dd-reticle k-none', 'aria-hidden': 'true', 'data-ui-target': 'reticle' });
     this.reticle.innerHTML = `<svg viewBox="0 0 30 30" width="30" height="30"><circle class="dd-rt-track" cx="15" cy="15" r="11"/><circle class="dd-rt-ring" cx="15" cy="15" r="11" stroke-dasharray="${RING_C.toFixed(2)}" stroke-dashoffset="${RING_C.toFixed(2)}" transform="rotate(-90 15 15)"/><path class="dd-rt-ticks" d="M15 2v5M15 23v5M2 15h5M23 15h5"/><path class="dd-rt-x" d="M9 9l4 4M21 9l-4 4M9 21l4-4M21 21l-4-4"/><path class="dd-rt-use" d="M15 9l6 6-6 6-6-6z"/><path class="dd-rt-place" d="M15 10v10M10 15h10"/></svg><span class="dd-rt-dot"></span>`;
@@ -196,12 +231,9 @@ export class Hud {
     // A tap on the card is the card's (never a look or a tap on the world behind it).
     this.arrivalEl = h('div', { class: 'dd-arrival', role: 'status', 'aria-live': 'polite', 'data-touch-ignore': '' });
     // A tap dismisses the card (and lets a waiting tutorial step show at once).
-    this.arrivalEl.addEventListener('click', () => {
-      this.arrivalEl.classList.remove('on');
-      window.clearTimeout(this.arrivalTimer);
-      this.tutorial.suspend(0);
-    });
+    this.arrivalEl.addEventListener('click', () => this.endArrival(0));
     this.dmgLayer = h('div', { class: 'dd-dmg-layer', 'aria-hidden': 'true' });
+    this.flyLayer = h('div', { class: 'dd-fly-layer', 'aria-hidden': 'true' });
     this.petLevel = h('span', { class: 'dd-pet-level' });
     this.petEl = h('button', { class: 'dd-hbtn dd-pet', type: 'button', 'data-ui-target': 'companion', hidden: true }, glyph('lampling'), this.petLevel, h('span', { class: 'dd-pet-ring', 'aria-hidden': 'true' }));
     this.petEl.addEventListener('click', () => this.actions.open('bestiary'));
@@ -227,6 +259,7 @@ export class Hud {
       this.hotbarEl,
       this.arrivalEl,
       this.dmgLayer,
+      this.flyLayer,
     );
     this.tutorial = new TutorialOverlay(document.body, () => this.actions.skipTutorial());
   }
@@ -269,6 +302,9 @@ export class Hud {
     this.updateHotbar(s.hotbar, s.hotbarSelected);
     this.updateCompanion(s.companion);
     this.minimap.update(now, t('hud3.minimap'));
+    // The card's time is up on the frame clock (its timer may lag under load): the bubble never
+    // shows while the card does.
+    if (this.arrivalUntil && performance.now() >= this.arrivalUntil) this.endArrival();
     this.tutorial.show(s.tutorial);
 
     if (showPerf !== this.perfOn) {
@@ -313,8 +349,18 @@ export class Hud {
     // waits for the card (they would sit on top of each other).
     this.arrivalEl.classList.toggle('brief', !c.first);
     const ms = c.first ? 7000 : 2600;
+    this.arrivalUntil = performance.now() + ms;
     this.tutorial.suspend(ms + 350);
-    this.arrivalTimer = window.setTimeout(() => this.arrivalEl.classList.remove('on'), ms);
+    this.arrivalTimer = window.setTimeout(() => this.endArrival(), ms);
+  }
+
+  /** The arrival card goes (its time is up, or a tap): a waiting tutorial step shows `graceMs` later. */
+  private endArrival(graceMs = 350): void {
+    window.clearTimeout(this.arrivalTimer);
+    if (!this.arrivalUntil) return;
+    this.arrivalUntil = 0;
+    this.arrivalEl.classList.remove('on');
+    this.tutorial.suspend(graceMs);
   }
 
   /** The companion found something (a rare ore near, a foe): its chip pings for a moment. */
@@ -325,6 +371,42 @@ export class Hud {
     this.petEl.classList.add(`ping-${kind}`);
     window.clearTimeout(this.petPingTimer);
     this.petPingTimer = window.setTimeout(() => this.petEl.classList.remove('ping-ore', 'ping-zap', 'ping-level'), 1600);
+  }
+
+  /**
+   * A pick-up flies into the Bag: the item's icon rises from where it was taken (a screen point,
+   * 0..1 from the top left) and lands on the Bag button, which bumps. At most FLY_MAX at once (the
+   * calm-but-nervous rule); none under reduced motion (the Bag's count and the pick-up line say it).
+   */
+  flyToBag(item: string, sx: number, sy: number): void {
+    if (this.reduceMotion || !this.el.classList.contains('on')) return;
+    const bag = this.bagBtn.getBoundingClientRect();
+    if (!bag.width) return;
+    while (this.flyLayer.childElementCount >= FLY_MAX) this.flyLayer.firstElementChild?.remove();
+    const from = { x: Math.max(0.04, Math.min(0.96, sx)) * window.innerWidth, y: Math.max(0.06, Math.min(0.94, sy)) * window.innerHeight };
+    const to = { x: bag.left + bag.width / 2, y: bag.top + bag.height / 2 };
+    const img = h('img', { class: 'dd-fly', src: itemIconDataUrl(item as ItemId, iconPx(28)), width: 28, height: 28, alt: '', 'aria-hidden': 'true' });
+    this.flyLayer.append(img);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    // A short arc: up and over toward the Bag (top left), shrinking as it lands.
+    const anim = img.animate(
+      [
+        { transform: `translate3d(${from.x - 14}px, ${from.y - 14}px, 0) scale(0.6)`, opacity: 0 },
+        { transform: `translate3d(${from.x - 14}px, ${from.y - 34}px, 0) scale(1.15)`, opacity: 1, offset: 0.22 },
+        { transform: `translate3d(${from.x - 14 + dx * 0.55}px, ${from.y - 14 + dy * 0.7 - 30}px, 0) scale(0.95)`, opacity: 1, offset: 0.62 },
+        { transform: `translate3d(${to.x - 14}px, ${to.y - 14}px, 0) scale(0.55)`, opacity: 0.9 },
+      ],
+      { duration: 620, easing: 'cubic-bezier(0.3, 0.1, 0.3, 1)' },
+    );
+    anim.onfinish = () => {
+      img.remove();
+      this.bagBtn.classList.remove('bump');
+      void this.bagBtn.offsetWidth;
+      this.bagBtn.classList.add('bump');
+      window.clearTimeout(this.bumpTimer);
+      this.bumpTimer = window.setTimeout(() => this.bagBtn.classList.remove('bump'), 320);
+    };
   }
 
   /** A small damage number at a screen point (0..1 from the top left); at most DMG_MAX at once. */
@@ -354,6 +436,7 @@ export class Hud {
     window.clearTimeout(this.arrivalTimer);
     window.clearTimeout(this.comboTimer);
     window.clearTimeout(this.petPingTimer);
+    window.clearTimeout(this.bumpTimer);
     this.tutorial.dispose();
   }
 
@@ -495,7 +578,7 @@ export class Hud {
     if (mv !== this.mainV) {
       this.mainV = mv;
       this.mainLine.hidden = !main;
-      this.mainText.textContent = main?.text ?? '';
+      this.mainText.textContent = main ? trackerText(main.text, main.need) : '';
       this.mainCount.textContent = main && main.need ? t('hud3.count', { have: Math.min(main.have ?? 0, main.need), need: main.need }) : '';
     }
     const sv = line(s.tracker.side);
@@ -503,7 +586,7 @@ export class Hud {
       this.sideV = sv;
       const side = s.tracker.side;
       this.sideLine.hidden = !side;
-      this.sideText.textContent = side?.text ?? '';
+      this.sideText.textContent = side ? trackerText(side.text, side.need) : '';
       this.sideCount.textContent = side && side.need ? t('hud3.count', { have: Math.min(side.have ?? 0, side.need), need: side.need }) : '';
     }
     // The arrow: the objective once known; else the way home while out of camp.
@@ -562,13 +645,32 @@ export class Hud {
       }
       this.guardianQ = -1;
     }
-    if (!g) return;
+    if (!g) {
+      this.guardianOpenQ = -1;
+      this.guardianTeleV = null;
+      return;
+    }
     const q = Math.round((g.max > 0 ? Math.max(0, Math.min(1, g.hp / g.max)) : 0) * BAR_STEPS);
     if (q !== this.guardianQ) {
       this.guardianQ = q;
       this.guardianFill.style.transform = `scaleX(${q / BAR_STEPS})`;
       this.guardian.setAttribute('aria-valuenow', String(Math.round((q / BAR_STEPS) * 100)));
       this.guardian.setAttribute('aria-label', `${g.name} ${Math.round((q / BAR_STEPS) * 100)}%`);
+    }
+    // The open guard: the chip and the closing sliver (40 steps, a still window writes nothing).
+    const oq = g.open === null || g.open === undefined ? -1 : Math.round(g.open * 40);
+    if (oq !== this.guardianOpenQ) {
+      const was = this.guardianOpenQ >= 0;
+      this.guardianOpenQ = oq;
+      this.guardian.classList.toggle('open', oq >= 0);
+      if (oq >= 0) this.guardianWindow.style.transform = `scaleX(${oq / 40})`;
+      if (oq >= 0 && !was && !this.reduceMotion) this.guardianOpen.animate([{ transform: 'scale(1.35)', opacity: 0.4 }, { transform: 'scale(1)', opacity: 1 }], { duration: 260, easing: 'ease-out' });
+    }
+    const tele = g.telegraph ?? null;
+    if (tele !== this.guardianTeleV) {
+      this.guardianTeleV = tele;
+      this.guardianTele.textContent = tele ?? '';
+      this.guardian.classList.toggle('winding', !!tele);
     }
   }
 

@@ -345,7 +345,7 @@ describe('the daily descent', () => {
     const a = daily(20000);
     expect(daily(20000)).toEqual(a);
     expect(daily(20001).seed).not.toBe(a.seed);
-    expect(a.date).toBe('2024-10-04');
+    expect(a.date).toBe('4 October 2024');
     expect(a.goalText).toBe(en[`daily3.goal.${a.goal}` as keyof typeof en]);
     expect(a.mods.length).toBeGreaterThanOrEqual(1);
     for (const m of a.mods) expect(en[`daily3.mod.${m}` as keyof typeof en]).toBeTruthy();
@@ -382,13 +382,31 @@ describe('the Lampling companion: the lure and the treats', () => {
     expect(of(h, 'companion:lure')).toHaveLength(1);
   });
 
+  it('the lure is kept while a Lampling already follows, and without MOBS hooks', () => {
+    const { h, loop } = game();
+    h.backpack.add('lamplingLure', 1);
+    h.mobs = {};
+    expect(loop.use('lamplingLure')).toBe(false);
+    h.mobs = { lureLampling: () => true, companion: () => ({ level: 1 }) };
+    expect(loop.use('lamplingLure')).toBe(false);
+    expect(h.backpack.count('lamplingLure')).toBe(1);
+    expect(of(h, 'companion:lure')).toHaveLength(0);
+  });
+
   it('a treat feeds the companion (xp and health for it); none is wasted without one', () => {
     const { h, loop } = game();
-    h.backpack.add('glowTreat', 2);
-    h.mobs = { hasCompanion: () => false };
+    h.backpack.add('glowTreat', 3);
+    const fed: Array<[number, number]> = [];
+    h.mobs = { hasCompanion: () => false, feedCompanion: (xp: number, heal: number) => (fed.push([xp, heal]), true) };
     expect(loop.use('glowTreat')).toBe(false);
+    // A companion that cannot eat now (or a MOBS without the hook) keeps the treat.
     h.mobs = { hasCompanion: () => true };
+    expect(loop.use('glowTreat')).toBe(false);
+    expect(h.backpack.count('glowTreat')).toBe(3);
+    h.mobs = { companion: () => ({ level: 1 }), feedCompanion: (xp: number, heal: number) => (fed.push([xp, heal]), true) };
     expect(loop.use('glowTreat')).toBe(true);
+    expect(h.backpack.count('glowTreat')).toBe(2);
+    expect(fed).toEqual([[1, 30]]);
     expect(of(h, 'companion:feed')).toEqual([{ item: 'glowTreat', xp: 1, heal: 30 }]);
     // A tamed companion is a feat.
     h.bus.emit('companion:tamed', { kind: 'lampling', name: 'Lampling' } as GameEvents['companion:tamed']);

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, dismissArrival, holdControl, hud, newExpedition, tapControl, uiEvents, waitEvent, waitScreen } from './r3';
+import { PHONE, boot, centreOf, dismissArrival, holdControl, holdUntil, hud, newExpedition, tapControl, tapEl, uiEvents, waitEvent, waitScreen } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): the first five minutes of a new expedition on an upright phone, with real touches
@@ -45,8 +45,9 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   // 2. Move: the ring is on the stick; a push walks (and the step goes on).
   expect(await untilGame(page, async () => (await ringed(page)) === 'joystick', 4)).toBe(true);
   const p0 = await page.evaluate(() => ({ x: window.__DD__.game.player.x, z: window.__DD__.game.player.z }));
-  await touch.drag({ x: 70, y: 690 }, { x: 70, y: 630 }, 2400, 7);
-  expect(await waitStep(page, 'mine'), 'walking took the second step').toBe(true);
+  // The stick held forward until the step is taken (a few reports of walking, in game time).
+  const walked = await holdUntil(page, touch, { x: 70, y: 690 }, { x: 70, y: 640 }, async () => (await step(page)) !== 'move', 20, 7);
+  expect(walked && (await waitStep(page, 'mine')), 'walking took the second step').toBe(true);
   const p1 = await page.evaluate(() => ({ x: window.__DD__.game.player.x, z: window.__DD__.game.player.z }));
   expect(Math.hypot(p1.x - p0.x, p1.z - p0.z), 'the stick walked the explorer').toBeGreaterThan(1);
 
@@ -78,15 +79,17 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   });
   await tapControl(page, touch, 'craft');
   expect(await waitScreen(page, 'crafting'), 'Craft opened from its HUD button').toBe(true);
-  await page.locator('[data-key="tab:building"]').tap();
+  // LOOP's focus: Craft opens on the tutorial's recipe (its tab, its card ringed).
+  await expect(page.locator('[data-key="tab:building"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('.dd-m3-card.focus')).toHaveCount(1);
   const make = page.locator('[data-key="craft:torch:1"]');
   await expect(make).toBeEnabled();
-  await make.tap();
+  await tapEl(page, touch, make);
   expect(await waitEvent(page, 'craft:made', 6), 'the torches were made').toBe(true);
   const made = (await uiEvents(page, 'craft:made'))[0].payload;
   expect(made.item).toBe('torch');
   expect(await waitStep(page, 'torch'), 'the first craft took the fifth step').toBe(true);
-  await page.locator('.dd-menu3 [data-key="close"], .dd-menu3 .dd-close').first().tap();
+  await tapEl(page, touch, '.dd-menu3 [data-key="close"]');
   expect(await waitScreen(page, 'none')).toBe(true);
 
   // 6. Torch: the ring is on the torch's slot (Place shows once a torch is in hand), then on Place.
@@ -154,7 +157,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
     expect(await untilGame(page, async () => (await ringed(page)) === target, 4), `the ring is on ${target}`).toBe(true);
     await tapControl(page, touch, target);
     expect(await waitScreen(page, screenId), `${target} opened`).toBe(true);
-    await page.locator('.dd-menu3 .dd-close, .dd-menu3 [data-key="close"]').first().tap();
+    await tapEl(page, touch, '.dd-menu3 [data-key="close"]');
     expect(await waitScreen(page, 'none')).toBe(true);
     expect(await waitStep(page, next), `${target} took its step`).toBe(true);
   }

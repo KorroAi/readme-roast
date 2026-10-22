@@ -37,6 +37,8 @@ export interface Nest {
   kind: MobKind | null;
   next: number;
   kills: number;
+  /** It stirs before its brood comes out (a rumble, chittering, dust: told): when it breeds (0: still). */
+  stir?: number;
 }
 
 /** A spawn point from WORLD's layout (preferred over a random search when one is in the shell). */
@@ -105,8 +107,46 @@ function beingsAbout(sim: MobSim): number {
   return n + (moths ? 1 : 0);
 }
 
+/** Brains that wait to be walked into (an ambush, told when it springs) rather than hunt the explorer. */
+const AMBIENT: ReadonlySet<string> = new Set(['mimic', 'drop', 'lurk', 'sentinel', 'drain']);
+
+/** A kind that comes for the explorer (a pack, a charger, a spitter, a diver, a burrower, a brute, an exploder, a crawler). */
+export function isHunter(kind: MobKind): boolean {
+  return !AMBIENT.has(SPECIES[kind].brain);
+}
+
+/**
+ * The quiet stretch (s) before the next hunting pack comes after the last fight ends: shorter deeper
+ * down, at night and with a dying flame (so a fight starts every 20-40 s in the deep; measured on the
+ * real strata by tools/mob-density.ts). Pure given `roll`.
+ */
+export function huntQuiet(stratum: number, roll: number, night = 0, dark = 0): number {
+  const s = Math.max(1, Math.min(6, Math.round(stratum)));
+  const [lo, hi] = MOBS_RULES.huntQuiet[s];
+  return (lo + (hi - lo) * Math.max(0, Math.min(1, roll))) * (1 - 0.22 * Math.max(0, Math.min(1, night))) * (1 - 0.2 * Math.max(0, Math.min(1, dark)));
+}
+
+function ambushersAbout(sim: MobSim): number {
+  let n = 0;
+  for (const m of sim.mobs) if (!m.dying && m.hostile && !m.guardian && !m.owner && !m.relic && AMBIENT.has(m.brain)) n++;
+  return n;
+}
+
+/** Where a hunter may be placed: joined to the explorer through the air within `steps` (the sim's flow field). */
+function reachOf(sim: MobSim, ctx: MobContext, steps: number): { has(x: number, y: number, z: number): boolean } {
+  const f = sim.flowFor(ctx);
+  return { has: (x, y, z) => f.has(x, y, z, steps) };
+}
+
+/** The explorer is in an unbeaten guardian's arena (the fight is the guardian's: no other spawns). */
+function inALair(sim: MobSim, ctx: MobContext): boolean {
+  return sim.lairs.some((l) => !sim.guardiansDone.has(l.biome) && Math.hypot(ctx.player.x - l.x, ctx.player.z - l.z) < l.radius + 4 && Math.abs(ctx.player.y - l.y) < 12);
+}
+
 /** One spawning tick (every MOBS_RULES.attemptEvery s). */
 export function strataSpawner(sim: MobSim, dt: number, ctx: MobContext): void {
+  // A stirring nest lets its brood out on the frame its tell ends (it was told 1.3 s before).
+  if (sim.spawning && !ctx.atCamp) for (const nest of sim.nests) if (nest.stir && sim.clock >= nest.stir) nests(sim, ctx, inALair(sim, ctx), nest);
   sim.attemptIn -= dt;
   if (sim.attemptIn > 0 || ctx.atCamp) return;
   sim.attemptIn = MOBS_RULES.attemptEvery;
@@ -117,26 +157,46 @@ export function strataSpawner(sim: MobSim, dt: number, ctx: MobContext): void {
   const night = ctx.night ?? 0;
   const dark = !ctx.lantern.lit ? 1 : ctx.lantern.flame < MOBS_RULES.dimFlame ? 0.6 : 0;
   // In a guardian's arena the fight is the guardian's (its brood comes by its summons).
-  const inLair = sim.lairs.some((l) => !sim.guardiansDone.has(l.biome) && Math.hypot(ctx.player.x - l.x, ctx.player.z - l.z) < l.radius + 4 && Math.abs(ctx.player.y - l.y) < 12);
+  const inLair = inALair(sim, ctx);
   nests(sim, ctx, inLair);
-  const budget = inLair ? 0 : strataBudget(stratum, night, dark);
+  const budget = (inLair ? 0 : strataBudget(stratum, night, dark)) * sim.density;
   const about = monstersAbout(sim);
-  const due = sim.quiet > sim.encounterDue;
-  if (about < budget && (now - sim.lastMonster >= MOBS_RULES.strataGap || due)) {
-    const here = sim.biomeAt(ctx.player.x, ctx.player.y, ctx.player.z);
-    const entry = pickEntry(ROSTERS[here].monsters, r.next(), (k) => sim.count(undefined, k), night, dark);
+  const here = sim.biomeAt(ctx.player.x, ctx.player.y, ctx.player.z);
+  const look = ctx.look ? Math.atan2(ctx.look.x, ctx.look.z) : null;
+  if (about < budget && sim.quiet > sim.encounterDue) {
+    // The encounter clock: after a quiet stretch, a hunting pack comes out of the dark.
+    const entry = pickEntry(
+      ROSTERS[here].monsters.filter((e) => isHunter(e.kind)),
+      r.next(),
+      (k) => sim.count(undefined, k),
+      night,
+      dark,
+    );
     if (entry) {
-      const n = Math.min(r.int(entry.pack[0], entry.pack[1]), Math.max(1, budget - about + 1), entry.max - sim.count(undefined, entry.kind));
+      const n = Math.min(r.int(entry.pack[0], entry.pack[1]), Math.max(1, Math.ceil(budget - about)), entry.max - sim.count(undefined, entry.kind));
       const pack: SimMob[] = [];
-      const made = spawnPack(sim, ctx, entry.kind, n, here, due ? 10 : MOBS_RULES.spawnMin, due ? 19 : MOBS_RULES.spawnMax + 4, false, undefined, pack);
+      const reach = reachOf(sim, ctx, MOBS_RULES.huntReach);
+      const made = n > 0 ? spawnPack(sim, ctx, entry.kind, n, here, MOBS_RULES.spawnMin, MOBS_RULES.spawnMin + 9, false, undefined, pack, undefined, reach) : 0;
       if (made > 0) {
         maybeElite(sim, pack, stratum);
         sim.lastMonster = now;
-        if (due) {
-          sim.quiet = 0;
-          sim.encounterDue = r.range(MOBS_RULES.encounterMin, MOBS_RULES.encounterMax);
-        }
+        sim.quiet = 0;
+        sim.encounterDue = huntQuiet(stratum, r.next(), night, dark) / sim.density;
       }
+    }
+  } else if (about < budget && look !== null && ambushersAbout(sim) < MOBS_RULES.ambushers[Math.max(1, Math.min(6, stratum))] && now - sim.lastAmbush >= MOBS_RULES.ambushGap) {
+    // An ambusher waits ahead in the dark (a breathing boulder, a dripping cap, a tall shape at the
+    // edge of the light): met when walked into, told when it springs.
+    const entry = pickEntry(
+      ROSTERS[here].monsters.filter((e) => !isHunter(e.kind)),
+      r.next(),
+      (k) => sim.count(undefined, k),
+      night,
+      dark,
+    );
+    if (entry && spawnPack(sim, ctx, entry.kind, 1, here, 16, 30, false, undefined, undefined, { yaw: look, half: 0.9 }, reachOf(sim, ctx, MOBS_RULES.ambushReach)) > 0) {
+      sim.lastAmbush = now;
+      sim.lastMonster = now;
     }
   }
   // Beings: a few about (never at camp), from their biome's roster.
@@ -166,12 +226,18 @@ export function maybeElite(sim: MobSim, pack: readonly SimMob[], stratum: number
   return lead;
 }
 
-/** Spawn `n` of a kind somewhere fitting in the shell round the explorer. @returns how many (and the creatures into `out`). */
-export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number, biome: MobBiome, minR: number, maxR: number, being = false, nest?: Nest, out?: SimMob[]): number {
+/**
+ * Spawn `n` of a kind somewhere fitting in the shell round the explorer (within `cone` of a heading,
+ * if given: ahead of the explorer). Every member is checked where it lands (out of any light, the
+ * camp, an outpost, the lantern's pool). @returns how many (and the creatures into `out`).
+ */
+export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number, biome: MobBiome, minR: number, maxR: number, being = false, nest?: Nest, out?: SimMob[], cone?: { yaw: number; half: number }, reach?: { has(x: number, y: number, z: number): boolean }): number {
   const sp = SPECIES[kind];
-  const ok = being ? (x: number, y: number, z: number) => canSpawnBeingAt(sim, x, y, z, ctx) : (x: number, y: number, z: number) => sim.canSpawnMonster(x, y, z, ctx);
+  const base = being ? (x: number, y: number, z: number) => canSpawnBeingAt(sim, x, y, z, ctx) : (x: number, y: number, z: number) => sim.canSpawnMonster(x, y, z, ctx);
+  // (With a reach: only where the air joins it to the explorer within a walk.)
+  const ok = reach ? (x: number, y: number, z: number) => reach.has(x, y, z) && base(x, y, z) : base;
   const shape = shapeOf(kind);
-  const at = nest ? nestCell(sim, nest, shape, sp.height) : spotCell(sim, ctx, kind, shape, minR, maxR, ok) ?? sim.findCell(ctx, shape === 'ceiling' ? 'cling' : shape, ok, sp.height, minR, maxR);
+  const at = nest ? nestCell(sim, nest, shape, sp.height) : spotCell(sim, ctx, kind, shape, minR, maxR, ok, cone) ?? sim.findCell(ctx, shape === 'ceiling' ? 'cling' : shape, ok, sp.height, minR, maxR, cone);
   if (!at) return 0;
   const g = sim.group();
   let made = 0;
@@ -181,13 +247,20 @@ export function spawnPack(sim: MobSim, ctx: MobContext, kind: MobKind, n: number
     const jx = i === 0 ? 0 : sim.rng.int(-1, 1);
     const jz = i === 0 ? 0 : sim.rng.int(-1, 1);
     const y = shape === 'air' ? at.y + 0.5 + sim.rng.range(-0.3, 0.6) : at.y;
-    const m = sim.spawn(kind, at.x + 0.5 + jx, y, at.z + 0.5 + jz, { group: g, biome, nest: nest?.id, ceiling: shape === 'ceiling' || (ambush && i === 0) });
+    // (A nest's brood may stand in the nest's own dim glow, never in a torch's pool, the camp or an outpost.)
+    const m = sim.spawn(kind, at.x + 0.5 + jx, y, at.z + 0.5 + jz, { group: g, biome, nest: nest?.id, ceiling: shape === 'ceiling' || (ambush && i === 0), check: nest ? (x, yy, z) => nestOk(sim, ctx, x, yy, z) : ok });
     if (m) {
       made++;
       out?.push(m);
     }
   }
   return made;
+}
+
+/** Where a nest's brood may land: not in a torch's pool, the camp or an outpost, and never right beside the explorer. */
+function nestOk(sim: MobSim, ctx: MobContext, x: number, y: number, z: number): boolean {
+  if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.env.light(x, y, z) > MOBS_RULES.torchFear) return false;
+  return Math.hypot(x + 0.5 - ctx.player.x, y - ctx.player.y, z + 0.5 - ctx.player.z) >= MOBS_RULES.nestMinDist;
 }
 
 type Shape = 'floor' | 'cling' | 'air' | 'ceiling';
@@ -206,7 +279,7 @@ function canSpawnBeingAt(sim: MobSim, x: number, y: number, z: number, ctx: MobC
 }
 
 /** A WORLD spawn point in the shell that suits the kind (dark for monsters, open for fliers and brutes, a roof for droppers). */
-function spotCell(sim: MobSim, ctx: MobContext, kind: MobKind, shape: Shape, minR: number, maxR: number, ok: (x: number, y: number, z: number) => boolean): V3 | null {
+function spotCell(sim: MobSim, ctx: MobContext, kind: MobKind, shape: Shape, minR: number, maxR: number, ok: (x: number, y: number, z: number) => boolean, cone?: { yaw: number; half: number }): V3 | null {
   if (spots.list.length === 0) return null;
   const sp = SPECIES[kind];
   const s = sim.env.solid;
@@ -215,6 +288,11 @@ function spotCell(sim: MobSim, ctx: MobContext, kind: MobKind, shape: Shape, min
   for (const q of spots.list) {
     const d = Math.hypot(q.x - p.x, q.z - p.z);
     if (d < minR || d > maxR || Math.abs(q.y - p.y) > 9) continue;
+    if (cone) {
+      let da = Math.atan2(q.x - p.x, q.z - p.z) - cone.yaw;
+      da = Math.atan2(Math.sin(da), Math.cos(da));
+      if (Math.abs(da) > cone.half) continue;
+    }
     if (shape === 'ceiling' && !q.ceiling) continue;
     if ((shape === 'air' || sp.size === 'large' || sp.size === 'huge') && !q.open) continue;
     cand.push(q);
@@ -262,18 +340,36 @@ function nestCell(sim: MobSim, nest: Nest, shape: Shape, height: number): V3 | n
 }
 
 /** Nests breed packs while the explorer is near (until enough of their brood fell). */
-function nests(sim: MobSim, ctx: MobContext, inLair: boolean): void {
-  if (inLair) return;
-  for (const nest of sim.nests) {
-    if (nest.kills >= MOBS_RULES.nestKills || sim.clock < nest.next) continue;
-    if (Math.hypot(nest.x - ctx.player.x, nest.y - ctx.player.y, nest.z - ctx.player.z) > MOBS_RULES.nestRange) continue;
-    if (sim.unsafe(nest.x, nest.y, nest.z)) continue;
+function nests(sim: MobSim, ctx: MobContext, inLair: boolean, only?: Nest): void {
+  for (const nest of only ? [only] : sim.nests) {
     let alive = 0;
     for (const m of sim.mobs) if (!m.dying && m.nest === nest.id) alive++;
-    if (alive >= 5) continue;
-    const entries = ROSTERS[nest.biome].monsters.filter((e) => e.nest);
-    const entry = (nest.kind && entries.find((e) => e.kind === nest.kind)) || entries[sim.rng.int(0, Math.max(0, entries.length - 1))];
-    if (!entry) continue;
+    const ready =
+      !inLair &&
+      nest.kills < MOBS_RULES.nestKills &&
+      sim.clock >= nest.next &&
+      alive < 5 &&
+      Math.hypot(nest.x - ctx.player.x, nest.y - ctx.player.y, nest.z - ctx.player.z) <= MOBS_RULES.nestRange &&
+      !sim.unsafe(nest.x, nest.y, nest.z) &&
+      // A torch planted at a nest quiets it (its pool is brighter than any nest's own glow).
+      sim.env.light(Math.floor(nest.x), Math.floor(nest.y), Math.floor(nest.z)) <= MOBS_RULES.torchFear;
+    const entries = ready ? ROSTERS[nest.biome].monsters.filter((e) => e.nest) : [];
+    const entry = ready ? (nest.kind && entries.find((e) => e.kind === nest.kind)) || entries[sim.rng.int(0, Math.max(0, entries.length - 1))] : undefined;
+    if (!ready || !entry) {
+      // (Left, quieted or full while it stirred: it settles, and stirs again, told, next time.)
+      nest.stir = 0;
+      continue;
+    }
+    // Told first: the nest stirs (a rumble and chittering from it, dust puffing out), then its brood comes.
+    if (!nest.stir) {
+      nest.stir = sim.clock + MOBS_RULES.nestStir;
+      sim.emit({ type: 'sfx', name: 'mob.rumble', x: nest.x, y: nest.y, z: nest.z });
+      sim.emit({ type: 'sfx', name: 'mob.chitter', x: nest.x, y: nest.y + 0.5, z: nest.z });
+      sim.emit({ type: 'burst', x: nest.x, y: nest.y + 0.3, z: nest.z, color: 0xb8a890, size: 0.9 });
+      continue;
+    }
+    if (sim.clock < nest.stir) continue;
+    nest.stir = 0;
     nest.next = sim.clock + MOBS_RULES.nestGap;
     const brood: SimMob[] = [];
     spawnPack(sim, ctx, entry.kind, sim.rng.int(entry.pack[0], entry.pack[1]), nest.biome, 0, 99, false, nest, brood);

@@ -5,6 +5,7 @@ import { beam, disc, ring, shade, vary } from './shapes';
 import { CLOTH, IRON, ROPE, WOOD, FIRE, ASH } from './palette';
 import { POCKET_PROPS } from './pocketModels';
 import { CAMP_PROPS } from './campModels';
+import { WORKS_PROPS } from './worksModels';
 
 /**
  * Round 3 (VIS): the twelve biomes' ambient props and the new stations (WORLD's BIOMES[b].props and
@@ -355,7 +356,8 @@ const shells: Build = (m, rng) => {
 
 const driftwood: Build = (m, rng) => {
   const b = m.body;
-  const len = rng.range(1.2, 2);
+  // Round 3: shorter (0.8-1.4 m): on the narrow banks of the strata's rivers a 2 m log ran into the rock.
+  const len = rng.range(0.8, 1.4);
   const silver = 0x6e675e;
   b.push().rotateY(rng.range(0, Math.PI)).translate(0, 0.08, 0);
   beam(b, -len / 2, 0, 0, len / 2, 0.04, 0, 0.16, 0.14, silver);
@@ -427,7 +429,43 @@ const rail: Build = (m, rng) => {
 };
 
 const timberProp: Build = (m, rng) => {
-  // A mine set: two posts and a cap beam with wedges, 2.2 m high, 1.9 m across.
+  // Round 3: the miners' timber stack (WORLD sets ambient props down by any wall, unturned: a 2.3 m
+  // mine set ran into the rock one time in three): cribbing, cut timbers crossed in square courses,
+  // a post leaning on it, wedges and a mallet; it reads as the old mine's stores from any side.
+  const b = m.body;
+  const courses = rng.int(3, 4);
+  for (let c = 0; c < courses; c++) {
+    const along = c % 2 === 0;
+    const y = c * 0.17;
+    for (const s of [-1, 1]) {
+      const off = s * 0.36;
+      const col = vary(c % 2 ? WOOD.mid : WOOD.dark, rng, 0.1);
+      if (along) b.box(-0.55, y, off - 0.08, 0.55, y + 0.16, off + 0.08, col);
+      else b.box(off - 0.08, y + 0.004, -0.55, off + 0.08, y + 0.164, 0.55, col);
+    }
+    // Cut ends a shade lighter (a hair proud of the timber: no shared plane).
+    for (const s of [-1, 1]) for (const e of [-1, 1]) {
+      const off = s * 0.36;
+      const e0 = e > 0 ? 0.55 : -0.556;
+      const e1 = e > 0 ? 0.556 : -0.55;
+      if (along) b.box(e0, y + 0.01, off - 0.07, e1, y + 0.15, off + 0.07, WOOD.end);
+      else b.box(off - 0.07, y + 0.014, e0, off + 0.07, y + 0.154, e1, WOOD.end);
+    }
+  }
+  // A post leaning on the stack, and two wedges and a mallet on top.
+  const top = courses * 0.17;
+  beam(b, 0.75, 0.0, 0.2, 0.42, top + 0.9, 0.12, 0.13, 0.13, vary(WOOD.mid, rng, 0.08));
+  b.box(-0.2, top, -0.12, 0.0, top + 0.06, 0.02, WOOD.light);
+  b.box(0.05, top, 0.05, 0.22, top + 0.05, 0.16, WOOD.light);
+  b.push().translate(-0.1, top + 0.06, 0.25).rotateY(0.4);
+  b.box(-0.18, 0, -0.02, 0.12, 0.035, 0.02, WOOD.pale);
+  b.box(0.12, -0.0, -0.06, 0.22, 0.1, 0.06, WOOD.dark);
+  b.pop();
+};
+
+const mineSet: Build = (m, rng) => {
+  // A mine set: two posts and a cap beam with wedges, 2.2 m high, 1.9 m across (place it across a
+  // passage, turned to it: WORLD's `mineSet`).
   const b = m.body;
   for (const s of [-1, 1]) {
     b.push().translate(s * 0.9, 0, 0).rotateZ(s * 0.06);
@@ -466,8 +504,10 @@ const fern: Build = (m, rng) => {
   for (let i = 0; i < n; i++) {
     const a = (i / n) * Math.PI * 2 + rng.range(-0.2, 0.2);
     const len = rng.range(0.4, 0.7);
-    const tilt = rng.range(0.5, 0.9);
-    for (const v of [b, m.glow]) v.push().rotateY(-a).rotateZ(-tilt);
+    // Round 3: the fronds rise from the crown (a positive turn about z lifts +x); they used to point
+    // down into the floor.
+    const tilt = rng.range(0.55, 1.0);
+    for (const v of [b, m.glow]) v.push().translate(0, 0.03, 0).rotateY(-a).rotateZ(tilt);
     b.box(0, -0.01, -0.012, len, 0.01, 0.012, LEAF.dark);
     for (let k = 1; k < 6; k++) {
       const x = (k / 6) * len;
@@ -725,16 +765,162 @@ function glyph(g: VoxBuilder, rng: Rng, x: number, y: number, z: number, s: numb
   }
 }
 
-const lairPillar: Build = (m, rng) => {
+/**
+ * The arena's standing stones wear their biome (variant = the biome's index in LOOK_BIOMES order;
+ * VisDirector sets it from the lair's biome): the stone of the place, and its crown, a resin drip,
+ * a glowing cap, a wrap of roots, shells, a crystal crown, iron bands and a miner's lamp, icicles,
+ * vines with bulbs, a sulphur crust, a gilded capital, lava seams, a void shard, the Heart's rose.
+ * The rose glyphs and the rose shard stay on every one: the guardian's mark, whatever the biome.
+ */
+interface PillarStyle {
+  stone: readonly number[];
+  crown: (m: ModelBuilder, rng: Rng, y: number, w: number) => void;
+  /** On every other drum (its half width w along x, 0.86 w along z): iron bands, lava seams. */
+  drum?: (m: ModelBuilder, rng: Rng, y: number, h: number, w: number) => void;
+}
+
+const ringOf = (n: number, r: number, f: (x: number, z: number, a: number, i: number) => void): void => {
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    f(Math.cos(a) * r, Math.sin(a) * r, a, i);
+  }
+};
+
+const PILLAR_STYLES: readonly PillarStyle[] = [
+  // amberHollows: warm limestone, amber resin running over the cap.
+  { stone: [0x2e2820, 0x3a332a, 0x463e33, 0x544a3d, 0x625747], crown: (m, rng, y, w) => {
+    for (let i = 0; i < 6; i++) {
+      const x = rng.range(-w, w);
+      const z = (i % 2 ? 1 : -1) * (w * 0.86 + 0.085);
+      const len = rng.range(0.12, 0.32);
+      // Each drip a hair proud of the last (no shared plane where two overlap).
+      const e = i * 0.0031;
+      m.glow.box(x - 0.03 - e, y - len - e, z - 0.02 - e, x + 0.03 + e, y + 0.02 + e, z + 0.02 + e, i % 3 ? 0xd0781a : 0xffc860, 0.7);
+    }
+  } },
+  // mushroomForest: dark mycel stone, a glowing cap crowning it, spores in its gills.
+  { stone: [0x18171f, 0x201e29, 0x292735, 0x333142, 0x3d3a4f], crown: (m, rng, y, w) => {
+    disc(m.body, 0.06, y + 0.14, y + 0.42, 0x6e6858);
+    disc(m.body, w + 0.16, y + 0.42, y + 0.52, 0x2a0e2a);
+    disc(m.body, w * 0.7, y + 0.52, y + 0.58, shade(0x2a0e2a, 1.15));
+    disc(m.glow, w + 0.1, y + 0.4, y + 0.43, 0xf06ae0, 0.8);
+    for (let i = 0; i < 5; i++) m.glow.cube(rng.range(-w, w), y + 0.55, rng.range(-w, w), 0.05, 0.02, 0.05, 0x5af0dc, 0.9);
+  } },
+  // rootGalleries: clay stone, a great root wrapped round the shaft.
+  { stone: [0x2a2016, 0x34281b, 0x3f3121, 0x4b3a28, 0x58442f], crown: (m, rng, y, w) => {
+    let px = w + 0.08;
+    let pz = 0;
+    let py = y + 0.1;
+    for (let k = 1; k <= 14; k++) {
+      const a = k * 0.7;
+      const nx = Math.cos(a) * (w + 0.1);
+      const nz = Math.sin(a) * (w * 0.9 + 0.1);
+      const ny = y + 0.1 - k * 0.16;
+      beam(m.body, px, py, pz, nx, ny, nz, 0.11, 0.1, vary(0x3a2818, rng, 0.08));
+      px = nx;
+      pz = nz;
+      py = ny;
+    }
+    m.glow.cube(0, y + 0.3, 0, 0.06, 0.06, 0.06, 0xd8f070, 0.7);
+  } },
+  // floodedGrottoes: cold blue-grey stone, shells and a pearl set on the cap.
+  { stone: [0x161c24, 0x1c242e, 0x232c38, 0x2b3543, 0x343f4f], crown: (m, rng, y, w) => {
+    ringOf(7, w * 0.9, (x, z, a) => {
+      m.body.push().translate(x, y + 0.14, z).rotateY(-a);
+      m.body.box(-0.07, 0, -0.05, 0.07, 0.04, 0.05, vary(0xb8a890, rng, 0.1));
+      m.body.box(-0.05, 0.04, -0.035, 0.05, 0.06, 0.035, 0xd0c4ac);
+      m.body.pop();
+    });
+    m.glow.cube(0, y + 0.3, 0, 0.09, 0.09, 0.09, 0xd8e8f0, 0.6);
+  } },
+  // crystalGeode: violet geode stone, a crown of crystals.
+  { stone: [0x18121f, 0x201828, 0x281f33, 0x31263f, 0x3b2e4b], crown: (m, rng, y) => {
+    m.glow.push().translate(0, y + 0.14, 0);
+    crystals(m.glow, rng, 7, 0.16, 0.62, 0.26, 0x9a6aff, 0x4a2a9a, 0.62);
+    m.glow.pop();
+  } },
+  // haldenMines: timbered mine stone, iron bands, a miner's lamp on a hook.
+  { stone: [0x221a14, 0x2b221a, 0x352a20, 0x403227, 0x4c3c2f], crown: (m, _rng, y, w) => {
+    // A bracket out of the narrow side, the lamp hung from it.
+    m.body.box(w - 0.01, y - 0.4, -0.02, w + 0.26, y - 0.36, 0.02, IRON.mid);
+    m.body.box(w + 0.18, y - 0.62, -0.06, w + 0.3, y - 0.4, 0.06, IRON.dark);
+    m.glow.box(w + 0.2, y - 0.6, -0.04, w + 0.28, y - 0.44, 0.04, FIRE.yellow, 0.9);
+  }, drum: (m, _rng, y, _h, w) => {
+    m.body.box(-w - 0.012, y + 0.04, -w * 0.86 - 0.012, w + 0.012, y + 0.1, w * 0.86 + 0.012, IRON.dark);
+  } },
+  // frostCaverns: rimed stone, icicles off the cap's rim, an ice crown.
+  { stone: [0x1c232e, 0x232c3a, 0x2b3646, 0x344152, 0x3e4d60], crown: (m, rng, y, w) => {
+    ringOf(9, w + 0.04, (x, z) => {
+      m.glow.push().translate(x, y + 0.02, z).rotateX(Math.PI);
+      m.glow.crystal(0.03, rng.range(0.14, 0.38), 0.05, 5, ICE.white, ICE.mid, 0.4);
+      m.glow.pop();
+    });
+    m.glow.push().translate(0, y + 0.14, 0);
+    crystals(m.glow, rng, 4, 0.14, 0.4, 0.18, ICE.white, ICE.mid, 0.45);
+    m.glow.pop();
+  } },
+  // glowrootJungle: mossy stone, vines draped down it with glowing bulbs.
+  { stone: [0x141c14, 0x1b251a, 0x222e21, 0x2a3828, 0x334330], crown: (m, rng, y, w) => {
+    ringOf(5, w + 0.06, (x, z) => {
+      const len = rng.range(0.6, 1.4);
+      m.body.box(x - 0.025, y - len, z - 0.025, x + 0.025, y + 0.15, z + 0.025, LEAF.mid);
+      m.glow.cube(x, y - len, z, 0.07, 0.07, 0.07, LEAF.glow, 0.9);
+    });
+  } },
+  // sulphurBog: sulphur-crusted stone, yellow crystals on its cap.
+  { stone: [0x1e1e10, 0x262614, 0x303018, 0x3a3a1d, 0x454523], crown: (m, rng, y, w) => {
+    for (let i = 0; i < 10; i++) {
+      m.glow.push().translate(rng.range(-w, w), y + 0.14, rng.range(-w * 0.8, w * 0.8)).rotateZ(rng.range(-0.5, 0.5));
+      m.glow.crystal(rng.range(0.02, 0.045), rng.range(0.06, 0.2), 0.04, 4, 0xe0f04a, 0x8a8a22, 0.6);
+      m.glow.pop();
+    }
+  } },
+  // sunkenCity: dressed gold-brown stone, a gilded capital.
+  { stone: [0x2a2216, 0x342a1c, 0x3f3322, 0x4b3d29, 0x584831], crown: (m, _rng, y, w) => {
+    m.body.box(-w - 0.13, y + 0.14, -w * 0.86 - 0.13, w + 0.13, y + 0.2, w * 0.86 + 0.13, 0xa8801e);
+    m.glow.box(-w - 0.135, y + 0.16, -w * 0.86 - 0.135, w + 0.135, y + 0.18, w * 0.86 + 0.135, 0xffd060, 0.55);
+  } },
+  // magmaVeins: basalt with glowing lava seams, an ember crown.
+  { stone: [0x151314, 0x1c191a, 0x242022, 0x2c282a, 0x353033], crown: (m, rng, y, w) => {
+    for (let i = 0; i < 7; i++) m.glow.cube(rng.range(-w * 0.7, w * 0.7), y + 0.16 + i * 0.0033, rng.range(-w * 0.6, w * 0.6), 0.08 + i * 0.0021, 0.05 + i * 0.0027, 0.08 + i * 0.0023, i % 2 ? FIRE.ember : FIRE.orange, 0.85);
+  }, drum: (m, rng, y, h, w) => {
+    // A seam of lava down each narrow side (the broad ones carry the glyphs).
+    for (const sx of [-1, 1]) {
+      const x0 = sx * (w + 0.003);
+      let z = rng.range(-w * 0.5, w * 0.5);
+      for (let k = 0; k < 4; k++) {
+        const nz = Math.max(-w * 0.7, Math.min(w * 0.7, z + rng.range(-0.08, 0.08)));
+        m.glow.box(Math.min(x0, x0 + sx * 0.01), y + (k / 4) * h, Math.min(z, nz) - 0.012, Math.max(x0, x0 + sx * 0.01), y + ((k + 1) / 4) * h, Math.max(z, nz) + 0.012, 0xff6a1e, 0.85);
+        z = nz;
+      }
+    }
+  } },
+  // obsidianAbyss: black glass, a violet void shard over it.
+  { stone: [0x0c0a12, 0x110e18, 0x16121f, 0x1c1727, 0x231d30], crown: (m, rng, y) => {
+    m.glow.push().translate(0, y + 0.18, 0);
+    m.glow.crystal(0.05, rng.range(0.7, 0.95), 0.08, 4, 0xa070ff, 0x4a2a9a, 0.9);
+    m.glow.pop();
+  } },
+  // heart: crimson heart stone, a great rose crystal.
+  { stone: [0x1e0a10, 0x260d15, 0x30111b, 0x3a1522, 0x461a29], crown: (m, _rng, y) => {
+    m.glow.push().translate(0, y + 0.2, 0);
+    m.glow.crystal(0.12, 0.62, 0.18, 6, 0xff7a96, 0xd8486a, 0.9);
+    m.glow.pop();
+  } },
+];
+
+const lairPillar: Build = (m, rng, o) => {
   // A guardian's standing stone: a plinth of three worn tiers, a shaft of rough drums set a little
   // askew, a cap with the shard's rose crystal in its socket, carved glyphs glowing rose down two
   // faces, old bones and a fallen drum at its foot. The rose is the guardian's: every arena of the
-  // deep wears it, whatever the biome.
+  // deep wears it, whatever the biome; the stone and the crown are the biome's (PILLAR_STYLES).
+  const style = PILLAR_STYLES[Math.max(0, Math.min(PILLAR_STYLES.length - 1, o.variant | 0))];
+  const STONEP = style.stone;
   const b = m.body;
   const g = m.glow;
   const rose = 0xd8486a;
   const roseHot = 0xff7a96;
-  for (const [hw, y0, y1, c] of [[0.62, 0, 0.12, STONE[0]], [0.52, 0.12, 0.24, STONE[1]], [0.44, 0.24, 0.32, STONE[2]]] as const) {
+  for (const [hw, y0, y1, c] of [[0.62, 0, 0.12, STONEP[0]], [0.52, 0.12, 0.24, STONEP[1]], [0.44, 0.24, 0.32, STONEP[2]]] as const) {
     b.box(-hw, y0, -hw * 0.9, hw, y1, hw * 0.9, vary(c, rng, 0.06));
     b.box(-hw + 0.04, y1 - 0.004, -hw * 0.9 + 0.04, hw - 0.04, y1 + 0.012, hw * 0.9 - 0.04, shade(c, 1.12));
   }
@@ -746,12 +932,12 @@ const lairPillar: Build = (m, rng) => {
     const turn = rng.range(-0.12, 0.12);
     const dx = rng.range(-0.025, 0.025);
     for (const v of [b, g]) v.push().translate(dx, 0, 0).rotateY(turn);
-    const c = vary(STONE[1 + (i % 2)], rng, 0.07);
+    const c = vary(STONEP[1 + (i % 2)], rng, 0.07);
     b.box(-w, y, -w * 0.86, w, y + h, w * 0.86, c);
     // Chamfered corners: a slightly smaller cross box.
     b.box(-w - 0.02, y + 0.03, -w * 0.62, w + 0.02, y + h - 0.03, w * 0.62, shade(c, 0.94));
     // A worn seam between drums.
-    b.box(-w + 0.03, y + h - 0.012, -w * 0.86 + 0.03, w - 0.03, y + h + 0.004, w * 0.86 - 0.03, STONE[0]);
+    b.box(-w + 0.03, y + h - 0.012, -w * 0.86 + 0.03, w - 0.03, y + h + 0.004, w * 0.86 - 0.03, STONEP[0]);
     // Glyphs down the two broad faces.
     if (i > 0 || drums < 5) {
       glyph(g, rng, 0, y + h * 0.5, w * 0.86 + 0.002, h * 0.62, i % 2 ? rose : roseHot, 0.78);
@@ -759,18 +945,21 @@ const lairPillar: Build = (m, rng) => {
       glyph(g, rng, 0, y + h * 0.5, w * 0.86 + 0.002, h * 0.62, rose, 0.72);
       g.pop();
     }
+    if (style.drum && i % 2 === 1) style.drum(m, rng, y, h, w);
     for (const v of [b, g]) v.pop();
     y += h;
     w *= rng.range(0.9, 0.96);
   }
   // The cap and its socket, the rose crystal set in it.
-  b.box(-w - 0.08, y, -w * 0.86 - 0.08, w + 0.08, y + 0.14, w * 0.86 + 0.08, STONE[3]);
-  b.box(-w * 0.55, y + 0.14, -w * 0.5, w * 0.55, y + 0.24, w * 0.5, STONE[2]);
+  b.box(-w - 0.08, y, -w * 0.86 - 0.08, w + 0.08, y + 0.14, w * 0.86 + 0.08, STONEP[3]);
+  b.box(-w * 0.55, y + 0.14, -w * 0.5, w * 0.55, y + 0.24, w * 0.5, STONEP[2]);
   g.push().translate(0, y + 0.22, 0);
   g.crystal(0.07, 0.34, 0.12, 6, roseHot, rose, 0.85);
   g.pop();
   // A band of light under the cap.
   g.box(-w - 0.002, y - 0.06, -w * 0.86 - 0.002, w + 0.002, y - 0.035, w * 0.86 + 0.002, rose, 0.6);
+  // The biome's crown.
+  style.crown(m, rng, y, w);
   // At its foot: bones and a fallen drum.
   for (let i = 0; i < 4; i++) {
     b.push().translate(rng.range(-0.7, 0.7), 0, rng.range(0.62, 0.95)).rotateY(rng.range(0, Math.PI));
@@ -778,28 +967,47 @@ const lairPillar: Build = (m, rng) => {
     b.pop();
   }
   b.push().translate(rng.range(-0.5, 0.5), 0.17, -0.85).rotateZ(Math.PI / 2).rotateX(rng.range(-0.3, 0.3));
-  b.box(-0.17, -0.3, -0.24, 0.17, 0.3, 0.24, vary(STONE[1], rng, 0.08));
+  b.box(-0.17, -0.3, -0.24, 0.17, 0.3, 0.24, vary(STONEP[1], rng, 0.08));
   b.pop();
   m.glowScale = 1.9;
 };
 
 const lairRune: Build = (m, rng, o) => {
   // An inlaid floor stone of the arena's ring: a flat worn slab, a glyph cut in it glowing rose (the
-  // guardian lives) or a cold ash-gold once it has fallen (variant 1).
+  // guardian sleeps), blazing hot while it fights (variant 2), or a cold ash-gold once it has fallen
+  // (variant 1).
   const spent = o.variant === 1;
+  const awake = o.variant === 2;
   const b = m.body;
   const w = rng.range(0.34, 0.46);
   const d = rng.range(0.26, 0.36);
   b.box(-w, -0.04, -d, w, 0.035, d, vary(STONE[1], rng, 0.06));
   b.box(-w + 0.03, 0.03, -d + 0.03, w - 0.03, 0.045, d - 0.03, STONE[2]);
   m.glow.push().rotateX(-Math.PI / 2);
-  glyph(m.glow, rng, 0, 0, 0.046, Math.min(w, d) * 1.4, spent ? 0x8a6a3a : 0xff6a8a, spent ? 0.35 : 0.9);
+  glyph(m.glow, rng, 0, 0, 0.046, Math.min(w, d) * 1.4, spent ? 0x8a6a3a : awake ? 0xffd8e0 : 0xff6a8a, spent ? 0.35 : awake ? 1 : 0.9);
   m.glow.pop();
-  m.glowScale = spent ? 1.1 : 1.8;
+  if (awake) {
+    // Fighting: the slab's joint burns too, a thin rose line round the stone (the decor's shared
+    // glow material ignores glowScale: the blaze is in the colours).
+    for (const [x0, z0, x1, z1] of [[-w, -d, w, -d + 0.02], [-w, d - 0.02, w, d], [-w, -d + 0.02, -w + 0.02, d - 0.02], [w - 0.02, -d + 0.02, w, d - 0.02]] as const) m.glow.box(x0, 0.036, z0, x1, 0.041, z1, 0xff7a96, 1);
+  }
+  m.glowScale = spent ? 1.1 : awake ? 3.2 : 1.8;
 };
 
-const lairBrazier: Build = (m) => {
-  // An iron brazier on three legs, coals burning in it: the arena's warm light.
+/**
+ * A guardian's brazier burns in its biome's light (variant = the biome's index in LOOK_BIOMES order,
+ * VisDirector sets it from the lair; WORLD lights it with the biome's own light block): fire in the
+ * warm biomes, a magic flame of the biome's hue elsewhere, its coals glowing the same.
+ */
+const BRAZIER_TINT: ReadonlyArray<[number, number, number] | null> = [
+  null, [0.35, 1.0, 0.9], [0.8, 0.95, 0.3], [0.3, 0.65, 1.0], [0.6, 0.45, 1.0], null,
+  [0.55, 0.85, 1.0], [0.4, 1.0, 0.35], [0.85, 1.0, 0.25], [1.0, 0.8, 0.35], null, [0.6, 0.35, 1.0], [1.0, 0.4, 0.5],
+];
+const tintHex = (t: readonly [number, number, number], k: number): number => (Math.round(Math.min(1, t[0] * k) * 255) << 16) | (Math.round(Math.min(1, t[1] * k) * 255) << 8) | Math.round(Math.min(1, t[2] * k) * 255);
+
+const lairBrazier: Build = (m, _rng, o) => {
+  // An iron brazier on three legs, coals burning in it: the arena's light.
+  const tint = BRAZIER_TINT[Math.max(0, Math.min(BRAZIER_TINT.length - 1, o.variant | 0))] ?? null;
   const b = m.body;
   for (let i = 0; i < 3; i++) {
     const a = (i / 3) * Math.PI * 2;
@@ -807,9 +1015,9 @@ const lairBrazier: Build = (m) => {
   }
   disc(b, 0.3, 0.8, 0.86, IRON.mid);
   ring(b, { sides: 8, radius: 0.31, thickness: 0.04, y0: 0.855, y1: 1.0, color: (k) => (k % 2 ? IRON.dark : IRON.mid) });
-  for (let i = 0; i < 9; i++) m.glow.cube(Math.cos(i) * 0.15, 0.9 + i * 0.004, Math.sin(i * 1.7) * 0.15, 0.08, 0.06, 0.08, i % 3 ? FIRE.ember : FIRE.coal, 0.7);
+  for (let i = 0; i < 9; i++) m.glow.cube(Math.cos(i) * 0.15, 0.9 + i * 0.004, Math.sin(i * 1.7) * 0.15, 0.08, 0.06, 0.08, tint ? tintHex(tint, i % 3 ? 0.85 : 0.6) : i % 3 ? FIRE.ember : FIRE.coal, 0.7);
   disc(m.glow, 0.22, 0.86, 0.9, ASH.light, 0.1);
-  m.flames.push({ x: 0, y: 0.9, z: 0, w: 0.5, h: 0.7 });
+  m.flames.push({ x: 0, y: 0.9, z: 0, w: 0.5, h: 0.7, ...(tint ? { tint: [tint[0], tint[1], tint[2]] as [number, number, number] } : {}) });
   m.anim = 'fire';
   m.glowScale = 2.2;
 };
@@ -833,7 +1041,7 @@ export const BIOME_PROPS: Record<string, { build: Build; variants: number }> = {
   crystalSpire: { build: crystalSpire, variants: 2 },
   geodeShards: { build: geodeShards, variants: 2 },
   rail: { build: rail, variants: 1 },
-  timberProp: { build: timberProp, variants: 1 },
+  timberProp: { build: timberProp, variants: 2 },
   icicle: { build: icicle, variants: 3 },
   iceSpike: { build: iceSpike, variants: 2 },
   vineCurtain: { build: vineCurtain, variants: 2 },
@@ -853,13 +1061,17 @@ export const BIOME_PROPS: Record<string, { build: Build; variants: number }> = {
   furnace: { build: furnace, variants: 1 },
   alchemyTable: { build: alchemyTable, variants: 1 },
   outpost: { build: outpost, variants: 1 },
-  lairPillar: { build: lairPillar, variants: 2 },
-  lairBrazier: { build: lairBrazier, variants: 1 },
-  lairRune: { build: lairRune, variants: 2 },
+  lairPillar: { build: lairPillar, variants: 13 },
+  lairBrazier: { build: lairBrazier, variants: 13 },
+  lairRune: { build: lairRune, variants: 3 },
   // What glows in the light pockets (render/props/pocketModels.ts), hanging from the roof.
   ...POCKET_PROPS,
   // The camp that grows (render/props/campModels.ts): LOOP's camp upgrades.
   ...CAMP_PROPS,
+  // The Halden works' lock (render/props/worksModels.ts): WORLD's levers.
+  ...WORKS_PROPS,
+  // The full mine set (two posts and a cap), for a passage it is turned across.
+  mineSet: { build: mineSet, variants: 1 },
 };
 
 /** Kinds built hanging down from y = 0 (WORLD anchors them to the ceiling cell). */

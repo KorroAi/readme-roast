@@ -56,6 +56,10 @@ export interface ScreenState {
   help: string | null;
   /** The Map's pan and zoom while it stays open (reset when it opens). */
   mapCamera: import('./r3/map').MapCamera | null;
+  /** The trip card to show (LOOP's 'trip:summary' in the strata), null: the first version's report. */
+  trip: import('../../game/quests/Trip').TripSummary | null;
+  /** The strata's end card (LOOP's endingView after 'quest:ending'), null: the first version's. */
+  ending: { title: string; body: string; free: string; lines: Array<{ label: string; value: string }> } | null;
 }
 
 /** What screen builders may use. Implemented by UI. */

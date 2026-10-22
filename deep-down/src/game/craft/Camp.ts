@@ -8,7 +8,7 @@ import { hasText, t, type TextKey } from '../../i18n';
 import { ROSTERS } from '../mobs/rosters';
 import type { BuiltThing } from './Builder';
 import type { CostView, CraftCheck, CraftContext, CraftOutcome, ItemCounts, RecipeCardView } from './types';
-import { deliver } from './CraftSystem';
+import { costLine, deliver } from './CraftSystem';
 
 /**
  * The camp grows, and the trader (round 3 stretch, LOOP; BRIEF §6). Upgrades are built at the
@@ -319,7 +319,7 @@ function pay(cost: Partial<Record<ItemId, number>>, ctx: CraftContext, times: nu
 function reasonOf(state: CraftCheck['state'], inputs: CostView[], owned: string | null): string | null {
   if (state === 'ok') return null;
   if (state === 'owned') return owned;
-  if (state === 'missing') return t('craft3.missing', { items: inputs.filter((c) => c.have < c.need).map((c) => `${c.need - c.have} ${c.name}`).join(', ') });
+  if (state === 'missing') return t('craft3.missing', { items: inputs.filter((c) => c.have < c.need).map((c) => costLine(c.item, c.need - c.have, c.name)).join(t('loop3.listSep')) });
   const key = STATE_REASON[state];
   return key ? t(key) : null;
 }

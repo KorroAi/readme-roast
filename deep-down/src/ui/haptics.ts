@@ -47,6 +47,8 @@ export const HAPTIC_PATTERNS = {
   guardian: [40, 60, 40, 60, 70],
   /** A guardian falls, a Heart Shard won: a rising triple. */
   shard: [20, 50, 30, 50, 60],
+  /** A guardian's guard opens (strike now): a short double tick. */
+  open: [8, 40, 8],
   /** A gate opens, fast travel lands. */
   gate: [30, 80, 50],
   /** A consumable used (food, a potion). */
@@ -95,6 +97,7 @@ export class Haptics {
         if (id) this.play('step');
       }),
       bus.on('mob:guardianAwake', () => this.play('guardian')),
+      bus.on('mob:guardianOpen', () => this.play('open')),
       bus.on('quest:shard', () => this.play('shard')),
       bus.on('world:gateOpened', () => this.play('gate')),
       bus.on('player:travelled', () => this.play('gate')),

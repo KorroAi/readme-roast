@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen } from './r3';
+import { PHONE, boot, centreOf, holdUntil, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): crafting and building with real touches at 390 x 844 (BRIEF §0.4, §0.6): the Craft
@@ -63,25 +63,25 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   });
   await tapControl(page, touch, 'craft');
   expect(await waitScreen(page, 'crafting')).toBe(true);
-  await page.locator('[data-key="tab:building"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="tab:building"]'));
   const planks0 = await count(page, 'plank');
   const five = page.locator('[data-key="craft:plank:5"]');
   await expect(five).toBeEnabled();
-  await five.tap();
+  await tapEl(page, touch, five);
   expect(await untilGame(page, async () => (await count(page, 'plank')) - planks0 >= 20, 6), 'Craft ×5 made five batches of planks').toBe(true);
   const made = (await uiEvents(page, 'craft:made')).map((e) => e.payload);
   expect(made[0]).toMatchObject({ recipe: 'plank', times: 5 });
   // Only 3 fungal wood left: the ×5 of torches is off (2 coal), the ×1 is on.
   await expect(page.locator('[data-key="craft:torch:5"]')).toBeDisabled();
   const torches0 = await count(page, 'torch');
-  await page.locator('[data-key="craft:torch:1"]').tap();
+  await tapEl(page, touch, page.locator('[data-key="craft:torch:1"]'));
   expect(await untilGame(page, async () => (await count(page, 'torch')) > torches0, 6), 'Craft ×1 made torches').toBe(true);
   // Ladders need the Workbench (the camp's): 3 planks each.
   const ladder = page.locator('[data-key="craft:ladder:1"]');
   await expect(ladder).toBeEnabled();
-  await ladder.tap();
+  await tapEl(page, touch, ladder);
   expect(await untilGame(page, async () => (await count(page, 'ladder')) > 0, 6), 'a ladder at the Workbench').toBe(true);
-  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 
   // A torch on a wall: stand facing it, pick the torches, aim at the wall, tap Place.
@@ -120,8 +120,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   const y0 = await page.evaluate(() => window.__DD__.game.player.y);
   await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x + 0.5, y + 2.5, z + 0.5, 0, 0), wall);
   const stick = { x: 70, y: 690 };
-  await touch.drag(stick, { x: stick.x, y: stick.y - 50 }, 2600, 7);
-  const climbed = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.player.y)) - y0 > 1.2, 4);
+  const climbed = await holdUntil(page, touch, stick, { x: stick.x, y: stick.y - 50 }, async () => (await page.evaluate(() => window.__DD__.game.player.y)) - y0 > 1.2, 8);
   expect(climbed, 'the explorer climbed the ladder').toBe(true);
   void centreOf;
 });

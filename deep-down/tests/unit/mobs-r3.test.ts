@@ -518,7 +518,13 @@ describe('the biome spawner', () => {
     const sim = new MobSim(env({ biome: 'haldenMines' }), 52);
     sim.nests = [{ id: 1, biome: 'haldenMines', x: 30, y: FLOOR, z: 44, radius: 3, kind: 'rustMite', next: 0, kills: 0 }];
     const c = ctx({ x: 30, z: 30 }, { stratum: 3, biome: 'haldenMines' });
-    run(sim, c, 4);
+    const log = record(sim);
+    // It stirs first (told: a rumble, chittering, dust), then its brood comes out.
+    run(sim, c, 2 + MOBS_RULES.nestStir + 0.2);
+    const stir = log.findIndex((e) => e.type === 'sfx' && e.name === 'mob.rumble');
+    const out = log.findIndex((e) => e.type === 'spawn' && e.mob.nest === 1);
+    expect(stir).toBeGreaterThanOrEqual(0);
+    expect(out).toBeGreaterThan(stir);
     const brood = sim.mobs.filter((m) => m.nest === 1);
     expect(brood.length).toBeGreaterThanOrEqual(3);
     sim.ctx = c;

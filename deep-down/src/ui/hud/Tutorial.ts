@@ -70,6 +70,9 @@ export class TutorialOverlay implements UiHighlighter {
   /** performance.now() until which the bubble steps aside (a biome arrival card is up). */
   private heldUntil = 0;
   private held = false;
+  /** The step shown last (a higher one next means a step was done). */
+  private lastStep = 0;
+  private passTimer = 0;
 
   constructor(private readonly scope: HTMLElement, onSkip: () => void) {
     this.ring = h('div', { class: 'dd-tut-ring', 'aria-hidden': 'true' });
@@ -81,6 +84,11 @@ export class TutorialOverlay implements UiHighlighter {
     this.tipEl = h('div', { class: 'dd-tip', role: 'status' });
     this.swipe = h('div', { class: 'dd-tut-swipe', 'aria-hidden': 'true' }, h('span', { class: 'dd-tut-finger' }), h('span', { class: 'dd-tut-trail' }));
     this.el = h('div', { class: 'dd-tut' }, this.ring, this.swipe, this.bubble, this.tipEl);
+  }
+
+  /** A tutorial step (one of LOOP's, counted) is on screen now. */
+  get active(): boolean {
+    return this.el.classList.contains('on') && this.lastStep > 0;
   }
 
   /** UiHighlighter: ring one control (null clears), with its line. */
@@ -127,10 +135,18 @@ export class TutorialOverlay implements UiHighlighter {
     this.el.classList.toggle('on', !!v);
     // The look step has no button: a ghost finger drags across the view instead.
     this.swipe.classList.toggle('on', v?.target === 'look');
+    // A step done (the next one comes): the new bubble opens with a check (the "done" beat).
+    const passed = !!v && v.total > 0 && this.lastStep > 0 && v.step > this.lastStep;
+    this.lastStep = v?.step ?? 0;
     if (!v) return;
-    this.bubble.classList.remove('fresh');
+    this.bubble.classList.remove('fresh', 'passed');
     void this.bubble.offsetWidth;
     this.bubble.classList.add('fresh');
+    if (passed) {
+      this.bubble.classList.add('passed');
+      window.clearTimeout(this.passTimer);
+      this.passTimer = window.setTimeout(() => this.bubble.classList.remove('passed'), 900);
+    }
     this.lineEl.textContent = v.line;
     this.countEl.textContent = v.total > 0 ? t('tut.step', { n: v.step, total: v.total }) : '';
     this.skipBtn.hidden = v.total <= 0;
@@ -205,6 +221,7 @@ export class TutorialOverlay implements UiHighlighter {
 
   dispose(): void {
     window.clearTimeout(this.tipTimer);
+    window.clearTimeout(this.passTimer);
   }
 
   private targetEl(id: UiTargetId): HTMLElement | null {

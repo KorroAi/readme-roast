@@ -127,6 +127,8 @@ export interface CostView {
   name: string;
   have: number;
   need: number;
+  /** Where it is found, for a raw material ("Root Galleries", "creatures"); absent for made things. */
+  from?: string;
 }
 
 export interface RecipeCardView {
@@ -156,6 +158,11 @@ export interface CraftMenuView {
   stations: Array<{ id: StationId; name: string; near: boolean }>;
   /** The bank is in reach (materials are taken from it first). */
   bank: boolean;
+  /**
+   * The card the menu should open on (its tab, ringed): the tutorial's torches, the main quest's next
+   * pick on its 'prepare' step. Null: no suggestion.
+   */
+  focus?: { category: RecipeCategory; recipe: string } | null;
 }
 
 export interface BagItemView {

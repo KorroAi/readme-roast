@@ -13,7 +13,8 @@ import { pickCategory } from '../../src/ui/screens/r3/craft';
 import { groupByBiome } from '../../src/ui/screens/r3/bestiary';
 import { clampZoom, homeCamera, mapToView, scaleBarMetres, viewToMap, zoomAbout } from '../../src/ui/screens/r3/map';
 import { MapRaster } from '../../src/ui/hud/Minimap';
-import { sanitizeControlPrefs, DEFAULT_CONTROL_PREFS } from '../../src/ui/controlPrefs';
+import { trackerText } from '../../src/ui/hud/Hud';
+import { sanitizeControlPrefs, DEFAULT_CONTROL_PREFS, languageOf } from '../../src/ui/controlPrefs';
 import { GLYPH_NAMES, iconSvg } from '../../src/ui/hud/glyphs';
 import { en } from '../../src/i18n/en';
 import { controls } from '../../src/i18n/en/controls';
@@ -291,10 +292,27 @@ describe('round 3 HUD and menu helpers', () => {
     expect(rock[0] + rock[1] + rock[2]).toBeLessThan(inner[0] + inner[1] + inner[2]);
   });
 
+  it("drops a tracker line's own count when the count column shows it", () => {
+    expect(trackerText("Find the guardians' lairs of Stratum I (0/2)", 2)).toBe("Find the guardians' lairs of Stratum I");
+    expect(trackerText('Mine 25 veins 3/25', 25)).toBe('Mine 25 veins');
+    // Another number, or no count column: the words stay.
+    expect(trackerText('Reach 200 m (1/3)', 2)).toBe('Reach 200 m (1/3)');
+    expect(trackerText('Learn the ropes (0/11)', undefined)).toBe('Learn the ropes (0/11)');
+    expect(trackerText('2/2', 2)).toBe('2/2');
+  });
+
   it('keeps the control preferences in range', () => {
     expect(sanitizeControlPrefs(null)).toEqual(DEFAULT_CONTROL_PREFS);
-    expect(sanitizeControlPrefs({ scale: 9, opacity: -1 })).toEqual({ scale: 1.3, opacity: 0.35 });
+    expect(sanitizeControlPrefs({ scale: 9, opacity: -1 })).toEqual({ ...DEFAULT_CONTROL_PREFS, scale: 1.3, opacity: 0.35 });
     expect(sanitizeControlPrefs({ scale: 'x', opacity: Number.NaN })).toEqual(DEFAULT_CONTROL_PREFS);
+    // The accessibility preferences: only a real true / 'reduce' turns them on.
+    expect(sanitizeControlPrefs({ patterns: 'yes', motion: 'fast' })).toMatchObject({ patterns: false, motion: 'auto' });
+    expect(sanitizeControlPrefs({ patterns: true, motion: 'reduce' })).toMatchObject({ patterns: true, motion: 'reduce' });
+    // The language: one of the game's, else the device's ('auto').
+    expect(sanitizeControlPrefs({ language: 'fr' }).language).toBe('fr');
+    expect(sanitizeControlPrefs({ language: 'de' }).language).toBe('auto');
+    expect(languageOf({ language: 'auto' }, () => 'fr')).toBe('fr');
+    expect(languageOf({ language: 'en' }, () => 'fr')).toBe('en');
   });
 
   it('draws every glyph as a self-contained SVG', () => {
@@ -395,5 +413,73 @@ describe('round 3 UI, after the resume', () => {
       // Every glyph of the template has a colour in the palette.
       for (const row of art!.rows) for (const ch of row) if (ch !== '.') expect(art!.palette[ch], `${id} '${ch}'`).toBeDefined();
     }
+  });
+});
+
+describe('round 3 UI, the second instance (map places, relief, cards)', () => {
+  it('spans a stratum\'s floor heights from its finds and halls, padded by 4 m', async () => {
+    const { heightRangeOf } = await import('../../src/game/fp/ActionLayer');
+    const r = heightRangeOf({
+      chests: [{ p: [0, 30, 0] }, { p: [0, 61, 0] }],
+      pages: [{ p: [0, 44, 0] }],
+      lairs: [{ centre: [0, 22, 0] }],
+      gate: { centre: [0, 18.5, 0] },
+      arrival: { y: 50 },
+      caverns: [{ centre: [0, 70, 0] }],
+    });
+    expect(r).toEqual([14, 74]);
+  });
+
+  it('draws relief: higher floor lighter, a contour where the floor steps 4 m', async () => {
+    const { MapRaster, CONTOUR_M } = await import('../../src/ui/hud/Minimap');
+    expect(CONTOUR_M).toBe(4);
+    // A 12 x 3 strip of floor rising 1 m per column (heights 40..51): contours at 43|44 and 47|48.
+    const src = {
+      width: 12, depth: 3, originX: 0, originZ: 0, revision: 1,
+      cell: () => 2,
+      biome: () => 0,
+      height: (x: number) => 40 + Math.floor(x),
+      biomeColors: [0x808080],
+      markers: [],
+      heightRange: [40, 52] as const,
+      playerX: 0, playerZ: 0, yaw: 0,
+    };
+    const r = new MapRaster();
+    r.update(src);
+    const lum = (x: number) => {
+      const o = (x + 1 * 12) * 4;
+      return r.rgba[o] + r.rgba[o + 1] + r.rgba[o + 2];
+    };
+    // The middle row (z = 1) away from the rims: x 1..10. Higher is lighter, except on a contour.
+    expect(lum(9)).toBeGreaterThan(lum(5));
+    // Column 3 (43) meets 4 (44) to the east: a contour, darker than its neighbours of the same band.
+    expect(lum(3)).toBeLessThan(lum(2));
+    expect(lum(7)).toBeLessThan(lum(6));
+  });
+
+  it('has a legend row, a colour, a glyph and a name for every kind of map marker', async () => {
+    const { LEGEND_ORDER } = await import('../../src/ui/screens/r3/map');
+    const { MARKER_COLOR, MARKER_GLYPH } = await import('../../src/ui/hud/Minimap');
+    const { GLYPH_NAMES } = await import('../../src/ui/hud/glyphs');
+    const kinds = Object.keys(MARKER_COLOR);
+    expect(new Set(LEGEND_ORDER)).toEqual(new Set(kinds));
+    for (const k of kinds) expect(GLYPH_NAMES, k).toContain(MARKER_GLYPH[k as keyof typeof MARKER_GLYPH]);
+    for (const k of ['vista', 'river', 'works', 'secret', 'place', 'ravine', 'cache']) expect(en[`m3.map.m.${k}` as keyof typeof en], k).toBeTruthy();
+  });
+
+  it('writes time played short on the title\'s Continue card', async () => {
+    const { playTimeText } = await import('../../src/ui/screens/menu');
+    expect(playTimeText(0)).toBe('0 min');
+    expect(playTimeText(42 * 60 + 30)).toBe('42 min');
+    expect(playTimeText(3 * 3600 + 5 * 60)).toBe('3 h 05');
+  });
+
+  it('opens a round 3 menu rising from play, and slides along the rail', async () => {
+    const { menuEnter } = await import('../../src/ui/UI');
+    expect(menuEnter('none', 'map')).toBe('play');
+    expect(menuEnter('inventory', 'map')).toBe('right');
+    expect(menuEnter('bestiary', 'crafting')).toBe('left');
+    expect(menuEnter('map', 'map')).toBeNull();
+    expect(menuEnter('pause', 'settings')).toBeNull();
   });
 });

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen } from './r3';
+import { PHONE, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -59,19 +59,15 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
 
   // The stick: a short push walks, a push to the edge sprints (its ring lights).
   const stick = { x: 70, y: 690 };
-  const cdp = await page.context().newCDPSession(page);
-  const send = (type: 'touchStart' | 'touchMove' | 'touchEnd', pts: Array<{ x: number; y: number }>) =>
-    cdp.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map((p) => ({ ...p, id: 7, radiusX: 8, radiusY: 8, force: 1 })) });
-  await send('touchStart', [stick]);
-  for (let i = 1; i <= 4; i++) await send('touchMove', [{ x: stick.x, y: stick.y - i * 6 }]);
+  const half = { x: stick.x, y: stick.y - 24 };
+  await touch.press(stick, half, 7);
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.player.speed as number)) > 1, 4), 'the stick walks').toBe(true);
   expect(await page.evaluate(() => window.__DD__.game.input.sprint)).toBe(false);
-  for (let i = 1; i <= 8; i++) await send('touchMove', [{ x: stick.x, y: stick.y - 24 - i * 12 }]);
+  await touch.slide(half, { x: stick.x, y: stick.y - 120 }, 7);
   expect(await untilGame(page, async () => page.evaluate(() => window.__DD__.game.input.sprint), 4), 'pushed to its edge, it sprints').toBe(true);
   await expect(page.locator('.dd-stick.sprint')).toHaveCount(1);
   const fast = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.player.speed as number)) > 5.2, 6);
-  await send('touchEnd', []);
-  await cdp.detach();
+  await touch.up();
   expect(fast, 'sprinting is faster than walking (about 6.5 m/s)').toBe(true);
 
   // Jump.
@@ -112,7 +108,7 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
   await expect(page.locator('.dd-use-verb')).toHaveText(/Craft/);
   await tapControl(page, touch, 'interact');
   expect(await waitScreen(page, 'crafting'), 'Interact opened Craft').toBe(true);
-  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await tapEl(page, touch, page.locator('.dd-menu3 [data-key="close"]').first());
   expect(await waitScreen(page, 'none')).toBe(true);
 
   // A bomb: on the hotbar's bomb slot, Action throws it; it bursts (MOBS's blast) where the ray lands.

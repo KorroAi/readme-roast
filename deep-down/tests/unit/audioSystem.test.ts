@@ -59,6 +59,7 @@ function finite(...xs: number[]): number {
 class FakeNode {
   readonly gain = new FakeParam(1);
   readonly frequency = new FakeParam(350);
+  readonly detune = new FakeParam(0);
   readonly Q = new FakeParam(1);
   readonly pan = new FakeParam(0);
   readonly playbackRate = new FakeParam(1);

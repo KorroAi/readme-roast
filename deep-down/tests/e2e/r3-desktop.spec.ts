@@ -1,46 +1,41 @@
 import { expect, test, type Page } from '@playwright/test';
 import { LOADED_CEILING_MS, untilGame, quietDeep } from './dd';
 
-// Round 2: the spawner stays off here (see quietDeep in dd.ts).
+// Round 3 (UI): desktop play through real keyboard and mouse input on the production build, in the
+// strata (the first version's desktop.spec walked the hand-made world's landmarks): WASD moves, Space
+// jumps, right-drag looks, holding the left button mines a vein (with or without pointer lock), E uses
+// the camp's Workbench (Craft opens and frees the mouse), Esc closes screens, I / Tab open the Bag,
+// Esc pauses, and losing the pointer lock pauses too. The menu keys, Shift, Ctrl, Q and 1-6 are in
+// r3-menus.spec.ts.
+
 test.beforeEach(async ({ page }) => {
   await quietDeep(page);
 });
 
-
-// Desktop play through real keyboard and mouse input on the production build: WASD moves,
-// Space jumps, right-drag looks, holding the left button mines (with or without pointer lock),
-// E uses the Workbench, Esc closes screens, I / Tab open the bag, Esc pauses.
-
 test.use({ hasTouch: false, isMobile: false, viewport: { width: 1280, height: 720 } });
+// SwiftShader under load renders a frame or two per second: give each test a generous budget.
+test.describe.configure({ timeout: 1_800_000 });
 
+const B = { COPPER_ORE: 7, SLATE: 1, AIR: 0 };
 
-const B = { COPPER_ORE: 7, AIR: 0 };
+const state = (page: Page) => page.evaluate(() => window.__DD__.state());
 
-async function state(page: Page) {
-  return page.evaluate(() => window.__DD__.state());
-}
-
-async function waitMode(page: Page, mode: string) {
+async function waitMode(page: Page, mode: string): Promise<void> {
   await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout: LOADED_CEILING_MS, polling: 200 });
 }
 
-async function waitScreen(page: Page, screen: string) {
+async function waitScreen(page: Page, screen: string): Promise<void> {
   await page.waitForFunction((s) => window.__DD__.state().screen === s, screen, { timeout: LOADED_CEILING_MS, polling: 50 });
 }
 
 const cameraYaw = (page: Page) => page.evaluate(() => window.__DD__.game.cameraRig.yaw as number);
 
-/**
- * Wait for a few game steps (in any mode), so input dispatched before the call has been
- * consumed. Software GL renders this viewport at a few frames per second, so a fixed delay
- * would not do.
- */
+/** Wait for a few game steps (in any mode), so input dispatched before the call has been consumed. */
 async function settle(page: Page): Promise<void> {
   const t0 = await page.evaluate(() => window.__DD__.game.session.rig.uniforms.uTime.value as number);
   await page.waitForFunction((t) => window.__DD__.game.session.rig.uniforms.uTime.value > t + 0.06 && window.__DD__.game.input.lookDX === 0, t0, { timeout: LOADED_CEILING_MS, polling: 50 });
 }
 
-/** Record the player's height and ground contact every animation frame until stopped. */
 async function startSampling(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as { __samples: Array<{ y: number; grounded: boolean }>; __sampling: boolean };
@@ -64,7 +59,7 @@ async function stopSampling(page: Page): Promise<Array<{ y: number; grounded: bo
   });
 }
 
-/** Record every block name the HUD target panel displays (while shown). */
+/** Record every find name the HUD shows under the reticle (while shown). */
 async function recordHudTargets(page: Page): Promise<void> {
   await page.evaluate(() => {
     const w = window as unknown as { __hudTargets: string[] };
@@ -97,21 +92,30 @@ async function startExpedition(page: Page): Promise<void> {
   await page.getByRole('button', { name: /New Expedition/i }).click();
   await waitMode(page, 'playing');
   await waitScreen(page, 'none');
+  await page.evaluate(() => {
+    window.__DD__.game.quests.skipTutorial();
+    window.__DD__.mobs.clear();
+  });
 }
 
 const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.id ?? '', [x, y]);
 
+/** A trip card may open on a return to camp: close it (a captured mouse cannot aim, so dispatch the click). */
+async function closeTripCard(page: Page): Promise<boolean> {
+  const opened = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', 4);
+  if (!opened) return false;
+  await page.locator('[data-key="trip:close"], [data-key="summary-close"]').first().dispatchEvent('click');
+  await waitScreen(page, 'none');
+  return true;
+}
+
 /**
  * Turn the camera so block `b` sits off the screen centre, and return a pixel whose ray hits it
- * within reach while the centre ray does not (null if no such view was found). The debug aimAt
- * only converges reliably for the screen centre, so the centre is aimed first and then turned.
+ * within reach while the centre ray does not (null if no such view was found).
  */
 async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{ x: number; y: number } | null> {
   const vp = page.viewportSize()!;
-  // First person: a modest turn moves the block off the crosshair while it stays in view.
   const turns: Array<[number, number]> = [];
-  // Round 2: the vein is mined from the cell beside it (a block a metre away fills half the view),
-  // so the wider turns are needed to take it off the centre.
   for (const yaw of [0.3, -0.3, 0.45, -0.45, 0.2, -0.2, 0.6, -0.6, 0.8, -0.8, 0.95, -0.95]) for (const pitch of [0.12, 0, -0.12, 0.25]) turns.push([yaw, pitch]);
   for (const [turnYaw, turnPitch] of turns) {
     const found = await page.evaluate(
@@ -123,7 +127,6 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
         if (!dd.aimAt(bx, by, bz, 0, 0)) return null;
         rig.yaw += turnYaw;
         rig.pitch += turnPitch;
-        // Let the lens settle at the new heading, as aimAt does.
         for (let i = 0; i < 16; i++) rig.update(0.25, p.x, p.y + 1.62 - p.stepOffset, p.z, rig.camera.aspect);
         const key = `${bx},${by},${bz}`;
         const hits = (nx: number, ny: number, fromPointer = true) => {
@@ -131,13 +134,10 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
           const t = g.mining.findTarget({ aimFromPointer: fromPointer, aimX: nx, aimY: ny }, e.x, e.y, e.z);
           return !!t && t.key === key && t.inReach;
         };
-        if (hits(0, 0, false)) return null; // still under the crosshair: would not test cursor aim
-        // Scan the screen for pixels showing the block and take one well inside its outline, so a
-        // little camera drift while mining cannot slide the cursor off it.
+        if (hits(0, 0, false)) return null;
         const step = 16;
         const on = new Set<string>();
-        for (let y = 40; y <= h - 40; y += step)
-          for (let x = 40; x <= w - 40; x += step) if (hits((x / w) * 2 - 1, 1 - (y / h) * 2)) on.add(`${x},${y}`);
+        for (let y = 40; y <= h - 40; y += step) for (let x = 40; x <= w - 40; x += step) if (hits((x / w) * 2 - 1, 1 - (y / h) * 2)) on.add(`${x},${y}`);
         let best: { x: number; y: number; n: number } | null = null;
         for (const k of on) {
           const [x, y] = k.split(',').map(Number);
@@ -156,22 +156,19 @@ async function cursorOnBlock(page: Page, b: [number, number, number]): Promise<{
 }
 
 /**
- * Hold the left mouse button on a copper vein near camp until it breaks (round 2: ordinary rock is
- * never minable). A left click asks for
- * pointer lock (fine pointer): if it is granted, mining aims from the crosshair at the screen
- * centre; otherwise from the cursor. Both are handled. @returns whether the pointer was locked.
+ * Hold the left mouse button on a copper vein near the camp until it breaks. A left click asks for
+ * pointer lock (fine pointer): if it is granted, mining aims from the centre; otherwise from the cursor.
  */
 async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x: number; y: number } }> {
   const vp = page.viewportSize()!;
-  const lm = await page.evaluate(() => window.__DD__.landmarks());
-  const vein = await page.evaluate(([x, y, z, id]) => window.__DD__.prepareMining(id, x, y, z, 30), [...lm.firstCrystals, B.COPPER_ORE] as [number, number, number, number]);
-  expect(vein, 'a reachable copper vein near camp').not.toBeNull();
-  // One block of ore on its own (its copper neighbours become plain slate), so the screen points
-  // whose ray meets this very block are a solid patch, as a slate wall's were.
+  const p = await page.evaluate(() => ({ x: window.__DD__.game.player.x, y: window.__DD__.game.player.y, z: window.__DD__.game.player.z }));
+  const vein = await page.evaluate(([x, y, z, id]) => window.__DD__.prepareMining(id, x, y, z, 48), [p.x, p.y, p.z, B.COPPER_ORE] as [number, number, number, number]);
+  expect(vein, 'a reachable copper vein near the camp').not.toBeNull();
+  // One block of ore on its own in slate, so the screen points whose ray meets this block are a solid patch.
   await page.evaluate(([x, y, z]) => {
     for (let dz = -1; dz <= 1; dz++)
       for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) if ((dx || dy || dz) && window.__DD__.block(x + dx, y + dy, z + dz) === 7) window.__DD__.setBlock(x + dx, y + dy, z + dz, 1);
+        for (let dx = -1; dx <= 1; dx++) if ((dx || dy || dz) && window.__DD__.isSolid(x + dx, y + dy, z + dz)) window.__DD__.setBlock(x + dx, y + dy, z + dz, 1);
   }, vein!.block);
   await settle(page);
   const press = await cursorOnBlock(page, vein!.block);
@@ -180,14 +177,11 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
   expect(await canvasAt(page, press!.x, press!.y)).toBe('game');
   await page.evaluate(() => window.__DD__.clearEvents());
   await recordHudTargets(page);
-  // Pointer lock is answered asynchronously by a pointerlockchange or pointerlockerror event (or
-  // never requested where the API is missing): wait for the answer rather than guessing a delay.
   const canLock = await page.evaluate(() => {
     const w = window as unknown as { __lockAnswer: string };
     w.__lockAnswer = 'pending';
     document.addEventListener('pointerlockchange', () => (w.__lockAnswer = 'change'), { once: true });
     document.addEventListener('pointerlockerror', () => (w.__lockAnswer = 'error'), { once: true });
-    // DesktopInput asks for the lock only with a fine pointer and where the API exists.
     return typeof document.getElementById('game')?.requestPointerLock === 'function' && matchMedia('(pointer: fine)').matches;
   });
   await page.mouse.move(press!.x, press!.y);
@@ -195,28 +189,24 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
   if (canLock) await page.waitForFunction(() => (window as unknown as { __lockAnswer: string }).__lockAnswer !== 'pending', null, { timeout: LOADED_CEILING_MS });
   await settle(page);
   const locked = await page.evaluate(() => document.pointerLockElement === document.getElementById('game'));
-  test.info().annotations.push({ type: 'pointer lock', description: locked ? 'granted: crosshair aim' : 'not granted: cursor aim' });
+  test.info().annotations.push({ type: 'pointer lock', description: locked ? 'granted: centre aim' : 'not granted: cursor aim' });
   const aim = await page.evaluate(() => {
     const i = window.__DD__.game.input;
     return { mining: i.mining, fromPointer: i.aimFromPointer, x: i.aimX, y: i.aimY };
   });
   expect(aim.mining).toBe(true);
   if (locked) {
-    // Captured: the crosshair is shown and aim is the screen centre, wherever the cursor was.
+    // Captured: the aim is the screen centre (the reticle), wherever the cursor was.
     expect(aim.fromPointer).toBe(false);
     expect(aim.x).toBeCloseTo(0, 6);
     expect(aim.y).toBeCloseTo(0, 6);
-    await expect(page.locator('.dd-crosshair')).toHaveClass(/\bon\b/);
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), vein!.block);
   } else {
-    // Free cursor: mining aims through the pressed point; no crosshair.
+    // Free cursor: mining aims through the pressed point.
     expect(aim.fromPointer).toBe(true);
     expect(aim.x).toBeCloseTo(ndc[0], 3);
     expect(aim.y).toBeCloseTo(ndc[1], 3);
-    await expect(page.locator('.dd-crosshair')).not.toHaveClass(/\bon\b/);
   }
-  // Hold for up to 30 s of game time (SwiftShader under load runs at a frame or two per second);
-  // captured, the view is re-aimed at the vein once if it has not given way by then.
   const broke = () => untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein!.block)) === B.AIR, 30, LOADED_CEILING_MS, 200);
   if (!(await broke()) && locked) {
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), vein!.block);
@@ -228,35 +218,27 @@ async function mineWithMouse(page: Page): Promise<{ locked: boolean; press: { x:
     const at = (e: { payload: any }) => e.payload.x === x && e.payload.y === y && e.payload.z === z;
     return { hits: window.__DD__.events('block:hit').filter(at).length, broken: window.__DD__.events('block:broken').some(at) };
   }, vein!.block);
-  expect(onTarget.hits, 'pickaxe hits on the target').toBeGreaterThan(1);
+  expect(onTarget.hits, 'pick hits on the target').toBeGreaterThan(1);
   expect(onTarget.broken).toBe(true);
   if (!locked) {
-    // The centre ray does not hit the target first, so if mining ignored the cursor it would
-    // strike other rock (or nothing). Every strike must have landed on the block under the cursor.
     const elsewhere = await page.evaluate(([x, y, z]) => {
       const off = (e: { payload: any }) => e.payload.x !== x || e.payload.y !== y || e.payload.z !== z;
       return [...window.__DD__.events('block:hit'), ...window.__DD__.events('block:broken')].filter(off).map((e) => `${e.type} ${e.payload.x},${e.payload.y},${e.payload.z}`);
     }, vein!.block);
     expect(elsewhere, 'strikes away from the block under the cursor').toEqual([]);
   }
-  // While the button was held, the HUD named the block under the aim.
+  // While the button was held, the HUD named the find under the aim.
   expect(await hudTargets(page)).toContain('Copper Vein');
   expect(await page.evaluate(() => window.__DD__.game.input.mining)).toBe(false);
   return { locked, press: press! };
 }
 
-
-// SwiftShader under load renders a frame or two per second: give each test a generous budget.
-test.describe.configure({ timeout: 1_800_000 });
-
-test('desktop controls: keyboard and mouse drive movement, look, mining, screens and pause', async ({ page }) => {
+test('desktop controls in the strata: keyboard and mouse drive movement, look, mining, screens and pause', async ({ page }) => {
   const errors = watchErrors(page);
   await startExpedition(page);
   const vp = page.viewportSize()!;
 
-  // 1. Hold W: the explorer walks forward. Software GL (SwiftShader) renders this viewport at a
-  //    few frames per second and a simulation step is capped at 50 ms, so game time runs slower
-  //    than the wall clock here: hold for 1.2 s and until 1.2 s of play has passed.
+  // 1. Hold W: the explorer walks forward (about 4.2 m/s).
   let s = await state(page);
   const start = s.player;
   const playT0 = await page.evaluate(() => window.__DD__.game.playTime as number);
@@ -267,7 +249,7 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   s = await state(page);
   const walked = Math.hypot(s.player.x - start.x, s.player.z - start.z);
   expect(walked, 'metres walked holding W for 1.2 s').toBeGreaterThan(1.5);
-  expect(await page.evaluate(() => window.__DD__.game.input.moveY)).toBe(0); // released
+  expect(await page.evaluate(() => window.__DD__.game.input.moveY)).toBe(0);
 
   // 2. Space: the explorer leaves the ground and lands again.
   await page.waitForFunction(() => window.__DD__.game.player.grounded && window.__DD__.game.player.speed < 0.05, null, { timeout: LOADED_CEILING_MS });
@@ -286,9 +268,8 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
     { timeout: LOADED_CEILING_MS },
   );
   const jump = await stopSampling(page);
-  const apex = Math.max(...jump.map((p) => p.y)) - groundY;
   expect(jump.some((p) => !p.grounded), 'airborne after Space').toBe(true);
-  expect(apex, 'jump height in metres').toBeGreaterThan(0.5);
+  expect(Math.max(...jump.map((p) => p.y)) - groundY, 'jump height in metres').toBeGreaterThan(0.5);
 
   // 3. Right-button drag turns the camera; dragging back turns it back. It never mines.
   await page.evaluate(() => window.__DD__.clearEvents());
@@ -309,38 +290,29 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   const left = await drag(760, 560);
   expect(left, 'dragging back by the same distance turns back by the same angle').toBeCloseTo(-right, 6);
   expect(await page.evaluate(() => window.__DD__.events('tool:swing').length + window.__DD__.events('block:hit').length)).toBe(0);
-  expect(await page.evaluate(() => document.pointerLockElement)).toBeNull(); // the right button never captures
+  expect(await page.evaluate(() => document.pointerLockElement)).toBeNull();
 
-  // 4. Hold the left button on a block until it is mined out.
+  // 4. Hold the left button on a vein until it is mined out.
   const mined = await mineWithMouse(page);
 
-  // 5. At the Workbench, E opens crafting; Esc closes it and play continues.
-  const lm = await page.evaluate(() => window.__DD__.landmarks());
-  const bench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z + 1.6), lm.workbench);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), bench!);
-  // Round 2: the vein was out in the tunnel (plain rock is not minable), so coming back ends a short
-  // trip and its report opens first; its Close button returns to play (and, as every screen, frees
-  // the mouse).
-  const reported = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', 4);
-  if (reported) {
-    // (A captured mouse cannot aim at it; the button's own click is dispatched.)
-    await page.locator('[data-key="summary-close"]').dispatchEvent('click');
-    await waitScreen(page, 'none');
-  }
-  await expect(page.locator('.dd-use-prompt.on')).toContainText(/Workbench/i, { timeout: LOADED_CEILING_MS });
-  // A lock granted by the mining click is still held here (unless the report freed it), so the
-  // release below is the screen's doing.
+  // 5. At the camp's Workbench, E opens Craft (and frees the mouse); Esc closes it and play goes on.
+  const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite.stations.find((x: { station: string }) => x.station === 'workbench').p as [number, number, number]);
+  const stand = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand!);
+  const reported = await closeTripCard(page);
+  await expect(page.locator('.dd-use')).toBeVisible({ timeout: LOADED_CEILING_MS });
+  await expect(page.locator('.dd-use')).toContainText(/Workbench/i);
   if (!reported) expect(await page.evaluate(() => document.pointerLockElement === document.getElementById('game'))).toBe(mined.locked);
   await page.keyboard.press('KeyE');
   await waitScreen(page, 'crafting');
-  await expect(page.getByRole('dialog', { name: 'Workbench' })).toBeVisible();
+  await expect(page.locator('.dd-menu3[data-menu="crafting"]')).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.pointerLockElement), { message: 'screens release the mouse' }).toBeNull();
   await page.keyboard.press('Escape');
   await waitScreen(page, 'none');
   await settle(page);
-  expect((await state(page)).mode).toBe('playing'); // Esc on a screen closes it, it does not pause
+  expect((await state(page)).mode).toBe('playing');
 
-  // 6. I and Tab open the bag (and close it again).
+  // 6. I and Tab open the Bag (and close it again).
   await page.keyboard.press('KeyI');
   await waitScreen(page, 'inventory');
   await page.keyboard.press('Escape');
@@ -358,11 +330,8 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
   expect((await state(page)).screen).toBe('pause');
   await expect(page.getByRole('button', { name: /Resume/i })).toBeVisible();
 
-  // 8. With the mouse captured, the browser takes Esc to release the capture instead of sending it
-  //    to the page: losing the capture unexpectedly must pause too, and a stray Esc right after
-  //    must not resume.
+  // 8. With the mouse captured, losing the capture pauses, and a stray Esc right after must not resume.
   if (mined.locked) {
-    const vp = page.viewportSize()!;
     const capture = async () => {
       await page.getByRole('button', { name: /Resume/i }).click();
       await waitMode(page, 'playing');
@@ -374,12 +343,10 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
       await settle(page);
       expect((await state(page)).mode).toBe('playing');
     };
-    // (a) The browser releases the capture and keeps the key: the release alone pauses.
     await capture();
     await page.evaluate(() => document.exitPointerLock());
     await waitMode(page, 'paused');
     expect((await state(page)).screen).toBe('pause');
-    // (b) The browser releases the capture and also delivers the Esc: still one press.
     await capture();
     await page.evaluate(() => {
       document.exitPointerLock();
@@ -396,8 +363,6 @@ test('desktop controls: keyboard and mouse drive movement, look, mining, screens
 });
 
 test('desktop mining without pointer lock aims from the cursor', async ({ page }) => {
-  // A browser without the Pointer Lock API (the game requests it optionally): the mouse stays
-  // free, so the left button mines where the cursor is and the camera turns only on right-drag.
   await page.addInitScript(() => {
     Object.defineProperty(Element.prototype, 'requestPointerLock', { value: undefined, configurable: true, writable: true });
   });

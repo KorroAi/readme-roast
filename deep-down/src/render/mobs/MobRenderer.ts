@@ -41,6 +41,8 @@ interface View {
 
 /** Instances drawn at most at once (their bone rows). */
 export const MOB_INSTANCES = 96;
+/** How long a wind-up's glint shows (s). */
+const TELL_SECONDS = 0.42;
 const GLOW_MAX = 128;
 const MOTH_MAX = 48;
 const MARK_MAX = 48;
@@ -154,6 +156,11 @@ export class MobRenderer {
   drawCalls = 0;
   /** The companion's brain (MobDirector sets it): its scouting colour and its zaps. */
   companion: CompanionBrain | null = null;
+  /** Wind-ups told this moment: creature id → seconds since (a glint at its head). */
+  private readonly tells = new Map<number, number>();
+  /** Blows landing and lights going out: short flashes at a point. */
+  private readonly impacts: Array<{ x: number; y: number; z: number; c: [number, number, number]; t: number; k: number }> = [];
+  private readonly eyePos = new THREE.Vector3();
 
   constructor(private readonly lighting: LightingUniforms) {
     this.group.name = 'mobs';
@@ -253,6 +260,7 @@ export class MobRenderer {
     g.begin();
     this.moths.begin();
     camera.updateMatrixWorld();
+    this.eyePos.setFromMatrixPosition(camera.matrixWorld);
     this.mtmp.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.mtmp);
     let row = 0;
@@ -319,7 +327,15 @@ export class MobRenderer {
       if (sel > 0.01 && m.fade > 0.5) bt.hull.push(row, 0, m.fade, 0, m.seed, hc, 0, sel);
       row++;
       drawn++;
-      this.glowsOf(m, o);
+      this.glowsOf(m, o, v);
+    }
+    // Blows landing (a white-hot pin of light in the struck creature's colour) and lights going out.
+    for (const im of this.impacts) {
+      const life = 0.16 + 0.08 * im.k;
+      const f = Math.max(0, 1 - im.t / life);
+      if (f <= 0) continue;
+      g.push(im.x, im.y, im.z, im.c[0], im.c[1], im.c[2], 1.3 * im.k * f * f);
+      g.push(im.x, im.y, im.z, 1.0, 0.94, 0.82, 1.5 * f * f, (0.32 + 0.3 * im.k) * (1 + (1 - f) * 0.6));
     }
     // Light shards in flight (and where they fell, fading).
     for (const s of sim.shots) {
@@ -370,10 +386,33 @@ export class MobRenderer {
     void this.viewport;
   }
 
+  /**
+   * The wind-up's tell on the body: a star of light at its head (its eyes catch the light) that pops
+   * and fades in 0.4 s, warm white tinted by its own colour. Seen across a cavern, before every blow.
+   */
+  private glint(m: SimMob, v: View, age: number): void {
+    const p = this.vF;
+    const hi = v.model.index.head ?? v.model.index.lid ?? v.model.index.maw ?? -1;
+    if (hi >= 0 && hi < v.model.bones.length) p.copy(v.model.bones[hi].pivot).applyMatrix4(v.rig.matrices[hi]).applyMatrix4(this.world);
+    else p.set(0, (m.def.halfHeight + m.def.radius) * 0.55, m.def.radius * 0.8).multiplyScalar(m.scale).applyQuaternion(this.q).add(this.vP);
+    // Toward the eye a little, so the head itself never hides its own glint.
+    this.vR.copy(this.eyePos).sub(p);
+    const d = this.vR.length();
+    if (d > 1e-3) p.addScaledVector(this.vR, Math.min(0.6, Math.max(0.15, m.bounds.radius * 0.55)) / d);
+    const k = age / TELL_SECONDS;
+    const pop = age < 0.1 ? 1 + 0.9 * (1 - age / 0.1) : 1;
+    const size = (0.42 + m.bounds.radius * 0.85) * pop * (m.guardian ? 1.5 : 1);
+    const c = hexRgb(m.def.mote);
+    const a = Math.pow(1 - k, 1.3) * 1.9 * m.fade;
+    this.glows.push(p.x, p.y, p.z, 0.75 + 0.25 * c[0], 0.7 + 0.3 * c[1], 0.55 + 0.45 * c[2], a, size);
+  }
+
   /** What carries its own light. */
-  private glowsOf(m: SimMob, o: PoseOut): void {
+  private glowsOf(m: SimMob, o: PoseOut, v: View): void {
     const g = this.glows;
     const p = this.vP;
+    const tell = this.tells.get(m.id);
+    if (tell !== undefined && tell < TELL_SECONDS && !m.dying) this.glint(m, v, tell);
     // A radiant elite's aura (it lights its pack's way).
     if (m.affixBits & 1) g.push(p.x, p.y + 0.1, p.z, 1.0, 0.8, 0.42, (0.75 + 0.15 * Math.sin(m.stateTime * 3 + m.seed * 6)) * m.fade);
     if (m.brain === 'lamp' && m.tame) {
@@ -399,10 +438,30 @@ export class MobRenderer {
       const c = hexRgb(m.def.shot?.color ?? m.def.mote);
       this.vF.set(0, 0, m.bounds.radius).applyQuaternion(this.q).add(p);
       g.push(this.vF.x, this.vF.y, this.vF.z, c[0], c[1], c[2], m.strike * (m.guardian ? 1.6 : 0.9));
-    } else if (m.guardian && m.vulnerable) {
+    } else if (m.guardian && m.vulnerable && !m.dying) {
+      // Its guard is open: its core blazes white-gold on the side facing the explorer (strike there),
+      // in a halo of its own colour, dimming as the window closes.
+      const w = m.openFor > 0 ? Math.min(1, m.openLeft / m.openFor) : 0.6;
       const c = hexRgb(m.def.mote);
-      g.push(p.x, p.y, p.z, c[0], c[1], c[2], 0.9 + 0.4 * Math.sin(m.stateTime * 9));
+      const beat = 0.78 + 0.22 * Math.sin(m.stateTime * 10);
+      this.vR.copy(this.eyePos).sub(p);
+      const d = this.vR.length();
+      if (d > 1e-3) this.vF.copy(p).addScaledVector(this.vR, (m.bounds.radius * 0.9) / d);
+      else this.vF.copy(p);
+      g.push(this.vF.x, this.vF.y, this.vF.z, c[0], c[1], c[2], (1.1 + 0.7 * w) * beat * m.fade);
+      g.push(this.vF.x, this.vF.y, this.vF.z, 1.0, 0.9, 0.68, (0.5 + 0.9 * w) * beat * m.fade, (0.5 + m.bounds.radius * 0.5) * (0.7 + 0.3 * w));
     }
+  }
+
+  /** A creature's wind-up is told (MobDirector, on every telegraph): its glint starts now. */
+  tell(m: SimMob): void {
+    this.tells.set(m.id, 0);
+  }
+
+  /** A blow lands or a light goes out at a point: a short flash (`k` ~1 a blow, more for a death). */
+  impact(x: number, y: number, z: number, color: number, k = 1): void {
+    if (this.impacts.length >= 24) this.impacts.shift();
+    this.impacts.push({ x, y, z, c: hexRgb(color), t: 0, k });
   }
 
   /**
@@ -425,8 +484,17 @@ export class MobRenderer {
     if (this.spores.length > 40) this.spores.splice(0, this.spores.length - 40);
   }
 
-  /** Advance the spores toward the eye (they feed the lantern), and the shards. */
+  /** Advance the spores toward the eye (they feed the lantern), the shards, the tells and the flashes. */
   step(dt: number, tx: number, ty: number, tz: number): void {
+    for (const [id, age] of this.tells) {
+      if (age + dt >= TELL_SECONDS) this.tells.delete(id);
+      else this.tells.set(id, age + dt);
+    }
+    for (let i = this.impacts.length - 1; i >= 0; i--) {
+      const im = this.impacts[i];
+      im.t += dt;
+      if (im.t > 0.5) this.impacts.splice(i, 1);
+    }
     for (let i = this.shards.length - 1; i >= 0; i--) {
       const sh = this.shards[i];
       sh.t += dt;
@@ -550,7 +618,7 @@ void main() {
     vUv = vec2(aCorner.x, aCorner.y * 0.5 + 0.5);
     vLen = iB.z;
   } else {
-    float ext = kind > 2.5 && kind < 3.5 ? r + 0.6 : r;
+    float ext = kind > 2.5 && kind < 3.5 ? r + 0.6 : kind > 4.5 ? r + 1.0 : r;
     p = c + vec3(aCorner.x * ext, 0.0, aCorner.y * ext);
     vUv = aCorner * ext / max(r, 0.01);
     vLen = r;
@@ -567,8 +635,8 @@ void main() {
 
 const markFrag = /* glsl */ `
 precision highp float;
+// (uTime comes with LIGHTING_GLSL: declaring it again is a redefinition and the program never links.)
 ${LIGHTING_GLSL}
-uniform float uTime;
 in vec2 vUv;
 in vec4 vB;
 in vec4 vC;
@@ -608,12 +676,18 @@ void main() {
     float d = length(vUv) * vLen;
     float band = smoothstep(0.75, 0.0, abs(d - vLen + 0.35));
     a = band * 1.1;
-  } else {
+  } else if (kind < 4.5) {
     // Ripple: dust over something moving under the floor.
     float d = length(vUv);
     if (d > 1.0) discard;
     float w = 0.5 + 0.5 * sin(d * 14.0 - uTime * 9.0);
     a = w * (1.0 - d) * 0.6;
+  } else {
+    // Pulse: a soft, wide ring of a guardian's own light rolling out as its fight turns (harmless:
+    // no crisp warning edge), fading as it goes.
+    float d = length(vUv) * vLen;
+    float band = exp(-pow((d - vLen + 0.6) / 0.55, 2.0));
+    a = band * prog * 0.85;
   }
   vec4 atm = atmosphere(vWorldPos, vDepth, vec3(0.0));
   vec3 col = vC.rgb * a * (1.0 - atm.a * 0.7) * uAtmos.w * 1.6;
@@ -621,7 +695,7 @@ void main() {
 }
 `;
 
-const KIND_CODE: Record<Marker['kind'], number> = { disc: 0, line: 1, target: 2, wave: 3, ripple: 4 };
+const KIND_CODE: Record<Marker['kind'], number> = { disc: 0, line: 1, target: 2, wave: 3, ripple: 4, pulse: 5 };
 
 class MarkerDecals {
   readonly mesh: THREE.Mesh;
@@ -670,8 +744,9 @@ class MarkerDecals {
     for (const mk of markers) {
       if (n >= MARK_MAX) break;
       const c = hexRgb(mk.color);
-      // Telegraphs read warm-bright whatever the creature's colour: mixed toward a warning amber.
-      const w = 0.45;
+      // Telegraphs read warm-bright whatever the creature's colour: mixed toward a warning amber
+      // (a harmless pulse keeps the creature's own colour).
+      const w = mk.kind === 'pulse' ? 0 : 0.45;
       this.a.set([mk.x, mk.y, mk.z, mk.kind === 'wave' ? mk.r : mk.r], n * 4);
       this.b.set([mk.dx, mk.dz, mk.len, KIND_CODE[mk.kind]], n * 4);
       this.c.set([c[0] * (1 - w) + 1.0 * w, c[1] * (1 - w) + 0.55 * w, c[2] * (1 - w) + 0.25 * w, mk.progress], n * 4);
@@ -697,21 +772,24 @@ class MarkerDecals {
 
 const glowVert = /* glsl */ `
 in vec2 aCorner;
-in vec3 iPos;
+in vec4 iPos;
 in vec4 iColor;
 uniform float uPixelScale;
 out vec2 vUv;
 out vec4 vCol;
 out vec3 vWorldPos;
 out float vDepth;
+out float vStar;
 void main() {
-  vec4 mv = viewMatrix * vec4(iPos, 1.0);
+  // iPos.w: 0 a soft round glow; > 0 a glint (a star of light) that many metres across.
+  vec4 mv = viewMatrix * vec4(iPos.xyz, 1.0);
   float z = max(0.1, -mv.z);
-  float span = max(0.35 + iColor.a * 0.25, 5.0 * z / uPixelScale);
+  float span = iPos.w > 0.0 ? max(iPos.w, 14.0 * z / uPixelScale) : max(0.35 + iColor.a * 0.25, 5.0 * z / uPixelScale);
   mv.xy += aCorner * span;
   vUv = aCorner;
   vCol = iColor;
-  vWorldPos = iPos;
+  vStar = iPos.w;
+  vWorldPos = iPos.xyz;
   vDepth = length(mv.xyz);
   // A glow right at the lens would be a blot: fade it.
   vCol.a *= smoothstep(0.4, 1.2, vDepth);
@@ -726,20 +804,29 @@ in vec2 vUv;
 in vec4 vCol;
 in vec3 vWorldPos;
 in float vDepth;
+in float vStar;
 layout(location = 0) out highp vec4 fragColor;
 void main() {
   float d = dot(vUv, vUv);
   if (d > 1.0) discard;
-  float a = exp(-d * 9.0) * 0.9 + exp(-d * 2.6) * 0.18;
+  float a;
+  if (vStar > 0.0) {
+    // A glint: a hot core and four thin rays, a fainter diagonal pair (a wind-up's tell, a blow landing).
+    vec2 u = abs(vUv);
+    float rays = exp(-u.x * 24.0) * exp(-u.y * 2.8) + exp(-u.y * 24.0) * exp(-u.x * 2.8);
+    vec2 w = abs(vec2(vUv.x + vUv.y, vUv.x - vUv.y)) * 0.7071;
+    rays += (exp(-w.x * 28.0) * exp(-w.y * 5.0) + exp(-w.y * 28.0) * exp(-w.x * 5.0)) * 0.4;
+    a = rays * (1.0 - d) * 1.1 + exp(-d * 34.0) * 1.3 + exp(-d * 6.0) * 0.12;
+  } else a = exp(-d * 9.0) * 0.9 + exp(-d * 2.6) * 0.18;
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
   fragColor = vec4(sceneOut(vCol.rgb * vCol.a * a * (1.0 - fog * 0.8) * uAtmos.w), 1.0);
 }
 `;
 
-/** Soft additive glows, camera-facing, one draw call. */
+/** Soft additive glows and glints, camera-facing, one draw call. */
 class GlowSprites {
   readonly mesh: THREE.Mesh;
-  private readonly pos = new Float32Array(GLOW_MAX * 3);
+  private readonly pos = new Float32Array(GLOW_MAX * 4);
   private readonly col = new Float32Array(GLOW_MAX * 4);
   private readonly geo: THREE.InstancedBufferGeometry;
   private readonly mat: THREE.ShaderMaterial;
@@ -752,7 +839,7 @@ class GlowSprites {
     g.setAttribute('position', new THREE.BufferAttribute(new Float32Array(12), 3));
     g.setAttribute('aCorner', new THREE.BufferAttribute(new Float32Array([-1, -1, 1, -1, 1, 1, -1, 1]), 2));
     g.setIndex([0, 1, 2, 0, 2, 3]);
-    this.aPos = new THREE.InstancedBufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage);
+    this.aPos = new THREE.InstancedBufferAttribute(this.pos, 4).setUsage(THREE.DynamicDrawUsage);
     this.aCol = new THREE.InstancedBufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage);
     g.setAttribute('iPos', this.aPos);
     g.setAttribute('iColor', this.aCol);
@@ -777,10 +864,18 @@ class GlowSprites {
     this.n = 0;
   }
 
-  push(x: number, y: number, z: number, r: number, g: number, b: number, a: number): void {
+  /** A soft glow (`star` 0), or a glint `star` metres across. */
+  push(x: number, y: number, z: number, r: number, g: number, b: number, a: number, star = 0): void {
     if (this.n >= GLOW_MAX || a <= 0.002) return;
-    this.pos.set([x, y, z], this.n * 3);
-    this.col.set([r, g, b, a], this.n * 4);
+    const i = this.n * 4;
+    this.pos[i] = x;
+    this.pos[i + 1] = y;
+    this.pos[i + 2] = z;
+    this.pos[i + 3] = star;
+    this.col[i] = r;
+    this.col[i + 1] = g;
+    this.col[i + 2] = b;
+    this.col[i + 3] = a;
     this.n++;
   }
 
@@ -789,7 +884,7 @@ class GlowSprites {
     this.mesh.visible = this.n > 0;
     this.mat.uniforms.uPixelScale.value = pixelHeight / (2 * Math.tan((fov * Math.PI) / 360));
     if (this.n === 0) return;
-    for (const [a, k] of [[this.aPos, 3], [this.aCol, 4]] as const) {
+    for (const [a, k] of [[this.aPos, 4], [this.aCol, 4]] as const) {
       a.clearUpdateRanges();
       a.addUpdateRange(0, this.n * k);
       a.needsUpdate = true;
@@ -941,3 +1036,10 @@ class MothSwarm {
     this.mat.dispose();
   }
 }
+
+/** The creatures' effect shaders, for the static checks in tests (tests/unit/mobs-shaders.test.ts). */
+export const MOB_FX_SHADERS: Readonly<Record<string, readonly [string, string]>> = {
+  telegraphs: [markVert, markFrag],
+  glows: [glowVert, glowFrag],
+  moths: [mothVert, mothFrag],
+};

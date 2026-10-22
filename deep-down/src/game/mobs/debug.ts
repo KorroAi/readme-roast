@@ -6,6 +6,7 @@ import type { MobDirector } from './MobDirector';
 import type { SimMob } from './MobSim';
 import type { MobAffix, MobBiome, MobKind } from './types';
 import { rollAffixes } from './elites';
+import { openGuard } from './guardian';
 import { ROSTERS } from './rosters';
 import { ALL_KINDS, SPECIES } from './species';
 import { EYE_HEIGHT } from '../fp/constants';
@@ -52,13 +53,17 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
     power: m.power,
     maxHp: m.maxHp ?? null,
   });
-  // A ring buffer of the creatures' and the weapons' events (tests: "was it caught?").
+  // A ring buffer of the creatures' and the weapons' events (tests: "was it caught?"), and a count of
+  // each type that is never cut (a long guardian fight outlasts the ring: its sounds alone are many).
   const log: Array<{ type: string; payload: unknown }> = [];
-  const types = ['mob:spawned', 'mob:telegraph', 'mob:attack', 'mob:hit', 'mob:died', 'mob:interact', 'mob:cue', 'mob:shot', 'mob:met', 'mob:sfx', 'mob:guardianAwake', 'mob:guardianPhase', 'mob:guardianReset', 'mob:guardianDefeated', 'mob:scanned', 'mob:bestiary', 'weapon:swing', 'weapon:hit', 'weapon:flash', 'player:damaged', 'player:died', 'player:respawned', 'cache:created', 'cache:recovered', 'item:picked'] as const;
+  const counts: Record<string, number> = {};
+  const types = ['mob:spawned', 'mob:telegraph', 'mob:attack', 'mob:hit', 'mob:died', 'mob:interact', 'mob:cue', 'mob:shot', 'mob:met', 'mob:sfx', 'mob:guardianAwake', 'mob:guardianPhase', 'mob:guardianReset', 'mob:guardianDefeated', 'mob:guardianOpen', 'mob:elite', 'mob:scanned', 'mob:bestiary', 'companion:trust', 'companion:tamed', 'companion:fed', 'companion:level', 'companion:ore', 'companion:zap', 'weapon:swing', 'weapon:hit', 'weapon:flash', 'player:damaged', 'player:died', 'player:respawned', 'cache:created', 'cache:recovered', 'item:picked'] as const;
+  const bus = game.bus as unknown as { on(type: string, fn: (payload: unknown) => void): () => void };
   for (const type of types) {
-    game.bus.on(type, (payload: unknown) => {
+    bus.on(type, (payload: unknown) => {
+      counts[type] = (counts[type] ?? 0) + 1;
       log.push({ type, payload });
-      if (log.length > 300) log.shift();
+      if (log.length > 3000) log.shift();
     });
   }
   const byId = (id: number) => mobs.sim.mobs.find((m) => m.id === id) ?? null;
@@ -75,8 +80,16 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
   w.__DD__.mobs = {
     list: () => mobs.sim.mobs.map(view),
     events: (type?: string) => (type ? log.filter((e) => e.type === type) : log.slice()),
+    /** How many of each type since the last clearEvents (never cut, unlike the ring). */
+    counts: () => ({ ...counts }),
     clearEvents: () => {
       log.length = 0;
+      for (const k of Object.keys(counts)) delete counts[k];
+    },
+    /** The tame Lampling's light for VIS (null without one). */
+    companionLight: () => {
+      const l = mobs.companionLight();
+      return l ? { ...l } : null;
     },
     get: (id: number) => {
       const m = byId(id);
@@ -215,6 +228,34 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
       return mobs.flash(e.x, e.y, e.z, radius, dmg);
     }, 0),
     wake: gate((relic: string) => mobs.sim.wakeSentinel(relic), false),
+    /** Captures: show a creature's wind-up tell now (its glint), as a telegraph would. */
+    tell: gate((id: number) => {
+      const m = byId(id);
+      if (m) mobs.renderer.tell(m);
+      return !!m;
+    }, false),
+    /** Captures and tests: open a guardian's guard for `seconds` (its told window), as after an attack. */
+    open: gate((id: number, seconds = 2) => {
+      const m = byId(id);
+      if (!m || !m.guardian) return false;
+      openGuard(mobs.sim, m, seconds);
+      return true;
+    }, false),
+    /** Captures: a guardian's phase-turn ring of light rolling out from it (harmless). */
+    ring: gate((id: number) => {
+      const m = byId(id);
+      if (!m || !m.guardian) return false;
+      const fy = m.def.locomotion === 'fly' ? mobs.sim.floorY(m.position.x, m.position.y, m.position.z) : m.foot.y;
+      mobs.sim.addRing(m, m.position.x, fy, m.position.z, 16, 13);
+      return true;
+    }, false),
+    /** Captures: set a guardian's phase (the Dark Heart's look follows it). */
+    phase: gate((id: number, n: number) => {
+      const m = byId(id);
+      if (!m || !m.guardian) return false;
+      m.phase = Math.max(1, Math.min(3, Math.round(n)));
+      return true;
+    }, false),
     /** Force a mob's state (tests: skip the wait for a random wind-up). */
     setState: gate((id: number, s: SimMob['state']) => {
       const m = byId(id);

@@ -42,8 +42,8 @@ export interface PropModel {
   anim: PropAnim;
   /** Base emissive scale of the prop's glow material. */
   glowScale: number;
-  /** Living flames (render/props/flame.ts): base point, width and height (model units). */
-  flames: Array<{ x: number; y: number; z: number; w: number; h: number }>;
+  /** Living flames (render/props/flame.ts): base point, width and height (model units); a magic flame's colour. */
+  flames: Array<{ x: number; y: number; z: number; w: number; h: number; tint?: [number, number, number] }>;
 }
 
 export interface PropModelOptions {
@@ -111,7 +111,7 @@ export class ModelBuilder {
   glowScale = 1.8;
   sway: THREE.Vector3 | null = null;
   hitBoxes: THREE.Box3[] | null = null;
-  readonly flames: Array<{ x: number; y: number; z: number; w: number; h: number }> = [];
+  readonly flames: Array<{ x: number; y: number; z: number; w: number; h: number; tint?: [number, number, number] }> = [];
   private readonly partDefs: Array<{ builder: VoxBuilder; origin: THREE.Vector3; motion: PartMotion; phase: number }> = [];
 
   /** Start a moving glowing part pivoting at (x, y, z); build it relative to that point. */
@@ -175,6 +175,18 @@ const BUILDERS: Record<string, KindBuilder> = {
 
 /** Variant index for a prop seed. */
 export const propVariant = (kind: PropKind, seed: number): number => hash32(seed) % PROP_VARIANTS[kind];
+
+/**
+ * Kinds whose variant means something (a state, a biome's style, a guardian) and is only ever chosen
+ * (PropSpec.modelVariant): without one they show variant 0, never a seeded pick.
+ */
+export const CHOSEN_VARIANT_KINDS: ReadonlySet<string> = new Set(['abyssMonolith', 'lairPillar', 'lairBrazier', 'lairRune', 'lever', 'guardianTrophy', 'trophyWall']);
+
+/** The variant a prop shows: its chosen one, else 0 for a chosen-only kind, else its seed's pick. */
+export function variantOf(spec: { kind: PropKind; seed: number; modelVariant?: number }): number {
+  if (spec.modelVariant !== undefined) return Math.max(0, Math.floor(spec.modelVariant)) % PROP_VARIANTS[spec.kind];
+  return CHOSEN_VARIANT_KINDS.has(spec.kind) ? 0 : propVariant(spec.kind, spec.seed);
+}
 
 /** Build the model for one kind and variant. Deterministic: same inputs, same geometry. */
 export function buildPropModel(kind: PropKind, o: PropModelOptions): PropModel {

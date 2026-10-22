@@ -1,6 +1,7 @@
 import { ITEMS, type ItemId } from '../../config/items';
 import { RECIPE_BY_ID, recipeInputs, type Recipe } from '../../config/recipes';
 import { STATIONS } from '../../config/stations';
+import { hasText, t } from '../../i18n';
 import type { CraftCheck, CraftContext, CraftOutcome, CraftSystem, ItemCounts, ItemStore } from './types';
 
 /**
@@ -32,6 +33,27 @@ export const FUEL_ITEMS: readonly ItemId[] = [
   ...FUEL_PRIORITY.filter((id) => (ITEMS[id].fuel ?? 0) > 0),
   ...(Object.keys(ITEMS) as ItemId[]).filter((id) => (ITEMS[id].fuel ?? 0) > 0 && !FUEL_PRIORITY.includes(id)).sort((a, b) => (ITEMS[b].fuel ?? 0) - (ITEMS[a].fuel ?? 0)),
 ];
+
+/**
+ * Where a raw material is found, for the menus' "missing" lines: its biome's name, "creatures" for a
+ * creature part found anywhere; null for what is made (bars, planks...).
+ */
+export function sourceOf(item: ItemId): string | null {
+  const d = ITEMS[item];
+  if (!d) return null;
+  if (d.biome) {
+    const k = `biome.${d.biome}.name`;
+    return hasText(k) ? t(k) : null;
+  }
+  if (d.kind === 'part') return t('craft3.fromCreatures');
+  return null;
+}
+
+/** "2 Heartwood (Root Galleries)", or "2 Copper Bar". */
+export function costLine(item: ItemId, n: number, name: string): string {
+  const from = sourceOf(item);
+  return from ? t('loop3.countFrom', { n, item: name, from }) : t('loop3.count', { n, item: name });
+}
 
 export function resolveRecipe(x: Recipe | string): Recipe | null {
   return typeof x === 'string' ? RECIPE_BY_ID.get(x) ?? null : x;

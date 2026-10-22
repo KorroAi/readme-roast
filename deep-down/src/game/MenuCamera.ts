@@ -113,13 +113,15 @@ export function findMenuShot(world: Pick<VoxelWorld, 'get' | 'isSolid'> & VoxelW
   const x = ox - dx * back;
   const z = oz - dz * back;
   const y = oy + Math.min(2.4, lift);
-  // Look along the line, down toward the floor a third of the way out.
+  // Look along the line, a little down (about 8 degrees over a 16 m view): the hall's depth fills the
+  // frame behind the title and the fire, a few metres ahead and below, sits low in the frame (under
+  // an upright phone's buttons) instead of the floor filling it.
   const far = Math.min(reach[best], 30);
   const tx = ox + dx * far * 0.55;
   const tz = oz + dz * far * 0.55;
-  const ty = centre[1] + 0.8;
+  const ty = centre[1] + 2.4;
   const yaw = Math.atan2(-(tx - x), -(tz - z));
-  const pitch = Math.max(-0.45, Math.min(0.05, Math.atan2(ty - y, Math.hypot(tx - x, tz - z))));
+  const pitch = Math.max(-0.3, Math.min(0.05, Math.atan2(ty - y, Math.hypot(tx - x, tz - z))));
   // Side room for the drift.
   const sx = Math.cos(a);
   const sz = -Math.sin(a);

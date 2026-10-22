@@ -1,5 +1,5 @@
-// Offline renders of the score per biome (explore, tension, combat, after), the guardian themes, and
-// (once the AudioSystem scenes exist) the dense combat mix, on the Web Audio emulator in Node.
+// Offline renders of the score per biome (explore, tension, combat, after) and of the guardian themes
+// through their phases, on the Web Audio emulator in Node (the full mixes: tools/audio-system.ts).
 // Usage: node tools/run-ts.mjs tools/audio-scenes.ts [--rate 24000] [--only amberHollows,guardian3] [--wav dir]
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { bandShares, integratedLoudness, phoneFilter } from '../src/audio/analysis';
@@ -68,17 +68,23 @@ export default async function main(args: string[]): Promise<void> {
   }
   if (opt.wav) mkdirSync(opt.wav, { recursive: true });
   console.log(`\nScores at ${rate} Hz on the emulator (default volumes: master 0.8, music 0.55). LUFS integrated per stage; peaks are true peaks of the final output.\n`);
-  console.log(`${'score'.padEnd(16)}${'explore'.padStart(9)}${'tension'.padStart(9)}${'combat'.padStart(9)}${'after'.padStart(9)}${'tPeak'.padStart(8)}${'clip'.padStart(6)}${'NaN'.padStart(5)}${'voices'.padStart(8)}${'cent'.padStart(7)}${'ms'.padStart(8)}`);
+  console.log(`${'score'.padEnd(16)}${'explore|p1'.padStart(11)}${'tension|p2'.padStart(11)}${'combat|p3'.padStart(11)}${'after'.padStart(9)}${'tPeak'.padStart(8)}${'clip'.padStart(6)}${'NaN'.padStart(5)}${'voices'.padStart(8)}${'cent'.padStart(7)}${'ms'.padStart(8)}`);
   const results: Array<{ id: ScoreId; r: SceneResult }> = [];
   for (const id of ids) {
     const t0 = performance.now();
-    const stages = isGuardianScore(id) ? [{ name: 'fight', seconds: 40, mix: COMBAT }] : BIOME_ARC;
+    // A guardian's fight through its phases (the Dark Heart's three: the last sings the game's theme).
+    const guardianStages = [
+      { name: 'phase 1', seconds: 16, mix: COMBAT },
+      { name: 'phase 2', seconds: 16, mix: COMBAT, enter: (_now: number, p: { setPhase(n: number, of?: number): void }) => p.setPhase(2, id === 'heartBoss' ? 3 : 2) },
+      ...(id === 'heartBoss' ? [{ name: 'phase 3', seconds: 16, mix: COMBAT, enter: (_now: number, p: { setPhase(n: number, of?: number): void }) => p.setPhase(3, 3) }] : []),
+    ];
+    const stages = isGuardianScore(id) ? guardianStages : BIOME_ARC;
     const r = renderMusicScene(id, stages, { sampleRate: rate });
     const ms = performance.now() - t0;
     results.push({ id, r });
     const st = (name: string) => r.stages.find((s) => s.name === name);
-    const cols = isGuardianScore(id) ? ['', '', 'fight', ''] : ['explore', 'tension', 'combat', 'after'];
-    console.log(`${id.padEnd(16)}${cols.map((c) => (c ? f(st(c)!.lufs) : '-').padStart(9)).join('')}${f(r.whole.truePeak, 3).padStart(8)}${String(r.whole.clipped).padStart(6)}${String(r.whole.nonFinite).padStart(5)}${String(r.maxVoices).padStart(8)}${f(r.whole.centroid, 0).padStart(7)}${f(ms, 0).padStart(8)}`);
+    const cols = isGuardianScore(id) ? ['phase 1', 'phase 2', id === 'heartBoss' ? 'phase 3' : '', ''] : ['explore', 'tension', 'combat', 'after'];
+    console.log(`${id.padEnd(16)}${cols.map((c, i) => (c ? f(st(c)!.lufs) : '-').padStart(i < 3 ? 11 : 9)).join('')}${f(r.whole.truePeak, 3).padStart(8)}${String(r.whole.clipped).padStart(6)}${String(r.whole.nonFinite).padStart(5)}${String(r.maxVoices).padStart(8)}${f(r.whole.centroid, 0).padStart(7)}${f(ms, 0).padStart(8)}`);
     if (opt.wav) wav(`${opt.wav}/${id}.wav`, r.channels, rate);
   }
   const worst = results.reduce((a, b) => (b.r.whole.truePeak > a.r.whole.truePeak ? b : a));

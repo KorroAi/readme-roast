@@ -116,6 +116,7 @@ uniform vec3 uHiCol[5];
 uniform vec4 uHiView;
 uniform vec4 uSonar;   // xyz origin, w the shell's radius now (render/sonar.ts)
 uniform vec4 uSonarFx; // x band width, y strength (0 off), z full radius
+uniform vec3 uSonarTint; // the shell's colour (the sonar's pale gold; the Heart's rose, then gold)
 int hiCode(ivec3 c) {
   ivec3 l = c - ivec3(uHiOrigin.xyz);
   if (uHiOrigin.w < 0.5 || any(lessThan(l, ivec3(0))) || any(greaterThan(l, ivec3(${HI_SIZE - 1})))) return 0;
@@ -701,6 +702,40 @@ void main() {
     emissive += vec3(1.0, 0.45, 0.12) * smoothstep(0.55, 0.9, n1 * n2 * 1.8) * 0.35 * glow;
   }
 
+  // Round 3 (VIS, the Frost Caverns' wow): the ice holds a slow aurora, bands of pale green, cyan and
+  // violet drifting deep inside it (sampled behind the surface along the view, so they slide with the
+  // eye like light in thick glass); faint, slow, never a strobe.
+  if (shownLayer == ${MAT.frostIce} || shownLayer == ${MAT.iceCrystal}) {
+    vec3 iv = normalize(vWorldPos - cameraPosition);
+    vec3 q = vWorldPos + iv * 0.8;
+    float b1 = sin(q.y * 1.1 + sin(q.x * 0.31 + uTime * 0.11) * 2.0 + sin(q.z * 0.27 - uTime * 0.09) * 2.0 + uTime * 0.21);
+    float band = smoothstep(0.45, 1.0, b1) * (0.45 + 0.55 * noise3(q * 0.35 + vec3(0.0, uTime * 0.05, 0.0)));
+    vec3 hue = mix(vec3(0.22, 1.0, 0.62), vec3(0.55, 0.45, 1.0), 0.5 + 0.5 * sin(q.x * 0.13 + q.z * 0.11 + uTime * 0.05));
+    emissive += hue * band * 0.085;
+  }
+  // Round 3 (VIS, the Obsidian Abyss's wow): its black glass holds a deep sky, faint violet-white stars
+  // far behind the surface (parallax with the eye), each twinkling at its own slow pace.
+  if (shownLayer == ${MAT.obsidian} || shownLayer == ${MAT.obsidianFloor}) {
+    vec3 ov = normalize(vWorldPos - cameraPosition);
+    vec3 q = (vWorldPos + ov * 7.0) * 1.7;
+    vec3 sc = floor(q);
+    float h = hash13(sc);
+    vec3 sf = fract(q) - 0.5 - (vec3(hash13(sc + 1.3), hash13(sc + 2.7), hash13(sc + 4.1)) - 0.5) * 0.6;
+    float star = step(0.935, h) * smoothstep(0.13, 0.0, length(sf)) * (0.55 + 0.45 * sin(uTime * (0.5 + h * 1.3) + h * 40.0));
+    emissive += mix(vec3(0.55, 0.4, 1.0), vec3(1.0, 0.95, 1.0), fract(h * 7.3)) * star * 0.34;
+  }
+
+  // Round 3 (VIS, the Sunken City's wow): its gold runes answer the lantern, waking round the explorer
+  // (within ~10 m, brightest at 3 m) and settling again behind; far off they keep a faint glow.
+  if (shownLayer == ${MAT.cityBrick} || shownLayer == ${MAT.cityTile}) {
+    vec3 dl = vWorldPos - uLanternPos;
+    float wake = smoothstep(10.0, 3.0, length(vec3(dl.x, dl.y * 0.5, dl.z)));
+    emissive *= 0.55 + 1.5 * wake * (0.92 + 0.08 * sin(uTime * 1.3 - length(dl) * 0.8));
+  }
+
+  // Round 3: the bioluminescent rock breathes (lighting.ts bioBreath: the caps, vines and glowing moss).
+  if (shownLayer == ${MAT.capTeal} || shownLayer == ${MAT.capMagenta} || shownLayer == ${MAT.glowVine} || shownLayer == ${MAT.sporeLoam} || shownLayer == ${MAT.mycelFloor} || shownLayer == ${MAT.jungleMoss}) emissive *= bioBreath(vWorldPos);
+
   // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
   // the explorer moves, and the painted glints at the prism tips flare when their own (tilted)
   // facet mirrors the flame toward the eye, so the seam sparkles in a few places, not everywhere.
@@ -719,6 +754,22 @@ void main() {
       glass = clamp(tex.rgb / tl, 0.0, 1.0) * 0.8 + 0.12;
     }
     color += glass * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
+  }
+  // Round 3 (VIS): the deep's gems are iridescent: their inner light shifts hue with the angle they
+  // are seen at (walk past a geode wall and it turns from violet to cyan; the bog's opals play every
+  // colour), never by themselves (calm: it moves only when the eye does).
+  if (shownLayer == ${MAT.amethyst} || shownLayer == ${MAT.mireOpal} || shownLayer == ${MAT.voidshard} || shownLayer == ${MAT.sporeQuartz} || shownLayer == ${MAT.iceCrystal} || shownLayer == ${MAT.verdite}) {
+    vec3 ve = normalize(cameraPosition - vWorldPos);
+    float ik = 0.5 + 0.5 * sin(dot(ve, n) * 5.0 + dot(vWorldPos, vec3(0.37, 0.21, 0.29)) * 2.0);
+    vec3 ia = vec3(1.0);
+    vec3 ib = vec3(1.0);
+    if (shownLayer == ${MAT.amethyst}) { ia = vec3(1.05, 0.75, 1.15); ib = vec3(0.55, 1.05, 1.2); }
+    else if (shownLayer == ${MAT.mireOpal}) { ia = 0.55 + 0.65 * cos(6.2832 * (ik + vec3(0.0, 0.33, 0.67))); ib = ia; }
+    else if (shownLayer == ${MAT.voidshard}) { ia = vec3(1.1, 0.7, 1.15); ib = vec3(0.6, 0.75, 1.3); }
+    else if (shownLayer == ${MAT.sporeQuartz}) { ia = vec3(0.7, 1.15, 1.05); ib = vec3(1.2, 0.7, 1.1); }
+    else if (shownLayer == ${MAT.iceCrystal}) { ia = vec3(0.8, 1.0, 1.15); ib = vec3(0.95, 1.12, 1.0); }
+    else { ia = vec3(0.75, 1.15, 0.8); ib = vec3(1.15, 1.05, 0.6); }
+    emissive *= mix(ia, ib, ik);
   }
 
   // Inscriptions: the builders' script (materials/script.ts) laid in world space along the band,
@@ -901,7 +952,7 @@ void main() {
     float reach = 1.0 - smoothstep(0.55, 1.0, uSonar.w / max(uSonarFx.z, 1.0));
     // Contour rings in the wake every 1.5 m (world-space, so they stay on the rock).
     float rings = pow(abs(sin((sd - uSonar.w) * 2.0944)), 24.0) * wake * 2.2;
-    color += vec3(1.0, 0.8, 0.5) * (edge * 0.55 + wake * 0.2 + rings * 0.25) * uSonarFx.y * reach;
+    color += uSonarTint * (edge * 0.55 + wake * 0.2 + rings * 0.25) * uSonarFx.y * reach;
   }
   fragColor = vec4(sceneOut(color), 1.0);
 }

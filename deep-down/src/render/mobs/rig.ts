@@ -174,6 +174,17 @@ export class Rig {
     this.rot[i].setFromEuler(eul);
   }
 
+  /**
+   * Add a rotation on top of the one a pose set (round 3: the hit flinch and the death collapse are
+   * overlays on every kind's own pose): R = R_pose * R(x, y, z).
+   */
+  turn(i: number, x: number, y: number, z: number): void {
+    if (i === undefined || i < 0 || (x === 0 && y === 0 && z === 0)) return;
+    eul.set(x, y, z, 'XYZ');
+    tq.setFromEuler(eul);
+    this.rot[i].multiply(tq);
+  }
+
   /** Compose: M_b = M_parent * T(pivot + off) * R * S * T(-pivot). Parents come before children. */
   update(): void {
     for (let i = 0; i < this.bones.length; i++) {
@@ -190,6 +201,7 @@ export class Rig {
 
 const eul = new THREE.Euler();
 const tv = new THREE.Vector3();
+const tq = new THREE.Quaternion();
 
 // ---------------------------------------------------------------------------------------
 // Primitives (all model space, metres)

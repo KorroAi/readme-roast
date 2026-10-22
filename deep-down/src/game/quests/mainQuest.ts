@@ -39,6 +39,22 @@ export interface MainState {
   pickTier: number;
   /** The explorer, for the nearest lair. */
   at: { x: number; y: number; z: number };
+  /** The tutorial's own target (the nearest vein on its mining step), if any. */
+  tutorialTarget?: { x: number; y: number; z: number } | null;
+  /** The lairs' rumour points the way (after a while without a lead): the arrow aims near the nearest unrevealed lair. */
+  rumour?: boolean;
+}
+
+/** How far from its lair a rumour points (m): a direction, not the spot. */
+export const RUMOUR_SPREAD = 14;
+
+/** A lair's rumour point: its entrance moved by a fixed offset of up to RUMOUR_SPREAD m (per lair id). */
+export function rumourPoint(l: LairInfo): { x: number; y: number; z: number } {
+  let h = 2166136261;
+  for (let i = 0; i < l.id.length; i++) h = Math.imul(h ^ l.id.charCodeAt(i), 16777619);
+  const a = ((h >>> 0) % 3600) / 3600 * Math.PI * 2;
+  const r = RUMOUR_SPREAD * (0.5 + (((h >>> 12) % 1000) / 1000) * 0.5);
+  return { x: l.x + Math.cos(a) * r, y: l.y, z: l.z + Math.sin(a) * r };
 }
 
 export type MainStepId =
@@ -76,7 +92,10 @@ export function mainStep(s: MainState): MainStep {
     target: null,
     ...extra,
   });
-  if (s.tutorial) return { ...mk('tutorial'), id: 'main:tutorial', stratum: 1 };
+  if (s.tutorial) {
+    const tt = s.tutorialTarget ?? null;
+    return { ...mk('tutorial'), id: 'main:tutorial', stratum: 1, target: tt ? { x: tt.x, y: tt.y, z: tt.z, stratum: s.stratum, kind: 'point' } : null };
+  }
   if (s.bossDefeated) return mk('free');
   const [a, b] = STRATUM_BIOMES[n];
   const both = s.shards.has(a) && s.shards.has(b);
@@ -102,7 +121,21 @@ export function mainStep(s: MainState): MainStep {
       });
     }
     const found = [a, b].filter((x) => s.shards.has(x) || s.lairs.some((l) => l.biome === x && s.revealed(l.id))).length;
-    return mk('lairs', { progress: { have: found, need: 2 } });
+    let target: QuestTarget | null = null;
+    if (s.rumour && open.length > 0) {
+      let best = open[0];
+      let bd = Infinity;
+      for (const l of open) {
+        const d = (l.x - s.at.x) ** 2 + (l.z - s.at.z) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = l;
+        }
+      }
+      const r = rumourPoint(best);
+      target = { x: r.x, y: r.y, z: r.z, stratum: n, kind: 'point' };
+    }
+    return mk('lairs', { progress: { have: found, need: 2 }, target });
   }
   if (n < 6) {
     const gateTarget: QuestTarget | null = s.gate ? { x: s.gate.x, y: s.gate.y, z: s.gate.z, stratum: n, kind: 'gate' } : null;

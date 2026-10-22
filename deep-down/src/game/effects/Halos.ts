@@ -213,6 +213,24 @@ export class HaloSystem {
     this.material.uniforms.uPixelScale.value = heightPx / (2 * Math.tan((fovDeg * Math.PI) / 360));
   }
 
+  /**
+   * Round 3: retune one halo in place (its colour and size; no new geometry): the Heart's beat. False
+   * if there is no such halo.
+   */
+  tune(i: number, rgb: readonly [number, number, number], size: number): boolean {
+    const g = this.mesh.geometry;
+    const col = g.getAttribute('aColor') as THREE.BufferAttribute | undefined;
+    const sz = g.getAttribute('aSize') as THREE.BufferAttribute | undefined;
+    if (!col || !sz || i < 0 || (i + 1) * 4 > sz.count) return false;
+    for (let k = 0; k < 4; k++) {
+      col.setXYZ(i * 4 + k, rgb[0], rgb[1], rgb[2]);
+      sz.setX(i * 4 + k, size);
+    }
+    col.needsUpdate = true;
+    sz.needsUpdate = true;
+    return true;
+  }
+
   /** Replace the halo set (cheap: a few dozen points). */
   setSources(sources: HaloSource[]): void {
     this.mesh.geometry.dispose();

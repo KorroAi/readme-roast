@@ -13,6 +13,14 @@ const PLAIN = new Set<number>([B.SLATE, B.DEEP_SLATE, B.UMBER, B.SOIL, B.GRAVEL,
 const DIRS: Array<[number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1]];
 
 /**
+ * Round 3 (LOOP's 20:23 ask): in a stratum's 'rockfall' zone (the Halden Mines' old camps and works,
+ * layout.hazards) a rockfall is this many times likelier, and the next event comes within this many
+ * seconds of walking in (the loose roof the zone's line warns of really does drop stones there).
+ */
+const ROCKFALL_ZONE_BOOST = 3.5;
+const ROCKFALL_ZONE_SOON = 25;
+
+/**
  * The events director (round 2, WORLD; ROUND2 §0.7): something happens every 2–4 minutes of
  * exploration, calm but exciting, one at a time, never at the camp.
  *
@@ -40,6 +48,8 @@ export class EventDirector implements EventDirectorApi {
   private rockLanded = false;
   private fed = false;
   private sparkTimer = 0;
+  /** Round 3: the explorer stands in a stratum's rockfall zone. */
+  private inRockfallZone = false;
 
   constructor(private readonly game: Game) {
     // The bloom: a crystal broken in its glow gives a shard more.
@@ -82,7 +92,11 @@ export class EventDirector implements EventDirectorApi {
     const s = this.schedule;
     const exploring = !ctx.inCamp && !ctx.busy;
     const before = s.current;
-    const started = s.step(dt, exploring, ctx.depth, (k) => this.place(k, ctx));
+    // Round 3: a rockfall zone of the strata (the mines' loose roofs) makes a rockfall likelier and sooner.
+    const zone = this.rockfallZoneAt(ctx.x, ctx.y, ctx.z);
+    if (zone && !this.inRockfallZone && !s.current) s.nextAt = Math.min(s.nextAt, s.clock + ROCKFALL_ZONE_SOON);
+    this.inRockfallZone = zone;
+    const started = s.step(dt, exploring, ctx.depth, (k) => this.place(k, ctx), zone ? (k) => (k === 'rockfall' ? ROCKFALL_ZONE_BOOST : 1) : undefined);
     // The schedule ended the event on time: clean up (and tell the others).
     if (before && !s.current) this.cleanup(before, false);
     if (started) this.begin(started, ctx);
@@ -135,6 +149,14 @@ export class EventDirector implements EventDirectorApi {
 
   private get w() {
     return this.game.session.world;
+  }
+
+  /** Round 3: is (x, y, z) inside one of the loaded stratum's 'rockfall' hazard zones? */
+  private rockfallZoneAt(x: number, y: number, z: number): boolean {
+    const hz = (this.game.session.layout as { hazards?: ReadonlyArray<{ kind: string; centre: readonly number[]; radius: number }> }).hazards;
+    if (!hz) return false;
+    for (const h of hz) if (h.kind === 'rockfall' && Math.hypot(x - h.centre[0], (y - h.centre[1]) * 1.5, z - h.centre[2]) < h.radius) return true;
+    return false;
   }
 
   private standable(x: number, y: number, z: number): boolean {

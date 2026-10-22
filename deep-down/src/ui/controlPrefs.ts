@@ -1,8 +1,10 @@
+import { isLanguage, type LanguageCode } from '../i18n';
+
 /**
  * Round 3 (UI): the control layout's and the screen's own preferences (Settings: button size and
- * opacity; accessibility: rarity patterns for colour-blind players, reduced motion). They are a
- * per-device convenience, kept in localStorage beside the settings (the save is not touched); a
- * private window or blocked storage simply keeps the defaults.
+ * opacity; accessibility: rarity patterns for colour-blind players, reduced motion; the language).
+ * They are a per-device convenience, kept in localStorage beside the settings (the save is not
+ * touched); a private window or blocked storage simply keeps the defaults.
  */
 export interface ControlPrefs {
   /** Button size multiplier (0.8 .. 1.3). */
@@ -13,10 +15,12 @@ export interface ControlPrefs {
   patterns: boolean;
   /** Motion: follow the device's setting ('auto'), or reduce it here whatever it says. */
   motion: 'auto' | 'reduce';
+  /** The language: the device's ('auto', i18n detectLanguage) or one chosen in Settings. */
+  language: 'auto' | LanguageCode;
 }
 
 const KEY = 'deepdown.controls';
-export const DEFAULT_CONTROL_PREFS: ControlPrefs = { scale: 1, opacity: 0.86, patterns: false, motion: 'auto' };
+export const DEFAULT_CONTROL_PREFS: ControlPrefs = { scale: 1, opacity: 0.86, patterns: false, motion: 'auto', language: 'auto' };
 
 export function sanitizeControlPrefs(x: unknown): ControlPrefs {
   const v = (x ?? {}) as Partial<ControlPrefs>;
@@ -26,6 +30,7 @@ export function sanitizeControlPrefs(x: unknown): ControlPrefs {
     opacity: num(v.opacity, 0.35, 1, DEFAULT_CONTROL_PREFS.opacity),
     patterns: v.patterns === true,
     motion: v.motion === 'reduce' ? 'reduce' : 'auto',
+    language: isLanguage(v.language) ? v.language : 'auto',
   };
 }
 
@@ -44,4 +49,9 @@ export function saveControlPrefs(p: ControlPrefs): void {
   } catch {
     // Storage refused: the change holds for this session only.
   }
+}
+
+/** The language a preference stands for ('auto': the device's, among the game's languages). */
+export function languageOf(p: Pick<ControlPrefs, 'language'>, device: () => LanguageCode): LanguageCode {
+  return p.language === 'auto' ? device() : p.language;
 }

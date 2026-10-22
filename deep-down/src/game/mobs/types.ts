@@ -187,6 +187,8 @@ export interface GuardianState {
   status: 'dormant' | 'awake' | 'defeated';
   /** Its guard is open: blows land for more (after each attack). */
   vulnerable: boolean;
+  /** The open guard's time left, as a share of the window (1 as it opens, 0 when shut): a HUD may show it closing. */
+  window: number;
   /** The attack it is winding up now (a text key, for an optional HUD line), or null. */
   telegraph: string | null;
 }
@@ -270,6 +272,11 @@ declare module '../../core/events' {
     'mob:guardianPhase': { id: number; kind: GuardianKind; biome: MobBiome; phase: number };
     /** The explorer fled its lair: it heals and sleeps again. */
     'mob:guardianReset': { id: number; kind: GuardianKind; biome: MobBiome };
+    /**
+     * Round 3 (second MOBS): its guard opens after an attack for `seconds`, the window to strike
+     * (blows land 1.6x). Optional in GameEvents so AUDIO's exhaustive table stays typed until mapped.
+     */
+    'mob:guardianOpen'?: { id: number; kind: GuardianKind; biome: MobBiome; seconds: number };
     /** A guardian is beaten: its biome's Heart Shard drops (the Heart's boss: shard 'heart', the ending). */
     'mob:guardianDefeated': { id: number; kind: GuardianKind; biome: MobBiome; shard: MobBiome; x: number; y: number; z: number };
     /** A creature was scanned (the sonar, or watched up close); `first` for the kind's first scan. */

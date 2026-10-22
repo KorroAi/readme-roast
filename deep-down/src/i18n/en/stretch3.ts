@@ -77,7 +77,11 @@ export const stretch3 = {
 
   // The trip summary
   'trip3.title': 'Back at camp',
+  'trip3.title.lift': 'At the lift of Stratum {stratum}',
+  'trip3.title.outpost': 'Rested at the outpost',
   'trip3.blackout': 'Woke at camp',
+  'trip3.blackout.lift': 'Woke at the lift of Stratum {stratum}',
+  'trip3.blackout.outpost': 'Woke at the outpost',
   'trip3.time': 'Time out',
   'trip3.deepest': 'Deepest',
   'trip3.finds': 'Finds mined',
@@ -91,6 +95,8 @@ export const stretch3 = {
   'trip3.bestiary': 'New bestiary pages',
   'trip3.banked': 'Banked',
   'trip3.biomes': 'Biomes',
+  'trip3.places': 'Places found',
+  'trip3.chests': 'Chests opened',
   'trip3.record': 'New record: {what}',
   'trip3.rec.depth': 'the deepest dive',
   'trip3.rec.kills': 'the most creatures in a trip',
@@ -117,6 +123,11 @@ export const stretch3 = {
   'feat3.daily.text': 'Reach a daily descent\'s goal.',
   'feat3.elites10': 'Elite Hunter',
   'feat3.elites10.text': 'Defeat 10 elite creatures.',
+  'feat3.places10': 'Wonder Seeker',
+  'feat3.places10.text': 'Find 10 of the deep\'s named places.',
+  'feat3.legacy': '{name} (the old deep)',
+  'feat3.placesAll': 'Cartographer',
+  'feat3.placesAll.text': 'Find every named place of a stratum.',
 
   // The ending (the Heart relit, its guardian fallen)
   'ending3.title': 'The Heart burns again',
@@ -135,7 +146,10 @@ export const stretch3 = {
   'item.glowTreat.desc': 'Your Lampling\'s favourite: it heals it and helps it grow.',
   'item.deepStew': 'Deep Stew',
   'item.deepStew.desc': 'A rich stew of the deep: restores 90 health.',
-  'companion3.lured': 'You hold out the lure…',
+  'companion3.lured': 'You hold out the lure… a Lampling comes to you',
+  'companion3.noLampling': 'No wild Lampling close enough. They glow in the Amber Hollows and the Mushroom Forest.',
+  'companion3.already': 'Your Lampling already follows you',
+  'companion3.full': 'Your Lampling is not hungry now',
   'companion3.fed': 'Your Lampling munches happily',
   'companion3.none': 'No companion to feed yet',
 } as const;

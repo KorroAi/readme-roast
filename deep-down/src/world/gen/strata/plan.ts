@@ -72,6 +72,14 @@ export interface PlanEdge {
   height: number;
   /** It crosses the vista's hall: a natural rock bridge spans the hall along it (structures carveVista). */
   bridge?: boolean;
+  /**
+   * How far from each end's centre the tunnel's floor stays flat at that node's height (m): the node's
+   * rim, or farther where another tunnel leaves the same node at a narrow angle (until the two have
+   * parted, both keep the node's level: one climbing while the other falls would cut a cliff into
+   * the floor they share). Set by planStratum; rimOf when absent.
+   */
+  flatA?: number;
+  flatB?: number;
 }
 
 /**
@@ -176,6 +184,12 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     return n;
   };
   const free = (x: number, z: number, minD: number) => nodes.every((n) => Math.hypot(n.x - x, n.z - z) >= minD + Math.max(n.rx, n.rz) * 0.6);
+  /**
+   * Room for a chamber of radius r at (x, z): no other chamber's ellipse (with its wobble) within reach,
+   * and a gap for a tunnel between (overlapping halls at two heights would cut a cliff where they meet).
+   * The balcony stands on the vista's rim on purpose.
+   */
+  const roomFor = (x: number, z: number, r: number) => nodes.every((n) => n.kind === 'overlook' || Math.hypot(n.x - x, n.z - z) >= 1.18 * (Math.max(n.rx, n.rz) + r) + 5);
   const inside = (x: number, z: number, m = MARGIN) => x >= m && z >= m && x < sx - m && z < sz - m;
 
   const arrival = add('arrival', ax, az, stratum === 1 ? [13, 7, 11] : [9, 7, 9]);
@@ -198,7 +212,7 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
       const dG = Math.hypot(x - gate.x, z - gate.z);
       if (dA < 70 || dG < 40) continue;
       const score = Math.min(blendAt(x, z), 90) + Math.min(dA, 140) * 0.3 + rng.next() * 6;
-      if (score > bestScore && free(x, z, 30)) {
+      if (score > bestScore && free(x, z, 30) && roomFor(x, z, 13)) {
         bestScore = score;
         best = [x, z];
       }
@@ -208,7 +222,7 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
       for (let k = 0; k < 4000 && !best; k++) {
         const x = rng.range(MARGIN + 16, sx - MARGIN - 16);
         const z = rng.range(MARGIN + 16, sz - MARGIN - 16);
-        if (regions.map[Math.floor(x) + Math.floor(z) * sx] === bi && free(x, z, 20)) best = [x, z];
+        if (regions.map[Math.floor(x) + Math.floor(z) * sx] === bi && free(x, z, 20) && roomFor(x, z, 13)) best = [x, z];
       }
     }
     const n = add('lair', best![0], best![1], [13, 11, 13]);
@@ -220,8 +234,14 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
   // The Heart (stratum VI): a great chamber behind the gate.
   let heart: number | null = null;
   if (stratum === 6) {
-    const hx = Math.max(MARGIN + 22, Math.min(sx - MARGIN - 22, gate.x + (sx / 2 - gate.x) * 0.35));
-    const hz = Math.max(MARGIN + 22, Math.min(sz - MARGIN - 22, gate.z + (sz / 2 - gate.z) * 0.35));
+    // Toward the zone's middle, past the gate hall's wall: the Heart's door stands in the passage
+    // between them, so the two chambers never touch.
+    const ux = sx / 2 - gate.x;
+    const uz = sz / 2 - gate.z;
+    const ul = Math.hypot(ux, uz) || 1;
+    const D = Math.max(1.18 * (11 + 20) + 12, ul * 0.35);
+    const hx = Math.max(MARGIN + 22, Math.min(sx - MARGIN - 22, gate.x + (ux / ul) * D));
+    const hz = Math.max(MARGIN + 22, Math.min(sz - MARGIN - 22, gate.z + (uz / ul) * D));
     const h = add('heart', hx, hz, [20, 16, 20]);
     h.rot = 0;
     heart = h.id;
@@ -241,7 +261,7 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     for (let k = 0; k < 2500; k++) {
       const x = rng.range(MARGIN + R + 4, sx - MARGIN - R - 4);
       const z = rng.range(MARGIN + R + 4, sz - MARGIN - R - 4);
-      if (!free(x, z, R + 12)) continue;
+      if (!free(x, z, R + 12) || !roomFor(x, z, R)) continue;
       const dA = Math.hypot(x - arrival.x, z - arrival.z);
       if (dA < R + 34) continue;
       if (Math.hypot(x - gate.x, z - gate.z) < R + 26) continue;
@@ -330,6 +350,7 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
       if (!free(x, z, 30) || inDungeon(x, z, 28)) continue;
       const rx = rng.range(20, 27);
       const rz = rng.range(20, 27);
+      if (!roomFor(x, z, Math.max(rx, rz))) continue;
       add('cavern', x, z, [rx, rng.range(12, 19), rz]);
       placed++;
     }
@@ -341,7 +362,11 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     const z = rng.range(MARGIN, sz - MARGIN);
     if (!inside(x, z)) continue;
     if (!free(x, z, 22) || inDungeon(x, z, 12)) continue;
-    add('room', x, z, [rng.range(5, 8.5), rng.range(4.5, 7), rng.range(5, 8.5)]);
+    const rx = rng.range(5, 8.5);
+    const ry = rng.range(4.5, 7);
+    const rz = rng.range(5, 8.5);
+    if (!roomFor(x, z, Math.max(rx, rz))) continue;
+    add('room', x, z, [rx, ry, rz]);
   }
 
   // Floor heights: a smooth field, the arrival high (the camp is up near the surface), the gate low.
@@ -491,10 +516,14 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     dn.z -= d.dir[1] * d.length * 0.5;
     dn.rx = dn.rz = 3;
     dn.ry = 3.5;
+    // In front of the entry (never across the box behind it): a narrow cone first (the approach runs
+    // straight in), then wider ones when no chamber there can be joined without crossing a tunnel.
+    let cone = 1.1;
+    let minU = 9;
     const behind = (j: number) => {
       const u = (nodes[j].x - dn.x) * d.dir[0] + (nodes[j].z - dn.z) * d.dir[1];
       const v = Math.abs((nodes[j].x - dn.x) * -d.dir[1] + (nodes[j].z - dn.z) * d.dir[0]);
-      return u < -9 && v < -u * 1.1;
+      return u < -minU && v < -u * cone;
     };
     const mine = edgesIdx.findIndex(([a, b]) => a === d.node || b === d.node);
     const cur = mine >= 0 ? (edgesIdx[mine][0] === d.node ? edgesIdx[mine][1] : edgesIdx[mine][0]) : -1;
@@ -502,19 +531,24 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     const clearTo = (j: number) =>
       edgesIdx.every(([a, b]) => a === d.node || b === d.node || a === j || b === j || !segCross(dn.x, dn.z, nodes[j].x, nodes[j].z, nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z));
     if (cur < 0 || !behind(cur)) {
-      let best = -1;
-      let bd = Infinity;
-      for (let j = 0; j < nodes.length; j++) {
-        if (j === d.node || leaf(j) || nodes[j].kind === 'vista' || nodes[j].kind === 'overlook' || !behind(j) || !clearTo(j)) continue;
-        const dd = Math.hypot(nodes[j].x - dn.x, nodes[j].z - dn.z);
-        if (dd < bd && dd < 70) {
-          bd = dd;
-          best = j;
+      /** The nearest chamber in the cone that a tunnel joins without crossing another, or -1. */
+      const nearestIn = (c: number, m: number): number => {
+        cone = c;
+        minU = m;
+        let best = -1;
+        let bd = Infinity;
+        for (let j = 0; j < nodes.length; j++) {
+          if (j === d.node || leaf(j) || nodes[j].kind === 'vista' || nodes[j].kind === 'overlook' || !behind(j) || !clearTo(j)) continue;
+          const dd = Math.hypot(nodes[j].x - dn.x, nodes[j].z - dn.z);
+          if (dd < bd && dd < 70) {
+            bd = dd;
+            best = j;
+          }
         }
-      }
-      if (best < 0) {
-        // Nothing behind the works to come from: a small yard there, joined to the nearest chamber it
-        // can reach without crossing a tunnel.
+        return best;
+      };
+      /** A small yard in front of the entry, joined to the nearest chamber it reaches without crossing a tunnel. */
+      const yardIn = (): number => {
         let yx = 0;
         let yz = 0;
         let fits = false;
@@ -527,28 +561,62 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
           }
           if (fits) break;
         }
-        if (fits) {
-          const yard = add('room', yx, yz, [5, 4.5, 5]);
-          yard.y = dn.y;
-          let link = -1;
-          let ld = Infinity;
-          for (let j = 0; j < nodes.length; j++) {
-            if (j === yard.id || j === d.node || leaf(j) || nodes[j].kind === 'vista' || nodes[j].kind === 'overlook') continue;
-            const dd = Math.hypot(nodes[j].x - yx, nodes[j].z - yz);
-            const clear = edgesIdx.every(([a, b]) => a === j || b === j || !segCross(yx, yz, nodes[j].x, nodes[j].z, nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z));
-            if (clear && dd < ld) {
-              ld = dd;
-              link = j;
-            }
+        if (!fits) return -1;
+        const yard = add('room', yx, yz, [5, 4.5, 5]);
+        yard.y = dn.y;
+        let link = -1;
+        let ld = Infinity;
+        for (let j = 0; j < nodes.length; j++) {
+          if (j === yard.id || j === d.node || leaf(j) || nodes[j].kind === 'vista' || nodes[j].kind === 'overlook') continue;
+          const dd = Math.hypot(nodes[j].x - yx, nodes[j].z - yz);
+          const clear = edgesIdx.every(([a, b]) => a === j || b === j || !segCross(yx, yz, nodes[j].x, nodes[j].z, nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z));
+          if (clear && dd < ld) {
+            ld = dd;
+            link = j;
           }
-          if (link >= 0) {
-            if (mine >= 0) edgesIdx.splice(mine, 1);
-            edgesIdx.push([d.node, yard.id], [yard.id, link]);
-            best = yard.id;
-          } else nodes.pop();
         }
-      } else {
+        if (link < 0) {
+          nodes.pop();
+          return -1;
+        }
         if (mine >= 0) edgesIdx.splice(mine, 1);
+        edgesIdx.push([d.node, yard.id], [yard.id, link]);
+        return yard.id;
+      };
+      // Straight in first; else a yard in front; else a wider and wider approach.
+      let best = nearestIn(1.1, 9);
+      let yard = false;
+      if (best < 0) {
+        best = yardIn();
+        yard = best >= 0;
+      }
+      if (best < 0) best = nearestIn(2.2, 7);
+      if (best < 0) best = nearestIn(4, 5);
+      if (best < 0) {
+        // Last: the nearest chamber in front whose tunnel crosses only loop tunnels (the graph stays
+        // whole without them): those go, the works' tunnel comes in.
+        cone = 4;
+        minU = 5;
+        const order = nodes
+          .map((nd, j) => ({ j, dd: Math.hypot(nd.x - dn.x, nd.z - dn.z) }))
+          .filter(({ j, dd }) => j !== d.node && dd < 80 && !leaf(j) && nodes[j].kind !== 'vista' && nodes[j].kind !== 'overlook' && behind(j))
+          .sort((a, b) => a.dd - b.dd);
+        for (const { j } of order) {
+          const crossed = edgesIdx.filter(([a, b]) => a !== d.node && b !== d.node && a !== j && b !== j && segCross(dn.x, dn.z, nodes[j].x, nodes[j].z, nodes[a].x, nodes[a].z, nodes[b].x, nodes[b].z));
+          const rest = edgesIdx.filter((e, k) => !crossed.includes(e) && k !== mine);
+          rest.push([d.node, j]);
+          const par = nodes.map((_, i) => i);
+          const fnd = (i: number): number => (par[i] === i ? i : (par[i] = fnd(par[i])));
+          for (const [a, b] of rest) par[fnd(a)] = fnd(b);
+          if (!nodes.every((_, i) => fnd(i) === fnd(0))) continue;
+          for (const e of crossed) edgesIdx.splice(edgesIdx.indexOf(e), 1);
+          best = j;
+          break;
+        }
+      }
+      if (best >= 0 && !yard) {
+        const at = edgesIdx.findIndex(([a, b]) => a === d.node || b === d.node);
+        if (at >= 0) edgesIdx.splice(at, 1);
         edgesIdx.push([d.node, best]);
       }
       if (best < 0) {
@@ -605,26 +673,54 @@ export function planStratum(seed: number, stratum: StratumIndex, biomes: [BiomeI
     nodes[e.a].edges.push(e.id);
     nodes[e.b].edges.push(e.id);
   }
+  // Each end's flat zone: the node's rim, or until a tunnel leaving the same node at a narrow angle
+  // has parted from this one (both stay at the node's level that far).
+  for (const nd of nodes) {
+    const inc = nd.edges.map((id) => edges[id]);
+    for (const e of inc) {
+      const o = nodes[e.a === nd.id ? e.b : e.a];
+      const len = Math.hypot(o.x - nd.x, o.z - nd.z);
+      const ang = Math.atan2(o.z - nd.z, o.x - nd.x);
+      let flat = rimOf(nd);
+      for (const f of inc) {
+        if (f === e || e.bridge || f.bridge) continue;
+        const p = nodes[f.a === nd.id ? f.b : f.a];
+        let phi = Math.abs(ang - Math.atan2(p.z - nd.z, p.x - nd.x));
+        if (phi > Math.PI) phi = Math.PI * 2 - phi;
+        const part = (e.radius + f.radius + 2) / (2 * Math.sin(Math.max(0.08, phi) / 2));
+        flat = Math.max(flat, part);
+      }
+      // A climb needs some run: never flatter than 40 % of the tunnel from this end.
+      flat = Math.min(Math.max(rimOf(nd), flat), Math.max(rimOf(nd), len * 0.4));
+      if (e.a === nd.id) e.flatA = flat;
+      else e.flatB = flat;
+    }
+  }
 
-  // Relax the floor heights so no edge is steeper than MAX_SLOPE (the fixed nodes move least).
-  const fixed = (nd: PlanNode) => nd.kind === 'arrival' || nd.kind === 'gate' || nd.kind === 'heart' || nd.kind === 'vista' || nd.kind === 'overlook';
+  // Relax the floor heights so no edge is steeper than MAX_SLOPE (the fixed nodes move least): the
+  // vista, its balcony and the heart never (the ramp and the fall are cut for that height), the
+  // arrival and the gate only against those, every other node first.
+  const rank = (nd: PlanNode) => (nd.kind === 'vista' || nd.kind === 'overlook' || nd.kind === 'heart' ? 2 : nd.kind === 'arrival' || nd.kind === 'gate' ? 1 : 0);
   for (let it = 0; it < 60; it++) {
     let worst = 0;
     for (const e of edges) {
       const a = nodes[e.a];
       const b = nodes[e.b];
       // The tunnel runs from rim to rim: the climb happens over the distance between the chambers.
-      const run = Math.max(6, Math.hypot(a.x - b.x, a.z - b.z) - rimOf(a) - rimOf(b));
+      const run = Math.max(6, Math.hypot(a.x - b.x, a.z - b.z) - (e.flatA ?? rimOf(a)) - (e.flatB ?? rimOf(b)));
       const max = run * MAX_SLOPE;
       const dy = b.y - a.y;
       const over = Math.abs(dy) - max;
       if (over <= 0) continue;
       worst = Math.max(worst, over);
       const s = Math.sign(dy);
-      const fa = fixed(a) ? 0 : fixed(b) ? 1 : 0.5;
+      const ra = rank(a);
+      const rb = rank(b);
+      const fa = ra > rb ? 0 : rb > ra ? 1 : 0.5;
       const fb = 1 - fa;
-      a.y += s * over * fa + s * 0.01;
-      b.y -= s * over * fb + s * 0.01;
+      // (The small push past the limit moves only the nodes that may move.)
+      a.y += s * (over + 0.01) * fa;
+      b.y -= s * (over + 0.01) * fb;
     }
     if (worst < 0.01) break;
   }
@@ -680,8 +776,8 @@ export function edgePath(plan: StratumPlan, e: PlanEdge, step = 0.6): Array<[num
   const pz = dx / len;
   const n = Math.max(2, Math.ceil(len / step));
   // The climb is spread over the stretch between the two chambers' rims.
-  const ra = Math.min(a.kind === 'vista' ? 0.7 : 0.48, rimOf(a) / len);
-  const rb = Math.min(b.kind === 'vista' ? 0.7 : 0.48, rimOf(b) / len);
+  const ra = Math.min(a.kind === 'vista' ? 0.7 : 0.48, (e.flatA ?? rimOf(a)) / len);
+  const rb = Math.min(b.kind === 'vista' ? 0.7 : 0.48, (e.flatB ?? rimOf(b)) / len);
   const out: Array<[number, number, number]> = [];
   for (let i = 0; i <= n; i++) {
     const t = i / n;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { STARTER_KIT } from '../../src/config/quests';
 import { ITEMS, CATALOGUE, isItem, type ItemId } from '../../src/config/items';
 import { RECIPES, RECIPE_CATEGORIES, recipeInputs, recipesFor } from '../../src/config/recipes';
 import { STATIONS, STATION_IDS, OUTPOST } from '../../src/config/stations';
@@ -572,6 +573,19 @@ describe('loot: chests and the loose rock of the ores', () => {
     loop.learn('torch');
     expect([...loop.keepOnBank()]).toEqual(['torch']);
   });
+
+  it('during the tutorial the camp keeps the whole bag (the starter kit\'s wood and coal make the first torches out in the tunnels)', () => {
+    const { h, loop } = loopOf();
+    loop.newGame(99, true, STARTER_KIT);
+    expect(loop.quests.tutorialDone).toBe(false);
+    const kit = Object.keys(STARTER_KIT).sort();
+    expect([...loop.keepOnBank()].sort()).toEqual(kit);
+    expect(h.storage.deposit(h.backpack, loop.keepOnBank())).toEqual({});
+    // Banking by hand still takes all but the hotbar's loadout; after the tutorial the camp banks again.
+    loop.quests.skipTutorial();
+    expect([...loop.keepOnBank()]).not.toContain('fungalWood');
+    expect(h.storage.deposit(h.backpack, loop.keepOnBank())).toMatchObject({ fungalWood: 3, coal: 2 });
+  });
 });
 
 // ---------------------------------------------------------------------------------------
@@ -671,5 +685,23 @@ describe('Builder: placed stations and outposts as props', () => {
     h.health = new Health(h.health.max);
     h.bus.emit('player:respawned', {});
     expect(h.health.armour).toBeGreaterThan(0);
+  });
+});
+
+describe('what a recipe is missing says where to find it', () => {
+  it('a raw material names its biome, a creature part "creatures", a bar nothing', () => {
+    const { loop } = loopOf();
+    for (const id of ['ironIngot', 'heartwood', 'goldIngot', 'hide', 'chitin', 'gel', 'copperIngot'] as ItemId[]) loop.learn(id);
+    loop.enterStratum(2);
+    const all = loop.craftView().cards;
+    const heart = all.flatMap((c) => c.inputs).find((i) => i.item === 'heartwood')!;
+    expect(heart.from).toBe(en['biome.rootGalleries.name']);
+    const hide = all.flatMap((c) => c.inputs).find((i) => i.item === 'hide')!;
+    expect(hide.from).toBe(en['craft3.fromCreatures']);
+    const bar = all.flatMap((c) => c.inputs).find((i) => i.item === 'copperIngot')!;
+    expect(bar.from).toBeUndefined();
+    const missing = all.find((c) => c.state === 'missing' && c.inputs.some((i) => i.item === 'heartwood' && i.have < i.need));
+    expect(missing, 'a card short of heartwood').toBeTruthy();
+    expect(missing!.reason).toContain(`(${en['biome.rootGalleries.name']})`);
   });
 });

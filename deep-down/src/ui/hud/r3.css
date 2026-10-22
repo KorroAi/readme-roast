@@ -1039,13 +1039,15 @@
   border-right: 0;
 }
 /* The look step: a ghost finger drags across the right of the view. */
+/* A thumb-sized ghost (44 px) presses, drags 130 px to the right and back, its trail behind it; a dark
+   halo keeps it legible over a bright cave. */
 .dd-tut .dd-tut-swipe {
   position: absolute;
-  left: 58%;
-  top: 56%;
-  width: 120px;
-  height: 60px;
-  margin-left: -60px;
+  left: 50%;
+  top: 58%;
+  width: 190px;
+  height: 64px;
+  margin-left: -95px;
   opacity: 0;
   visibility: hidden;
 }
@@ -1055,58 +1057,68 @@
 }
 .dd-tut .dd-tut-finger {
   position: absolute;
-  left: 18px;
-  top: 14px;
-  width: 30px;
-  height: 30px;
+  left: 8px;
+  top: 10px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  border: 2px solid rgba(126, 240, 192, 0.95);
-  background: radial-gradient(circle, rgba(126, 240, 192, 0.55), rgba(126, 240, 192, 0.12) 70%);
-  box-shadow: 0 0 14px rgba(126, 240, 192, 0.6);
-  animation: dd-tut-drag 2.2s ease-in-out infinite;
+  border: 2.5px solid rgba(126, 240, 192, 0.98);
+  background: radial-gradient(circle, rgba(234, 255, 245, 0.75) 0 18%, rgba(126, 240, 192, 0.45) 30%, rgba(126, 240, 192, 0.1) 70%);
+  box-shadow: 0 0 0 5px rgba(4, 10, 8, 0.35), 0 0 18px rgba(126, 240, 192, 0.7);
+  animation: dd-tut-drag 2.6s ease-in-out infinite;
 }
 .dd-tut .dd-tut-trail {
   position: absolute;
   left: 30px;
-  top: 28px;
-  width: 64px;
-  height: 2px;
-  background: linear-gradient(90deg, rgba(126, 240, 192, 0), rgba(126, 240, 192, 0.7));
+  top: 30px;
+  width: 130px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg, rgba(126, 240, 192, 0), rgba(126, 240, 192, 0.85));
+  box-shadow: 0 0 8px rgba(126, 240, 192, 0.5);
   transform-origin: 0 50%;
-  animation: dd-tut-trail 2.2s ease-in-out infinite;
+  animation: dd-tut-trail 2.6s ease-in-out infinite;
 }
 @keyframes dd-tut-drag {
   0%,
-  12% {
-    transform: translateX(0) scale(0.85);
+  8% {
+    transform: translateX(0) scale(0.8);
     opacity: 0;
   }
-  22% {
+  18% {
     transform: translateX(0) scale(1);
     opacity: 1;
   }
-  70% {
-    transform: translateX(64px) scale(1);
+  52% {
+    transform: translateX(130px) scale(1);
     opacity: 1;
   }
-  85%,
+  82% {
+    transform: translateX(10px) scale(1);
+    opacity: 1;
+  }
+  92%,
   100% {
-    transform: translateX(64px) scale(0.85);
+    transform: translateX(0) scale(0.8);
     opacity: 0;
   }
 }
 @keyframes dd-tut-trail {
   0%,
-  22% {
+  18% {
     transform: scaleX(0);
     opacity: 0;
   }
-  70% {
+  52% {
     transform: scaleX(1);
     opacity: 1;
   }
+  82% {
+    transform: scaleX(0.08);
+    opacity: 0.6;
+  }
   100% {
-    transform: scaleX(1);
+    transform: scaleX(0);
     opacity: 0;
   }
 }
@@ -1403,4 +1415,127 @@
 }
 .dd-hud.dd-r3 .dd-target3.blocked {
   color: #ff9a8e;
+}
+
+/* ---------------------------------------------------------------- pick-ups fly into the Bag */
+.dd-hud.dd-r3 .dd-fly-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  overflow: hidden;
+}
+.dd-hud.dd-r3 .dd-fly {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 6px rgba(255, 210, 138, 0.75)) drop-shadow(0 2px 2px rgba(0, 0, 0, 0.6));
+  will-change: transform, opacity;
+}
+.dd-hud.dd-r3 .dd-hbtn-bag.bump {
+  animation: dd-bag-bump 0.32s cubic-bezier(0.3, 1.6, 0.5, 1);
+}
+.dd-hud.dd-r3 .dd-hbtn-bag.bump .dd-hbtn-badge {
+  color: #ffe6a6;
+}
+@keyframes dd-bag-bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.12);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dd-hud.dd-r3 .dd-hbtn-bag.bump {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------- a tutorial step done */
+/* The next step's bubble opens with a check by its count, and a green flash round its frame. */
+.dd-tut .dd-tut-bubble.passed {
+  animation: dd-tut-in 0.32s ease-out, dd-tut-passed 0.9s ease-out;
+}
+.dd-tut .dd-tut-bubble.passed .dd-tut-count::before {
+  content: '✓';
+  display: inline-block;
+  margin-right: 6px;
+  color: #eafff5;
+  font-size: 13px;
+  animation: dd-tut-check 0.5s cubic-bezier(0.3, 1.8, 0.5, 1);
+}
+@keyframes dd-tut-passed {
+  0% {
+    box-shadow: 0 0 0 0 rgba(126, 240, 192, 0.85), 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 14px rgba(126, 240, 192, 0), 0 6px 18px rgba(0, 0, 0, 0.5);
+  }
+}
+@keyframes dd-tut-check {
+  0% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* ---------------------------------------------------------------- the guardian's open guard and wind-up */
+/* Its guard open: an "Open!" chip by the name and a gold sliver under the bar that shrinks as the
+   window shuts; while it winds up an attack, one plain line under the bar says what to do. */
+.dd-hud.dd-r3 .dd-guardian-open {
+  display: none;
+  margin-left: auto;
+  padding: 2px 6px;
+  border: 1px solid #ffd27a;
+  background: rgba(255, 207, 90, 0.18);
+  color: #ffe6a6;
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.dd-hud.dd-r3 .dd-guardian.open .dd-guardian-open {
+  display: inline-block;
+}
+.dd-hud.dd-r3 .dd-guardian.open .dd-guardian-bar {
+  border-color: #ffd27a;
+  box-shadow: 0 0 10px rgba(255, 207, 90, 0.55);
+}
+.dd-hud.dd-r3 .dd-guardian-window {
+  display: none;
+  height: 3px;
+  margin-top: 3px;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #ffcf5a, #fff1c4);
+  box-shadow: 0 0 6px rgba(255, 207, 90, 0.7);
+}
+.dd-hud.dd-r3 .dd-guardian.open .dd-guardian-window {
+  display: block;
+}
+.dd-hud.dd-r3 .dd-guardian-tele {
+  display: none;
+  margin: 5px 0 0;
+  font: 800 calc(12px * var(--s)) / 1.25 var(--font);
+  color: #ffb4a8;
+  text-shadow: 0 1px 2px #000;
+}
+.dd-hud.dd-r3 .dd-guardian.winding .dd-guardian-tele {
+  display: block;
+  animation: dd-tele-in 0.18s ease-out;
+}
+@keyframes dd-tele-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
 }
