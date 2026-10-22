@@ -151,11 +151,14 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
   // at it and strike with Action. The tutorial never blocks: with no creature the step moves on by
   // its own timeout, which the spec reports rather than fails (the strike is what the UI owns).
   const foe = () => page.evaluate(() => window.__DD__.mobs.list().find((m: { family: string; state: string }) => m.family !== 'being' && m.state !== 'dying') ?? null) as Promise<{ x: number; y: number; z: number } | null>;
-  let came = await untilGame(page, async () => (await foe()) !== null, 8);
+  let came = await untilGame(page, async () => (await foe()) !== null, 5);
   if (!came) {
     const out = await awayFromCamp(page);
     if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), out);
-    came = await untilGame(page, async () => (await foe()) !== null || (await step(page)) !== 'fight', 20);
+    came = await untilGame(page, async () => (await foe()) !== null || (await step(page)) !== 'fight', 6);
+    // Still none (MOBS's first fight did not find a spot in time): one Amber Tick a few metres ahead,
+    // through the creatures' debug hook, so the strike itself is still tested.
+    if (!came) console.log(`[e2e] no creature came for the fight step: a tick is placed ahead (${await page.evaluate(() => window.__DD__.mobs.spawnAhead('amberTick', 3))})`);
   }
   if ((await foe()) !== null) {
     const fought = await untilGame(
@@ -167,7 +170,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
         await holdControl(page, touch, 'action', 700);
         return (await step(page)) !== 'fight';
       },
-      60,
+      30,
     );
     expect(fought, 'the creature was struck').toBe(true);
     expect((await uiEvents(page, 'weapon:swing')).length, 'Action swung at it').toBeGreaterThan(0);

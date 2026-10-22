@@ -216,7 +216,13 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
   for (const t of [0.16, 0.38, 0.6, 0.82]) {
     const a = rampStart + side * span * t;
     const h = Math.round(by - OVERLOOK_RISE * t);
-    rampLamps.push([Math.floor(n.x + Math.cos(a) * (rr + 1.1)) + 0.5, h, Math.floor(n.z + Math.sin(a) * (rr + 1.1)) + 0.5]);
+    const x = Math.floor(n.x + Math.cos(a) * (rr + 1.1));
+    const z = Math.floor(n.z + Math.sin(a) * (rr + 1.1));
+    // On the ramp's floor as carved (each step re-cut the cells of the one before it).
+    for (let y = h + 2; y >= h - 3; y--) if (!SOLID[get(st, x, y, z)] && !SOLID[get(st, x, y + 1, z)] && SOLID[get(st, x, y - 1, z)]) {
+      rampLamps.push([x + 0.5, y, z + 0.5]);
+      break;
+    }
   }
 
   // 3b. The island at the lake's heart, and its spire with a light at the top: the first thing the
@@ -329,6 +335,45 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
   for (const [x, y, z] of stalactiteTips) {
     if (get(st, x, y, z) === B.AIR) {
       put(st, x, y, z, tipLight);
+      lights.push([x, y, z]);
+    }
+  }
+  // 5b. The fall shows by the light round it (a strata fall is lit by its cave): lights out in the air
+  // before it, at its lip, halfway down and over its pool, so the water catches them all the way.
+  const towardX = (n.x - lipX) / (Math.hypot(n.x - lipX, n.z - lipZ) || 1);
+  const towardZ = (n.z - lipZ) / (Math.hypot(n.x - lipX, n.z - lipZ) || 1);
+  const fallLights: V3[] = [];
+  for (const [out, y] of [[2.2, by + 1], [2.6, Math.round((by + n.y) / 2)], [2.4, n.y + 1], [3.6, n.y + 2]] as Array<[number, number]>) {
+    const x = Math.floor(lipX + towardX * out);
+    const z = Math.floor(lipZ + towardZ * out);
+    if (get(st, x, y, z) !== B.AIR) continue;
+    put(st, x, y, z, lb);
+    lights.push([x, y, z]);
+    fallLights.push([x, y, z]);
+  }
+  // 5c. The floor reads too: a lower ring along the walls, and soft lights over the lake's shore
+  // (a light with no roof in reach floats as a mote of its biome's glow).
+  for (let k = 0; k < 12; k++) {
+    const a = (k / 12) * Math.PI * 2 + 0.45;
+    for (let r = R - 1.5; r > R - 9; r -= 0.5) {
+      const x = Math.floor(n.x + Math.cos(a) * r);
+      const z = Math.floor(n.z + Math.sin(a) * r);
+      const y = n.y + 3 + (k % 2);
+      if (get(st, x, y, z) === B.AIR && get(st, x, y - 1, z) === B.AIR) {
+        put(st, x, y, z, lb);
+        lights.push([x, y, z]);
+        break;
+      }
+    }
+  }
+  for (let k = 0; k < 8; k++) {
+    const a = (k / 8) * Math.PI * 2 + rng.range(-0.2, 0.2);
+    const r = lakeR + rng.range(2, 4);
+    const x = Math.floor(n.x + Math.cos(a) * r);
+    const z = Math.floor(n.z + Math.sin(a) * r);
+    const y = n.y + 2 + (k % 2);
+    if (get(st, x, y, z) === B.AIR && get(st, x, y - 1, z) === B.AIR) {
+      put(st, x, y, z, lb);
       lights.push([x, y, z]);
     }
   }

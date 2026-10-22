@@ -180,6 +180,27 @@ describe('the strata generator (round 3)', () => {
     const lamps = V.lamps!.filter((lp) => l.props.some((p) => p.kind === 'lanternPost' && Math.hypot(p.x - lp[0], p.z - lp[2]) < 1 && Math.abs(p.y - lp[1]) < 1));
     expect(lamps.length, 'ramp lamps').toBeGreaterThanOrEqual(3);
     expect(V.stalactites!, 'stalactites').toBeGreaterThanOrEqual(6);
+    // A strata fall shows by the light round it: lights by its lip, halfway down and over its pool.
+    const f0 = l.falls[0];
+    const litNear = (p: readonly number[], r: number) => {
+      for (let dz = -r; dz <= r; dz++) for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+        const id = l.world.get(Math.floor(p[0]) + dx, Math.floor(p[1]) + dy, Math.floor(p[2]) + dz);
+        if (!SOLID[id] && BLOCKS[id].emission) return true;
+      }
+      return false;
+    };
+    expect(litNear([f0.top[0], f0.top[1] + 1, f0.top[2]], 4), 'the fall\'s lip lit').toBe(true);
+    expect(litNear([f0.top[0], (f0.top[1] + f0.bottom[1]) / 2, f0.top[2]], 4), 'the fall lit halfway down').toBe(true);
+    expect(litNear([f0.bottom[0], f0.bottom[1] + 1, f0.bottom[2]], 4), 'the fall\'s pool lit').toBe(true);
+    // And the hall is lit all round: at least 30 lights inside it.
+    let hallLights = 0;
+    const R0 = Math.ceil(V.radius);
+    for (let dz = -R0; dz <= R0; dz++) for (let dx = -R0; dx <= R0; dx++) for (let y = V.centre[1] - 1; y < V.centre[1] + 30; y++) {
+      if (dx * dx + dz * dz > R0 * R0) continue;
+      const id = l.world.get(Math.floor(V.centre[0]) + dx, y, Math.floor(V.centre[2]) + dz);
+      if (!SOLID[id] && BLOCKS[id].emission) hallLights++;
+    }
+    expect(hallLights, 'lights in the hall').toBeGreaterThanOrEqual(30);
     for (const f of l.falls.slice(1)) {
       expect(f.id).toMatch(/^spring_/);
       expect(f.kind).toBe(l.rivers[0].kind);

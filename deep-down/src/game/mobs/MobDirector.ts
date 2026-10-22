@@ -8,7 +8,7 @@ import { MOB_DROPS, MOBS_RULES, TREASURE_DROPS } from './config';
 import { MobSim, type MobEnv, type MobSimEvent, type SentinelSite, type SimMob } from './MobSim';
 import { standableFor } from './nav';
 import { BestiaryLog, type BestiarySave } from './bestiary';
-import { HEART_BEAT, guardianState } from './guardian';
+import { HEART_BEAT, beatNudge, guardianState } from './guardian';
 import { ROSTERS } from './rosters';
 import { spawnFirstFight, type Lair } from './spawner';
 import { darkTide, linkStrata, type StrataLayout } from './strataLink';
@@ -89,6 +89,8 @@ export class MobDirector implements MobSystem {
   private fightMob = 0;
   /** Open-guard hints shown this game (the first one only). */
   private openHints = 0;
+  /** The Dark Heart whose beat was started on the score's grid (its id and asleep/awake). */
+  private heartStart = '';
 
   constructor(private readonly game: Game, private readonly hooks: MobDirectorHooks) {
     const g = game;
@@ -326,7 +328,9 @@ export class MobDirector implements MobSystem {
 
   /**
    * The Dark Heart beats on the boss theme's grid (AUDIO's `nextBeat`, its periods 4 / 3 / 2 / 1.5
-   * beats): each frame its phase is nudged a little toward the score's nearest half beat (never a jump).
+   * beats): it starts on the score's next beat (the first frame it is seen, and as it wakes), then
+   * each frame its phase is nudged a little toward the grid (never a jump): whole beats for its
+   * whole-beat periods, half beats for 1.5 (every other lub on the beat).
    */
   private lockHeartbeat(dt: number): void {
     const h = this.sim.mobs.find((m) => m.brain === 'heart' && !m.dying);
@@ -334,12 +338,14 @@ export class MobDirector implements MobSystem {
     const nb = (this.game as unknown as { audio?: { nextBeat?: () => { in: number; beat: number } | null } }).audio?.nextBeat?.();
     if (!nb || !(nb.beat > 0) || !Number.isFinite(nb.in)) return;
     const period = HEART_BEAT[h.state === 'sleep' ? 0 : Math.min(3, h.phase)];
-    const half = nb.beat / 2;
-    let e = ((1 - h.beat) * period - nb.in) % half;
-    if (e > half / 2) e -= half;
-    if (e < -half / 2) e += half;
-    // Late against the score (e > 0): it hurries; early: it waits.
-    h.beat += (e / period) * Math.min(1, dt * 1.5);
+    const key = `${h.id}:${h.state === 'sleep' ? 0 : 1}`;
+    if (this.heartStart !== key) {
+      this.heartStart = key;
+      // Its next lub on the score's next beat.
+      h.beat = Math.max(0, Math.min(0.999, 1 - Math.min(period, nb.in) / period));
+      return;
+    }
+    h.beat = beatNudge(h.beat, period, nb.in, nb.beat, dt);
   }
 
   // ------------------------------------------------------------------------------------

@@ -104,3 +104,55 @@ describe('no creature spawns under a lake', () => {
     expect(wet.wet, 'under the lake').toBe(0);
   }, 60_000);
 });
+
+// QA 21:29: the tutorial's "A creature!" step came while the explorer stood in the camp, where every
+// cell 8-18 m out is the camp or its margin and every monster is put away while the explorer is home:
+// no creature ever came. Now the Tick comes from the dark beyond the camp's edge and waits there.
+describe("the tutorial's first fight, called from the camp", () => {
+  const FLOOR = 10;
+  const solid = (x: number, y: number, z: number): boolean => y < FLOOR || y >= 24 || x < 0 || x >= 96 || z < 0 || z >= 96;
+  // The camp's region with the director's 4 m margin.
+  const inCamp = (x: number, y: number, z: number): boolean => x >= 26 && x <= 54 && z >= 26 && z <= 54 && y >= FLOOR - 4 && y <= FLOOR + 10;
+  const at = (x: number, z: number, home: boolean): MobContext => ({
+    time: 0,
+    player: { x, y: FLOOR, z, vx: 0, vz: 0 },
+    eye: { x, y: FLOOR + 1.62, z },
+    lantern: { x: x - 0.3, y: FLOOR + 1.2, z: z + 0.3, radius: 11, flame: 1, lit: true, raised: false },
+    depth: 200,
+    atCamp: home,
+    active: true,
+    airborne: false,
+  });
+
+  it('the Tick stands beyond the camp edge within the compass reach, waits outside (never put away), and fights once the explorer steps out', async () => {
+    const { spawnFirstFight } = await import('../../src/game/mobs/spawner');
+    const sim = new MobSim({ solid, light: () => 0, inCamp, depthOf: (y) => 300 - y }, 77);
+    sim.spawning = false;
+    const c = at(40.5, 40.5, true);
+    sim.update(1 / 30, c);
+    const m = spawnFirstFight(sim, c);
+    expect(m, 'a tick from the camp').not.toBeNull();
+    const tick = m!;
+    expect(inCamp(tick.foot.x, tick.foot.y, tick.foot.z), 'outside the camp and its margin').toBe(false);
+    expect(Math.hypot(tick.foot.x - 40.5, tick.foot.z - 40.5), 'within the compass reach (40 m)').toBeLessThan(36);
+    expect(tick.tutorial).toBe(true);
+    // 20 s with the explorer by the fire: it keeps out of the camp and is not put away.
+    let inside = 0;
+    for (let t = 0; t < 20; t += 1 / 30) {
+      sim.update(1 / 30, c);
+      if (inCamp(tick.position.x, tick.position.y - 0.2, tick.position.z)) inside++;
+    }
+    expect(inside, 'frames inside the camp').toBe(0);
+    expect(sim.mobs.includes(tick) && !tick.dying, 'still waiting').toBe(true);
+    // The explorer steps out toward it: it comes and strikes (told first).
+    const out = { x: tick.foot.x + (40.5 - tick.foot.x) * 0.2, z: tick.foot.z + (40.5 - tick.foot.z) * 0.2 };
+    const c2 = at(inCamp(out.x, FLOOR, out.z) ? tick.foot.x + 2 : out.x, inCamp(out.x, FLOOR, out.z) ? tick.foot.z + 2 : out.z, false);
+    const seen: string[] = [];
+    sim.on((e) => {
+      if ((e.type === 'telegraph' || e.type === 'attack') && e.mob === tick) seen.push(e.type);
+    });
+    for (let t = 0; t < 15 && !seen.includes('attack'); t += 1 / 30) sim.update(1 / 30, c2);
+    expect(seen[0], 'told first').toBe('telegraph');
+    expect(seen, 'it fights').toContain('attack');
+  }, 30_000);
+});

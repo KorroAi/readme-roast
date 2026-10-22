@@ -413,14 +413,21 @@ export function guardianOf(sim: MobSim, lair: Lair): SimMob | null {
  * One weak monster 8-10 m from the explorer (wider if the ground there does not allow), out of the
  * camp and any outpost, in the dark if it can (else in the dimmest spot), in sight and ahead of the
  * view when possible: a lone Amber Tick, a little bigger than its kin, 3 hit points, soft bites.
+ * From the camp (whose light and margin no creature enters), it comes from the dark beyond the
+ * camp's edge: 8-34 m out, only where a walk joins it to the explorer, nearer and in sight
+ * preferred; it waits there (it is not put away while the explorer is home) until the explorer
+ * steps out, and LOOP's compass finds it.
  */
 export function spawnFirstFight(sim: MobSim, ctx: MobContext): SimMob | null {
   const s = sim.env.solid;
   const p = ctx.player;
   const look = (ctx as MobContext & { look?: { x: number; z: number } }).look;
   const ahead = look ? Math.atan2(look.x, look.z) : 0;
+  const home = ctx.atCamp || sim.unsafe(p.x, p.y, p.z);
+  const rings: ReadonlyArray<readonly [number, number]> = home ? [[8, 14], [14, 20], [20, 27], [27, 34]] : [[8, 10], [10, 14], [14, 18]];
+  const reach = home ? reachOf(sim, ctx, MOBS_RULES.flowReach) : null;
   let best = null as { x: number; y: number; z: number; score: number } | null;
-  for (const [r0, r1] of [[8, 10], [10, 14], [14, 18]] as const) {
+  for (const [r0, r1] of rings) {
     for (let i = 0; i < 32; i++) {
       const a = ahead + ((i % 2 ? 1 : -1) * Math.ceil(i / 2) * Math.PI) / 16;
       for (const r of [r0, (r0 + r1) / 2, r1]) {
@@ -430,18 +437,20 @@ export function spawnFirstFight(sim: MobSim, ctx: MobContext): SimMob | null {
           const y = Math.floor(p.y) + (dy % 2 ? -(dy + 1) / 2 : dy / 2);
           if (!standableFor(s, x, y, z, 1)) continue;
           if (sim.unsafe(x + 0.5, y, z + 0.5) || sim.submerged(x, y, z)) break;
+          // (From the camp: never walled off from it, so it can come to the edge.)
+          if (reach && !reach.has(x, y, z)) break;
           const light = sim.env.light(x, y, z);
           if (light > 0.6) break;
           const eye = { x: x + 0.5, y: y + 0.4, z: z + 0.5 };
           const seen = sim.clearSight(eye, ctx.eye);
-          // Dark beats lit, in sight beats hidden, ahead beats behind.
-          const score = (light <= MOBS_RULES.darkLight ? 4 : 0) + (seen ? 3 : 0) + (Math.cos(a - ahead) + 1) - Math.abs(dy) * 0.1;
+          // Dark beats lit, in sight beats hidden, ahead beats behind (and, from the camp, near beats far).
+          const score = (light <= MOBS_RULES.darkLight ? 4 : 0) + (seen ? 3 : 0) + (Math.cos(a - ahead) + 1) - Math.abs(dy) * 0.1 - (home ? r * 0.04 : 0);
           if (!best || score > best.score) best = { x: x + 0.5, y, z: z + 0.5, score };
           break;
         }
       }
     }
-    if (best && best.score >= 7) break;
+    if (best && best.score >= (home ? 6 : 7)) break;
   }
   if (!best) return null;
   const m = sim.spawn('amberTick', best.x, best.y, best.z, { biome: sim.biomeAt(best.x, best.y, best.z) });
@@ -454,6 +463,7 @@ export function spawnFirstFight(sim: MobSim, ctx: MobContext): SimMob | null {
   m.maxHp = 3;
   m.power = 0.6;
   m.cooldown = 2.5;
+  m.tutorial = true;
   m.yaw = Math.atan2(p.x - m.position.x, p.z - m.position.z);
   return m;
 }

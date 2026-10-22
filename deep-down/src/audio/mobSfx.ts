@@ -238,7 +238,8 @@ export const MOB_SFX = {
   /** A bat's wings: a quick patter of soft beats. */
   'mob.flutter': def(0.45, 0.25, 1, 0.8, (v) => {
     const t = v.t;
-    for (let i = 0; i < 8; i++) noiseBurst(v, t + i * v.rand(0.055, 0.075), 'pink', 'bandpass', v.rand(900, 1500), 1.4, v.rand(0.12, 0.2), 0.035);
+    // (×4 and a little longer than at first: AUDIO measured it at -52 LUFS, inaudible on a phone.)
+    for (let i = 0; i < 8; i++) noiseBurst(v, t + i * v.rand(0.055, 0.075), 'pink', 'bandpass', v.rand(900, 1500), 1.4, v.rand(0.5, 0.85), 0.042);
   }, 0.6),
   /** A ceiling dropper's tell: a drip, then another, and a faint creak of roots or ice. */
   'mob.drip': def(0.6, 0.55, 3, 1.0, (v) => {

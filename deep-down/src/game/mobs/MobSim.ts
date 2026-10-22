@@ -250,6 +250,11 @@ export class SimMob implements Mob {
   trust = 0;
   /** A crawler that climbs above the explorer to drop from the ceiling (once). */
   ambush = false;
+  /**
+   * The tutorial's first foe: it may wait at the camp's edge while the explorer is home (every other
+   * monster is put away then), so the step's "A creature!" always has one to show.
+   */
+  tutorial = false;
   // ---- Round 3: the feel of a fight (hit reactions and deaths read on the body)
   /** A blow's flinch 0..1 (it decays in a quarter second), and the way the blow pushed it (unit, world xz). */
   hurt = 0;
@@ -808,7 +813,7 @@ export class MobSim {
       // Put away what is far behind (and every monster when the explorer is home). Guardians keep to their lairs.
       const reach = m.brain === 'vista' ? 140 : m.guardian ? 90 : m.brain === 'sentinel' ? 60 : m.tame ? Infinity : MOBS_RULES.despawn;
       const far = Math.hypot(m.position.x - ctx.player.x, m.position.y - ctx.player.y, m.position.z - ctx.player.z) > reach;
-      if (far || (ctx.atCamp && m.hostile && m.brain !== 'sentinel' && !m.guardian)) this.remove(m);
+      if (far || (ctx.atCamp && m.hostile && m.brain !== 'sentinel' && !m.guardian && !m.tutorial)) this.remove(m);
       // Monsters never enter the camp or an outpost: one that strays in turns back to the dark.
       else if (m.hostile && !m.guardian && (this.unsafe(m.position.x, m.position.y, m.position.z) || (!this.strata && this.env.depthOf(m.position.y) < this.monsterDepth - 12))) this.remove(m);
     }

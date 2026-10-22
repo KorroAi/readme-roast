@@ -66,6 +66,20 @@ export function openGuard(sim: MobSim, m: SimMob, seconds: number, state: 'recoi
  */
 export const HEART_BEAT: readonly number[] = [2.0, 1.5, 1.0, 0.75];
 
+/**
+ * One frame's nudge of a beat's phase (0..1, the lub at 0) toward the score's grid (pure): `nextIn`
+ * s to the score's next beat, `beatLen` its length. Whole beats for a whole-beat period, half beats
+ * for 1.5 (every other lub on the beat). Late against the score it hurries, early it waits.
+ */
+export function beatNudge(beat: number, period: number, nextIn: number, beatLen: number, dt: number): number {
+  const beats = period / beatLen;
+  const grid = Math.abs(beats - Math.round(beats)) < 0.01 ? beatLen : beatLen / 2;
+  let e = ((1 - beat) * period - nextIn) % grid;
+  if (e > grid / 2) e -= grid;
+  if (e < -grid / 2) e += grid;
+  return beat + (e / period) * Math.min(1, dt * 1.5);
+}
+
 /** The Dark Heart's beat: its shell swells twice (lub-dub) and the chamber hears it. */
 function heartbeat(sim: MobSim, m: SimMob, dt: number): void {
   if (m.brain !== 'heart') return;
