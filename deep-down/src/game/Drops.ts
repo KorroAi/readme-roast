@@ -56,14 +56,37 @@ export class DropSystem {
     if (g) return g;
     const def = ITEMS[item];
     const b = new VoxBuilder();
-    if (def.icon.kind === 'cube') {
+    const k = def.icon.kind;
+    const c = def.color;
+    const dark = shade(c, 0.55);
+    if (k === 'cube') {
       miniBlock(b, this.atlas, def.icon.tile, 0.3);
-    } else if (def.icon.kind === 'shard') {
-      b.push().translate(0, -0.18, 0).crystal(0.08, 0.28, 0.12, 6, 0x6ff2ff, 0x29b7d6, 0.85).pop();
-      b.push().translate(0.07, -0.18, 0.03).rotateZ(-0.5).crystal(0.05, 0.16, 0.08, 5, 0x9ff6ff, 0x3fc9e0, 0.85).pop();
-    } else {
+    } else if (k === 'shard' || k === 'gem') {
+      // Round 3 (LOOP): a crystal in the item's own colour.
+      b.push().translate(0, -0.18, 0).crystal(0.08, 0.28, 0.12, 6, c, dark, 0.85).pop();
+      b.push().translate(0.07, -0.18, 0.03).rotateZ(-0.5).crystal(0.05, 0.16, 0.08, 5, shade(c, 1.2), dark, 0.85).pop();
+    } else if (k === 'ore') {
+      // A lump of host rock with nuggets of the ore's colour.
+      b.cube(0, 0, 0, 0.26, 0.22, 0.24, 0x4a4e57);
+      b.cube(0.06, 0.07, 0.11, 0.09, 0.08, 0.04, c, 1, false);
+      b.cube(-0.07, -0.02, 0.11, 0.07, 0.07, 0.04, c, 1, false);
+      b.cube(0.12, -0.04, 0.02, 0.04, 0.08, 0.08, c, 1, false);
+    } else if (k === 'ingot') {
+      b.cube(0, 0, 0, 0.32, 0.1, 0.16, c);
+      b.cube(0, 0.06, 0, 0.26, 0.03, 0.12, shade(c, 1.2), 1, false);
+    } else if (k === 'potion') {
+      b.cube(0, -0.04, 0, 0.16, 0.2, 0.16, c);
+      b.cube(0, 0.1, 0, 0.06, 0.08, 0.06, 0xd8d0c0);
+    } else if (k === 'food') {
+      b.cube(0, -0.06, 0, 0.06, 0.14, 0.06, 0xe8e0d0);
+      b.cube(0, 0.04, 0, 0.24, 0.08, 0.24, c);
+    } else if (k === 'tablet' || k === 'page' || k === 'heart') {
       b.cube(0, 0, 0, 0.3, 0.36, 0.08, 0x59616f);
-      b.cube(0, 0.02, 0.045, 0.16, 0.2, 0.01, 0x48d6ea, 1, false);
+      b.cube(0, 0.02, 0.045, 0.16, 0.2, 0.01, k === 'heart' ? c : 0x48d6ea, 1, false);
+    } else {
+      // Parts, wood, building items and gear: a small block in the item's colour.
+      b.cube(0, 0, 0, 0.24, 0.2, 0.24, c);
+      b.cube(0, 0.11, 0, 0.18, 0.02, 0.18, shade(c, 1.15), 1, false);
     }
     g = b.build();
     this.geometries.set(item, g);
@@ -275,4 +298,12 @@ export function miniBlock(b: VoxBuilder, atlas: TileAtlas, tile: number, size: n
         else b.quad([p(i, j + 1), p(i + 1, j + 1), p(i + 1, j), p(i, j)], face.n, c, 0);
       }
   }
+}
+
+/** Scale an sRGB colour's channels (clamped). */
+function shade(c: number, f: number): number {
+  const r = Math.min(255, Math.round(((c >> 16) & 255) * f));
+  const g = Math.min(255, Math.round(((c >> 8) & 255) * f));
+  const b = Math.min(255, Math.round((c & 255) * f));
+  return (r << 16) | (g << 8) | b;
 }

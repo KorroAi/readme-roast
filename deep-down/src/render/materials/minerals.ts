@@ -23,7 +23,7 @@ const S = MAT_SIZE;
 const TAU = Math.PI * 2;
 
 /** Rasterized vein mask: 0 = rock, otherwise 1. Stamps a small brush along each path. */
-class VeinMask {
+export class VeinMask {
   readonly m = new Uint8Array(S * S);
   stamp(x: number, y: number, r: number): void {
     const R = Math.ceil(r);
@@ -47,13 +47,13 @@ class VeinMask {
  * Guarantee that every 1 m window (16 x 16 texels, any position on a 4-texel step) shows at
  * least `min` ore texels: the player mines ore by sight, and an ore block is 1 m wide.
  */
-function ensureCoverage(mask: VeinMask, rng: Rng, min: number, add: (x: number, y: number) => void): void {
+export function ensureCoverage(mask: VeinMask, rng: Rng, min: number, add: (x: number, y: number) => void): void {
   // Non-overlapping windows per pass, staggered between passes, so each gap is filled once.
   for (const oy of [0, 8, 4, 12]) for (const ox of [0, 8, 4, 12]) windowMinimum(mask.m, 16, 16, min, (x, y) => add(x - 3 + rng.int(0, 6), y - 3 + rng.int(0, 6)), ox, oy);
 }
 
 /** A dendritic vein: a long path with a few short branches. */
-function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: number, len: number, w: number): void {
+export function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: number, len: number, w: number): void {
   const pts = crackPath(rng, x, y, ang, len, 0.22, 0.06);
   // Pinch and swell along the path.
   const phase = rng.next() * TAU;
@@ -71,7 +71,7 @@ function branchingVein(mask: VeinMask, rng: Rng, x: number, y: number, ang: numb
  * where the fresh ore shows (2-3 texel nuggets, lit, with a rare glint). The bright colour is
  * a small share of the vein, so the deposit reads as ore in rock rather than painted lines.
  */
-function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], glint: number, glintShare: number, height: number, minor?: VeinMask): void {
+export function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], glint: number, glintShare: number, height: number, minor?: VeinMask): void {
   const n = fbm(rng, 16, 2);
   const bead = fbm(rng, 32, 1);
   for (let y = 0; y < S; y++)
@@ -94,7 +94,7 @@ function paintVein(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[
 }
 
 /** A crust (verdigris, rust) on the rock around a vein, patchy, bleeding downward on walls. */
-function crust(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], amount: number, drip: number): void {
+export function crust(c: MatCanvas, rng: Rng, mask: VeinMask, pal: readonly number[], amount: number, drip: number): void {
   const patch = fbm(rng, 8, 2);
   const near1 = dilate(mask.m, 1);
   const near2 = dilate(mask.m, 2);

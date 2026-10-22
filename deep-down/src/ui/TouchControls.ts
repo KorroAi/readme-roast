@@ -1,6 +1,10 @@
 import { t } from '../i18n';
 import type { InputState } from '../input/types';
+import { SPRINT_DEFLECTION } from '../game/fp/constants';
 import { h } from './dom';
+import type { PlayerActions } from './hud/actions';
+import type { InteractView } from './types';
+import { iconSvg } from './hud/glyphs';
 import {
   advanceLookPhase,
   clampBase,
@@ -40,16 +44,29 @@ interface LookTouch {
 /** Elements that handle their own pointers; touches starting on them never look or mine. */
 const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [data-touch-ignore]';
 
+/** Cooldown rings are drawn in this many steps (a still cooldown writes nothing). */
+const CD_STEPS = 40;
+
+/** The control layout's user preferences (Settings: button size and opacity). */
+export interface ControlPrefs {
+  /** Button size multiplier (0.8 .. 1.3). */
+  scale: number;
+  /** Button opacity at rest (0.35 .. 1). */
+  opacity: number;
+}
+
 /**
- * First-person touch controls, one thumb first:
- * - tap the world: game/TapController mines the tapped block to the end, walks to tapped ground,
- *   or walks to a tapped object and uses it (a tap on nothing turns the view toward it);
- * - drag anywhere: look;
- * - hold still on a block: mine at the finger, on to the next block of the same kind;
- * - an optional floating joystick in the lower part of the left third (right third left-handed),
- *   shown only where the thumb lands;
- * - a Use chip when something usable is near. The bag and the menu are HUD plates.
- * Writes only InputState.
+ * The round 3 mobile action layout (BRIEF §0.6), upright first:
+ * - lower left: a floating movement joystick, always available (its ghost shows where to put the
+ *   thumb); pushed to its edge it sprints;
+ * - anywhere else: drag to look; a quick tap acts on what it lands on (game/TapController: mine,
+ *   attack, use, or walk there), a still hold mines at the finger;
+ * - right thumb: the big Action button (mine or attack what the reticle is on; hold to go on; a drag
+ *   that starts on it also looks), Jump, Dash and Sonar (with their cooldown rings), Place (only
+ *   with a placeable item in hand) and the contextual Interact chip (the target's icon and verb);
+ * - left-handed: the whole layout mirrors.
+ * Every control carries `data-ui-target` (ui/hud/actions UiTargetId) for the tutorial's ring.
+ * Writes only through PlayerActions (and the tap fields of InputState).
  *
  * Touches are tracked by pointerId from window-level pointer events, so the layer itself
  * stays transparent to the mouse (desktop play goes to DesktopInput through the canvas).
@@ -62,54 +79,101 @@ export class TouchControls {
   private touchUi = false;
   private stick: StickTouch | null = null;
   private look: LookTouch | null = null;
+  /** A drag that started on the Action button looks while the button stays held. */
+  private actionLook: { id: number; x: number; y: number } | null = null;
   private ownsMining = false;
-  /** A held Mine control (none in first person; kept so a blur releases any mining this layer started). */
-  private mineHeld = false;
   private holdTimer = 0;
-  private tapTimer = 0;
   private aimResetTimer = 0;
   private radius = 60;
   private readonly stickOut: StickOutput = { x: 0, y: 0, knobX: 0, knobY: 0 };
   private readonly ndc = { x: 0, y: 0 };
   private readonly base: HTMLElement;
   private readonly knob: HTMLElement;
-  private readonly ring: HTMLElement;
+  private readonly actionBtn: HTMLButtonElement;
+  private readonly jumpBtn: HTMLButtonElement;
+  private readonly dashBtn: HTMLButtonElement;
+  private readonly sonarBtn: HTMLButtonElement;
+  private readonly placeBtn: HTMLButtonElement;
   private readonly useBtn: HTMLButtonElement;
+  private readonly useIcon: HTMLElement;
+  private readonly useVerb: HTMLElement;
   private readonly useLabel: HTMLElement;
-  private useText: string | null = null;
+  private useKey: string | null = null;
   /** The Flash Charge chip: shown only while charges are carried and a monster is near. */
   private readonly flashBtn: HTMLButtonElement;
   private readonly flashCount: HTMLElement;
   private flashShown = -1;
+  private placeShown: boolean | null = null;
+  private dashQ = -1;
+  private sonarQ = -1;
+  private sprinting = false;
   private readonly disposers: Array<() => void> = [];
 
-  constructor(private readonly root: HTMLElement, private readonly input: InputState) {
+  constructor(private readonly root: HTMLElement, private readonly input: InputState, private readonly actions: PlayerActions) {
     this.knob = h('div', { class: 'dd-stick-knob' });
-    this.base = h('div', { class: 'dd-stick idle', 'aria-hidden': 'true' }, this.knob);
-    this.ring = h('div', { class: 'dd-mine-ring', 'aria-hidden': 'true' });
-    this.useLabel = h('span', { class: 'dd-use-label' });
-    this.useBtn = this.button('dd-tbtn dd-use', [h('span', { class: 'dd-use-key', text: t('hud.interact') }), this.useLabel], () => {
-      input.interactPressed = true;
+    this.base = h('div', { class: 'dd-stick idle', 'aria-hidden': 'true', 'data-ui-target': 'joystick' }, this.knob);
+
+    this.actionBtn = this.padButton('action', t('ctl.action.aria'), 'pick', t('ctl.action'));
+    this.jumpBtn = this.padButton('jump', t('ctl.jump'), 'jump', null);
+    this.dashBtn = this.padButton('dash', t('ctl.dash.aria'), 'dash', null);
+    this.sonarBtn = this.padButton('sonar', t('ctl.sonar.aria'), 'sonar', null);
+    this.placeBtn = this.padButton('place', t('ctl.place.aria'), 'place', null);
+    this.placeBtn.hidden = true;
+    this.wireHold(this.actionBtn, () => actions.action(true), () => actions.action(false));
+    this.wireHold(this.jumpBtn, () => actions.jump(true), () => actions.jump(false));
+    this.wireHold(this.dashBtn, () => actions.dash());
+    this.wireHold(this.sonarBtn, () => actions.sonar());
+    this.wireHold(this.placeBtn, () => actions.place());
+    // A drag that starts on Action also turns the view (one thumb can hold and aim).
+    this.actionBtn.addEventListener('pointermove', (e) => {
+      const a = this.actionLook;
+      if (!a || a.id !== e.pointerId || !this.enabled) return;
+      actions.look(e.clientX - a.x, e.clientY - a.y);
+      a.x = e.clientX;
+      a.y = e.clientY;
     });
+    this.actionBtn.addEventListener('pointerdown', (e) => {
+      if (this.enabled) this.actionLook = { id: e.pointerId, x: e.clientX, y: e.clientY };
+    });
+    const endActionLook = (e: PointerEvent) => {
+      if (this.actionLook?.id === e.pointerId) this.actionLook = null;
+    };
+    this.actionBtn.addEventListener('pointerup', endActionLook);
+    this.actionBtn.addEventListener('pointercancel', endActionLook);
+
+    this.useIcon = h('span', { class: 'dd-use-icon', 'aria-hidden': 'true' });
+    this.useVerb = h('span', { class: 'dd-use-verb' });
+    this.useLabel = h('span', { class: 'dd-use-label' });
+    this.useBtn = h('button', { class: 'dd-tbtn dd-use', type: 'button', 'data-ui-target': 'interact' }, this.useIcon, h('span', { class: 'dd-use-text' }, this.useVerb, this.useLabel));
+    this.wireHold(this.useBtn, () => actions.interact());
     this.useBtn.hidden = true;
     this.flashCount = h('span', { class: 'dd-flash-count' });
-    this.flashBtn = this.button('dd-tbtn dd-flash', [h('span', { class: 'dd-flash-glyph', 'aria-hidden': 'true' }), h('span', { class: 'dd-flash-label', text: t('weapon.flash') }), this.flashCount], () => {
+    this.flashBtn = h('button', { class: 'dd-tbtn dd-flash', type: 'button' }, h('span', { class: 'dd-flash-glyph', 'aria-hidden': 'true' }), h('span', { class: 'dd-flash-label', text: t('weapon.flash') }), this.flashCount);
+    this.wireHold(this.flashBtn, () => {
       input.flashPressed = true;
     });
     this.flashBtn.hidden = true;
-    // First person: no Mine or Jump buttons (a tap mines, holding mines on, ledges are stepped up
-    // on their own); the bag and the menu are plates of the HUD's top bar.
     this.el = h(
       'div',
-      { class: 'dd-touch dd-fp' },
+      { class: 'dd-touch dd-fp dd-r3' },
       this.base,
-      this.ring,
-      h('div', { class: 'dd-action-cluster' }, this.useBtn),
+      h('div', { class: 'dd-pad' }, this.sonarBtn, this.dashBtn, this.placeBtn, this.jumpBtn, this.actionBtn),
+      this.useBtn,
       this.flashBtn,
     );
     root.appendChild(this.el);
     this.sizeStick(window.innerWidth, window.innerHeight);
     this.wire(root);
+  }
+
+  private padButton(id: string, aria: string, glyph: Parameters<typeof iconSvg>[0], label: string | null): HTMLButtonElement {
+    const b = h('button', { class: `dd-pad-btn dd-pad-${id}`, type: 'button', 'aria-label': aria, 'data-ui-target': id });
+    const g = h('span', { class: 'dd-pad-glyph', 'aria-hidden': 'true' });
+    g.innerHTML = iconSvg(glyph);
+    b.append(g);
+    if (label) b.append(h('span', { class: 'dd-pad-label', 'aria-hidden': 'true', text: label }));
+    b.append(h('span', { class: 'dd-pad-cd', 'aria-hidden': 'true' }));
+    return b;
   }
 
   private wire(root: HTMLElement): void {
@@ -157,12 +221,53 @@ export class TouchControls {
     this.releaseAll();
   }
 
-  /** Show the Use button with a contextual label (e.g. "Workbench"), or hide it. */
+  /** Button size and opacity (Settings). */
+  setPrefs(p: ControlPrefs): void {
+    const scale = Math.max(0.8, Math.min(1.3, p.scale || 1));
+    const opacity = Math.max(0.35, Math.min(1, p.opacity || 0.85));
+    this.root.style.setProperty('--btn-scale', String(scale));
+    this.root.style.setProperty('--btn-opacity', String(opacity));
+  }
+
+  /** Show the Use button with a contextual label (e.g. "Workbench"), or hide it (the first version's call). */
   setInteractVisible(label: string | null): void {
-    if (label === this.useText) return;
-    this.useText = label;
-    this.useBtn.hidden = label === null;
-    if (label !== null) this.useLabel.textContent = label;
+    this.setInteract(label === null ? null : { icon: 'other', verb: t('ctl.interact'), label });
+  }
+
+  /** The Interact chip: the target's icon and verb ("Open · Chest"), or hidden. */
+  setInteract(v: InteractView | null): void {
+    const key = v ? `${v.icon}|${v.verb}|${v.label}` : null;
+    if (key === this.useKey) return;
+    this.useKey = key;
+    this.useBtn.hidden = v === null;
+    if (!v) return;
+    this.useIcon.innerHTML = iconSvg(v.icon);
+    this.useVerb.textContent = v.verb;
+    this.useLabel.textContent = v.label;
+    this.useBtn.setAttribute('aria-label', `${v.verb}: ${v.label}`);
+  }
+
+  /** The Place button shows only with something placeable in hand. */
+  setPlaceVisible(b: boolean): void {
+    if (b === this.placeShown) return;
+    this.placeShown = b;
+    this.placeBtn.hidden = !b;
+  }
+
+  /** Cooldowns in [0, 1] (0 ready): a ring sweeps back round the button. */
+  setCooldowns(dash: number, sonar: number): void {
+    const dq = Math.round(Math.max(0, Math.min(1, dash)) * CD_STEPS);
+    if (dq !== this.dashQ) {
+      this.dashQ = dq;
+      this.dashBtn.style.setProperty('--cd', String(dq / CD_STEPS));
+      this.dashBtn.classList.toggle('cooling', dq > 0);
+    }
+    const sq = Math.round(Math.max(0, Math.min(1, sonar)) * CD_STEPS);
+    if (sq !== this.sonarQ) {
+      this.sonarQ = sq;
+      this.sonarBtn.style.setProperty('--cd', String(sq / CD_STEPS));
+      this.sonarBtn.classList.toggle('cooling', sq > 0);
+    }
   }
 
   /** Show the Flash Charge chip with the charges carried (0 hides it). */
@@ -171,8 +276,8 @@ export class TouchControls {
     if (n === this.flashShown) return;
     this.flashShown = n;
     this.flashBtn.hidden = n === 0;
-    this.flashCount.textContent = n > 0 ? `\u00d7${n}` : '';
-    this.flashBtn.setAttribute('aria-label', `${t('weapon.flash')} \u00d7${n}`);
+    this.flashCount.textContent = n > 0 ? `×${n}` : '';
+    this.flashBtn.setAttribute('aria-label', `${t('weapon.flash')} ×${n}`);
   }
 
   dispose(): void {
@@ -184,8 +289,8 @@ export class TouchControls {
 
   // ------------------------------------------------------------------------------------
 
-  private button(cls: string, content: HTMLElement[], press: () => void, release?: () => void): HTMLButtonElement {
-    const b = h('button', { class: cls, type: 'button' }, ...content);
+  /** Press on pointerdown (no click delay), release on up, cancel or a lost capture. */
+  private wireHold(b: HTMLButtonElement, press: () => void, release?: () => void): void {
     let pressedAt = -Infinity;
     const up = () => {
       if (!b.classList.contains('pressed')) return;
@@ -212,7 +317,6 @@ export class TouchControls {
       press();
       release?.();
     });
-    return b;
   }
 
   private accepts(e: PointerEvent): boolean {
@@ -252,7 +356,6 @@ export class TouchControls {
       window.clearTimeout(this.aimResetTimer);
       window.clearTimeout(this.holdTimer);
       this.holdTimer = window.setTimeout(() => this.onHoldTimer(), HOLD_TO_MINE_MS);
-      this.showRing(e.clientX, e.clientY, 'pending');
     }
     e.preventDefault();
   }
@@ -272,13 +375,10 @@ export class TouchControls {
     look.phase = advanceLookPhase(prev, x - look.startX, y - look.startY, e.timeStamp - look.startT);
     if (look.phase === 'look') {
       // The first drag frame includes the slop so the camera follows the finger 1:1.
-      this.input.lookDX += x - (prev === 'pending' ? look.startX : look.lastX);
-      this.input.lookDY += y - (prev === 'pending' ? look.startY : look.lastY);
-      if (prev === 'pending') this.hideRing();
+      this.actions.look(x - (prev === 'pending' ? look.startX : look.lastX), y - (prev === 'pending' ? look.startY : look.lastY));
     } else if (look.phase === 'mine') {
       if (prev === 'pending') this.beginMine();
       this.aimAt(x, y);
-      this.moveRing(x, y);
     }
     look.lastX = x;
     look.lastY = y;
@@ -300,22 +400,15 @@ export class TouchControls {
     if (action === 'tapMine') {
       // A tap: the game mines the tapped block until it breaks (or walks there, or uses it).
       this.emitTap(look.lastX, look.lastY);
-      this.flashRing();
-    } else {
-      if (action === 'endMine') this.endMining();
-      this.hideRing();
-    }
+    } else if (action === 'endMine') this.endMining();
     if (action !== 'none') this.scheduleAimReset();
   }
 
-  /**
-   * After mining at a finger, hand the aim back to aim assist once the swing has landed, so the
-   * highlighted block (and the Mine button) follow the view again.
-   */
+  /** After mining at a finger, hand the aim back to the reticle once the swing has landed. */
   private scheduleAimReset(): void {
     window.clearTimeout(this.aimResetTimer);
     this.aimResetTimer = window.setTimeout(() => {
-      if (!this.look && !this.mineHeld && !this.input.mining) this.input.aimFromPointer = false;
+      if (!this.look && !this.input.mining) this.input.aimFromPointer = false;
     }, 900);
   }
 
@@ -337,11 +430,9 @@ export class TouchControls {
   }
 
   private beginMine(): void {
-    window.clearTimeout(this.tapTimer);
     this.input.mining = true;
     this.input.aimFromPointer = true;
     this.ownsMining = true;
-    this.ring.className = 'dd-mine-ring on mine';
     // The held block is also locked, so it is finished even if the finger lifts early.
     if (this.look) this.emitTap(this.look.startX, this.look.startY);
   }
@@ -355,14 +446,13 @@ export class TouchControls {
   }
 
   /**
-   * Stop mining. The aim stays at the last finger position: a swing already in flight
-   * re-acquires its target at the impact frame, and must find the block that was touched.
+   * Stop mining at the finger. The aim stays at the last finger position: a swing already in
+   * flight re-acquires its target at the impact frame, and must find the block that was touched.
    */
   private endMining(): void {
-    window.clearTimeout(this.tapTimer);
     if (this.look?.phase === 'mine' || !this.ownsMining) return;
     this.ownsMining = false;
-    if (!this.mineHeld) this.input.mining = false;
+    this.input.mining = false;
   }
 
   private aimAt(x: number, y: number): void {
@@ -392,16 +482,24 @@ export class TouchControls {
       [s.baseX, s.baseY] = clampBase(fx, fy, window.innerWidth, window.innerHeight, this.radius);
       this.placeBase();
     }
-    const out = joystick(x - s.baseX, y - s.baseY, this.stickOut, this.radius);
-    this.input.moveX = out.x;
-    this.input.moveY = out.y;
+    const dx = x - s.baseX;
+    const dy = y - s.baseY;
+    const out = joystick(dx, dy, this.stickOut, this.radius);
+    // Pushed to the edge: sprint (BRIEF §0.6).
+    const sprint = Math.hypot(dx, dy) / this.radius >= SPRINT_DEFLECTION && out.y > 0.35;
+    this.actions.move(out.x, out.y, sprint);
+    if (sprint !== this.sprinting) {
+      this.sprinting = sprint;
+      this.base.classList.toggle('sprint', sprint);
+    }
     this.knob.style.transform = `translate3d(${out.knobX}px, ${out.knobY}px, 0)`;
   }
 
   private endStick(): void {
     this.stick = null;
-    this.input.moveX = 0;
-    this.input.moveY = 0;
+    this.actions.move(0, 0, false);
+    this.sprinting = false;
+    this.base.classList.remove('sprint');
     this.knob.style.transform = '';
     this.base.style.transform = '';
     this.base.classList.add('idle');
@@ -412,31 +510,14 @@ export class TouchControls {
     window.clearTimeout(this.holdTimer);
     window.clearTimeout(this.aimResetTimer);
     this.look = null;
-    // Only release mining this layer started (the Mine button or a finger on the world): the
-    // desktop mouse writes the same flag and a window blur must not cancel its swing.
-    const touchMining = this.mineHeld || this.ownsMining;
-    this.mineHeld = false;
+    this.actionLook = null;
+    // Only release mining this layer started (a finger on the world): the desktop mouse writes
+    // the same flag and a window blur must not cancel its swing.
+    const touchMining = this.ownsMining;
     this.endMining();
     if (touchMining) this.input.mining = false;
-    this.hideRing();
+    if (this.input.actionHeld && this.actionBtn.classList.contains('pressed')) this.actions.action(false);
     this.input.jumpHeld = false;
     for (const b of this.el.querySelectorAll('.pressed')) b.classList.remove('pressed');
-  }
-
-  private showRing(x: number, y: number, state: 'pending'): void {
-    this.moveRing(x, y);
-    this.ring.className = `dd-mine-ring on ${state}`;
-  }
-
-  private moveRing(x: number, y: number): void {
-    this.ring.style.transform = `translate3d(${x}px, ${y}px, 0)`;
-  }
-
-  private flashRing(): void {
-    this.ring.className = 'dd-mine-ring on tap';
-  }
-
-  private hideRing(): void {
-    this.ring.className = 'dd-mine-ring';
   }
 }

@@ -109,6 +109,7 @@ function boot(): void {
     url.searchParams.set('view', lab.currentView);
     if (lab.lightMode === 'game') url.searchParams.set('light', 'game');
     else url.searchParams.delete('light');
+    if (lab.currentView === 'biomes') url.searchParams.set('bay', String(lab.bay));
     if (lab.currentView === 'transitions') {
       url.searchParams.set('cam', lab.transitionOptions.cam);
       if (lab.transitionOptions.fog) url.searchParams.set('fog', '1');
@@ -141,7 +142,10 @@ function boot(): void {
     buildLabels(v);
     syncUrl();
   }
-  select(LAB_VIEWS.some((v) => v.id === initial) ? initial : 'materials');
+  // Round 3: the biome gallery is URL-only (?view=biomes&bay=0..12), a capture view.
+  const bayParam = Number(params.get('bay'));
+  if (Number.isFinite(bayParam)) lab.setBay(bayParam);
+  select(LAB_VIEWS.some((v) => v.id === initial) || initial === 'biomes' ? initial : 'materials');
 
   const tmp = new THREE.Vector3();
   const placeLabels = () => {
@@ -171,6 +175,7 @@ function boot(): void {
       return lab.ready && lab.frames > 5;
     },
     setView: (v: LabView) => select(v),
+    setBay: (n: number) => lab.setBay(n),
     setLighting: (m: LabLight) => {
       lab.setLighting(m);
       syncLight();

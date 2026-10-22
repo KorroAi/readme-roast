@@ -2,14 +2,17 @@ import * as THREE from 'three';
 import { BLOCKS, SIDE_VARIANTS, VARIANT_COUNT } from '../config/blocks';
 import { CRACK_FIRST_LAYER, CRACK_STAGES, TILE_NAMES, TILE_SIZE } from '../config/tiles';
 import { LIGHTING_GLSL, type LightingUniforms } from './lighting';
-import { FAMILY, GEO_SIDE_OF, GEO_TOP_OF, MAT, MATERIAL_NAMES } from './materials';
+import { BASE_LAYER_COUNT, FAMILY, GEO_SIDE_OF, GEO_TOP_OF, MAT, MATERIAL_NAMES, type MaterialName } from './materials';
+
+/** Round 3: the biome metal and resin ores (their tall texels glint as metal). */
+const METAL_LAYERS: readonly MaterialName[] = ['goldVein', 'silverVein', 'frostIron', 'orichalcum', 'starsteel', 'runegold', 'pearlOre', 'amberOre', 'sapAmber'];
 import { courseGlsl } from './materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from './materials/paint';
 import { AO_SCALE, OFFSET_RANGE } from './mesher';
 import type { TerrainUniforms } from './terrainRig';
 import type { TileAtlas } from './textures';
 import { DETAIL_UNIFORM, detailGlsl } from './detail';
-import { HI_SIZE } from './terrainRig';
+import { HI_SIZE, MAT_GLOW_GLSL } from './terrainRig';
 
 /** Builds the sRGB texture array from the procedural tiles, with mipmaps for distant faces. */
 export function createTileTexture(atlas: TileAtlas): THREE.DataArrayTexture {
@@ -97,7 +100,7 @@ precision highp sampler3D;
 ${LIGHTING_GLSL}
 uniform sampler2DArray uMat;
 uniform sampler3D uNoise;
-uniform float uMatGlow[${MATERIAL_NAMES.length}];
+${MAT_GLOW_GLSL}
 uniform vec4 uTarget;   // xyz = cell being mined, w = crack tile layer (< 0: none)
 uniform vec4 uTargetFx; // x = impact flash, y = actively mining, z = too hard
 uniform vec4 uTargetHit; // xyz = where the mining ray hits the block, w = 1 when known
@@ -111,6 +114,8 @@ uniform vec4 uHiSel;
 uniform vec4 uHiFx;
 uniform vec3 uHiCol[5];
 uniform vec4 uHiView;
+uniform vec4 uSonar;   // xyz origin, w the shell's radius now (render/sonar.ts)
+uniform vec4 uSonarFx; // x band width, y strength (0 off), z full radius
 int hiCode(ivec3 c) {
   ivec3 l = c - ivec3(uHiOrigin.xyz);
   if (uHiOrigin.w < 0.5 || any(lessThan(l, ivec3(0))) || any(greaterThan(l, ivec3(${HI_SIZE - 1})))) return 0;
@@ -207,7 +212,7 @@ vec4 matGrad(vec2 uv, float layer, vec2 gx, vec2 gy, float soft) {
     float ppt = 1.0 / max(max(fw.x, fw.y), 1e-4);
     // Ore veins keep their nuggets (the vein is the find): only a light softening there.
     int li = int(layer + 0.5);
-    bool ore = li == ${MAT.copperVein} || li == ${MAT.copperTop} || li == ${MAT.ironVein} || li == ${MAT.ironTop};
+    bool ore = li == ${MAT.copperVein} || li == ${MAT.copperTop} || li == ${MAT.ironVein} || li == ${MAT.ironTop} || ${METAL_LAYERS.map((m) => `li == ${MAT[m]}`).join(' || ')};
     float b = (ore ? 0.6 : 2.0) * smoothstep(3.0, 10.0, ppt);
     if (b > 0.01) return textureLod(uMat, vec3(uv, layer), b);
   }
@@ -271,7 +276,7 @@ float luma(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
 
 // Height used to decide boundaries: alpha for ordinary layers, brightness for emissive ones.
 float heightOf(vec4 t, int layer) {
-  return uMatGlow[layer] > 0.0 ? luma(t.rgb) : t.a;
+  return matGlow(layer) > 0.0 ? luma(t.rgb) : t.a;
 }
 
 // Soft sky-less hemisphere shading from the sculpted normal: walls nearly equal (no
@@ -448,7 +453,7 @@ void main() {
   // The height channel marks the joints (about 0 in the mortar, 0.6-0.85 on the stone): thresholded
   // at its midpoint it gives a crisp joint line at any magnification (as a distance field does),
   // drawn as a dark groove with a faint lit lip, so slabs read cut and sharp, not out of focus.
-  if (family == ${FAMILY.MASONRY} && uMatGlow[shownLayer] <= 0.0) {
+  if (family == ${FAMILY.MASONRY} && matGlow(shownLayer) <= 0.0) {
     vec2 fwm = (abs(uvDx) + abs(uvDy)) * ${MAT_SIZE}.0;
     float pptm = 1.0 / max(max(fwm.x, fwm.y), 1e-4);
     float nearK = smoothstep(4.0, 9.0, pptm);
@@ -607,6 +612,11 @@ void main() {
     albedo = mix(albedo * (1.0 - 0.5 * rim), metalAlb, crisp);
     oreMetal = crisp;
   }
+  // Round 3: the biomes' metal ores (gold, silver, frost iron, orichalcum, starsteel, runegold, pearl,
+  // amber, sap): their nuggets are the tall texels of the vein (materials/strata.ts paintVein), so
+  // they glint as metal or resin under the flame.
+  bool isMetal3 = ${METAL_LAYERS.map((m) => `shownLayer == ${MAT[m]}`).join(' || ')};
+  if (isMetal3) oreMetal = smoothstep(0.8, 0.86, tex.a) * smoothstep(0.08, 0.2, max(tex.r, max(tex.g, tex.b)));
 
   vec3 samplePos = vGrid + n * 0.5;
   vec4 ls = lightSample(samplePos);
@@ -639,7 +649,7 @@ void main() {
     if (oreMetal > 0.0) {
       // Ore nuggets: metal, their own colour in the reflection (copper warm, iron a cool steel), a
       // tighter lobe so they glint as the flame moves.
-      vec3 metalF0 = isCopper ? mix(tex.rgb * 0.95, vec3(0.72, 0.44, 0.3), oreNear) : mix(vec3(0.42, 0.45, 0.5), tex.rgb * 1.6, 0.35);
+      vec3 metalF0 = isCopper ? mix(tex.rgb * 0.95, vec3(0.72, 0.44, 0.3), oreNear) : isMetal3 ? clamp(tex.rgb * 1.4, 0.0, 1.0) : mix(vec3(0.42, 0.45, 0.5), tex.rgb * 1.6, 0.35);
       f0 = mix(f0, metalF0, oreMetal);
       // Up close a tight lobe on tilted nuggets: a few glint at a time, the rest read as dark metal.
       rough = mix(rough, isCopper ? mix(0.36, 0.3, oreNear) : 0.32, oreMetal);
@@ -668,7 +678,7 @@ void main() {
   // Arm's length: the flame-lit colour eases under a ceiling (lighting.ts nearShoulder).
   color = nearShoulder(color, litByFlame);
 
-  float glow = tex.a * uMatGlow[shownLayer];
+  float glow = tex.a * matGlow(shownLayer);
   vec3 emissive = tex.rgb * glow;
 
   // Crystal is glass, not stone: a broad, soft reflection of the lantern slides over its faces as
@@ -683,6 +693,11 @@ void main() {
     vec3 tilt = vec3(hash13(vec3(fc, 1.0 + float(vFace))), hash13(vec3(fc, 9.0)), hash13(vec3(fc.yx, 4.0))) - 0.5;
     float flare = pow(max(dot(reflect(-toLamp, normalize(n + tilt)), toEye), 0.0), 12.0);
     vec3 glass = shownLayer == ${MAT.gemOre} ? vec3(0.62, 0.42, 1.0) : vec3(0.28, 0.75, 0.84);
+    // Round 3: a biome's crystal (amethyst, ice, verdite, voidshard, obsidian...) reflects in its own hue.
+    if (shownLayer >= ${BASE_LAYER_COUNT}) {
+      float tl = max(max(tex.r, max(tex.g, tex.b)), 0.02);
+      glass = clamp(tex.rgb / tl, 0.0, 1.0) * 0.8 + 0.12;
+    }
     color += glass * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
   }
 
@@ -846,6 +861,20 @@ void main() {
   vec4 atm = atmosphere(vWorldPos, vDepth, ls.rgb);
   color = mix(color, atm.rgb, atm.a);
   color += emissive * uAtmos.w * (1.0 - atm.a * uAtmos.z);
+  // Round 3: the sonar pulse (render/sonar.ts), the lantern's ring of light sweeping out over the
+  // rock: a thin pale-gold line where the expanding shell crosses the surface, a faint wake behind
+  // it, fading with the pulse's reach. It passes over everything once and is gone (no lingering grid).
+  if (uSonarFx.y > 0.001) {
+    float sd = distance(vWorldPos, uSonar.xyz);
+    float sw = max(uSonarFx.x, 0.05);
+    float ahead = (sd - uSonar.w) / sw;
+    float edge = exp(-ahead * ahead * 2.2);
+    float wake = ahead < 0.0 ? exp(ahead * 0.35) * 0.18 : 0.0;
+    float reach = 1.0 - smoothstep(0.55, 1.0, uSonar.w / max(uSonarFx.z, 1.0));
+    // Contour rings in the wake every 1.5 m (world-space, so they stay on the rock).
+    float rings = pow(abs(sin((sd - uSonar.w) * 2.0944)), 24.0) * wake * 2.2;
+    color += vec3(1.0, 0.8, 0.5) * (edge * 0.55 + wake * 0.2 + rings * 0.25) * uSonarFx.y * reach;
+  }
   fragColor = vec4(sceneOut(color), 1.0);
 }
 `;

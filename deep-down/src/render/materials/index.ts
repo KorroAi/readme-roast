@@ -1,9 +1,10 @@
-import { B } from '../../config/blocks';
+import { B, BLOCKS, PAINT_AS } from '../../config/blocks';
 import { MAT_SIZE, MatCanvas, rngFor } from './paint';
 import { PAINTERS, type MaterialPainter } from './painters';
 import { echoCrystal } from './minerals';
 import { emberGlass, gemOre, roots, rubble } from './finds';
 import { beginHostCache, endHostCache } from './rock';
+import { STRATA_LAYERS, STRATA_LAYER_NAMES, type StrataLayerName } from './strata';
 
 /**
  * Terrain material library.
@@ -19,7 +20,7 @@ import { beginHostCache, endHostCache } from './rock';
  * the rune decals carved into glyph stones.
  */
 
-export const MATERIAL_NAMES = [
+const BASE_MATERIAL_NAMES = [
   'stoneSide',
   'stoneTop',
   'deepSide',
@@ -63,7 +64,15 @@ export const MATERIAL_NAMES = [
   'emberGlass',
 ] as const;
 
-export type MaterialName = (typeof MATERIAL_NAMES)[number];
+/** The layers before round 3 (their indices never move). */
+export const BASE_LAYER_COUNT = BASE_MATERIAL_NAMES.length;
+
+/**
+ * Every layer: the base ones, then round 3's biome layers (materials/strata.ts), appended in order.
+ */
+export const MATERIAL_NAMES = [...BASE_MATERIAL_NAMES, ...STRATA_LAYER_NAMES] as const;
+
+export type MaterialName = (typeof BASE_MATERIAL_NAMES)[number] | StrataLayerName;
 export const MAT = Object.fromEntries(MATERIAL_NAMES.map((n, i) => [n, i])) as Record<MaterialName, number>;
 
 export interface MaterialInfo {
@@ -109,6 +118,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   roots: { glow: 0 },
   gemOre: { glow: 0.9 },
   emberGlass: { glow: 1.1 },
+  ...(Object.fromEntries(STRATA_LAYER_NAMES.map((n) => [n, { glow: STRATA_LAYERS[n].glow }])) as Record<StrataLayerName, MaterialInfo>),
 };
 
 /**
@@ -170,6 +180,88 @@ export const BLOCK_SURFACES: Record<number, BlockSurface> = {
   [B.GEM_ORE]: { top: 'gemOre', side: 'gemOre', bottom: 'gemOre', family: FAMILY.CRYSTAL, rigidity: 1 },
 };
 
+// Round 3: the twelve biomes' blocks (keyed by WORLD's B names, so a missing id is simply skipped).
+const crystalOf = (m: MaterialName, rigidity: 0 | 1 | 2 | 3 = 1): BlockSurface => ({ top: m, side: m, bottom: m, family: FAMILY.CRYSTAL, rigidity });
+const plainOf = (m: MaterialName, rigidity: 0 | 1 | 2 | 3 = 2, topM: MaterialName = m): BlockSurface => ({ top: topM, side: m, bottom: m, family: FAMILY.NONE, rigidity });
+const STRATA_SURFACES: Record<string, BlockSurface> = {
+  AMBER_LIMESTONE: rock('amberLimeTop', 'amberLimeSide'),
+  AMBER_SANDSTONE: rock('amberSandTop', 'amberSandSide'),
+  AMBER_FLOOR: rock('amberFloor', 'amberFloor'),
+  AMBER_ORE: rock('amberOre', 'amberOre'),
+  MYCEL_ROCK: rock('mycelTop', 'mycelSide'),
+  SPORE_LOAM: rock('sporeLoam', 'sporeLoam'),
+  MYCEL_FLOOR: rock('mycelFloor', 'mycelFloor'),
+  SPORE_QUARTZ: crystalOf('sporeQuartz'),
+  MUSHROOM_STEM: plainOf('mushroomStem', 2),
+  MUSHROOM_CAP_TEAL: plainOf('capTeal', 2),
+  MUSHROOM_CAP_MAGENTA: plainOf('capMagenta', 2),
+  ROOT_EARTH: rock('rootEarthTop', 'rootEarthSide'),
+  ROOT_CLAY: rock('rootClaySide', 'rootClaySide'),
+  ROOT_FLOOR: rock('rootFloor', 'rootFloor'),
+  GOLD_ORE: rock('goldVein', 'goldVein'),
+  THICK_ROOT: plainOf('thickRoot', 2),
+  FLOOD_STONE: rock('floodTop', 'floodSide'),
+  FLOOD_SHALE: rock('floodShaleSide', 'floodShaleSide'),
+  FLOOD_FLOOR: rock('floodFloor', 'floodFloor'),
+  PEARL_ORE: rock('pearlOre', 'pearlOre'),
+  GEODE_ROCK: rock('geodeTop', 'geodeSide'),
+  GEODE_CALCITE: rock('calciteSide', 'calciteSide'),
+  GEODE_FLOOR: rock('geodeFloor', 'geodeFloor'),
+  AMETHYST: crystalOf('amethyst'),
+  MINE_ROCK: rock('mineTop', 'mineSide'),
+  MINE_SHALE: rock('mineShaleSide', 'mineShaleSide'),
+  MINE_FLOOR: rock('mineFloor', 'mineFloor'),
+  COAL_ORE: rock('coalSeam', 'coalSeam'),
+  SILVER_ORE: rock('silverVein', 'silverVein'),
+  FROST_ICE: crystalOf('frostIce', 2),
+  FROST_ROCK: rock('frostRockTop', 'frostRockSide'),
+  FROST_SNOW: rock('frostSnow', 'frostSnow'),
+  FROST_IRON: rock('frostIron', 'frostIron'),
+  ICE_CRYSTAL: crystalOf('iceCrystal'),
+  JUNGLE_ROCK: rock('jungleTop', 'jungleSide'),
+  JUNGLE_LOAM: rock('jungleLoam', 'jungleLoam'),
+  JUNGLE_MOSS: rock('jungleMoss', 'jungleMoss'),
+  VERDITE: crystalOf('verdite'),
+  SAP_AMBER: rock('sapAmber', 'sapAmber'),
+  GLOW_VINE: rock('glowVine', 'glowVine'),
+  SULPHUR_ROCK: rock('sulphurTop', 'sulphurSide'),
+  BOG_MUD: rock('bogMud', 'bogMud'),
+  BOG_CRUST: rock('bogCrust', 'bogCrust'),
+  SULPHUR_ORE: rock('sulphurOre', 'sulphurOre'),
+  MIRE_OPAL: crystalOf('mireOpal'),
+  TOXIC_POOL: rock('toxicPool', 'toxicPool'),
+  CITY_STONE: plainOf('cityStone', 1),
+  CITY_BRICK: plainOf('cityBrick', 1),
+  CITY_TILE: plainOf('cityStone', 1, 'cityTile'),
+  RUNEGOLD: rock('runegold', 'runegold'),
+  ORICHALCUM: rock('orichalcum', 'orichalcum'),
+  BASALT: rock('basaltTop', 'basaltSide'),
+  SCORIA: rock('scoriaSide', 'scoriaSide'),
+  ASH_FLOOR: rock('ashFloor', 'ashFloor'),
+  EMBERITE: crystalOf('emberite'),
+  MAGMA_CORE: plainOf('magmaCore', 2),
+  LAVA: plainOf('lava', 2),
+  OBSIDIAN: crystalOf('obsidian'),
+  VOID_STONE: rock('voidStoneSide', 'voidStoneSide'),
+  OBSIDIAN_FLOOR: { top: 'obsidianFloor', side: 'obsidian', bottom: 'obsidian', family: FAMILY.CRYSTAL, rigidity: 1 },
+  VOIDSHARD: crystalOf('voidshard'),
+  STARSTEEL: rock('starsteel', 'starsteel'),
+  HEART_STONE: rock('heartStone', 'heartStone'),
+  GATE_SEAL: plainOf('gateSeal', 1),
+  CRACKED_WALL: rock('crackedWall', 'crackedWall'),
+};
+const blockIdByName = B as unknown as Record<string, number>;
+for (const [k, surf] of Object.entries(STRATA_SURFACES)) if (blockIdByName[k] !== undefined) BLOCK_SURFACES[blockIdByName[k]] = surf;
+// Built things look like their old twins.
+for (const [k, like] of [['BUILT_PLANK', B.PLANK], ['BUILT_BRICK', B.ANCIENT_BRICK], ['DOOR', B.PLANK]] as const) if (blockIdByName[k] !== undefined) BLOCK_SURFACES[blockIdByName[k]] = BLOCK_SURFACES[like];
+
+// Round 3: a visible block with no surface of its own yet looks like WORLD's PAINT_AS stand-in.
+for (const d of BLOCKS) {
+  if (!d || !d.visible || BLOCK_SURFACES[d.id]) continue;
+  const look = BLOCK_SURFACES[PAINT_AS[d.id]];
+  if (look) BLOCK_SURFACES[d.id] = look;
+}
+
 /** Per block id: lowest-rigidity lookup used by the mesher (255 = not solid / no constraint). */
 export const RIGIDITY = new Uint8Array(256).fill(255);
 /** Per block id: material layer for top / side / bottom faces (mesher vertex data). */
@@ -211,27 +303,60 @@ export interface MaterialAtlas {
   layers: number;
   /** RGBA8, layer-major. */
   data: Uint8Array;
+  /** Round 3: the layers actually painted (the others are flat stand-ins). */
+  painted?: string[];
 }
 
 /** Layers added after the painters table (final pass W3): painted from here, after all the others. */
-const EXTRA_PAINTERS: Record<string, MaterialPainter> = { echoCrystal, rubble, roots, gemOre, emberGlass };
+const EXTRA_PAINTERS: Record<string, MaterialPainter> = {
+  echoCrystal,
+  rubble,
+  roots,
+  gemOre,
+  emberGlass,
+  ...Object.fromEntries(STRATA_LAYER_NAMES.map((n) => [n, STRATA_LAYERS[n].painter])),
+};
 
-/** Paint every material layer (deterministic). */
-export function generateMaterials(): MaterialAtlas {
+export interface MaterialOptions {
+  /**
+   * Round 3: paint only the biome layers of these biomes (a stratum's two, plus 'heart' in VI); the
+   * base layers and the built things are always painted, other biomes' layers get a flat stand-in
+   * (never on screen in that stratum). Omitted: every layer.
+   */
+  biomes?: readonly string[];
+}
+
+/** Does a layer need painting for these options? */
+export function layerWanted(name: MaterialName, opts: MaterialOptions = {}): boolean {
+  const s = (STRATA_LAYERS as Record<string, { biomes: readonly string[] }>)[name];
+  if (!s || !opts.biomes) return true;
+  return s.biomes.includes('built') || s.biomes.some((b) => opts.biomes!.includes(b));
+}
+
+/** Paint every material layer (deterministic), or a stratum's (opts.biomes). */
+export function generateMaterials(opts: MaterialOptions = {}): MaterialAtlas {
   const layers = MATERIAL_NAMES.length;
   const data = new Uint8Array(MAT_SIZE * MAT_SIZE * 4 * layers);
+  const painted: string[] = [];
   beginHostCache();
   try {
     MATERIAL_NAMES.forEach((name, layer) => {
+      const off = layer * MAT_SIZE * MAT_SIZE * 4;
+      if (!layerWanted(name, opts)) {
+        // A flat dark stand-in: cheap, never seen (no block of this stratum uses it).
+        for (let i = 0; i < MAT_SIZE * MAT_SIZE; i++) data.set([40, 40, 44, 128], off + i * 4);
+        return;
+      }
       const c = new MatCanvas();
       const paint = (PAINTERS as Record<string, MaterialPainter>)[name] ?? EXTRA_PAINTERS[name];
       paint(c, rngFor(name));
-      c.toBytes(data, layer * MAT_SIZE * MAT_SIZE * 4);
+      c.toBytes(data, off);
+      painted.push(name);
     });
   } finally {
     endHostCache();
   }
-  return { size: MAT_SIZE, layers, data };
+  return { size: MAT_SIZE, layers, data, painted };
 }
 
 export { MAT_SIZE };

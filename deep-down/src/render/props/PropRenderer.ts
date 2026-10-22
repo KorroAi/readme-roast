@@ -6,6 +6,7 @@ import { hash32 } from '../../core/math';
 import { PROP_VARIANTS, buildPropModel, propVariant, type PropModel, type PropModelOptions, type PartMotion } from './models';
 import { FOG_CULL } from '../lighting';
 import { createFlameMaterial, flameQuad } from './flame';
+import { DecorBatch, isDecor } from './DecorBatch';
 
 /** Draw distance of props smaller than 2 m in radius (m). */
 const SMALL_PROP_FAR = 45;
@@ -94,11 +95,22 @@ export class PropRenderer {
   /** The id last passed to setHighlight: a prop re-added under it (after settling) stays lit. */
   private highlightId: string | null = null;
 
-  constructor(lighting: LightingUniforms) {
+  /** Round 3: ambient props merged per 32 m cell (DecorBatch): no draw call per prop. */
+  readonly decor: DecorBatch;
+  /** Cache keys of the baked props (their model's refs). */
+  private readonly decorKeys = new Map<string, string>();
+
+  /** Bake props with nothing to do into the per-cell decor meshes (the game: on; tests may opt out). */
+  readonly bakeDecor: boolean;
+
+  constructor(lighting: LightingUniforms, opts: { bakeDecor?: boolean } = {}) {
+    this.bakeDecor = opts.bakeDecor ?? true;
     this.lighting = lighting;
     this.solid = createEntityMaterial(lighting);
     this.group.name = 'props';
     this.group.matrixAutoUpdate = false;
+    this.decor = new DecorBatch(lighting, this.solid);
+    if (this.bakeDecor) this.group.add(this.decor.group);
   }
 
   add(spec: PropSpec): void {
@@ -112,6 +124,12 @@ export class PropRenderer {
     }
     cached.refs++;
     const model = cached.model;
+    // Round 3: a prop with nothing to do is baked into its cell's merged mesh.
+    if (this.bakeDecor && isDecor(spec, model)) {
+      this.decor.add(spec, model);
+      this.decorKeys.set(spec.id, key);
+      return;
+    }
 
     const root = new THREE.Group();
     root.name = spec.id;
@@ -189,6 +207,15 @@ export class PropRenderer {
   }
 
   remove(id: string): void {
+    const dk = this.decorKeys.get(id);
+    if (dk !== undefined) {
+      this.decor.remove(id);
+      this.decorKeys.delete(id);
+      const c = this.cache.get(dk);
+      // The merged cell still holds the geometry until it rebuilds; release the model after that.
+      if (c && --c.refs <= 0) this.cache.delete(dk);
+      return;
+    }
     const e = this.entries.get(id);
     if (!e) return;
     if (this.highlighted === e) this.highlighted = null;
@@ -208,7 +235,7 @@ export class PropRenderer {
   }
 
   has(id: string): boolean {
-    return this.entries.has(id);
+    return this.entries.has(id) || this.decorKeys.has(id);
   }
 
   /**
@@ -227,7 +254,14 @@ export class PropRenderer {
    * onto the sculpted surface, which the mesher lowers on thin rims and raises on bumps by up to a
    * few decimetres (it floated over rims, sank into bumps). Set by the session's owner.
    */
-  surfaceTop: ((x: number, y: number, z: number) => number | null) | null = null;
+  get surfaceTop(): ((x: number, y: number, z: number) => number | null) | null {
+    return this.surface;
+  }
+  set surfaceTop(fn: ((x: number, y: number, z: number) => number | null) | null) {
+    this.surface = fn;
+    this.decor.surfaceTop = fn;
+  }
+  private surface: ((x: number, y: number, z: number) => number | null) | null = null;
 
   private place(e: PropEntry): void {
     const y = e.spec.y + e.lift + e.settle;
@@ -271,6 +305,7 @@ export class PropRenderer {
 
   update(dt: number, time: number, cameraPos: THREE.Vector3): void {
     this.settleSome();
+    this.decor.update(cameraPos, this.viewDistance);
     // One calm breath every 3 s (ROUND2 §0.3: never faster than 2.5 s).
     const highlightPulse = 0.8 + 0.2 * Math.sin((time * Math.PI * 2) / 3);
     // Small props (crates, lamps, stakes) are a few pixels past ~45 m in the first-person lens: they
@@ -368,6 +403,8 @@ export class PropRenderer {
 
   dispose(): void {
     for (const e of [...this.list]) this.remove(e.spec.id);
+    for (const id of [...this.decorKeys.keys()]) this.remove(id);
+    this.decor.dispose();
     this.solid.dispose();
   }
 

@@ -27,6 +27,8 @@ export interface LanternDef {
   ember: number;
   /** The dark's cold cannot reach the explorer while carrying this lantern. */
   noCold: boolean;
+  /** Round 3: the sonar pulse's radius (m). */
+  sonar: number;
 }
 
 export interface PackDef {
@@ -39,23 +41,33 @@ export interface PackDef {
 }
 
 export const PICKAXES: readonly PickaxeDef[] = [
-  { tier: 1, name: 'equip.rustyPickaxe', desc: 'equip.rustyPickaxe.desc', power: 1, swingInterval: 0.42, headColor: 0x7d6a5a },
-  { tier: 2, name: 'equip.copperPickaxe', desc: 'equip.copperPickaxe.desc', power: 1.6, swingInterval: 0.42, headColor: 0xd9864b },
-  { tier: 3, name: 'equip.ironPickaxe', desc: 'equip.ironPickaxe.desc', power: 2.4, swingInterval: 0.4, headColor: 0x9aa3ad },
-  { tier: 4, name: 'equip.glimmerPickaxe', desc: 'equip.glimmerPickaxe.desc', power: 3.4, swingInterval: 0.38, headColor: 0x8fe3ee },
+  { tier: 1, name: 'equip.rustyPickaxe', desc: 'equip.rustyPickaxe.desc', power: 1, swingInterval: 0.36, headColor: 0x7d6a5a },
+  { tier: 2, name: 'equip.copperPickaxe', desc: 'equip.copperPickaxe.desc', power: 1.6, swingInterval: 0.34, headColor: 0xd9864b },
+  { tier: 3, name: 'equip.ironPickaxe', desc: 'equip.ironPickaxe.desc', power: 2.4, swingInterval: 0.32, headColor: 0x9aa3ad },
+  { tier: 4, name: 'item.crystalPick', desc: 'item.crystalPick.desc', power: 3.4, swingInterval: 0.3, headColor: 0x8fe3ee },
+  // Round 3 (LOOP): picks V and VI open the last two strata.
+  { tier: 5, name: 'item.coldsteelPick', desc: 'item.coldsteelPick.desc', power: 4.6, swingInterval: 0.28, headColor: 0x9ad8ff },
+  { tier: 6, name: 'item.sunmetalPick', desc: 'item.sunmetalPick.desc', power: 6, swingInterval: 0.26, headColor: 0xffc840 },
 ];
 
+/**
+ * Lanterns (round 3: five; brighter, longer, a wider sonar). Fuel is refilled at the camp, at an
+ * outpost, by an Oil Flask, or by breaking lanternstone.
+ */
 export const LANTERNS: readonly LanternDef[] = [
-  { tier: 1, name: 'equip.oilLantern', desc: 'equip.oilLantern.desc', fuelSeconds: 300, radius: 11, intensity: 1, ember: 0.38, noCold: false },
-  { tier: 2, name: 'equip.copperLantern', desc: 'equip.copperLantern.desc', fuelSeconds: 600, radius: 14.5, intensity: 1.15, ember: 0.38, noCold: false },
-  { tier: 3, name: 'equip.attunedLantern', desc: 'equip.attunedLantern.desc', fuelSeconds: 900, radius: 16, intensity: 1.2, ember: 0.7, noCold: true },
+  { tier: 1, name: 'equip.oilLantern', desc: 'equip.oilLantern.desc', fuelSeconds: 420, radius: 11, intensity: 1, ember: 0.38, noCold: false, sonar: 18 },
+  { tier: 2, name: 'equip.copperLantern', desc: 'equip.copperLantern.desc', fuelSeconds: 600, radius: 13.5, intensity: 1.1, ember: 0.42, noCold: false, sonar: 24 },
+  { tier: 3, name: 'item.crystalLantern', desc: 'item.crystalLantern.desc', fuelSeconds: 780, radius: 15, intensity: 1.15, ember: 0.5, noCold: false, sonar: 30 },
+  { tier: 4, name: 'item.glowLantern', desc: 'item.glowLantern.desc', fuelSeconds: 960, radius: 16.5, intensity: 1.2, ember: 0.6, noCold: false, sonar: 36 },
+  { tier: 5, name: 'item.sunLantern', desc: 'item.sunLantern.desc', fuelSeconds: 1200, radius: 18, intensity: 1.28, ember: 0.7, noCold: false, sonar: 44 },
 ];
 
-/** Pack tiers: Tiny 6, Sturdy 8, Expedition 10 slots (its last 2 are the Sealed Pouch). */
+/** Bags (round 3): 16, 24, 32 and 40 slots; the last ones are a Sealed Pouch that survives a black-out. */
 export const PACKS: readonly PackDef[] = [
-  { tier: 1, name: 'equip.tinyPack', desc: 'equip.tinyPack.desc', slots: 6, pouch: 0 },
-  { tier: 2, name: 'equip.sturdyPack', desc: 'equip.sturdyPack.desc', slots: 8, pouch: 0 },
-  { tier: 3, name: 'equip.expeditionPack', desc: 'equip.expeditionPack.desc', slots: 10, pouch: 2 },
+  { tier: 1, name: 'equip.tinyPack', desc: 'equip.tinyPack.desc', slots: 16, pouch: 0 },
+  { tier: 2, name: 'item.sturdyPack', desc: 'item.sturdyPack.desc', slots: 24, pouch: 0 },
+  { tier: 3, name: 'item.expeditionPack', desc: 'item.expeditionPack.desc', slots: 32, pouch: 4 },
+  { tier: 4, name: 'item.deepPack', desc: 'item.deepPack.desc', slots: 40, pouch: 6 },
 ];
 
 export const pickaxeForTier = (tier: number): PickaxeDef => PICKAXES[Math.max(0, Math.min(PICKAXES.length - 1, tier - 1))];
@@ -154,14 +166,26 @@ export const EXPEDITION = {
   reportMinSeconds: 45,
 } as const;
 
+let depthOffsetNow = 150;
+/** Round 3 (WORLD): the depth offset of the loaded zone (StratumManager calls it; see WORLD.depthOffset). */
+export function setDepthOffset(v: number): void {
+  depthOffsetNow = v;
+}
+
 export const WORLD = {
   /** World volume in blocks (X, Y, Z). Y is up. */
   sizeX: 160,
   sizeY: 128,
   sizeZ: 160,
   chunkSize: 16,
-  /** Displayed depth in meters = depthOffset - y. */
-  depthOffset: 150,
+  /**
+   * Displayed depth in meters = depthOffset - y. Round 3 (WORLD): a getter, so every reader follows the
+   * loaded stratum (StratumManager sets it on each switch: the stratum's top depth + STRATUM_TOP_Y);
+   * 150 for the old hand-made world.
+   */
+  get depthOffset(): number {
+    return depthOffsetNow;
+  },
   seed: 0xdeedd0,
   /**
    * World generator version, saved with every game. Bump it whenever the generated world changes
@@ -178,6 +202,44 @@ export const WORLD = {
    * save keeps everything too.
    */
   genCompatible: [3, 4] as readonly number[],
+} as const;
+
+/**
+ * Round 3 (WORLD): which generator the game boots into. 'legacy' is the old hand-made 160 x 128 x 160
+ * world (kept bootable until the switch); 'strata' the seeded strata of config/biomes (STRATA).
+ */
+export const WORLD_GEN: 'legacy' | 'strata' = 'legacy';
+
+/** The generator in use: WORLD_GEN, or `?gen=strata|legacy` in the address (tests, captures). */
+export function worldGen(): 'legacy' | 'strata' {
+  try {
+    const q = typeof location !== 'undefined' ? new URLSearchParams(location.search).get('gen') : null;
+    if (q === 'strata' || q === 'legacy') return q;
+  } catch {
+    // No location (workers, Node): the default.
+  }
+  return WORLD_GEN;
+}
+
+/** Round 3 (WORLD): the strata generator's knobs (world/gen/strata). */
+export const STRATA_GEN = {
+  /** Generator version of the strata (saves keep their per-stratum edits only while it matches). */
+  genVersion: 1,
+  /** Mean spacing (m) of finds along walked tunnels: a find, a prop, a light, a creature or a fork. */
+  findSpacing: 12,
+  /** About one chest per this many metres of walked tunnel. */
+  chestSpacing: 25,
+  /** Ore veins per 1000 floor cells, at stratum I (rising with depth by veinDepthGain per stratum). */
+  veinsPer1000: 9,
+  veinDepthGain: 0.15,
+  /** Light pockets (a lamp, glowing fungi or crystal) about every this many metres. */
+  lightSpacing: 22,
+  /** Big caverns (>= 40 m across) per biome. */
+  cavernsPerBiome: [2, 3] as readonly [number, number],
+  /** Walk to a lair: the arena's radius (m). */
+  lairRadius: 11,
+  /** Reveal a lair when the explorer comes this close (m). */
+  lairReveal: 34,
 } as const;
 
 export const LIGHT = {

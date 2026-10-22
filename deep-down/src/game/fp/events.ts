@@ -19,3 +19,26 @@ declare module '../../core/events' {
     'weapon:flash': { x: number; y: number; z: number; radius: number; count: number };
   }
 }
+
+declare module '../../core/events' {
+  interface GameEvents {
+    /**
+     * Round 3 (UI): a control was used (ui/hud/actions UiControl), for the taught-by-doing tutorial
+     * and first-time tooltips. 'look' and 'move' come at most 4 times a second; `screen` for 'open',
+     * `slot` for 'hotbar'.
+     */
+    'ui:used': { control: import('../../ui/hud/actions').UiControl; screen?: string; slot?: number };
+    /** A menu screen opened (inventory, crafting, map, quests, bestiary, settings, pause...). */
+    'ui:opened': { screen: string };
+    /** The explorer dashed (a short dodge, invulnerable for `iframes` seconds). */
+    'player:dash': { x: number; y: number; z: number; iframes: number };
+    /** The sonar pulse went out from the lantern (radius m, reveal seconds). */
+    'player:sonar': { x: number; y: number; z: number; radius: number; seconds: number };
+    /** A block, torch, ladder or rope was placed from the hotbar. */
+    'player:placed': { item: string; block: number; x: number; y: number; z: number };
+    /** A block of the same vein was chained (count 1..5): the next swing is quicker. */
+    'mine:combo': { count: number; x: number; y: number; z: number };
+    /** A hotbar slot was selected (0-based) and what it holds (null: empty). */
+    'hotbar:selected': { slot: number; item: string | null };
+  }
+}

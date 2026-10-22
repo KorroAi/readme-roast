@@ -23,7 +23,8 @@ export interface TerrainUniforms {
   [name: string]: THREE.IUniform;
   uMat: THREE.IUniform<THREE.DataArrayTexture>;
   uNoise: THREE.IUniform<THREE.Data3DTexture>;
-  uMatGlow: THREE.IUniform<number[]>;
+  /** Emissive strength per material layer, packed 4 per vec4 (GLSL matGlow(i)). */
+  uMatGlow: THREE.IUniform<THREE.Vector4[]>;
   uTarget: THREE.IUniform<THREE.Vector4>;
   uTargetFx: THREE.IUniform<THREE.Vector4>;
   uTargetHit: THREE.IUniform<THREE.Vector4>;
@@ -42,7 +43,26 @@ export interface TerrainUniforms {
    * screen height a 1 m feature spans there, so outlines can stay off cells that fill the view.
    */
   uHiView: THREE.IUniform<THREE.Vector4>;
+  /**
+   * Round 3: the sonar pulse (render/sonar.ts): xyz its origin, w the shell's radius now (m);
+   * uSonarFx x band width (m), y strength (0 = off), z the pulse's full radius, w unused.
+   */
+  uSonar: THREE.IUniform<THREE.Vector4>;
+  uSonarFx: THREE.IUniform<THREE.Vector4>;
 }
+
+/** Material glow values packed 4 per vec4 (a float array would take one vec4 slot per layer). */
+export function packGlow(values: readonly number[]): THREE.Vector4[] {
+  const out: THREE.Vector4[] = [];
+  for (let i = 0; i < values.length; i += 4) out.push(new THREE.Vector4(values[i] ?? 0, values[i + 1] ?? 0, values[i + 2] ?? 0, values[i + 3] ?? 0));
+  return out;
+}
+/** vec4 slots of the packed glow table. */
+export const GLOW_VEC4S = Math.ceil(MATERIAL_NAMES.length / 4);
+/** GLSL: the packed table and its reader. */
+export const MAT_GLOW_GLSL = `uniform vec4 uMatGlow[${GLOW_VEC4S}];
+float matGlow(int i) { return uMatGlow[i >> 2][i & 3]; }
+float matGlow(float f) { return matGlow(int(f + 0.5)); }`;
 
 /** Edge of the highlight volume in cells (render/highlight.ts writes it). */
 export const HI_SIZE = 32;
@@ -73,7 +93,7 @@ export class TerrainRig {
     this.uniforms = {
       uMat: { value: m },
       uNoise: { value: this.noiseTex },
-      uMatGlow: { value: MATERIAL_NAMES.map((n) => MATERIAL_INFO[n].glow) },
+      uMatGlow: { value: packGlow(MATERIAL_NAMES.map((n) => MATERIAL_INFO[n].glow)) },
       uTarget: { value: new THREE.Vector4(-9999, -9999, -9999, -1) },
       uTargetFx: { value: new THREE.Vector4(0, 0, 0, 0) },
       uTargetHit: { value: new THREE.Vector4(0, 0, 0, 0) },
@@ -83,6 +103,8 @@ export class TerrainRig {
       uHiFx: { value: new THREE.Vector4(0, 0, 0, 1) },
       uHiCol: { value: [0, 1, 2, 3, 4].map(() => new THREE.Vector3()) },
       uHiView: { value: new THREE.Vector4(0.62, 0, 0, 0) },
+      uSonar: { value: new THREE.Vector4(0, -9999, 0, 0) },
+      uSonarFx: { value: new THREE.Vector4(1.2, 0, 24, 0) },
     };
   }
 

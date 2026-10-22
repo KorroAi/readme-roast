@@ -1,51 +1,13 @@
-import type { MobFamily, MobKind, MobRarity } from './types';
+import { SPECIES, type Drop, type MobDef } from './species';
+import type { MobKind } from './types';
 
 /**
- * The creatures' numbers (round 2, MOBS). Damage to the explorer is in health points (100, 140 with
- * the Miner's Coat: five or seven hearts of 20). Mob hit points are on the scale of WORLD's
- * `config/weapons.ts`: pickaxe 1, Iron Machete 2, Glimmer Spear 4.5, Flare Sling 1.5 a shard
- * (light shards hurt crawlers and wisps 1.5x), Flash Charge 6 to each monster in the burst.
+ * The creatures' rules (rounds 2-3, MOBS). Each kind's numbers live in species.ts (MOB_DEFS is
+ * that table); damage to the explorer is in health points (100 at the start, more with armour).
  */
-export type Locomotion = 'crawl' | 'walk' | 'fly' | 'still' | 'path';
+export type { Locomotion, MobDef } from './species';
 
-export interface MobDef {
-  kind: MobKind;
-  family: MobFamily;
-  /** Capsule round the body centre. */
-  radius: number;
-  halfHeight: number;
-  /** Body centre above the feet (walkers) or off the surface (crawlers). */
-  lift: number;
-  hp: number;
-  speed: number;
-  locomotion: Locomotion;
-  /** Damage of one attack (monsters). */
-  damage: number;
-  /** Telegraph (wind-up) seconds before an attack lands. */
-  windup: number;
-  /** Seconds between two attacks of the same mob. */
-  cooldown: number;
-  /** Reach of its attack (m, from its body centre to the explorer's). */
-  reach: number;
-  rarity?: MobRarity;
-}
-
-export const MOB_DEFS: Record<MobKind, MobDef> = {
-  // Monsters.
-  crawler: { kind: 'crawler', family: 'monster', radius: 0.42, halfHeight: 0, lift: 0.2, hp: 4, speed: 3.1, locomotion: 'crawl', damage: 9, windup: 0.6, cooldown: 3.2, reach: 1.25 },
-  gnasher: { kind: 'gnasher', family: 'monster', radius: 0.62, halfHeight: 0.05, lift: 0.58, hp: 8, speed: 1.4, locomotion: 'still', damage: 18, windup: 0.75, cooldown: 2.6, reach: 2.1 },
-  wisp: { kind: 'wisp', family: 'monster', radius: 0.55, halfHeight: 0.35, lift: 1.5, hp: 4, speed: 1.5, locomotion: 'fly', damage: 0, windup: 0.8, cooldown: 1, reach: 3.2 },
-  stalker: { kind: 'stalker', family: 'monster', radius: 0.42, halfHeight: 1.05, lift: 1.5, hp: 14, speed: 1.25, locomotion: 'walk', damage: 28, windup: 1.1, cooldown: 4, reach: 2.2 },
-  sentinel: { kind: 'sentinel', family: 'monster', radius: 0.95, halfHeight: 0.75, lift: 1.75, hp: 24, speed: 0.85, locomotion: 'walk', damage: 24, windup: 1.4, cooldown: 2.4, reach: 3.1 },
-  worm: { kind: 'worm', family: 'monster', radius: 2.2, halfHeight: 0, lift: 0, hp: 1, speed: 6.5, locomotion: 'path', damage: 0, windup: 0, cooldown: 1, reach: 0 },
-  // Beings.
-  moth: { kind: 'moth', family: 'being', radius: 0.08, halfHeight: 0, lift: 1.4, hp: 1, speed: 2.4, locomotion: 'fly', damage: 0, windup: 0, cooldown: 1, reach: 0 },
-  lampling: { kind: 'lampling', family: 'being', radius: 0.22, halfHeight: 0.04, lift: 1.5, hp: 1, speed: 3.6, locomotion: 'fly', damage: 0, windup: 0, cooldown: 1, reach: 0, rarity: 'rare' },
-  glimmerkin: { kind: 'glimmerkin', family: 'being', radius: 0.3, halfHeight: 0, lift: 0.26, hp: 1, speed: 2.7, locomotion: 'walk', damage: 0, windup: 0, cooldown: 1, reach: 0, rarity: 'epic' },
-  shellback: { kind: 'shellback', family: 'being', radius: 0.85, halfHeight: 0.1, lift: 0.62, hp: 1, speed: 0.35, locomotion: 'walk', damage: 0, windup: 0, cooldown: 1, reach: 0, rarity: 'rare' },
-  jelly: { kind: 'jelly', family: 'being', radius: 0.6, halfHeight: 0.35, lift: 2.6, hp: 1, speed: 0.6, locomotion: 'fly', damage: 0, windup: 0, cooldown: 1, reach: 0, rarity: 'uncommon' },
-  burrower: { kind: 'burrower', family: 'being', radius: 0.3, halfHeight: 0, lift: 0.27, hp: 1, speed: 3.2, locomotion: 'walk', damage: 0, windup: 0, cooldown: 1, reach: 0, rarity: 'uncommon' },
-};
+export const MOB_DEFS: Record<MobKind, MobDef> = SPECIES;
 
 /** The spawner and the survival rules. */
 export const MOBS_RULES = {
@@ -96,28 +58,44 @@ export const MOBS_RULES = {
   hitStop: 0.04,
   /** Reach for touching a being (m, from the eye). */
   touchReach: 3.6,
+  // ---- Round 3: the strata (BRIEF §0.5, §0.6).
+  /** Monsters about at once per stratum (index 1..6), before the night and dark bonuses. */
+  strataMonsters: [0, 4, 5, 6, 7, 8, 9] as readonly number[],
+  /** Beings about at once per stratum. */
+  strataBeings: [0, 4, 4, 4, 5, 5, 5] as readonly number[],
+  /** Up to this many more monsters in deep night and with a dead flame. */
+  nightExtra: 2,
+  darkExtra: 2,
+  /** Shortest gap between two monster spawns in the strata (s). */
+  strataGap: 4,
+  /** A quiet stretch longer than this (s, random in the band) brings an encounter (20-40 s in the deep). */
+  encounterMin: 20,
+  encounterMax: 38,
+  /** Nests: a pack while the explorer is within `nestRange` m, at most every `nestGap` s; quiet after `nestKills`. */
+  nestRange: 24,
+  nestGap: 12,
+  nestKills: 10,
+  /** Guardians: wake inside their lair's radius, reset after `leashSeconds` outside it plus `leashMargin`. */
+  leashMargin: 12,
+  leashSeconds: 8,
+  /** A guardian's open guard (after each attack) takes this much more. */
+  vulnerable: 1.6,
+  /** A stunned charger (it hit a wall) takes this much more. */
+  stunned: 1.5,
+  /** Watching a creature up close this long (s, within `watchRange` m, near the screen centre) scans it. */
+  watchSeconds: 1.6,
+  watchRange: 9,
+  /** Hostile spits: their life (s); at most this many in the air. */
+  spitLife: 3.2,
+  maxSpits: 40,
+  /** The hit stop on a strong blow (a weak spot, a kill). */
+  hitStopHeavy: 0.07,
+  /** Knock-back speed (m/s) of a blow on a mass-1 creature. */
+  knock: 5,
 } as const;
 
 /** Drops: each entry lists item ids in preference order (the first one the game knows is used). */
-export const MOB_DROPS: Partial<Record<MobKind, Array<{ items: readonly string[]; min: number; max: number; chance: number }>>> = {
-  crawler: [{ items: ['chitin', 'stone'], min: 1, max: 1, chance: 0.35 }],
-  gnasher: [
-    { items: ['gem', 'glimmerShard'], min: 1, max: 2, chance: 1 },
-    { items: ['crystalShard', 'echoShard'], min: 1, max: 2, chance: 0.6 },
-  ],
-  wisp: [{ items: ['echoShard'], min: 1, max: 1, chance: 0.5 }],
-  stalker: [{ items: ['lanternstone', 'glimmerShard'], min: 1, max: 1, chance: 1 }],
-  sentinel: [
-    { items: ['lanternstone', 'glimmerShard'], min: 2, max: 3, chance: 1 },
-    { items: ['gem', 'echoShard'], min: 2, max: 3, chance: 1 },
-  ],
-  glimmerkin: [{ items: ['gem', 'glimmerShard'], min: 1, max: 2, chance: 1 }],
-  shellback: [{ items: ['crystalShard', 'glimmerShard'], min: 2, max: 3, chance: 1 }],
-  burrower: [
-    { items: ['ironOre', 'copperOre'], min: 2, max: 3, chance: 1 },
-    { items: ['gem', 'glimmerShard'], min: 1, max: 1, chance: 0.3 },
-  ],
-};
+export const MOB_DROPS: Partial<Record<MobKind, readonly Drop[]>> = Object.fromEntries(Object.entries(SPECIES).filter(([, d]) => d.drops.length > 0).map(([k, d]) => [k, d.drops]));
 
 /** The treasure burrower (an event): a golden thief whose pouch is full. */
 export const TREASURE_DROPS = [

@@ -20,11 +20,14 @@ import { CRACK_STAGES } from '../config/tiles';
 import type { ItemId } from '../config/items';
 import { lanternForTier } from '../config/balance';
 import { CameraRig } from '../game/CameraRig';
+import type { PropSpec } from '../world/gen/types';
+import { BIOME_LOOKS, atmosphereId } from '../render/biomeLook';
+import { bays, buildBiomeGallery } from './biomeGallery';
 
 /** The explorer's starting lantern (the lab's 'game' lighting uses its pool and intensity). */
 const GAME_LANTERN = lanternForTier(1);
 
-export type LabView = 'materials' | 'transitions' | 'crystal' | 'lantern' | 'cracks' | 'particles' | 'pickup' | 'character' | 'props';
+export type LabView = 'materials' | 'transitions' | 'crystal' | 'lantern' | 'cracks' | 'particles' | 'pickup' | 'character' | 'props' | 'biomes';
 
 export const LAB_VIEWS: Array<{ id: LabView; label: TextKey }> = [
   { id: 'materials', label: 'lab.materials' },
@@ -80,6 +83,8 @@ const PRESETS: Record<LabView, Preset> = {
   // Just in front of the gallery's back wall (z = 22), the two rows of props (x 18.5..30.5,
   // z 29.5 and 32.5) across the frame.
   props: { cam: [24.5, 5.2, 23.6], target: [24.5, 2.4, 31.5], lantern: [24.5, 5.5, 26], lanternRadius: 13 },
+  // Round 3: the biome gallery (lab/biomeGallery.ts); the bay's own camera replaces this one.
+  biomes: { cam: [11, 3.4, 71], target: [11, 2.6, 84], lantern: [11, 3.2, 75], lanternRadius: 13 },
 };
 
 /**
@@ -146,7 +151,8 @@ export class VisualLab {
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(55, 1, 0.05, 200);
   /** 64 m of original lab (x < 64) plus the transitions court (x 70..124). */
-  readonly world = new VoxelWorld(128, 32, 64);
+  /** Round 3: z 64..127 holds the biome gallery. */
+  readonly world = new VoxelWorld(128, 32, 128);
   readonly rig: LightingRig;
   private readonly light: LightField;
   private readonly lantern: LanternField;
@@ -182,6 +188,8 @@ export class VisualLab {
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new Renderer(canvas, 'high');
+    const pp = this.renderer.post.params;
+    this.baseGrade = { lift: pp.lift.clone(), gain: pp.gain.clone(), saturation: pp.saturation };
     this.build();
     this.light = new LightField(this.world);
     this.light.computeAll();
@@ -218,6 +226,8 @@ export class VisualLab {
     this.walker.root.visible = false;
     this.scene.add(this.walker.root);
     this.walkRig = new CameraRig(this.world);
+    // Round 3: the biome gallery's props (lab/biomeGallery.ts).
+    for (const spec of this.galleryProps) this.props.add(spec);
     this.props.add({ id: 'lab_crystal', kind: 'crystalCluster', x: 16.5, y: 2, z: 44.5, rotY: 0, scale: 1.3, anchor: null, emitters: [], seed: 7 });
     const kinds = ['campfire', 'workbench', 'chest', 'bedroll', 'crate', 'barrel', 'lanternPost', 'tablet', 'pickaxeRack', 'ropeCoil', 'brokenCart', 'hangingLantern'] as const;
     kinds.forEach((kind, i) => {
@@ -231,6 +241,7 @@ export class VisualLab {
   /** Lab geometry: a floor, a material gallery, a crystal room, a lantern room, demo rows. */
   private build(): void {
     const w = this.world;
+    this.galleryProps = buildBiomeGallery(w);
     w.fill(0, 0, 0, 63, 31, 63, B.AIR);
     w.fill(0, 0, 0, 63, 1, 63, B.DEEP_SLATE);
     // Material gallery: pedestals of 2x2x2 blocks per material along x, backed by a wall.
@@ -342,10 +353,25 @@ export class VisualLab {
     for (let x = 91; x <= 101; x++) for (let z = 15; z <= 17; z++) if ((x + z) % 7 !== 0) set(x, 1, z, B.GRAVEL);
   }
 
+  /** Round 3: the biome gallery bay shown by the 'biomes' view (0..12, BIOME_IDS order). */
+  private bayIndex = 0;
+  private galleryProps: PropSpec[] = [];
+  private readonly baseGrade: { lift: THREE.Color; gain: THREE.Color; saturation: number };
+
+  setBay(n: number): void {
+    this.bayIndex = Math.max(0, Math.min(bays().length - 1, Math.floor(n)));
+    if (this.view === 'biomes') this.setView('biomes');
+  }
+
+  get bay(): number {
+    return this.bayIndex;
+  }
+
   setView(view: LabView): void {
     this.view = view;
     this.burstTimer = 0;
-    const p = PRESETS[view];
+    const bay = bays()[this.bayIndex];
+    const p = view === 'biomes' ? { cam: bay.cam, target: bay.target, lantern: bay.lantern, lanternRadius: 13 } : PRESETS[view];
     this.camera.position.set(...p.cam);
     this.camera.lookAt(...p.target);
     this.rig.uniforms.uLanternPos.value.set(...p.lantern);
@@ -421,7 +447,26 @@ export class VisualLab {
     const u = this.rig.uniforms;
     const review = this.lighting === 'review';
     const g = this.gameLight;
-    if (review) {
+    // Round 3: the biome gallery under the game lighting takes its biome's air and grade.
+    const biomeAir = this.view === 'biomes' && !review;
+    const post = this.renderer.post.params;
+    if (biomeAir) {
+      const bay = bays()[this.bayIndex];
+      this.rig.setBiomeTargets(new Map([[atmosphereId(bay.biome), 1]]));
+      this.rig.updateAtmosphere(0, bay.lantern[0], 2, bay.lantern[2], null);
+      const look = BIOME_LOOKS[bay.biome];
+      post.lift.setRGB(...look.grade.lift);
+      post.gain.setRGB(...look.grade.gain);
+      post.saturation = look.grade.saturation;
+    } else {
+      this.rig.setBiomeTargets(null);
+      post.lift.copy(this.baseGrade.lift);
+      post.gain.copy(this.baseGrade.gain);
+      post.saturation = this.baseGrade.saturation;
+    }
+    if (biomeAir) {
+      u.uLanternColor.value.copy(g.lantern);
+    } else if (review) {
       u.uAmbient.value.setRGB(...REVIEW.ambient);
       u.uOpenAmbient.value.setRGB(...REVIEW.open);
       u.uLanternColor.value.setRGB(...REVIEW.key);
@@ -435,7 +480,7 @@ export class VisualLab {
     u.uLanternRadius.value = this.lanternRadius();
     // ?amb= still adds a flat fill on terrain (albedo inspection) in either mode.
     u.uDebug.value.set(this.ambientOverride ?? 0, 9999, 0);
-    u.uFogDensity.value = review ? REVIEW.fog : g.fog;
+    if (!biomeAir) u.uFogDensity.value = review ? REVIEW.fog : g.fog;
     this.renderer.post.params.zoneExposure = review ? REVIEW.exposure : this.rig.exposure;
     const lp = u.uLanternPos.value;
     this.lantern.compute(lp.x, lp.y, lp.z, u.uLanternRadius.value);

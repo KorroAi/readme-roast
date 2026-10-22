@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { B, BLOCKS } from '../../src/config/blocks';
+import { B, BLOCKS, PLACEABLE } from '../../src/config/blocks';
 import { ITEMS } from '../../src/config/items';
-import { NODES } from '../../src/config/recipes';
+import { RECIPES } from '../../src/config/recipes';
 import { RARITY_COLOR, RARITY_RANK, isBreakable, isMinable, itemRarity, rarityOf } from '../../src/config/rarity';
 import { WEAPONS, bestWeapon, dps } from '../../src/config/weapons';
 import { en } from '../../src/i18n/en';
@@ -39,7 +39,7 @@ describe('minability and rarity', () => {
     expect([rarityOf(B.RUBBLE), rarityOf(B.COPPER_ORE), rarityOf(B.IRON_ORE), rarityOf(B.ECHO_CRYSTAL), rarityOf(B.CRYSTAL), rarityOf(B.GEM_ORE), rarityOf(B.LANTERNSTONE)]).toEqual([
       'common', 'common', 'uncommon', 'rare', 'epic', 'epic', 'legendary',
     ]);
-    for (const b of BLOCKS) if (b && isBreakable(b.id)) expect(rarityOf(b.id), b.name).not.toBeNull();
+    for (const b of BLOCKS) if (b && isBreakable(b.id) && !PLACEABLE.has(b.id)) expect(rarityOf(b.id), b.name).not.toBeNull();
     const prop = (p: Partial<PropSpec>): PropSpec => ({ id: 'p', kind: 'crate', x: 0, y: 0, z: 0, rotY: 0, scale: 1, anchor: null, emitters: [], seed: 0, ...p });
     expect(rarityOf(prop({ kind: 'crystalCluster', minable: { hardness: 2, tier: 1, drop: 'glimmerShard', min: 1, max: 2 } }))).toBe('rare');
     expect(rarityOf(prop({ id: 'bloom_e3', kind: 'crystalCluster', minable: { hardness: 2, tier: 1, drop: 'glimmerShard', min: 2, max: 3 } }))).toBe('epic');
@@ -56,31 +56,40 @@ describe('minability and rarity', () => {
   });
 });
 
-describe('weapons', () => {
-  it('has the pick always, and the Forge weapons after the first iron', () => {
+describe('weapons (round 3)', () => {
+  it('has the pick always, and a recipe and text for every other weapon', () => {
     expect(bestWeapon([]).id).toBe('pick');
-    for (const id of ['machete', 'sling', 'spear', 'flashCharges'] as const) {
-      expect(NODES[id].place).toBe('forge');
-      // The Forge itself needs iron, so weapons come after the first iron.
-      expect(NODES.forge.inputs.ironOre).toBeGreaterThan(0);
+    for (const w of Object.values(WEAPONS)) {
+      expect(en, w.id).toHaveProperty(w.name);
+      if (w.id === 'pick') continue;
+      const item = w.consumes ?? w.id;
+      expect(RECIPES.some((r) => r.output.item === item), w.id).toBe(true);
     }
-    expect(NODES.spear.prereqs).toContain('machete');
-    expect(NODES.spear.inputs.gem).toBeGreaterThan(0);
-    for (const w of Object.values(WEAPONS)) expect(en, w.id).toHaveProperty(w.name);
   });
 
-  it('chooses the best weapon for the distance: melee in reach, the sling beyond it', () => {
+  it('chooses the equipped weapon when it reaches, else the best melee in reach, else ranged', () => {
     expect(bestWeapon(['machete'], 1).id).toBe('machete');
-    expect(bestWeapon(['machete', 'spear'], 1).id).toBe('spear');
-    // The spear reaches 3 m, the machete 2.6 m.
+    expect(bestWeapon(['machete', 'sword'], 1).id).toBe('sword');
     expect(bestWeapon(['machete', 'spear'], 2.9).id).toBe('spear');
     expect(bestWeapon(['machete'], 2.9).id).toBe('pick');
     expect(bestWeapon(['machete', 'sling'], 8).id).toBe('sling');
+    expect(bestWeapon(['sling', 'crossbow'], 20).id).toBe('crossbow');
     expect(bestWeapon(['sling'], 30).id).toBe('pick');
-    expect(dps(WEAPONS.spear)).toBeGreaterThan(dps(WEAPONS.machete));
-    expect(dps(WEAPONS.machete)).toBeGreaterThan(dps(WEAPONS.pick));
+    expect(bestWeapon(['machete', 'greatAxe'], 1, 'machete').id).toBe('machete');
+    expect(bestWeapon(['machete', 'greatAxe'], 2.9, 'machete').id).toBe('greatAxe');
     expect(WEAPONS.sling.ranged).toBe(true);
     expect(WEAPONS.flash.consumes).toBe('flashCharge');
-    for (const w of Object.values(WEAPONS)) expect(w.hitStop).toBeCloseTo(0.04, 6);
+    expect(WEAPONS.bomb.consumes).toBe('blastBomb');
+    for (const w of Object.values(WEAPONS)) expect(w.hitStop).toBeGreaterThanOrEqual(0.04);
+  });
+
+  it('grows in damage per second band by band', () => {
+    const best = (ids: string[]) => Math.max(...ids.map((id) => dps(WEAPONS[id as keyof typeof WEAPONS])));
+    const b1 = best(['machete', 'spear', 'sling']);
+    const b2 = best(['sword', 'crystalSpear', 'crossbow']);
+    const b3 = best(['greatAxe', 'sunLance', 'emberCrossbow']);
+    expect(b1).toBeGreaterThan(dps(WEAPONS.pick));
+    expect(b2).toBeGreaterThan(b1 * 1.5);
+    expect(b3).toBeGreaterThan(b2 * 1.5);
   });
 });

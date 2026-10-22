@@ -1,7 +1,7 @@
 import { PLAYER } from '../config/balance';
-import { RAMP, SOLID, rampPlane } from '../config/blocks';
+import { CLIMB, RAMP, SOLID, rampPlane } from '../config/blocks';
 import { damp, dampAngle } from '../core/math';
-import { WALK_ACCEL, WALK_DECEL, WALK_SPEED } from './fp/constants';
+import { CLIMB_SPEED, DASH_SPEED, DASH_TIME, SPRINT_SPEED, WALK_ACCEL, WALK_DECEL, WALK_SPEED } from './fp/constants';
 
 /** On a stair flight, how far (m) the box may overlap the top edge of a cube beside the feet. */
 const STAIR_EDGE = 0.34;
@@ -46,7 +46,19 @@ export class PlayerController {
   speedFactor = 1;
   /** Walking speed (m/s): the first-person stride (fp/constants). */
   walkSpeed = WALK_SPEED;
+  /** Sprinting speed (m/s), used while `sprint` is set (the stick at its edge, Shift). */
+  sprintSpeed = SPRINT_SPEED;
+  /** Sprint this frame (set by Game from the input; only forward-ish pushes sprint). */
+  sprint = false;
   frozen = false;
+  /** Round 3: on a ladder or a rope (a CLIMB cell overlaps the body): no gravity, climb with the stick or Jump. */
+  climbing = false;
+  /** Held Jump (climbs up a ladder or rope while held). */
+  jumpHeld = false;
+  /** A dash in flight: seconds left and its velocity (m/s). */
+  private dashLeft = 0;
+  private dashVx = 0;
+  private dashVz = 0;
 
   private coyote = 0;
   private jumpBuffer = 0;
@@ -67,6 +79,7 @@ export class PlayerController {
   constructor(private readonly world: VoxelWorld) {}
 
   teleport(x: number, y: number, z: number, yaw?: number): void {
+    this.dashLeft = 0;
     this.x = x;
     this.y = y;
     this.z = z;
@@ -81,6 +94,24 @@ export class PlayerController {
 
   get speed(): number {
     return Math.hypot(this.vx, this.vz);
+  }
+
+  /** A dash is in flight. */
+  get dashing(): boolean {
+    return this.dashLeft > 0;
+  }
+
+  /**
+   * Dash along a world-space horizontal direction (normalized here); works in the air too, but
+   * never through rock (the collision step still runs). @returns false for a zero direction.
+   */
+  dash(dirX: number, dirZ: number, speed = DASH_SPEED, time = DASH_TIME): boolean {
+    const l = Math.hypot(dirX, dirZ);
+    if (!(l > 1e-6) || this.frozen) return false;
+    this.dashVx = (dirX / l) * speed;
+    this.dashVz = (dirZ / l) * speed;
+    this.dashLeft = time;
+    return true;
   }
 
   /** Face a world-space horizontal direction (e.g. toward a mining target). */
@@ -124,7 +155,9 @@ export class PlayerController {
       wz /= wl;
     }
     const intent = Math.min(1, wl);
-    const target = this.walkSpeed * this.speedFactor;
+    // Sprint only while pushing mostly forward (a sideways or backward sprint reads as a glitch).
+    const sprinting = this.sprint && moveY > 0.35;
+    const target = (sprinting ? this.sprintSpeed : this.walkSpeed) * this.speedFactor;
     // First person: eased starts and stops (a quarter second to full stride), not a snap.
     const speeding = wx * this.vx + wz * this.vz >= 0 && intent > 0.01;
     const accel = (speeding ? WALK_ACCEL : WALK_DECEL) * (this.grounded ? 1 : PLAYER.airControl * 2);
@@ -143,6 +176,12 @@ export class PlayerController {
       this.vz = tvz;
     }
     if (faceMovement && intent > 0.15) this.yaw = dampAngle(this.yaw, Math.atan2(wx, wz), 12, dt);
+    // A dash overrides the stride for its short burst (and keeps its momentum a little after).
+    if (this.dashLeft > 0 && !this.frozen) {
+      this.dashLeft = Math.max(0, this.dashLeft - dt);
+      this.vx = this.dashVx;
+      this.vz = this.dashVz;
+    }
 
     // Jumping with coyote time and input buffering.
     this.coyote = this.grounded ? PLAYER.coyoteTime : Math.max(0, this.coyote - dt);
@@ -155,7 +194,17 @@ export class PlayerController {
       ev.jumped = true;
     }
 
-    this.vy = Math.max(-PLAYER.maxFallSpeed, this.vy - PLAYER.gravity * dt);
+    // Ladders and ropes (BRIEF §0.1: everything reachable is walkable or climbable): forward or Jump
+    // climbs, back climbs down, nothing holds on. A jump off the rope leaves it.
+    this.climbing = !this.frozen && !ev.jumped && this.inClimb(this.x, this.y, this.z);
+    if (this.climbing) {
+      const up = this.jumpHeld || moveY > 0.25 ? 1 : moveY < -0.25 ? -1 : 0;
+      this.vy = up * CLIMB_SPEED;
+      // Climbing is slower sideways (the hands are on the rungs).
+      this.vx *= 0.6;
+      this.vz *= 0.6;
+      this.coyote = PLAYER.coyoteTime;
+    } else this.vy = Math.max(-PLAYER.maxFallSpeed, this.vy - PLAYER.gravity * dt);
 
     // Integrate with sub-steps so fast falls never tunnel through a block.
     const maxStep = 0.35;
@@ -223,6 +272,21 @@ export class PlayerController {
     this.stepOffset = damp(this.stepOffset, 0, 16, dt);
     this.safety(dt);
     return ev;
+  }
+
+  /** The body (feet to chest) at (x, y, z) overlaps a ladder or rope cell. */
+  inClimb(x: number, y: number, z: number): boolean {
+    const hw = this.hw * 0.9;
+    const x0 = Math.floor(x - hw);
+    const x1 = Math.floor(x + hw);
+    const z0 = Math.floor(z - hw);
+    const z1 = Math.floor(z + hw);
+    const y0 = Math.floor(y + 0.05);
+    const y1 = Math.floor(y + PLAYER.height * 0.7);
+    for (let yy = y0; yy <= y1; yy++)
+      for (let zz = z0; zz <= z1; zz++)
+        for (let xx = x0; xx <= x1; xx++) if (CLIMB[this.world.get(xx, yy, zz)]) return true;
+    return false;
   }
 
   /** True if the player box at feet position (x,y,z) overlaps a solid voxel. */

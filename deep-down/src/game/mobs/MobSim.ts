@@ -1,8 +1,13 @@
 import * as THREE from 'three';
 import { Rng } from '../../core/rng';
-import { MOB_DEFS, MOBS_RULES, monsterBudget, packSize, type MobDef } from './config';
+import { MOBS_RULES, monsterBudget, packSize } from './config';
 import { clearLine, clingable, crawlNext, floorNear, flyStep, headroom, standableFor, surfaceNormal, walkStep, type SolidFn, type V3 } from './nav';
-import type { Mob, MobContext, MobFamily, MobHitResult, MobKind, MobRarity, MobRay, MobState, MobStrike } from './types';
+import { BESTIARY_BONUS } from './rosters';
+import { SPECIES, type BrainId, type GuardianPattern, type ShotDef, type SpeciesDef } from './species';
+import { runBrain, crawlerGround } from './brains';
+import { guardianBrain, guardianOnHit } from './guardian';
+import { strataSpawner, type Lair, type Nest } from './spawner';
+import type { Mob, MobBiome, MobContext, MobElement, MobFamily, MobHitResult, MobKind, MobRank, MobRarity, MobRay, MobState, MobStrike } from './types';
 
 /**
  * The creatures' simulation (round 2, MOBS): spawning, the brains of the twelve kinds, combat, the
@@ -17,27 +22,37 @@ import type { Mob, MobContext, MobFamily, MobHitResult, MobKind, MobRarity, MobR
  */
 export interface MobEnv {
   solid: SolidFn;
-  /** Placed light at a cell (lamps, crystals: the light volume's brightest channel, 0..1). */
+  /** Placed light at a cell (lamps, crystals, torches: the light volume's brightest channel, 0..1). */
   light(x: number, y: number, z: number): number;
   inCamp(x: number, y: number, z: number): boolean;
   /** Displayed depth (m) of a world height. */
   depthOf(y: number): number;
+  /** The biome at a point (WORLD's strata); absent in the first world. */
+  biomeAt?(x: number, y: number, z: number): MobBiome | null;
+  /** No monster may spawn or stay here (outposts, the camp's margin): checked with inCamp. */
+  safe?(x: number, y: number, z: number): boolean;
 }
 
 export type MobSimEvent =
   | { type: 'spawn'; mob: SimMob }
   | { type: 'gone'; mob: SimMob }
   | { type: 'telegraph'; mob: SimMob }
-  | { type: 'attack'; mob: SimMob; damage: number; landed: boolean }
-  | { type: 'hit'; mob: SimMob; damage: number; killed: boolean; armoured: boolean }
+  | { type: 'attack'; mob: SimMob; damage: number; landed: boolean; element?: MobElement; dodged?: boolean }
+  | { type: 'hit'; mob: SimMob; damage: number; killed: boolean; armoured: boolean; weak?: boolean }
   | { type: 'die'; mob: SimMob }
   | { type: 'recoil'; mob: SimMob }
   | { type: 'wake'; mob: SimMob }
   | { type: 'interact'; mob: SimMob; action: 'caught' | 'harvested' | 'spores' | 'petted' }
   | { type: 'drain'; mob: SimMob; seconds: number }
   | { type: 'cue'; mob: SimMob; cue: 'breath' | 'chitter' | 'whisper' | 'drone' | 'grind' | 'chirp' | 'squeak' | 'groan' | 'chime' }
+  /** A named sound (audio/mobSfx) at a point. */
+  | { type: 'sfx'; name: string; x: number; y: number; z: number; mob?: SimMob }
   | { type: 'meet'; mob: SimMob }
-  | { type: 'shot'; shot: Shot; phase: 'fly' | 'hit' | 'miss' };
+  | { type: 'shot'; shot: Shot; phase: 'fly' | 'hit' | 'miss' }
+  | { type: 'scanned'; mob: SimMob }
+  /** A burst at a point (an exploder, an emerging burrower, a slam): motes and dust, in its colour. */
+  | { type: 'burst'; x: number; y: number; z: number; color: number; size: number }
+  | { type: 'guardian'; mob: SimMob; phase: 'awake' | 'phase' | 'reset' };
 
 export interface Shot {
   id: number;
@@ -48,6 +63,64 @@ export interface Shot {
   life: number;
   /** Seconds since it landed (the light shard glows a while where it fell); -1 while flying. */
   landed: number;
+}
+
+/** A hostile glob or orb in flight (slow and glowing: side-step it or dash through it). */
+export interface Spit {
+  id: number;
+  p: THREE.Vector3;
+  v: THREE.Vector3;
+  def: ShotDef;
+  owner: SimMob;
+  life: number;
+  /** Seconds since it burst (its splash glows a moment); -1 while flying. */
+  done: number;
+}
+
+/**
+ * A telegraph on the ground (every big blow is marked before it lands): a disc (a slam, a burst, a
+ * drop), a line (a charge, a row of eruptions), a target (a dive), a wave (a rolling shockwave).
+ * `progress` runs 0..1 over the wind-up; a wave's radius grows after it.
+ */
+export interface Marker {
+  id: number;
+  kind: 'disc' | 'line' | 'target' | 'wave' | 'ripple';
+  x: number;
+  y: number;
+  z: number;
+  r: number;
+  /** Lines: unit direction in xz and length; waves: the band's width. */
+  dx: number;
+  dz: number;
+  len: number;
+  progress: number;
+  color: number;
+  owner: number;
+  /** Seconds left (-1: until removed by its owner). */
+  life: number;
+}
+
+/** A rolling shockwave (a guardian's 'ring'): it hurts once where its band passes the explorer's feet. */
+interface Wave {
+  marker: Marker;
+  speed: number;
+  max: number;
+  dmg: number;
+  element: MobElement;
+  owner: SimMob;
+  hit: boolean;
+}
+
+/** A row of eruptions (a guardian's 'line'): each point bursts in turn. */
+interface Eruption {
+  marker: Marker;
+  points: Array<{ x: number; y: number; z: number; at: number; done: boolean }>;
+  t: number;
+  dmg: number;
+  element: MobElement;
+  owner: SimMob;
+  hit: boolean;
+  color: number;
 }
 
 /** A guarded relic: the Stone Sentinel sleeps by it and wakes when it is taken. */
@@ -64,10 +137,12 @@ let nextId = 1;
 export class SimMob implements Mob {
   readonly id = nextId++;
   readonly family: MobFamily;
+  readonly rank: MobRank;
+  readonly brain: BrainId;
   readonly position = new THREE.Vector3();
   readonly bounds: { radius: number; halfHeight: number };
   readonly hostile: boolean;
-  readonly def: MobDef;
+  readonly def: SpeciesDef;
   yaw = 0;
   hp?: number;
   maxHp?: number;
@@ -117,12 +192,43 @@ export class SimMob implements Mob {
   stuck = 0;
   /** Seconds since a burrower woke (it digs away after ~14 s). */
   timer2 = 0;
+  // ---- Round 3
+  /** Its biome (the roster it came from). */
+  biome: MobBiome;
+  /** A drop-ambusher on the ceiling ('ceiling') or down on the rock ('ground'); a burrower under it ('under'). */
+  mode: 'ceiling' | 'ground' | 'under' | '' = '';
+  /** A locked direction (a charge, a dive) and target point (a dive, an emergence). */
+  readonly dir = { x: 0, y: 0, z: 1 };
+  readonly target = { x: 0, y: 0, z: 0 };
+  /** Knock-back velocity (m/s, decaying). */
+  readonly knock = { x: 0, z: 0 };
+  /** The telegraph marker it owns now (0: none). */
+  marker = 0;
+  /** A guardian's phase (1-based), its pattern now, the last one, its lair, seconds outside the lair. */
+  phase = 1;
+  pattern: GuardianPattern | null = null;
+  lastPattern: GuardianPattern | null = null;
+  lair: Lair | null = null;
+  leash = 0;
+  /** Rush / dive distance travelled. */
+  run = 0;
+  /** Its nest (0: none) and whether a summoner called it. */
+  nest = 0;
+  owner = 0;
+  /** Seconds the explorer has watched it up close; scanned once. */
+  watch = 0;
+  scanned = false;
+  /** An exploder's fuse is lit. */
+  fused = false;
 
   constructor(readonly kind: MobKind, seed: number) {
-    const d = MOB_DEFS[kind];
+    const d = SPECIES[kind];
     this.def = d;
     this.family = d.family;
-    this.hostile = d.family === 'monster' && kind !== 'worm';
+    this.rank = d.rank;
+    this.brain = d.brain;
+    this.biome = d.biome;
+    this.hostile = d.family === 'monster' && d.brain !== 'vista';
     this.seed = seed;
     this.scale = 1;
     this.bounds = { radius: d.radius, halfHeight: d.halfHeight };
@@ -131,7 +237,7 @@ export class SimMob implements Mob {
       this.maxHp = d.hp;
     }
     this.rarity = d.rarity;
-    this.tappable = kind !== 'moth' && kind !== 'worm';
+    this.tappable = d.brain !== 'moth' && d.brain !== 'vista';
   }
 
   setState(s: MobState): void {
@@ -142,6 +248,15 @@ export class SimMob implements Mob {
 
   get dying(): boolean {
     return this.state === 'dying';
+  }
+
+  /** Its guard is open: an attack just ended (recoil), it is stunned, or a burrower has just surfaced. */
+  get vulnerable(): boolean {
+    return this.state === 'recoil' || this.state === 'stunned';
+  }
+
+  get guardian(): boolean {
+    return this.rank !== 'minion';
   }
 }
 
@@ -169,16 +284,36 @@ export class MobSim {
   readonly sentinelDone = new Set<string>();
   /** Points the Deep Worm may pass (far chasms, the lake), besides the automatic vista finder. */
   wormAnchors: V3[] = [];
-  private listeners: Array<(e: MobSimEvent) => void> = [];
-  private attemptIn = 2;
-  private lastMonster = -Infinity;
-  private lastBeing = -Infinity;
-  private lastStalker = -Infinity;
-  private lastWorm = -Infinity;
-  private clock = 0;
-  private nextShot = 1;
-  private nextGroup = 1;
-  private readonly packNext = new Map<number, number>();
+  // ---- Round 3
+  readonly spits: Spit[] = [];
+  readonly markers: Marker[] = [];
+  readonly waves: Wave[] = [];
+  readonly eruptions: Eruption[] = [];
+  /** The guardians' lairs and the nests of this stratum (from WORLD's layout). */
+  lairs: Lair[] = [];
+  nests: Nest[] = [];
+  /** Biomes whose guardian is beaten (no guardian spawns in its lair again). */
+  readonly guardiansDone = new Set<MobBiome>();
+  /** Spawn as if in this biome (debug, captures, tests in the first world). */
+  forceBiome: MobBiome | null = null;
+  /** Kinds whose bestiary page is complete (blows land harder on them). */
+  readonly known = new Set<MobKind>();
+  /** A guardian's snuff: seconds of a choked lantern left. */
+  snuffLeft = 0;
+  /** Seconds since a monster last pressed the explorer (the encounter director brings the next one). */
+  quiet = 0;
+  encounterDue = 26;
+  lastMonster = -Infinity;
+  lastBeing = -Infinity;
+  listeners: Array<(e: MobSimEvent) => void> = [];
+  attemptIn = 2;
+  lastStalker = -Infinity;
+  lastWorm = -Infinity;
+  clock = 0;
+  nextShot = 1;
+  nextGroup = 1;
+  nextMarker = 1;
+  readonly packNext = new Map<number, number>();
   ctx: MobContext | null = null;
 
   constructor(readonly env: MobEnv, seed = 0x4d0b5) {
@@ -194,7 +329,7 @@ export class MobSim {
     };
   }
 
-  private emit(e: MobSimEvent): void {
+  emit(e: MobSimEvent): void {
     for (const fn of this.listeners) fn(e);
   }
 
@@ -208,15 +343,24 @@ export class MobSim {
     return n;
   }
 
+  /** The group of a new pack. */
+  group(): number {
+    return this.nextGroup++;
+  }
+
   // ------------------------------------------------------------------------------------
   // Spawning
 
   /** Put a mob in the world at a point (feet for walkers, the nearest clingable cell for crawlers). @returns null where it cannot stand. */
-  spawn(kind: MobKind, x: number, y: number, z: number, opts: { group?: number; treasure?: boolean; relic?: string; asleep?: boolean } = {}): SimMob | null {
+  spawn(kind: MobKind, x: number, y: number, z: number, opts: { group?: number; treasure?: boolean; relic?: string; asleep?: boolean; biome?: MobBiome; lair?: Lair; nest?: number; owner?: number; ceiling?: boolean } = {}): SimMob | null {
     const m = new SimMob(kind, this.rng.next());
     const d = m.def;
     const s = this.env.solid;
     m.group = opts.group ?? 0;
+    if (opts.biome) m.biome = opts.biome;
+    m.nest = opts.nest ?? 0;
+    m.owner = opts.owner ?? 0;
+    if (opts.lair) m.lair = opts.lair;
     if (d.locomotion === 'walk' || d.locomotion === 'still') {
       const h = this.heightOf(m);
       const fx = Math.floor(x);
@@ -227,7 +371,7 @@ export class MobSim {
       m.foot.y = fy;
       m.foot.z = fz + 0.5;
     } else if (d.locomotion === 'crawl') {
-      const c = this.nearestCling(Math.floor(x), Math.floor(y), Math.floor(z));
+      const c = opts.ceiling ? this.nearestCeiling(Math.floor(x), Math.floor(y), Math.floor(z)) ?? this.nearestCling(Math.floor(x), Math.floor(y), Math.floor(z)) : this.nearestCling(Math.floor(x), Math.floor(y), Math.floor(z));
       if (!c) return null;
       m.cell.x = m.next.x = c.x;
       m.cell.y = m.next.y = c.y;
@@ -247,45 +391,96 @@ export class MobSim {
     m.goal.y = y;
     m.goal.z = z;
     m.yaw = this.rng.range(-Math.PI, Math.PI);
-    m.scale = this.scaleFor(kind, m.seed);
+    m.scale = this.scaleFor(m);
     // The capsule is the drawn size (FP's screen snap and the pick read it as is).
     m.bounds.radius = d.radius * m.scale;
     m.bounds.halfHeight = d.halfHeight * m.scale;
-    if (kind === 'shellback') m.crystals = 3 + (m.seed > 0.6 ? 1 : 0);
-    if (kind === 'burrower') {
-      m.carry = 1;
-      m.treasure = opts.treasure === true;
-      if (m.treasure) m.rarity = 'legendary';
-      m.setState('wake');
+    switch (m.brain) {
+      case 'graze':
+        m.crystals = 3 + (m.seed > 0.6 ? 1 : 0);
+        m.setState('idle');
+        break;
+      case 'thief':
+        m.carry = 1;
+        m.treasure = opts.treasure === true;
+        if (m.treasure) m.rarity = 'legendary';
+        m.setState('wake');
+        break;
+      case 'sentinel':
+        m.relic = opts.relic ?? '';
+        m.setState(opts.asleep === false ? 'wake' : 'sleep');
+        m.glow = 0.15;
+        break;
+      case 'mimic':
+        m.setState('sleep');
+        break;
+      case 'lurk':
+      case 'cling':
+        m.setState('lurk');
+        break;
+      case 'drain':
+        m.setState('wander');
+        break;
+      case 'drop':
+        // On the ceiling when it found one (a cell with rock above and room below), else down on the rock.
+        m.mode = s(m.cell.x, m.cell.y + 1, m.cell.z) && !s(m.cell.x, m.cell.y - 1, m.cell.z) ? 'ceiling' : 'ground';
+        m.setState(m.mode === 'ceiling' ? 'sleep' : 'lurk');
+        break;
+      case 'dig':
+        // It arrives underground: a rumble coming closer.
+        m.mode = opts.asleep === false ? '' : 'under';
+        m.setState(m.mode === 'under' ? 'burrow' : 'stalk');
+        if (m.mode === 'under') m.tappable = false;
+        break;
+      case 'guardian':
+      case 'heart':
+        m.setState(opts.asleep === false ? 'wake' : 'sleep');
+        m.glow = 0.3;
+        break;
+      case 'pack':
+      case 'charge':
+      case 'spit':
+      case 'dive':
+      case 'slam':
+      case 'fuse':
+        m.setState('stalk');
+        break;
+      default:
+        m.setState('idle');
     }
-    if (kind === 'sentinel') {
-      m.relic = opts.relic ?? '';
-      m.setState(opts.asleep === false ? 'wake' : 'sleep');
-      m.glow = 0.15;
-    } else if (kind === 'gnasher') m.setState('sleep');
-    else if (kind === 'stalker') m.setState('lurk');
-    else if (kind === 'crawler') m.setState('lurk');
-    else if (kind === 'wisp') m.setState('wander');
-    else if (kind !== 'burrower') m.setState('idle');
     if (d.locomotion === 'walk' || d.locomotion === 'still') this.placeWalker(m);
     this.mobs.push(m);
     this.emit({ type: 'spawn', mob: m });
     return m;
   }
 
-  private scaleFor(kind: MobKind, seed: number): number {
-    // Varied sizes within a kind: crawlers from small to medium, the rest a little either way.
-    if (kind === 'crawler') return 0.7 + seed * 0.55;
-    if (kind === 'glimmerkin' || kind === 'burrower' || kind === 'lampling') return 0.88 + seed * 0.24;
-    if (kind === 'moth') return 0.75 + seed * 0.5;
-    return 0.92 + seed * 0.16;
+  scaleFor(m: SimMob): number {
+    const [a, b] = m.def.scale;
+    return a + m.seed * (b - a);
   }
 
-  private heightOf(m: SimMob): number {
-    return m.kind === 'stalker' ? 2 : m.kind === 'sentinel' ? 3 : m.kind === 'shellback' || m.kind === 'gnasher' ? 2 : 1;
+  heightOf(m: SimMob): number {
+    return m.def.height;
   }
 
-  private nearestCling(x: number, y: number, z: number): V3 | null {
+  /** The nearest open cell with rock right above it and room below (a drop-ambusher's perch). */
+  nearestCeiling(x: number, y: number, z: number): V3 | null {
+    const s = this.env.solid;
+    for (let dy = 0; dy <= 8; dy++) {
+      for (let r = 0; r <= 2; r++)
+        for (let dz = -r; dz <= r; dz++)
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+            const cx = x + dx;
+            const cy = y + dy;
+            const cz = z + dz;
+            if (!s(cx, cy, cz) && s(cx, cy + 1, cz) && !s(cx, cy - 1, cz) && !s(cx, cy - 2, cz)) return { x: cx, y: cy, z: cz };
+          }
+    }
+    return null;
+  }
+
+  nearestCling(x: number, y: number, z: number): V3 | null {
     const s = this.env.solid;
     for (let r = 0; r <= 3; r++)
       for (let dy = -r; dy <= r; dy++)
@@ -298,7 +493,7 @@ export class MobSim {
   }
 
   /** Where a crawler's body sits in a cell: hugging its rock (the cell centre moved toward the surface). */
-  private crawlAnchor(m: SimMob, c: V3, out: V3): V3 {
+  crawlAnchor(m: SimMob, c: V3, out: V3): V3 {
     surfaceNormal(this.env.solid, c.x, c.y, c.z, tmpN);
     const off = 0.5 - m.def.lift * m.scale;
     out.x = c.x + 0.5 - tmpN.x * off;
@@ -307,7 +502,7 @@ export class MobSim {
     return out;
   }
 
-  private placeWalker(m: SimMob): void {
+  placeWalker(m: SimMob): void {
     m.position.set(m.foot.x, m.foot.y + m.def.lift * m.scale, m.foot.z);
   }
 
@@ -322,8 +517,8 @@ export class MobSim {
   /** May a monster spawn in this cell now? (dark, outside the pool and the camp, deep enough). Pure, unit-tested. */
   canSpawnMonster(x: number, y: number, z: number, ctx: MobContext): boolean {
     const env = this.env;
-    if (env.inCamp(x + 0.5, y, z + 0.5)) return false;
-    if (env.depthOf(y) < this.monsterDepth) return false;
+    if (this.unsafe(x + 0.5, y, z + 0.5)) return false;
+    if (!this.strata && env.depthOf(y) < this.monsterDepth) return false;
     if (env.light(x, y, z) > MOBS_RULES.darkLight) return false;
     const l = ctx.lantern;
     const pool = l.lit ? l.radius * MOBS_RULES.poolFactor * Math.max(0.35, l.flame) + MOBS_RULES.poolMargin : MOBS_RULES.poolMargin + 4;
@@ -332,14 +527,14 @@ export class MobSim {
     return true;
   }
 
-  private canSpawnBeing(x: number, y: number, z: number, ctx: MobContext): boolean {
-    if (this.env.inCamp(x + 0.5, y, z + 0.5)) return false;
-    if (this.env.depthOf(y) < MOBS_RULES.beingDepth) return false;
+  canSpawnBeing(x: number, y: number, z: number, ctx: MobContext): boolean {
+    if (this.unsafe(x + 0.5, y, z + 0.5)) return false;
+    if (!this.strata && this.env.depthOf(y) < MOBS_RULES.beingDepth) return false;
     return Math.hypot(x + 0.5 - ctx.player.x, y + 0.5 - ctx.player.y, z + 0.5 - ctx.player.z) >= 7;
   }
 
   /** A random cell of the wanted shape in the spawn shell. */
-  private findCell(ctx: MobContext, shape: 'floor' | 'cling' | 'air', ok: (x: number, y: number, z: number) => boolean, height = 1, minR: number = MOBS_RULES.spawnMin, maxR: number = MOBS_RULES.spawnMax): V3 | null {
+  findCell(ctx: MobContext, shape: 'floor' | 'cling' | 'air', ok: (x: number, y: number, z: number) => boolean, height = 1, minR: number = MOBS_RULES.spawnMin, maxR: number = MOBS_RULES.spawnMax): V3 | null {
     const s = this.env.solid;
     const r = this.rng;
     for (let tries = 0; tries < 28; tries++) {
@@ -360,7 +555,7 @@ export class MobSim {
     return null;
   }
 
-  private spawner(dt: number, ctx: MobContext): void {
+  spawner(dt: number, ctx: MobContext): void {
     this.attemptIn -= dt;
     if (this.attemptIn > 0 || ctx.atCamp) return;
     this.attemptIn = MOBS_RULES.attemptEvery;
@@ -452,7 +647,7 @@ export class MobSim {
     }
   }
 
-  private beingCount(): number {
+  beingCount(): number {
     let n = 0;
     for (const m of this.mobs) if (!m.dying && m.family === 'being' && m.kind !== 'moth') n++;
     return n + (this.count(undefined, 'moth') > 0 ? 1 : 0);
@@ -479,40 +674,72 @@ export class MobSim {
     dt = Math.min(dt, 0.1);
     this.ctx = ctx;
     this.clock += dt;
-    if (ctx.active) this.spawner(dt, ctx);
+    if (ctx.active) {
+      // The strata (a biome map, or a biome forced for tests and captures) spawn from the rosters.
+      if (this.forceBiome || ctx.biome || this.env.biomeAt) strataSpawner(this, dt, ctx);
+      else this.spawner(dt, ctx);
+    }
     let dim = 1;
     let followers = 0;
+    let engaged = false;
     for (let i = this.mobs.length - 1; i >= 0; i--) {
       const m = this.mobs[i];
       m.stateTime += dt;
       m.flash = Math.max(0, m.flash - dt / MOBS_RULES.flash);
       m.cooldown -= dt;
       if (m.dying) {
-        m.fade = Math.max(0, m.fade - dt / (m.kind === 'sentinel' ? 2.4 : m.kind === 'wisp' ? 0.9 : 0.7));
-        if (m.kind !== 'wisp' && m.kind !== 'moth' && m.kind !== 'jelly' && m.kind !== 'lampling') this.walkerSettle(m, dt);
+        m.fade = Math.max(0, m.fade - dt / (m.guardian ? 3 : m.brain === 'sentinel' ? 2.4 : m.brain === 'drain' ? 0.9 : 0.7));
+        if (m.def.locomotion !== 'fly') this.walkerSettle(m, dt);
         if (m.fade <= 0) {
           this.mobs.splice(i, 1);
           this.emit({ type: 'gone', mob: m });
         }
         continue;
       }
-      m.fade = Math.min(1, m.fade + dt / 0.9);
+      // A burrower underground stays dissolved (its rumble and the ripple on the floor give it away).
+      const fadeTo = m.mode === 'under' ? 0 : 1;
+      m.fade += (fadeTo - m.fade) * Math.min(1, dt / (fadeTo > m.fade ? 0.9 : 0.25));
+      if (fadeTo === 1 && m.fade > 0.995) m.fade = 1;
       if (ctx.active && this.brains) this.brain(m, dt, ctx);
+      this.applyKnock(m, dt);
       this.animate(m, dt);
-      if (m.kind === 'wisp' && m.state === 'attack') dim = Math.min(dim, MOBS_RULES.wispDim + (1 - MOBS_RULES.wispDim) * (1 - Math.min(1, m.stateTime / 1.5)));
-      if (m.kind === 'lampling' && m.state === 'follow') followers++;
-      // Put away what is far behind (and every monster when the explorer is home).
-      const far = Math.hypot(m.position.x - ctx.player.x, m.position.y - ctx.player.y, m.position.z - ctx.player.z) > (m.kind === 'worm' ? 140 : m.kind === 'sentinel' ? 60 : MOBS_RULES.despawn);
-      if (far || (ctx.atCamp && m.hostile && m.kind !== 'sentinel')) this.remove(m);
-      // Monsters never enter the camp: one that strays in or above the Hollow's edge turns back.
-      else if (m.hostile && (this.env.inCamp(m.position.x, m.position.y, m.position.z) || this.env.depthOf(m.position.y) < this.monsterDepth - 12)) this.remove(m);
+      if (ctx.active) this.watchScan(m, dt, ctx);
+      if (m.brain === 'drain' && m.state === 'attack') dim = Math.min(dim, MOBS_RULES.wispDim + (1 - MOBS_RULES.wispDim) * (1 - Math.min(1, m.stateTime / 1.5)));
+      if (m.brain === 'lamp' && m.state === 'follow') followers++;
+      if (m.hostile && (m.state === 'windup' || m.state === 'attack' || m.state === 'stalk') && this.distToPlayer(m, ctx) < 18) engaged = true;
+      // Put away what is far behind (and every monster when the explorer is home). Guardians keep to their lairs.
+      const reach = m.brain === 'vista' ? 140 : m.guardian ? 90 : m.brain === 'sentinel' ? 60 : MOBS_RULES.despawn;
+      const far = Math.hypot(m.position.x - ctx.player.x, m.position.y - ctx.player.y, m.position.z - ctx.player.z) > reach;
+      if (far || (ctx.atCamp && m.hostile && m.brain !== 'sentinel' && !m.guardian)) this.remove(m);
+      // Monsters never enter the camp or an outpost: one that strays in turns back to the dark.
+      else if (m.hostile && !m.guardian && (this.unsafe(m.position.x, m.position.y, m.position.z) || (!this.strata && this.env.depthOf(m.position.y) < this.monsterDepth - 12))) this.remove(m);
     }
+    this.quiet = engaged ? 0 : this.quiet + dt;
+    this.snuffLeft = Math.max(0, this.snuffLeft - dt);
+    if (this.snuffLeft > 0) dim = Math.min(dim, 0.32);
     this.dim += (dim - this.dim) * Math.min(1, dt * 3);
     this.boostLeft = Math.max(0, this.boostLeft - dt);
     const boost = (this.boostLeft > 0 ? MOBS_RULES.jellyBoost : 1) * (followers > 0 ? 1.1 : 1);
     this.boost += (boost - this.boost) * Math.min(1, dt * 2);
     this.updateShots(dt);
+    this.updateHazards(dt, ctx);
     if (ctx.active) this.wormDirector(ctx);
+  }
+
+  /** Spawning from the biome rosters (the strata), rather than the first world's depth rules. */
+  get strata(): boolean {
+    return !!(this.forceBiome || this.ctx?.biome || this.env.biomeAt);
+  }
+
+  /** The camp, its margin, an outpost: no monster here. */
+  unsafe(x: number, y: number, z: number): boolean {
+    return this.env.inCamp(x, y, z) || (this.env.safe?.(x, y, z) ?? false);
+  }
+
+  /** The biome at a point: forced, WORLD's map, the explorer's, or by depth in the first world. */
+  biomeAt(x: number, y: number, z: number): MobBiome {
+    if (this.forceBiome) return this.forceBiome;
+    return this.env.biomeAt?.(x, y, z) ?? this.ctx?.biome ?? 'amberHollows';
   }
 
   /** Fade a mob out now (despawn); 'gone' follows. */
@@ -520,71 +747,139 @@ export class MobSim {
     if (m.dying) return;
     m.setState('dying');
     m.tappable = false;
+    this.dropMarker(m);
   }
 
-  private walkerSettle(m: SimMob, dt: number): void {
+  walkerSettle(m: SimMob, dt: number): void {
     if (m.def.locomotion !== 'walk' && m.def.locomotion !== 'still') return;
+    if (m.mode === 'under') return;
     walkStep(this.env.solid, m.foot, 0, 0, dt, this.heightOf(m), m.bounds.radius);
     this.placeWalker(m);
+  }
+
+  /** A blow's push, decaying over a quarter second (walkers slide on the floor, fliers drift). */
+  applyKnock(m: SimMob, dt: number): void {
+    const k = m.knock;
+    if (Math.abs(k.x) + Math.abs(k.z) < 0.02) return;
+    const loco = m.def.locomotion;
+    if (loco === 'walk' || loco === 'still') {
+      if (m.mode !== 'under') {
+        walkStep(this.env.solid, m.foot, k.x, k.z, dt, this.heightOf(m), m.bounds.radius);
+        this.placeWalker(m);
+      }
+    } else if (loco === 'fly') {
+      m.vel.x += k.x * dt * 6;
+      m.vel.z += k.z * dt * 6;
+    }
+    const f = Math.exp(-dt * 9);
+    k.x *= f;
+    k.z *= f;
+  }
+
+  /** Watching a creature up close (near the centre of the view) scans it, once. */
+  watchScan(m: SimMob, dt: number, ctx: MobContext): void {
+    if (m.scanned || m.fade < 0.6 || m.brain === 'vista') return;
+    const look = (ctx as MobContext & { look?: V3 }).look;
+    if (!look) return;
+    const dx = m.position.x - ctx.eye.x;
+    const dy = m.position.y - ctx.eye.y;
+    const dz = m.position.z - ctx.eye.z;
+    const dd = Math.hypot(dx, dy, dz);
+    if (dd > MOBS_RULES.watchRange + m.bounds.radius) {
+      m.watch = Math.max(0, m.watch - dt);
+      return;
+    }
+    const cos = (dx * look.x + dy * look.y + dz * look.z) / Math.max(0.01, dd);
+    const within = Math.atan2(m.bounds.radius + 0.5, dd);
+    if (cos > Math.cos(within + 0.12) && this.seesPlayer(m, ctx)) m.watch += dt;
+    else m.watch = Math.max(0, m.watch - dt * 0.5);
+    if (m.watch >= MOBS_RULES.watchSeconds) this.markScanned(m);
+  }
+
+  /** Scan a creature (the sonar, a long look): a bestiary page. */
+  markScanned(m: SimMob): void {
+    if (m.scanned) return;
+    m.scanned = true;
+    this.emit({ type: 'scanned', mob: m });
+  }
+
+  /** The sonar: every creature within `radius` (through rock too) is scanned. */
+  scan(x: number, y: number, z: number, radius: number): number {
+    let n = 0;
+    for (const m of this.mobs) {
+      if (m.dying || m.brain === 'vista') continue;
+      if (Math.hypot(m.position.x - x, m.position.y - y, m.position.z - z) > radius) continue;
+      n++;
+      this.markScanned(m);
+    }
+    return n;
   }
 
   // ------------------------------------------------------------------------------------
   // Brains
 
-  private brain(m: SimMob, dt: number, ctx: MobContext): void {
-    switch (m.kind) {
-      case 'crawler':
+  brain(m: SimMob, dt: number, ctx: MobContext): void {
+    switch (m.brain) {
+      case 'cling':
         return this.crawler(m, dt, ctx);
-      case 'gnasher':
+      case 'mimic':
         return this.gnasher(m, dt, ctx);
-      case 'wisp':
+      case 'drain':
         return this.wisp(m, dt, ctx);
-      case 'stalker':
+      case 'lurk':
         return this.stalker(m, dt, ctx);
       case 'sentinel':
         return this.sentinel(m, dt, ctx);
-      case 'worm':
+      case 'vista':
         return this.worm(m, dt);
       case 'moth':
         return this.moth(m, dt, ctx);
-      case 'lampling':
+      case 'lamp':
         return this.lampling(m, dt, ctx);
-      case 'glimmerkin':
+      case 'skitter':
         return this.glimmerkin(m, dt, ctx);
-      case 'shellback':
+      case 'graze':
         return this.shellback(m, dt, ctx);
-      case 'jelly':
+      case 'float':
         return this.jelly(m, dt, ctx);
-      case 'burrower':
+      case 'thief':
         return this.burrower(m, dt, ctx);
+      case 'guardian':
+      case 'heart':
+        return guardianBrain(this, m, dt, ctx);
+      case 'drop':
+        if (m.mode === 'ground') return crawlerGround(this, m, dt, ctx);
+        return runBrain(this, m, dt, ctx);
+      default:
+        return runBrain(this, m, dt, ctx);
     }
   }
 
-  private distToPlayer(m: SimMob, ctx: MobContext): number {
+  distToPlayer(m: SimMob, ctx: MobContext): number {
     return Math.hypot(m.position.x - ctx.player.x, m.position.y - (ctx.player.y + 1.0), m.position.z - ctx.player.z);
   }
 
-  private flatDist(m: SimMob, ctx: MobContext): number {
+  flatDist(m: SimMob, ctx: MobContext): number {
     return Math.hypot(m.position.x - ctx.player.x, m.position.z - ctx.player.z);
   }
 
-  private seesPlayer(m: SimMob, ctx: MobContext): boolean {
+  seesPlayer(m: SimMob, ctx: MobContext): boolean {
     tmpA.x = m.position.x;
     tmpA.y = m.position.y + 0.1;
     tmpA.z = m.position.z;
     return clearLine(this.env.solid, tmpA, ctx.eye) || clearLine(this.env.solid, tmpA, { x: ctx.player.x, y: ctx.player.y + 0.9, z: ctx.player.z });
   }
 
-  private announce(m: SimMob, ctx: MobContext): void {
+  announce(m: SimMob, ctx: MobContext): void {
     if (m.met) return;
-    if (this.distToPlayer(m, ctx) > (m.kind === 'worm' ? 80 : 13)) return;
-    if (m.kind !== 'worm' && !this.seesPlayer(m, ctx)) return;
+    if (this.distToPlayer(m, ctx) > (m.brain === 'vista' ? 80 : m.guardian ? 30 : 13)) return;
+    if (m.brain !== 'vista' && !this.seesPlayer(m, ctx)) return;
     m.met = true;
     this.emit({ type: 'meet', mob: m });
   }
 
   /** The crawler: on rock at the edge of the light, darting in from the dark, recoiling from a bright flame. */
-  private crawler(m: SimMob, dt: number, ctx: MobContext): void {
+  crawler(m: SimMob, dt: number, ctx: MobContext): void {
     const bright = this.brightRadius(ctx);
     const l = ctx.lantern;
     const dl = Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z);
@@ -654,14 +949,14 @@ export class MobSim {
     this.crawlMove(m, dt, speed, away, m.state === 'attack' ? 0 : bright, ctx);
   }
 
-  private recoil(m: SimMob, seconds = 2.4): void {
+  recoil(m: SimMob, seconds = 2.4): void {
     m.setState('recoil');
     m.timer = seconds;
     this.emit({ type: 'recoil', mob: m });
   }
 
   /** Step a crawler along the rock toward (or away from) its goal, avoiding the lantern's pool. */
-  private crawlMove(m: SimMob, dt: number, speed: number, away: boolean, bright: number, ctx: MobContext): void {
+  crawlMove(m: SimMob, dt: number, speed: number, away: boolean, bright: number, ctx: MobContext): void {
     const s = this.env.solid;
     // The rock it clung to was mined away (or its next cell filled): back onto the nearest face.
     if (!clingable(s, m.next.x, m.next.y, m.next.z)) {
@@ -719,7 +1014,7 @@ export class MobSim {
   }
 
   /** The Gnasher: a boulder that breathes; it opens its ring of crystal teeth when you come close. */
-  private gnasher(m: SimMob, dt: number, ctx: MobContext): void {
+  gnasher(m: SimMob, dt: number, ctx: MobContext): void {
     const dp = this.flatDist(m, ctx);
     const vdy = Math.abs(ctx.player.y - m.foot.y);
     switch (m.state) {
@@ -775,7 +1070,7 @@ export class MobSim {
   }
 
   /** The Shade Wisp: drifting smoke that comes for the flame; it drinks the oil and dims the light. */
-  private wisp(m: SimMob, dt: number, ctx: MobContext): void {
+  wisp(m: SimMob, dt: number, ctx: MobContext): void {
     const l = ctx.lantern;
     const dl = Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z);
     this.announce(m, ctx);
@@ -841,7 +1136,7 @@ export class MobSim {
   }
 
   /** The Hollow Stalker: tall and thin at the edge of the light; it comes only when the flame is dim. */
-  private stalker(m: SimMob, dt: number, ctx: MobContext): void {
+  stalker(m: SimMob, dt: number, ctx: MobContext): void {
     const l = ctx.lantern;
     const flame = l.lit ? l.flame : 0;
     const full = (flame >= MOBS_RULES.fullFlame || l.raised) && l.lit;
@@ -922,7 +1217,7 @@ export class MobSim {
     if (m.state !== 'stalk' && m.state !== 'flee' && m.state !== 'recoil') this.walkerSettle(m, dt);
   }
 
-  private flee(m: SimMob, seconds: number): void {
+  flee(m: SimMob, seconds: number): void {
     if (m.state === 'flee') return;
     m.setState('flee');
     m.timer = seconds;
@@ -930,7 +1225,7 @@ export class MobSim {
   }
 
   /** The Stone Sentinel: a Halden automaton; slow sweeps, then its core opens. */
-  private sentinel(m: SimMob, dt: number, ctx: MobContext): void {
+  sentinel(m: SimMob, dt: number, ctx: MobContext): void {
     const dp = this.flatDist(m, ctx);
     const dHome = Math.hypot(ctx.player.x - m.home.x, ctx.player.z - m.home.z);
     switch (m.state) {
@@ -1028,7 +1323,7 @@ export class MobSim {
   }
 
   /** The Deep Worm: a glimpse of something vast passing through a far chasm. */
-  private worm(m: SimMob, dt: number): void {
+  worm(m: SimMob, dt: number): void {
     const p = m.path;
     if (!p) return this.remove(m);
     p.t += (m.def.speed * dt) / p.len;
@@ -1071,7 +1366,7 @@ export class MobSim {
     return m;
   }
 
-  private wormDirector(ctx: MobContext): void {
+  wormDirector(ctx: MobContext): void {
     if (this.clock - this.lastWorm < MOBS_RULES.wormGap || ctx.depth < this.monsterDepth + 15) return;
     if (this.rng.next() > 0.004) return;
     // A far vista: open air 26-46 m out along the view (or a known anchor in sight).
@@ -1086,7 +1381,7 @@ export class MobSim {
   }
 
   /** Lumen moths: drawn to the lantern, they circle it a while, then drift off. */
-  private moth(m: SimMob, dt: number, ctx: MobContext): void {
+  moth(m: SimMob, dt: number, ctx: MobContext): void {
     const l = ctx.lantern;
     const dl = Math.hypot(m.position.x - l.x, m.position.y - l.y, m.position.z - l.z);
     let tx: number;
@@ -1122,7 +1417,7 @@ export class MobSim {
   }
 
   /** Lamplings: lantern-bodied sprites; they follow and light the way for a while, then go home. */
-  private lampling(m: SimMob, dt: number, ctx: MobContext): void {
+  lampling(m: SimMob, dt: number, ctx: MobContext): void {
     const l = ctx.lantern;
     const dp = this.distToPlayer(m, ctx);
     let tx = m.home.x + Math.sin(this.clock * 0.9 + m.seed * 9) * 0.7;
@@ -1169,7 +1464,7 @@ export class MobSim {
   }
 
   /** The Glimmerkin: a crystal-backed scurrier; it flees a hurried approach, then stops to look. */
-  private glimmerkin(m: SimMob, dt: number, ctx: MobContext): void {
+  glimmerkin(m: SimMob, dt: number, ctx: MobContext): void {
     const dp = this.flatDist(m, ctx);
     const pspeed = Math.hypot(ctx.player.vx, ctx.player.vz);
     switch (m.state) {
@@ -1214,7 +1509,7 @@ export class MobSim {
   }
 
   /** The Shellback: a big, gentle geode-shelled snail; its crystals regrow. */
-  private shellback(m: SimMob, dt: number, ctx: MobContext): void {
+  shellback(m: SimMob, dt: number, ctx: MobContext): void {
     if (this.distToPlayer(m, ctx) < 10) this.announce(m, ctx);
     m.timer += dt;
     if (m.crystals < 4 && m.timer >= MOBS_RULES.shellRegrow) {
@@ -1240,7 +1535,7 @@ export class MobSim {
   }
 
   /** The Drift Jelly: a glowing jelly that floats in the big caverns; a tap gives light spores. */
-  private jelly(m: SimMob, dt: number, ctx: MobContext): void {
+  jelly(m: SimMob, dt: number, ctx: MobContext): void {
     const dp = this.distToPlayer(m, ctx);
     if (dp < 14) this.announce(m, ctx);
     if (m.cooldown <= 0 && !m.tappable) {
@@ -1268,7 +1563,7 @@ export class MobSim {
   }
 
   /** The Burrower: a cheeky ore thief; it pops up, taunts, runs, and digs away if not caught. */
-  private burrower(m: SimMob, dt: number, ctx: MobContext): void {
+  burrower(m: SimMob, dt: number, ctx: MobContext): void {
     const dp = this.flatDist(m, ctx);
     switch (m.state) {
       case 'wake':
@@ -1316,19 +1611,19 @@ export class MobSim {
     m.timer2 += dt;
   }
 
-  private clockOf(m: SimMob): number {
+  clockOf(m: SimMob): number {
     return m.timer2;
   }
 
   // ------------------------------------------------------------------------------------
   // Locomotion helpers
 
-  private face(m: SimMob, ctx: MobContext, dt: number, rate: number): void {
+  face(m: SimMob, ctx: MobContext, dt: number, rate: number): void {
     m.yaw = dampAngle(m.yaw, Math.atan2(ctx.player.x - m.position.x, ctx.player.z - m.position.z), rate, dt);
   }
 
   /** Walk the feet toward (x, z). @returns whether the way was blocked. */
-  private walkToward(m: SimMob, x: number, z: number, speed: number, dt: number, keepCampOut = true): boolean {
+  walkToward(m: SimMob, x: number, z: number, speed: number, dt: number, keepCampOut = true): boolean {
     const dx = x - m.foot.x;
     const dz = z - m.foot.z;
     const d = Math.hypot(dx, dz);
@@ -1348,12 +1643,12 @@ export class MobSim {
     const blocked = walkStep(this.env.solid, m.foot, vx, vz, dt, this.heightOf(m), m.bounds.radius);
     const moved = Math.hypot(m.foot.x - bx, m.foot.z - bz) / Math.max(dt, 1e-4);
     m.speedNow += (moved - m.speedNow) * Math.min(1, dt * 10);
-    m.gait += moved * dt * (m.kind === 'stalker' ? 1.6 : m.kind === 'sentinel' ? 1.3 : 6);
+    m.gait += (moved * dt * (m.brain === 'lurk' ? 1.6 : m.brain === 'sentinel' ? 1.3 : 6)) / Math.max(0.5, m.def.radius * m.scale * 2.2) ** 0.6;
     this.placeWalker(m);
     return blocked;
   }
 
-  private flyToward(m: SimMob, tx: number, ty: number, tz: number, speed: number, dt: number, accel: number): void {
+  flyToward(m: SimMob, tx: number, ty: number, tz: number, speed: number, dt: number, accel: number): void {
     const dx = tx - m.position.x;
     const dy = ty - m.position.y;
     const dz = tz - m.position.z;
@@ -1369,8 +1664,8 @@ export class MobSim {
     m.speedNow = Math.hypot(m.vel.x, m.vel.y, m.vel.z);
   }
 
-  private animate(m: SimMob, dt: number): void {
-    if (m.kind !== 'stalker' && m.kind !== 'sentinel') m.strike += ((m.state === 'windup' ? 1 : 0) - m.strike) * Math.min(1, dt * 10);
+  animate(m: SimMob, dt: number): void {
+    if (m.brain !== 'lurk' && m.brain !== 'sentinel' && !m.guardian && m.brain !== 'slam' && m.brain !== 'spit' && m.brain !== 'charge' && m.brain !== 'fuse') m.strike += ((m.state === 'windup' ? 1 : 0) - m.strike) * Math.min(1, dt * 10);
     m.alert += ((m.state === 'windup' || m.state === 'attack' ? 1 : m.state === 'stalk' ? 0.6 : 0.2) - m.alert) * Math.min(1, dt * 3);
   }
 
@@ -1413,64 +1708,157 @@ export class MobSim {
     const miss: MobHitResult = { hit: false, killed: false, hitStop: 0 };
     if (m.dying || !this.mobs.includes(m)) return miss;
     if (m.family === 'being') return this.touch(m);
-    if (m.kind === 'worm') return miss;
+    if (m.brain === 'vista' || m.mode === 'under') return miss;
     let d = Math.max(0, dmg);
     let armoured = false;
+    let weak = false;
     const light = strike.light === true;
-    if (light && (m.kind === 'crawler' || m.kind === 'wisp')) d *= 1.5;
-    if (m.kind === 'gnasher' && m.open < 0.5) {
-      // Closed, it is a boulder: the blow glances off and wakes it.
-      d *= 0.3;
-      armoured = true;
-      if (m.state === 'sleep') {
-        m.setState('windup');
-        m.landed = false;
-        this.emit({ type: 'telegraph', mob: m });
-      }
-    }
-    if (m.kind === 'sentinel') {
-      if (m.state === 'sleep') return miss;
-      // Only the open core takes the full blow.
-      if (m.state !== 'recoil' && m.state !== 'flee') {
-        d *= 0.25;
-        armoured = true;
+    if (light && (m.brain === 'cling' || m.brain === 'drain')) d *= 1.5;
+    if (this.known.has(m.kind)) d *= BESTIARY_BONUS;
+    switch (m.brain) {
+      case 'mimic':
+        if (m.open < 0.5 && !strike.blast) {
+          // Closed, it is a boulder (a chest, a flower bud): the blow glances off and wakes it.
+          d *= m.def.armour;
+          armoured = true;
+          if (m.state === 'sleep') {
+            m.setState('windup');
+            m.landed = false;
+            this.telegraph(m);
+          }
+        } else if (m.open >= 0.5) weak = true;
+        break;
+      case 'sentinel':
+        if (m.state === 'sleep') return miss;
+        // Only the open core takes the full blow.
+        if (m.state !== 'recoil' && m.state !== 'flee') {
+          d *= m.def.armour;
+          armoured = true;
+        } else weak = true;
+        break;
+      case 'slam':
+        if (!m.vulnerable && !strike.blast) {
+          d *= m.def.armour;
+          armoured = true;
+        } else weak = true;
+        break;
+      case 'charge':
+        if (m.state === 'stunned') {
+          d *= MOBS_RULES.stunned;
+          weak = true;
+        }
+        break;
+      case 'guardian':
+      case 'heart': {
+        const r = guardianOnHit(this, m, d, strike);
+        if (r === null) return miss;
+        d = r.damage;
+        armoured = r.armoured;
+        weak = r.weak;
+        break;
       }
     }
     m.hp = (m.hp ?? 1) - d;
-    m.flash = 1;
+    m.flash = weak ? 1 : armoured ? 0.45 : 0.85;
     const killed = m.hp <= 0;
-    this.emit({ type: 'hit', mob: m, damage: d, killed, armoured });
+    this.emit({ type: 'hit', mob: m, damage: d, killed, armoured, weak });
+    // Knock-back: away from the blow, less for the heavy ones (none while it rushes).
+    const from = strike.from ?? (this.ctx ? { x: this.ctx.player.x, y: this.ctx.player.y, z: this.ctx.player.z } : null);
+    if (from && !killed && m.state !== 'attack') {
+      const kx = m.position.x - from.x;
+      const kz = m.position.z - from.z;
+      const kl = Math.max(0.01, Math.hypot(kx, kz));
+      const push = (MOBS_RULES.knock * (strike.knock ?? 1) * (armoured ? 0.3 : 1)) / m.def.mass;
+      m.knock.x += (kx / kl) * push;
+      m.knock.z += (kz / kl) * push;
+    }
     if (killed) this.kill(m);
-    else if (m.kind === 'crawler') this.recoil(m, light ? 3 : 1.4);
-    else if (m.kind === 'wisp') this.recoil(m, 1.6);
-    else if (m.kind === 'stalker') this.flee(m, 2.5);
-    else if (m.kind === 'gnasher' && !armoured && m.state === 'recoil') m.timer = Math.max(m.timer, m.stateTime + 0.6);
-    return { hit: true, killed, hitStop: MOBS_RULES.hitStop };
+    else if (m.brain === 'cling' || (m.brain === 'drop' && m.mode === 'ground')) this.recoil(m, light ? 3 : 1.4);
+    else if (m.brain === 'drain') this.recoil(m, 1.6);
+    else if (m.brain === 'lurk') this.flee(m, 2.5);
+    else if (m.brain === 'mimic' && !armoured && m.state === 'recoil') m.timer = Math.max(m.timer, m.stateTime + 0.6);
+    else if (m.brain === 'drop' && m.mode === 'ceiling') {
+      // Struck on its perch: it lets go at once.
+      m.setState('attack');
+      m.landed = false;
+    } else if (m.brain === 'pack' && m.state !== 'attack') {
+      m.setState('recoil');
+      m.timer = 0.7;
+    } else if (m.brain === 'dive' && m.state !== 'attack') {
+      m.setState('recoil');
+      m.timer = 0.8;
+    } else if (m.brain === 'spit' && m.state === 'windup' && weak) m.setState('stalk');
+    const heavy = killed || weak;
+    return { hit: true, killed, hitStop: heavy ? MOBS_RULES.hitStopHeavy : MOBS_RULES.hitStop, weak, damage: d };
   }
 
-  private kill(m: SimMob): void {
+  /** A bomb: every monster within `radius` takes `dmg` (half at the edge) and is thrown back. */
+  blast(x: number, y: number, z: number, radius: number, dmg: number): number {
+    let n = 0;
+    const o = { x, y, z };
+    for (const m of [...this.mobs]) {
+      if (!m.hostile || m.dying || m.mode === 'under') continue;
+      const dd = Math.hypot(m.position.x - x, m.position.y - y, m.position.z - z);
+      if (dd > radius + m.bounds.radius) continue;
+      n++;
+      const k = 1 - 0.5 * Math.min(1, dd / Math.max(0.1, radius));
+      this.hit(m, dmg * k, { blast: true, from: o, knock: 2 });
+    }
+    return n;
+  }
+
+  kill(m: SimMob): void {
     if (m.dying) return;
     m.hp = 0;
     m.setState('dying');
     m.tappable = false;
-    if (m.kind === 'sentinel' && m.relic) this.sentinelDone.add(m.relic);
+    this.dropMarker(m);
+    if (m.brain === 'sentinel' && m.relic) this.sentinelDone.add(m.relic);
+    if (m.guardian) this.guardiansDone.add(m.lair?.biome ?? m.biome);
+    if (m.nest) {
+      const nest = this.nests.find((n) => n.id === m.nest);
+      if (nest) nest.kills++;
+    }
     this.emit({ type: 'die', mob: m });
+    // An exploder struck down: a lit fuse still bursts (it hurts the explorer too); an unlit one pops,
+    // and its pop hurts only the monsters round it (a chain).
+    if (m.brain === 'fuse') this.burst(m, m.fused);
+  }
+
+  /** An exploder's burst at its body. */
+  burst(m: SimMob, full: boolean): void {
+    const p = m.position;
+    const r = (m.def.blast ?? 2.4) * (full ? 1 : 0.8);
+    this.emit({ type: 'burst', x: p.x, y: p.y, z: p.z, color: m.def.mote, size: full ? 1.4 : 0.9 });
+    this.emit({ type: 'sfx', name: full ? 'mob.boom' : 'mob.pop', x: p.x, y: p.y, z: p.z, mob: m });
+    if (full) this.areaStrike(m, p.x, p.y, p.z, r, m.def.damage, false);
+    for (const o of [...this.mobs]) {
+      if (o === m || !o.hostile || o.dying || o.guardian || o.mode === 'under') continue;
+      const dd = o.position.distanceTo(p);
+      if (dd > r + o.bounds.radius) continue;
+      // A chain: other exploders light at once.
+      if (o.brain === 'fuse' && !o.fused) {
+        o.fused = true;
+        o.setState('windup');
+        o.timer = 0.25 + this.rng.range(0, 0.2);
+      } else this.hit(o, m.def.damage * (full ? 0.6 : 0.4), { blast: true, from: p, knock: 1.5 });
+    }
   }
 
   /** A tap on a being (within reach of the eye): catch, harvest, spores, a pat. */
-  private touch(m: SimMob): MobHitResult {
+  touch(m: SimMob): MobHitResult {
     const miss: MobHitResult = { hit: false, killed: false, hitStop: 0 };
     const ctx = this.ctx;
     if (!m.tappable) return miss;
     if (ctx && this.distanceTo(m, ctx.eye.x, ctx.eye.y, ctx.eye.z) > MOBS_RULES.touchReach) return miss;
-    switch (m.kind) {
-      case 'glimmerkin':
+    switch (m.brain) {
+      case 'skitter':
         if (m.state === 'caught') return miss;
         m.setState('caught');
         m.tappable = false;
         this.emit({ type: 'interact', mob: m, action: 'caught' });
         return { hit: true, killed: true, hitStop: 0, action: 'caught' };
-      case 'burrower':
+      case 'thief':
         if (m.state === 'caught' || m.state === 'sleep') return miss;
         m.setState('caught');
         m.carry = 0;
@@ -1478,7 +1866,7 @@ export class MobSim {
         this.emit({ type: 'interact', mob: m, action: 'caught' });
         this.emit({ type: 'cue', mob: m, cue: 'squeak' });
         return { hit: true, killed: false, hitStop: 0, action: 'caught' };
-      case 'shellback':
+      case 'graze':
         if (m.crystals <= 0 || m.state === 'harvested') return miss;
         m.crystals--;
         m.timer = 0;
@@ -1489,7 +1877,7 @@ export class MobSim {
         }
         this.emit({ type: 'interact', mob: m, action: 'harvested' });
         return { hit: true, killed: false, hitStop: 0, action: 'harvested' };
-      case 'jelly':
+      case 'float':
         m.cooldown = 90;
         m.tappable = false;
         m.rarity = undefined;
@@ -1498,7 +1886,7 @@ export class MobSim {
         this.boostLeft = MOBS_RULES.jellyBoostSeconds;
         this.emit({ type: 'interact', mob: m, action: 'spores' });
         return { hit: true, killed: false, hitStop: 0, action: 'spores' };
-      case 'lampling':
+      case 'lamp':
         m.flash = 0.6;
         if (m.state === 'follow') m.stateTime = Math.max(0, m.stateTime - 30);
         else if (m.cooldown <= 0 || m.state === 'idle') {
@@ -1518,19 +1906,45 @@ export class MobSim {
     let n = 0;
     const o = { x, y, z };
     for (const m of [...this.mobs]) {
-      if (!m.hostile || m.dying) continue;
+      if (!m.hostile || m.dying || m.mode === 'under') continue;
       const d = Math.hypot(m.position.x - x, m.position.y - y, m.position.z - z);
       if (d > radius || !clearLine(this.env.solid, o, m.position)) continue;
       n++;
       if (dmg > 0 && m.state !== 'sleep') this.hit(m, dmg, { light: true, from: o });
       if (m.dying) continue;
-      if (m.kind === 'crawler' || m.kind === 'wisp') this.recoil(m, 4);
-      else if (m.kind === 'stalker') this.flee(m, 8);
-      else if (m.kind === 'gnasher' || m.kind === 'sentinel') {
-        if (m.state !== 'sleep') {
-          m.setState('flee');
-          m.timer = m.kind === 'sentinel' ? 1.6 : 2.2;
-        }
+      switch (m.brain) {
+        case 'cling':
+        case 'drain':
+        case 'pack':
+          this.recoil(m, 4);
+          break;
+        case 'lurk':
+          this.flee(m, 8);
+          break;
+        case 'dive':
+          m.setState('recoil');
+          m.timer = 2.5;
+          this.dropMarker(m);
+          break;
+        case 'mimic':
+        case 'sentinel':
+        case 'slam':
+        case 'spit':
+          if (m.state !== 'sleep') {
+            this.dropMarker(m);
+            m.setState('flee');
+            m.timer = m.brain === 'sentinel' ? 1.6 : 2.2;
+          }
+          break;
+        case 'charge':
+          if (m.state !== 'attack') {
+            this.dropMarker(m);
+            m.setState('stunned');
+            m.timer = 1.6;
+          }
+          break;
+        default:
+          break;
       }
     }
     return n;
@@ -1549,7 +1963,7 @@ export class MobSim {
     return s;
   }
 
-  private updateShots(dt: number): void {
+  updateShots(dt: number): void {
     const solid = this.env.solid;
     for (let i = this.shots.length - 1; i >= 0; i--) {
       const s = this.shots[i];
@@ -1587,7 +2001,7 @@ export class MobSim {
       if (done || s.life <= 0) {
         s.landed = 0;
         // The light where it lands scares crawlers near it.
-        for (const m of this.mobs) if (m.kind === 'crawler' && !m.dying && m.position.distanceTo(s.p) < 3.2) this.recoil(m, 3);
+        for (const m of this.mobs) if (m.brain === 'cling' && !m.dying && m.position.distanceTo(s.p) < 3.2) this.recoil(m, 3);
         this.emit({ type: 'shot', shot: s, phase: done ? 'hit' : 'miss' });
       }
     }
@@ -1597,9 +2011,264 @@ export class MobSim {
     for (const m of this.mobs) this.emit({ type: 'gone', mob: m });
     this.mobs.length = 0;
     this.shots.length = 0;
+    this.spits.length = 0;
+    this.markers.length = 0;
+    this.waves.length = 0;
+    this.eruptions.length = 0;
     this.dim = 1;
     this.boost = 1;
     this.boostLeft = 0;
+    this.snuffLeft = 0;
+    this.quiet = 0;
+  }
+
+  // ------------------------------------------------------------------------------------
+  // Round 3: telegraphs, area blows, spits
+
+  /** Announce a wind-up: the telegraph event (its sound, its pose) and its voice. */
+  telegraph(m: SimMob): void {
+    this.emit({ type: 'telegraph', mob: m });
+    this.emit({ type: 'sfx', name: m.def.voice.tele, x: m.position.x, y: m.position.y, z: m.position.z, mob: m });
+  }
+
+  /** A named sound at the creature. */
+  sfx(m: SimMob, name: string): void {
+    this.emit({ type: 'sfx', name, x: m.position.x, y: m.position.y, z: m.position.z, mob: m });
+  }
+
+  /** Put a telegraph on the ground (replacing the owner's previous one). */
+  addMarker(m: SimMob, kind: Marker['kind'], x: number, y: number, z: number, r: number, extra: Partial<Marker> = {}): Marker {
+    this.dropMarker(m);
+    const mk: Marker = { id: this.nextMarker++, kind, x, y, z, r, dx: 0, dz: 1, len: 0, progress: 0, color: m.def.mote, owner: m.id, life: -1, ...extra };
+    this.markers.push(mk);
+    m.marker = mk.id;
+    return mk;
+  }
+
+  marker(m: SimMob): Marker | null {
+    if (!m.marker) return null;
+    return this.markers.find((k) => k.id === m.marker) ?? null;
+  }
+
+  /** Remove the creature's telegraph (its blow landed, or it was interrupted). */
+  dropMarker(m: SimMob): void {
+    if (!m.marker) return;
+    const i = this.markers.findIndex((k) => k.id === m.marker);
+    if (i >= 0 && this.markers[i].kind !== 'wave') this.markers.splice(i, 1);
+    m.marker = 0;
+  }
+
+  /** The floor's height under a point (the feet cell's y), searching down then up a little. */
+  floorY(x: number, y: number, z: number): number {
+    const s = this.env.solid;
+    const fx = Math.floor(x);
+    const fz = Math.floor(z);
+    let fy = Math.floor(y);
+    for (let k = 0; k < 10; k++) {
+      if (s(fx, fy - 1, fz) && !s(fx, fy, fz)) return fy;
+      fy--;
+    }
+    fy = Math.floor(y);
+    for (let k = 0; k < 4; k++) {
+      fy++;
+      if (s(fx, fy - 1, fz) && !s(fx, fy, fz)) return fy;
+    }
+    return Math.floor(y);
+  }
+
+  /** The explorer's feet are off the floor (a jump clears a shockwave and a slam's edge). */
+  airborne(ctx: MobContext): boolean {
+    if (ctx.airborne !== undefined) return ctx.airborne;
+    const p = ctx.player;
+    return !this.env.solid(Math.floor(p.x), Math.floor(p.y - 0.12), Math.floor(p.z));
+  }
+
+  /** Distance from a point to the explorer's body (a capsule from the feet to the head). */
+  playerDistance(x: number, y: number, z: number, ctx: MobContext): number {
+    const p = ctx.player;
+    const cy = Math.max(p.y + 0.35, Math.min(p.y + 1.45, y));
+    return Math.max(0, Math.hypot(x - p.x, y - cy, z - p.z) - 0.35);
+  }
+
+  /**
+   * A blow reaches the explorer: damage (or a dodge, inside a dash's i-frames). @returns whether it
+   * counted (a dodged blow is spent too).
+   */
+  strikePlayer(m: SimMob, damage: number, element: MobElement = m.def.element): boolean {
+    const ctx = this.ctx;
+    if (ctx?.invulnerable) {
+      this.emit({ type: 'attack', mob: m, damage: 0, landed: false, element, dodged: true });
+      return true;
+    }
+    this.emit({ type: 'attack', mob: m, damage, landed: true, element });
+    return true;
+  }
+
+  /**
+   * A blow over an area (a slam, a burst, an emergence, a drop): it reaches the explorer within `r`
+   * of (x, y, z) (feet within 2.5 m of its height). `ground`: it travels along the floor, so a jump clears it.
+   */
+  areaStrike(m: SimMob, x: number, y: number, z: number, r: number, damage: number, ground: boolean): boolean {
+    const ctx = this.ctx;
+    if (!ctx) return false;
+    const p = ctx.player;
+    const flat = Math.hypot(p.x - x, p.z - z);
+    const inside = flat <= r + 0.3 && p.y + 1.6 > y - 1.2 && p.y < y + 2.5;
+    if (!inside || (ground && this.airborne(ctx))) {
+      this.emit({ type: 'attack', mob: m, damage: 0, landed: false, element: m.def.element });
+      return false;
+    }
+    // A wall between them shelters the explorer.
+    tmpA.x = x;
+    tmpA.y = y + 0.6;
+    tmpA.z = z;
+    if (!clearLine(this.env.solid, tmpA, { x: p.x, y: p.y + 0.9, z: p.z }) && !clearLine(this.env.solid, tmpA, ctx.eye)) {
+      this.emit({ type: 'attack', mob: m, damage: 0, landed: false, element: m.def.element });
+      return false;
+    }
+    return this.strikePlayer(m, damage);
+  }
+
+  /** Spit (or a volley): `def.count` globs from the mouth toward the explorer, leading a little. */
+  spitAt(m: SimMob, def: ShotDef, from: V3, ctx: MobContext, spreadScale = 1): void {
+    const p = ctx.player;
+    const tx = p.x;
+    const ty = p.y + 1.05;
+    const tz = p.z;
+    const dist = Math.hypot(tx - from.x, ty - from.y, tz - from.z);
+    const flight = dist / def.speed;
+    // Lead the explorer by half its motion (a strafe still dodges it).
+    const lx = tx + p.vx * flight * 0.5 - from.x;
+    const lz = tz + p.vz * flight * 0.5 - from.z;
+    // A lobbed glob is thrown up to land on the target.
+    const ly = ty - from.y + 0.5 * def.gravity * flight * flight;
+    const base = Math.atan2(lx, lz);
+    const flatL = Math.hypot(lx, lz);
+    for (let i = 0; i < def.count; i++) {
+      if (this.spits.length >= MOBS_RULES.maxSpits) break;
+      const k = def.count === 1 ? 0 : i / (def.count - 1) - 0.5;
+      const a = base + k * 2 * def.spread * spreadScale;
+      const v = new THREE.Vector3(Math.sin(a) * flatL, ly, Math.cos(a) * flatL).normalize().multiplyScalar(def.speed);
+      // Keep the horizontal speed when lobbed (the vertical part comes from the lob).
+      if (def.gravity > 0) {
+        const hv = def.speed;
+        v.set(Math.sin(a) * hv, ly / Math.max(0.05, flight), Math.cos(a) * hv);
+      }
+      this.spits.push({ id: this.nextShot++, p: new THREE.Vector3(from.x, from.y, from.z), v, def, owner: m, life: MOBS_RULES.spitLife, done: -1 });
+    }
+    this.sfx(m, 'mob.spit');
+  }
+
+  /** A rolling shockwave from a point along the floor. */
+  addWave(m: SimMob, x: number, y: number, z: number, max: number, speed: number, damage: number): void {
+    const mk: Marker = { id: this.nextMarker++, kind: 'wave', x, y, z, r: 0.5, dx: 0, dz: 1, len: 0.9, progress: 1, color: m.def.mote, owner: m.id, life: max / speed + 0.3 };
+    this.markers.push(mk);
+    this.waves.push({ marker: mk, speed, max, dmg: damage, element: m.def.element, owner: m, hit: false });
+  }
+
+  /** A row of eruptions along a locked line. */
+  addEruption(m: SimMob, mk: Marker, damage: number): void {
+    const points: Eruption['points'] = [];
+    const n = Math.max(2, Math.floor(mk.len / 1.3));
+    for (let i = 1; i <= n; i++) {
+      const x = mk.x + mk.dx * (i * mk.len) / n;
+      const z = mk.z + mk.dz * (i * mk.len) / n;
+      points.push({ x, y: this.floorY(x, mk.y + 1.5, z), z, at: i * 0.07, done: false });
+    }
+    mk.life = n * 0.07 + 0.5;
+    this.eruptions.push({ marker: mk, points, t: 0, dmg: damage, element: m.def.element, owner: m, hit: false, color: m.def.mote });
+    // The marker now belongs to the eruption (its owner may move on).
+    m.marker = 0;
+  }
+
+  /** Spits in flight, rolling waves, eruptions, and the markers' lives. */
+  updateHazards(dt: number, ctx: MobContext): void {
+    const solid = this.env.solid;
+    for (let i = this.spits.length - 1; i >= 0; i--) {
+      const s = this.spits[i];
+      if (s.done >= 0) {
+        s.done += dt;
+        if (s.done > 0.6) this.spits.splice(i, 1);
+        continue;
+      }
+      s.life -= dt;
+      s.v.y -= s.def.gravity * dt;
+      const steps = Math.max(1, Math.ceil((s.v.length() * dt) / 0.25));
+      let hit: 'player' | 'rock' | null = null;
+      for (let k = 0; k < steps && !hit; k++) {
+        s.p.addScaledVector(s.v, dt / steps);
+        if (ctx.active && this.playerDistance(s.p.x, s.p.y, s.p.z, ctx) <= s.def.radius) hit = 'player';
+        else if (solid(Math.floor(s.p.x), Math.floor(s.p.y), Math.floor(s.p.z))) {
+          s.p.addScaledVector(s.v, -dt / steps);
+          hit = 'rock';
+        }
+      }
+      if (hit === 'player') {
+        this.strikePlayer(s.owner, s.def.damage, s.def.element);
+        this.emit({ type: 'sfx', name: 'mob.splat', x: s.p.x, y: s.p.y, z: s.p.z });
+        s.done = 0;
+      } else if (hit === 'rock' || s.life <= 0) {
+        if (s.def.splash > 0 && hit === 'rock') {
+          if (ctx.active && this.playerDistance(s.p.x, s.p.y, s.p.z, ctx) <= s.def.splash) this.strikePlayer(s.owner, Math.round(s.def.damage * 0.6), s.def.element);
+          this.emit({ type: 'burst', x: s.p.x, y: s.p.y, z: s.p.z, color: s.def.color, size: 0.6 });
+        }
+        if (hit === 'rock') this.emit({ type: 'sfx', name: 'mob.splat', x: s.p.x, y: s.p.y, z: s.p.z });
+        s.done = 0;
+      }
+    }
+    for (let i = this.waves.length - 1; i >= 0; i--) {
+      const w = this.waves[i];
+      w.marker.r += w.speed * dt;
+      if (!w.hit && ctx.active) {
+        const p = ctx.player;
+        const flat = Math.hypot(p.x - w.marker.x, p.z - w.marker.z);
+        if (Math.abs(flat - w.marker.r) < 0.7 && Math.abs(p.y - w.marker.y) < 2.2 && !this.airborne(ctx)) {
+          w.hit = true;
+          this.strikePlayer(w.owner, w.dmg, w.element);
+        }
+      }
+      if (w.marker.r >= w.max) {
+        this.waves.splice(i, 1);
+        const j = this.markers.indexOf(w.marker);
+        if (j >= 0) this.markers.splice(j, 1);
+      }
+    }
+    for (let i = this.eruptions.length - 1; i >= 0; i--) {
+      const e = this.eruptions[i];
+      e.t += dt;
+      let left = 0;
+      for (const pt of e.points) {
+        if (pt.done) continue;
+        if (e.t < pt.at) {
+          left++;
+          continue;
+        }
+        pt.done = true;
+        this.emit({ type: 'burst', x: pt.x, y: pt.y + 0.3, z: pt.z, color: e.color, size: 0.7 });
+        if (!e.hit && ctx.active) {
+          const p = ctx.player;
+          if (Math.hypot(p.x - pt.x, p.z - pt.z) < 1.15 && Math.abs(p.y - pt.y) < 2 && !this.airborne(ctx)) {
+            e.hit = true;
+            this.strikePlayer(e.owner, e.dmg, e.element);
+          }
+        }
+      }
+      if (left === 0 && e.t > e.points.length * 0.07 + 0.4) {
+        this.eruptions.splice(i, 1);
+        const j = this.markers.indexOf(e.marker);
+        if (j >= 0) this.markers.splice(j, 1);
+      }
+    }
+    for (let i = this.markers.length - 1; i >= 0; i--) {
+      const mk = this.markers[i];
+      if (mk.life < 0) {
+        // A marker whose owner is gone goes too.
+        if (!this.mobs.some((m) => m.id === mk.owner && !m.dying)) this.markers.splice(i, 1);
+        continue;
+      }
+      mk.life -= dt;
+      if (mk.life <= 0 && mk.kind !== 'wave') this.markers.splice(i, 1);
+    }
   }
 }
 

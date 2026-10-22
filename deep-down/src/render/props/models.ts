@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { BIOME_PROPS } from './biomeModels';
 import type { PropKind } from '../../world/gen/types';
 import { Rng } from '../../core/rng';
 import { hash32 } from '../../core/math';
@@ -56,7 +57,7 @@ export interface PropModelOptions {
  * Number of distinct meshes per kind. A prop's seed picks one, so repeated props (route lanterns,
  * crates) share geometry while still differing from their neighbours.
  */
-export const PROP_VARIANTS: Record<PropKind, number> = {
+const VARIANT_TABLE: Record<string, number> = {
   campfire: 1,
   workbench: 1,
   chest: 1,
@@ -85,9 +86,21 @@ export const PROP_VARIANTS: Record<PropKind, number> = {
   surveyTable: 1,
   relicShelf: 256,
   runeStone: 8,
+  // Round 3: the biomes' props and the new stations (render/props/biomeModels.ts).
+  ...Object.fromEntries(Object.entries(BIOME_PROPS).map(([k, v]) => [k, v.variants])),
 };
 
-export const PROP_KINDS = Object.keys(PROP_VARIANTS) as PropKind[];
+/**
+ * Round 3: tolerant of kinds WORLD adds before VIS models them (one variant, the crate's model until
+ * then), and of kinds it retires (their entries simply go unused), so PropKind can change without
+ * breaking this table.
+ */
+export const PROP_VARIANTS: Readonly<Record<PropKind, number>> = new Proxy(VARIANT_TABLE, {
+  get: (t, k) => (typeof k === 'string' && k in t ? t[k] : 1),
+}) as unknown as Readonly<Record<PropKind, number>>;
+
+/** The kinds this file models (every key of the table). */
+export const PROP_KINDS = Object.keys(VARIANT_TABLE) as PropKind[];
 
 /** Collects the layers of one model while it is being built. */
 export class ModelBuilder {
@@ -134,7 +147,7 @@ export class ModelBuilder {
 
 type KindBuilder = (m: ModelBuilder, rng: Rng, o: PropModelOptions) => void;
 
-const BUILDERS: Record<PropKind, KindBuilder> = {
+const BUILDERS: Record<string, KindBuilder> = {
   campfire,
   workbench,
   chest,
@@ -157,6 +170,7 @@ const BUILDERS: Record<PropKind, KindBuilder> = {
   surveyTable,
   relicShelf,
   runeStone,
+  ...Object.fromEntries(Object.entries(BIOME_PROPS).map(([k, v]) => [k, v.build])),
 };
 
 /** Variant index for a prop seed. */
@@ -165,7 +179,7 @@ export const propVariant = (kind: PropKind, seed: number): number => hash32(seed
 /** Build the model for one kind and variant. Deterministic: same inputs, same geometry. */
 export function buildPropModel(kind: PropKind, o: PropModelOptions): PropModel {
   const m = new ModelBuilder();
-  BUILDERS[kind](m, new Rng(hash32(PROP_KINDS.indexOf(kind) * 7919 + o.variant * 104729 + 17)), o);
+  (BUILDERS[kind] ?? BUILDERS.crate)(m, new Rng(hash32(PROP_KINDS.indexOf(kind) * 7919 + o.variant * 104729 + 17)), o);
   return m.finish();
 }
 

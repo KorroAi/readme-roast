@@ -19,6 +19,7 @@ import { Backpack } from '../gameplay/Inventory';
 import { buildJournalView } from '../gameplay/Journal';
 import { NO_LIFE, buildFeatsView, featDef, newFeats, rewardText, type FeatSnapshot, type FeatsView } from '../gameplay/Feats';
 import { CONTENT } from '../config/content';
+import { STARTER_KIT, UPGRADE_GIFT } from '../config/quests';
 import { StuckWatch } from '../gameplay/Hints';
 import { DISCOVERIES } from '../gameplay/discoveries';
 import { anyCraftable, availableCounts, buildTreeView, closestNode } from '../gameplay/Tree';
@@ -186,6 +187,20 @@ export class Progression {
     bus.on('cache:recovered', () => this.first('recovered'));
     // WORLD (round 2): a black-out ends any world event (and its passing lights).
     bus.on('player:died', () => this.events.reset());
+    // LOOP (round 3): the loop hub listens too (quests, guidance, hazards); worn gear changes the drops' safety.
+    this.game.loop.wire();
+    bus.on('gear:equipped', () => this.applyGear());
+  }
+
+  /** Round 3: the strata world is loaded (else the old hand-made world, with its walk-home and cold). */
+  private get strata(): { seed?: number; layout: unknown } | null {
+    const s = (this.game as unknown as { strata?: { seed?: number; layout: unknown } | null }).strata;
+    return s && s.layout ? s : null;
+  }
+
+  private get expeditionSeed(): number {
+    const s = (this.game as unknown as { strata?: { seed?: number } | null }).strata;
+    return typeof s?.seed === 'number' ? s.seed : WORLD.seed;
   }
 
   // ------------------------------------------------------------------------------------
@@ -204,6 +219,8 @@ export class Progression {
     this.nextTimer = 0;
     this.resetTarget();
     this.lastBreath = null;
+    // LOOP (round 3): a new expedition: the tutorial from its first step and the starter kit.
+    this.game.loop.newGame(this.expeditionSeed, true, STARTER_KIT);
   }
 
   fromSave(p: ProgressionSave): void {
@@ -222,18 +239,25 @@ export class Progression {
     this.nextTimer = 0;
     this.resetTarget();
     this.lastBreath = null;
+    // LOOP (round 3): the loop's slice; a save without one (1.x) starts the new loop with the gift.
+    const slice = (p as ProgressionSave & { loop?: unknown }).loop;
+    if (slice && typeof slice === 'object') this.game.loop.fromSave(slice);
+    else this.game.loop.newGame(this.expeditionSeed, true, { ...STARTER_KIT, ...UPGRADE_GIFT });
   }
 
   toSave(): ProgressionSave {
     const { records, trip } = this.records.toJSON();
-    return {
+    const out: ProgressionSave & { loop: unknown } = {
       ...this.extra,
       expeditions: records.expeditions,
       trip,
       records,
       cache: this.cache ? { ...this.cache, items: { ...this.cache.items } } : null,
       hintsShown: [...this.hintsShown],
+      // LOOP (round 3): bag-side state lives in the save's progression block (kept by normalizeProgression).
+      loop: this.game.loop.toSave(),
     };
+    return out;
   }
 
   /**
@@ -396,9 +420,12 @@ export class Progression {
       g.ui.toast(t('toast.turnBack', { s: seconds }), 'warn');
     }
 
-    // The cold.
+    // LOOP (round 3): the loop hub (hazards, quests, guidance). In the strata the hazards replace the old cold.
+    g.loop.update(dt, true);
+    if (g.health.dead) return true;
+    // The cold (the old world only).
     const def = lanternForTier(g.equipment.tiers.lantern);
-    const bite = this.cold.update(dt, { lit: lantern.lit, atCamp, immune: def.noCold, factor: this.extra.gear.includes('minersCoat') ? COLD.coatFactor : 1 });
+    const bite = this.cold.update(dt, { lit: lantern.lit || this.strata !== null, atCamp, immune: def.noCold, factor: this.extra.gear.includes('minersCoat') ? COLD.coatFactor : 1 });
     if (bite.damage > 0) {
       const dealt = g.health.damage(bite.damage);
       this.records.damaged(dealt);
@@ -1071,12 +1098,13 @@ export class Progression {
 
   /** The weapons built at the Forge (round 2): node ids among 'machete', 'sling', 'spear'. The pick is implied. */
   ownedWeapons(): WeaponId[] {
-    return WEAPON_NODES.filter((id) => this.extra.gear.includes(id));
+    const legacy = WEAPON_NODES.filter((id) => this.extra.gear.includes(id));
+    return [...new Set<WeaponId>([...legacy, ...this.game.loop.ownedWeapons()])];
   }
 
-  /** The weapon a tap on a monster `distance` m away uses (config/weapons bestWeapon). */
+  /** The weapon a tap on a monster `distance` m away uses: the loop's equipped weapon when it reaches (config/weapons bestWeapon). */
   bestWeapon(distance = 0): Weapon {
-    return bestWeapon(this.ownedWeapons(), distance);
+    return bestWeapon(this.ownedWeapons(), distance, this.game.loop.gear.equipped.weapon);
   }
 
   /** Flash Charges carried (pack) and banked (camp storage). */
@@ -1151,13 +1179,11 @@ export class Progression {
     const g = this.game;
     const boots = this.hasGear('gripBoots');
     g.player.jumpVelocity = boots ? GEAR.gripBoots.jumpVelocity : PLAYER.jumpVelocity;
-    g.player.safeFallSpeed = boots ? GEAR.gripBoots.safeFallSpeed : PLAYER.safeFallSpeed;
-    const max = Health.maxFor(this.extra.gear);
-    if (g.health.max !== max) {
-      // Keep the fraction of health: a coat put on at full health is a full 140.
-      const frac = g.health.max > 0 ? g.health.current / g.health.max : 1;
-      g.health = new Health(max, Math.round(max * frac));
-    }
+    // LOOP (round 3): the Miner set's safe drops; max health and armour follow the loop's gear.
+    g.player.safeFallSpeed = boots || g.loop.gear.safeFall() ? GEAR.gripBoots.safeFallSpeed : PLAYER.safeFallSpeed;
+    const legacy = Health.maxFor(this.extra.gear) - PLAYER.maxHealth;
+    g.loop.bonusHealth = Math.max(g.loop.bonusHealth, legacy);
+    g.loop.syncGear();
   }
 
   /** The tree for the crafting screen. */

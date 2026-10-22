@@ -1,0 +1,37 @@
+// WORLD tool (round 3): boot ?gen=strata on a running preview (port 4176), New Game, switch to stratum 2, captures and timings.
+// Usage: node tools/strata-smoke.mjs <outDir> [extra query]
+import { chromium } from '@playwright/test';
+const PORT = 4176;
+const out = process.argv[2];
+const browser = await chromium.launch({ args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
+const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 1, hasTouch: true });
+const logs = [];
+page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') logs.push(m.type() + ': ' + m.text()); });
+page.on('pageerror', (e) => logs.push('pageerror: ' + e.message));
+const t0 = Date.now();
+await page.goto(`http://localhost:${PORT}/index.html?gen=strata${process.argv[3] ? '&' + process.argv[3] : ''}`);
+await page.waitForFunction(() => window.__DD__?.ready, null, { timeout: 240000 });
+const tBoot = Date.now() - t0;
+const info = await page.evaluate(() => ({ strata: window.__DD__.strata?.(), report: window.__DD__.report?.() }));
+console.log('boot ms', tBoot, 'stratum', info.strata?.stratum, 'biomes', info.strata?.biomes, 'timings', JSON.stringify(info.report?.session ?? info.report?.timings ?? {}).slice(0, 400));
+await page.evaluate(() => window.__DD__.game?.newGame?.());
+await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 120000 });
+await page.waitForTimeout(1500);
+const st = await page.evaluate(() => { const s = window.__DD__.state(); return { mode: s.mode, player: s.player, depth: s.hud?.depth ?? s.depth, biome: window.__DD__.biomeHere() }; });
+console.log('playing', JSON.stringify(st));
+await page.screenshot({ path: `${out}/s1-camp.png` });
+const t1 = Date.now();
+await page.evaluate(() => window.__DD__.stratum(2));
+await page.waitForFunction(() => window.__DD__.stratum() === 2 && window.__DD__.state().mode === 'playing', null, { timeout: 120000 });
+console.log('switch ms', Date.now() - t1);
+await page.waitForTimeout(1500);
+const st2 = await page.evaluate(() => { const s = window.__DD__.state(); return { player: s.player, biome: window.__DD__.biomeHere(), strata: window.__DD__.strata().biomes }; });
+console.log('stratum 2', JSON.stringify(st2));
+await page.screenshot({ path: `${out}/s2-arrival.png` });
+await page.evaluate(() => window.__DD__.goto('floodedGrottoes'));
+await page.waitForTimeout(1500);
+await page.screenshot({ path: `${out}/s2-flooded.png` });
+const mem = await page.evaluate(() => performance.memory ? { used: performance.memory.usedJSHeapSize, total: performance.memory.totalJSHeapSize } : null);
+console.log('heap', JSON.stringify(mem));
+console.log('logs', logs.slice(0, 20).join('\n'));
+await browser.close();

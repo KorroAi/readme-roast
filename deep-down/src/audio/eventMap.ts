@@ -3,7 +3,7 @@ import { blockDef, type SoundKind } from '../config/blocks';
 import { ITEMS } from '../config/items';
 import type { GameEvents } from '../core/events';
 import { saturate } from '../core/math';
-import type { SfxName, SfxParams, StepKind } from './sfx';
+import { isSfxName, type SfxName, type SfxParams, type StepKind } from './sfx';
 
 // Which sound each gameplay event makes. Pure data mapping, unit tested in Node.
 
@@ -73,6 +73,28 @@ export const EVENT_SOUNDS: EventSounds = {
   // creak first and are heard again as they land; a beaten gust ends with the flame catching.
   'world:event': (p) => (p.phase === 'start' ? (WORLD_EVENT_CUES[p.event.kind] ? req(WORLD_EVENT_CUES[p.event.kind]!) : null) : p.event.kind === 'gust' && p.ok ? req('lantern.refueled', { gain: 0.8 }) : null),
   'world:rockfall': (p) => req('event.rockland', { intensity: p.hit ? 1 : 0.6 }),
+  // Round 3 (MOBS' request): their own voices, placed in stereo (audio/mobSfx through sfx.ts).
+  'mob:sfx': (p) => (isSfxName(p.name) ? req(p.name, { pan: p.pan, gain: p.gain }) : null),
+  // Round 3 (LOOP): the action layer's sounds (UI emits the events) and the loop's own.
+  'player:sonar': () => req('loop.sonar'),
+  'player:dash': () => req('loop.dash'),
+  'mine:combo': (p) => (p.count > 1 ? req('loop.combo', { intensity: p.count / 5 }) : null),
+  'player:placed': (p) => req(p.item === 'torch' ? 'loop.torch' : 'loop.place'),
+  'hotbar:selected': () => req('ui.click', { gain: 0.6 }),
+  'craft:made': () => req('craft'),
+  'item:used': (p) => req(ITEMS[p.item]?.kind === 'potion' ? 'loop.potion' : 'loop.heal'),
+  'gear:equipped': () => req('loop.equip'),
+  'recipe:unlocked': () => req('loop.unlock'),
+  'station:placed': () => req('loop.station'),
+  'quest:step': (p) => (p.kind === 'main' ? req('loop.quest') : null),
+  'quest:done': (p) => (p.kind === 'order' ? null : p.kind === 'tutorial' ? req('loop.quest') : req('loop.quest', { gain: 0.8 })),
+  'quest:shard': () => req('loop.shard'),
+  'world:gateOpened': () => req('loop.gate'),
+  'quest:heartLit': () => req('loop.heart'),
+  'guide:arrival': (p) => (p.card.first ? req('loop.arrival') : null),
+  'order:paid': () => req('loop.order'),
+  'tutorial:step': (p) => (p.id ? req('loop.tutorial') : null),
+  'hazard:changed': (p) => (p.kind ? req(`loop.hazard.${p.kind}`) : null),
 };
 
 /** Each world event's opening cue (the migration and the treasure mob are heard through their creatures). */

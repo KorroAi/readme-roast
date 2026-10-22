@@ -26,6 +26,11 @@ export class CampStorage {
     return n;
   }
 
+  /** The bank has no limit (key items are refused). */
+  room(item: ItemId): number {
+    return isItemId(item) && !ITEMS[item].keyItem ? Infinity : 0;
+  }
+
   count(item: ItemId): number {
     return this.items[item] ?? 0;
   }

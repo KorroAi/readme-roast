@@ -32,7 +32,8 @@ void main() {
 }
 `;
 
-const frag = /* glsl */ `
+/** The flame's fragment shader (shared with the instanced torch flames, render/torches.ts). */
+export const FLAME_FRAG = /* glsl */ `
 precision highp float;
 uniform float uTime;
 uniform float uSeed;
@@ -84,7 +85,7 @@ export function createFlameMaterial(lighting: LightingUniforms, seed: number, wi
       uIntensity: { value: 1 },
     },
     vertexShader: vert,
-    fragmentShader: frag,
+    fragmentShader: FLAME_FRAG,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,

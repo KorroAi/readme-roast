@@ -1,3 +1,4 @@
+import { r3HudDefaults } from '../hud/hudDefaults';
 import { ITEMS, ITEM_IDS, type ItemId } from '../../config/items';
 import { NODES, type NodeId, type Place } from '../../config/recipes';
 import { RUNES_BY_GLYPH, RUNE_GLYPH } from '../../config/runes';
@@ -186,6 +187,7 @@ const hud: HudState = {
   newBest: false,
   packFull: false,
   pouchSlots: 0,
+  ...r3HudDefaults(),
 };
 
 /** The last expedition, for the report fixtures (W3 builds the screen). */
@@ -356,6 +358,18 @@ const actions: UiActions = {
     camp.backpack.dropStack(slot);
     bus.emit('inventory:changed', {});
   },
+  // Round 3: the sandbox has no LOOP, WORLD or MOBS behind it (the menus show their empty states).
+  loop: () => null,
+  openMenu: (screen) => ui.showScreen(screen === 'pause' ? 'pause' : screen),
+  getMap: () => null,
+  fastTravel: () => undefined,
+  getQuests: () => null,
+  trackQuest: () => undefined,
+  getBestiary: () => null,
+  skipTutorial: () => undefined,
+  getSeed: () => '1234',
+  getControlPrefs: () => ({ scale: 1, opacity: 0.86 }),
+  setControlPrefs: () => undefined,
 };
 
 const ui = new UI(document.getElementById('ui') as HTMLElement, actions, bus, input);

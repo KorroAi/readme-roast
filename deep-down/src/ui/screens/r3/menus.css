@@ -1,0 +1,667 @@
+/* Round 3 menus: Bag, Craft, Map, Quests, Bestiary (screens/r3/*). One frame: the rail, the
+   title with "?" and Close, a scrolling body. Upright phones first (390 wide). */
+
+.dd-menu3 .dd-m3-panel {
+  width: min(720px, 100%);
+  height: min(860px, 100%);
+}
+.dd-menu3 .dd-m3-rail {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px 0;
+  flex: none;
+}
+.dd-menu3 .dd-m3-railbtn {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 1px solid rgba(94, 66, 32, 0.7);
+  background: rgba(9, 13, 19, 0.6);
+  color: var(--bone-300);
+  cursor: pointer;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-menu3 .dd-m3-railbtn.cur {
+  color: var(--amber-300);
+  border-color: var(--amber-400);
+  background: rgba(64, 40, 16, 0.6);
+}
+.dd-menu3 .dd-m3-glyph {
+  display: grid;
+  width: 20px;
+  height: 20px;
+}
+.dd-menu3 .dd-m3-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.dd-menu3 .dd-m3-raillabel {
+  font: 800 calc(9.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.dd-menu3 .dd-m3-head {
+  min-height: 56px;
+  padding: 6px 8px 6px 16px;
+}
+.dd-menu3 .dd-m3-head .dd-panel-title {
+  font-size: calc(19px * var(--s));
+}
+.dd-menu3 .dd-m3-help {
+  min-width: 48px;
+  min-height: 48px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+}
+.dd-menu3 .dd-m3-help.on {
+  color: #7ef0c0;
+}
+.dd-menu3 .dd-m3-helpcard {
+  margin: 0 14px 8px;
+  padding: 10px 12px;
+  border: 1px solid #7ef0c0;
+  background: rgba(10, 26, 22, 0.9);
+  color: #eafff5;
+  font: 600 calc(13px * var(--s)) / 1.4 var(--font);
+}
+.dd-menu3 .dd-m3-helpcard p {
+  margin: 0;
+}
+.dd-menu3 .dd-m3-body {
+  padding: 0 14px 18px;
+}
+.dd-menu3 .dd-m3-tabs {
+  padding: 2px 0 0;
+  margin: 0 0 10px;
+  display: flex !important;
+  flex-wrap: nowrap !important;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent);
+  mask-image: linear-gradient(90deg, #000 85%, transparent);
+}
+.dd-menu3 .dd-m3-tabs .dd-tab {
+  flex: none;
+  padding: 0 10px !important;
+  letter-spacing: 0.08em;
+  white-space: nowrap !important;
+}
+.dd-menu3 .dd-m3-tabcount {
+  margin-left: 5px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: rgba(255, 179, 92, 0.25);
+  color: var(--amber-300);
+  font-size: 0.85em;
+  letter-spacing: 0;
+}
+.dd-menu3 .dd-m3-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 8px;
+  font: 700 calc(12px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-good {
+  color: var(--verdigris-300);
+  font-weight: 800;
+}
+.dd-menu3 .dd-m3-empty {
+  margin: 18px 4px;
+  color: var(--bone-500);
+  font: 600 calc(13px * var(--s)) / 1.4 var(--font);
+  text-align: center;
+}
+.dd-menu3 .dd-m3-section {
+  margin: 16px 0 8px;
+  font: 800 calc(11px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-menu3 .dd-m3-banner {
+  margin: 4px 0 8px;
+  padding: 9px 12px;
+  border: 1px solid var(--amber-400);
+  background: rgba(64, 40, 16, 0.7);
+  color: var(--amber-300);
+  font: 800 calc(13px * var(--s)) / 1.3 var(--font);
+}
+.dd-menu3 .dd-m3-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.dd-menu3 .dd-m3-actions .dd-btn {
+  min-height: 48px;
+  flex: 1 1 120px;
+}
+
+/* Bag */
+.dd-menu3 .dd-m3-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 6px;
+}
+.dd-menu3 .dd-m3-tile {
+  --cut: var(--cut-chip);
+  position: relative;
+  aspect-ratio: 1;
+  min-height: 56px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(9, 13, 19, 0.7);
+  cursor: pointer;
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+}
+.dd-menu3 .dd-m3-tile.sel {
+  border-color: var(--amber-300);
+  background: rgba(64, 40, 16, 0.75);
+}
+.dd-menu3 .dd-m3-tileicon {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-tilen {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font: 800 11px / 1 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-tileeq {
+  position: absolute;
+  left: 4px;
+  top: 3px;
+  font: 800 8px / 1 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--verdigris-300);
+}
+.dd-menu3 :is(.dd-m3-tile, .dd-m3-detail, .dd-m3-card).g-uncommon {
+  border-color: rgba(111, 224, 138, 0.6);
+}
+.dd-menu3 :is(.dd-m3-tile, .dd-m3-detail, .dd-m3-card).g-rare {
+  border-color: rgba(95, 183, 255, 0.65);
+}
+.dd-menu3 :is(.dd-m3-tile, .dd-m3-detail, .dd-m3-card).g-epic {
+  border-color: rgba(185, 140, 255, 0.7);
+}
+.dd-menu3 :is(.dd-m3-tile, .dd-m3-detail, .dd-m3-card).g-legendary {
+  border-color: rgba(255, 207, 90, 0.8);
+}
+.dd-menu3 .dd-m3-detail {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(9, 13, 19, 0.6);
+}
+.dd-menu3 .dd-m3-detailhead {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.dd-menu3 .dd-m3-detailhead img {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-detail h3,
+.dd-menu3 .dd-m3-card h3 {
+  margin: 0;
+  font: 800 calc(15px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-sub,
+.dd-menu3 .dd-m3-stat {
+  margin: 2px 0 0;
+  font: 600 calc(12px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-desc {
+  margin: 8px 0 0;
+  font: 500 calc(13px * var(--s)) / 1.4 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-desc.dim {
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-gear {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+.dd-menu3 .dd-m3-gearslot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 4px;
+  border: 1px solid rgba(94, 66, 32, 0.7);
+  background: rgba(9, 13, 19, 0.5);
+}
+.dd-menu3 .dd-m3-gearslot img {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-gearempty {
+  width: 22px;
+  height: 22px;
+  margin: 3px;
+  border: 1px dashed rgba(148, 139, 125, 0.5);
+}
+.dd-menu3 .dd-m3-gearlabel {
+  font: 700 calc(10px * var(--s)) / 1 var(--font);
+  color: var(--bone-300);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.dd-menu3 .dd-m3-gearstats {
+  margin: 8px 0 0;
+  font: 700 calc(12px * var(--s)) / 1.4 var(--font);
+  color: var(--bone-100);
+}
+
+/* Craft */
+.dd-menu3 .dd-m3-stations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 10px;
+}
+.dd-menu3 .dd-m3-station {
+  padding: 4px 8px;
+  border: 1px solid rgba(148, 139, 125, 0.45);
+  color: var(--bone-500);
+  font: 700 calc(11px * var(--s)) / 1.2 var(--font);
+}
+.dd-menu3 .dd-m3-station.near {
+  border-color: var(--verdigris-300);
+  color: var(--verdigris-300);
+}
+.dd-menu3 .dd-m3-cards {
+  display: grid;
+  gap: 8px;
+}
+.dd-menu3 .dd-m3-card {
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(9, 13, 19, 0.65);
+}
+.dd-menu3 .dd-m3-card.s-ok {
+  background: rgba(20, 32, 24, 0.7);
+}
+.dd-menu3 .dd-m3-card.made {
+  animation: dd-m3-made 0.6s ease-out;
+}
+@keyframes dd-m3-made {
+  from {
+    box-shadow: 0 0 0 3px rgba(255, 207, 90, 0.8), 0 0 24px rgba(255, 179, 92, 0.6);
+  }
+}
+.dd-menu3 .dd-m3-cardhead {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.dd-menu3 .dd-m3-cardicon {
+  image-rendering: pixelated;
+  flex: none;
+}
+.dd-menu3 .dd-m3-cardtitle {
+  min-width: 0;
+}
+.dd-menu3 .dd-m3-x {
+  color: var(--amber-300);
+}
+.dd-menu3 .dd-m3-new {
+  margin-left: 6px;
+  padding: 1px 5px;
+  background: #7ef0c0;
+  color: #04221a;
+  font: 800 9px / 1.4 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+.dd-menu3 .dd-m3-costs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 8px;
+}
+.dd-menu3 .dd-m3-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px 3px 4px;
+  border: 1px solid rgba(143, 196, 164, 0.6);
+  font: 700 calc(11.5px * var(--s)) / 1 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-cost.short {
+  border-color: rgba(255, 107, 94, 0.65);
+}
+.dd-menu3 .dd-m3-cost.short .dd-m3-costn {
+  color: #ff9a8e;
+}
+.dd-menu3 .dd-m3-cost.ok .dd-m3-costn {
+  color: var(--verdigris-300);
+}
+.dd-menu3 .dd-m3-costicon {
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-at {
+  align-self: center;
+  font: 700 calc(11px * var(--s)) / 1 var(--font);
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-at.short {
+  color: #ff9a8e;
+}
+.dd-menu3 .dd-m3-reason {
+  margin: 6px 0 0;
+  font: 700 calc(12px * var(--s)) / 1.3 var(--font);
+  color: #ffb4a8;
+}
+
+/* Map */
+.dd-menu3 .dd-m3-mapwrap {
+  border: 1px solid rgba(176, 130, 63, 0.7);
+  background: #05070b;
+}
+.dd-menu3 .dd-m3-map {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+}
+.dd-menu3 .dd-m3-seed {
+  font-variant-numeric: tabular-nums;
+  color: var(--bone-500);
+}
+.dd-menu3 :is(.dd-m3-legend, .dd-m3-biomes) {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 5px 12px;
+  font: 600 calc(12px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 :is(.dd-m3-legend, .dd-m3-biomes) li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.dd-menu3 :is(.dd-m3-legend, .dd-m3-biomes) b {
+  margin-left: auto;
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: none;
+  box-shadow: 0 0 0 1px rgba(4, 7, 11, 0.8);
+}
+.dd-menu3 .dd-m3-travel {
+  display: grid;
+  gap: 6px;
+}
+.dd-menu3 .dd-m3-travelrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.7);
+  background: rgba(9, 13, 19, 0.55);
+  font: 700 calc(13px * var(--s)) / 1.3 var(--font);
+}
+.dd-menu3 .dd-m3-travelrow .dd-btn {
+  min-height: 48px;
+}
+.dd-menu3 .dd-m3-travelrow.here {
+  border-color: var(--verdigris-300);
+}
+
+/* Quests */
+.dd-menu3 .dd-m3-quest {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(9, 13, 19, 0.6);
+}
+.dd-menu3 .dd-m3-quest.current {
+  border-color: var(--amber-400);
+  background: rgba(48, 30, 12, 0.7);
+}
+.dd-menu3 .dd-m3-quest.done {
+  opacity: 0.6;
+}
+.dd-menu3 .dd-m3-quest h3,
+.dd-menu3 .dd-m3-page h3 {
+  margin: 2px 0 6px;
+  font: 800 calc(14.5px * var(--s)) / 1.3 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-kicker {
+  margin: 0;
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-menu3 .dd-m3-reward {
+  margin: 6px 0 0;
+  font: 700 calc(12px * var(--s)) / 1.3 var(--font);
+  color: var(--amber-300);
+}
+.dd-menu3 .dd-m3-prog {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 16px;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(4, 7, 11, 0.8);
+  overflow: hidden;
+}
+.dd-menu3 .dd-m3-progfill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--amber-700), var(--amber-400));
+}
+.dd-menu3 .dd-m3-prog b {
+  position: relative;
+  margin-left: auto;
+  padding: 0 6px;
+  font: 800 10.5px / 1 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-trackbtn {
+  margin-top: 8px;
+  min-height: 44px;
+}
+.dd-menu3 .dd-m3-shards {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 10px;
+  font: 800 calc(12px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-shard {
+  width: 10px;
+  height: 14px;
+  clip-path: polygon(50% 0, 100% 40%, 50% 100%, 0 40%);
+  background: rgba(148, 139, 125, 0.35);
+}
+.dd-menu3 .dd-m3-shard:first-of-type {
+  margin-left: 6px;
+}
+.dd-menu3 .dd-m3-shard.on {
+  background: #ff7a5a;
+  box-shadow: 0 0 6px #ff7a5a;
+}
+.dd-menu3 .dd-m3-stratum h4 {
+  margin: 14px 0 6px;
+  font: 800 calc(11px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-menu3 .dd-m3-steps {
+  margin: 0;
+  padding-left: 20px;
+  font: 600 calc(12.5px * var(--s)) / 1.5 var(--font);
+  color: var(--bone-300);
+}
+.dd-menu3 .dd-m3-steps li.done {
+  color: var(--verdigris-300);
+  text-decoration: line-through;
+}
+.dd-menu3 .dd-m3-steps li.current {
+  color: var(--amber-300);
+  font-weight: 800;
+}
+.dd-menu3 .dd-m3-feats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.dd-menu3 .dd-m3-feats li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid rgba(94, 66, 32, 0.6);
+  color: var(--bone-500);
+  font: 600 calc(12px * var(--s)) / 1.3 var(--font);
+}
+.dd-menu3 .dd-m3-feats li.earned {
+  color: var(--bone-100);
+  border-color: var(--amber-400);
+}
+.dd-menu3 .dd-m3-page {
+  margin: 0 0 10px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--brass-500);
+  background: rgba(30, 24, 16, 0.5);
+}
+.dd-menu3 .dd-m3-page p:last-child {
+  margin: 0;
+  font: 500 italic calc(13px * var(--s)) / 1.5 var(--font);
+  color: var(--bone-100);
+}
+
+/* Bestiary */
+.dd-menu3 .dd-m3-beasts {
+  display: grid;
+  gap: 8px;
+}
+.dd-menu3 .dd-m3-beast {
+  padding: 10px 12px;
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  background: rgba(9, 13, 19, 0.6);
+}
+.dd-menu3 .dd-m3-beast.unknown h3 {
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-beast.complete {
+  border-color: var(--verdigris-300);
+}
+.dd-menu3 .dd-m3-beast.r-guardian,
+.dd-menu3 .dd-m3-beast.r-boss {
+  border-color: rgba(255, 106, 90, 0.7);
+}
+.dd-menu3 .dd-m3-beasthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.dd-menu3 .dd-m3-beast h3 {
+  margin: 0;
+  font: 800 calc(14.5px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-100);
+}
+.dd-menu3 .dd-m3-role {
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-menu3 .dd-m3-beaststats {
+  display: flex;
+  gap: 12px;
+  margin: 6px 0 0;
+  font: 700 calc(11.5px * var(--s)) / 1.2 var(--font);
+  color: var(--bone-500);
+}
+.dd-menu3 .dd-m3-beaststats .on {
+  color: var(--rune-200);
+}
+
+@media (orientation: landscape) {
+  .dd-menu3 .dd-m3-panel {
+    width: min(900px, 100%);
+  }
+  .dd-menu3 .dd-m3-mapwrap {
+    max-width: 60vh;
+    margin: 0 auto;
+  }
+}
+
+/* The title screen's optional world seed (round 3). */
+.dd-menu .dd-seed {
+  margin: 2px 0 0;
+  color: var(--bone-300);
+  font: 600 calc(12px * var(--s)) / 1.3 var(--font);
+  text-align: center;
+}
+.dd-menu .dd-seed-summary {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 12px;
+  cursor: pointer;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 800;
+}
+.dd-menu .dd-seed-hint {
+  margin: 0 0 6px;
+  color: var(--bone-500);
+}
+.dd-menu .dd-seed-input {
+  box-sizing: border-box;
+  width: min(240px, 80vw);
+  min-height: 48px;
+  padding: 0 12px;
+  border: 1px solid var(--brass-700);
+  background: rgba(7, 10, 15, 0.85);
+  color: var(--bone-100);
+  font: 700 16px / 1 var(--font);
+  text-align: center;
+  letter-spacing: 0.1em;
+}
+.dd-settings-seed {
+  margin: 4px 0 0;
+  font: 700 calc(13px * var(--s)) / 1.4 var(--font);
+  color: var(--bone-100);
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}

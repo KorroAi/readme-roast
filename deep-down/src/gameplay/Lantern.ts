@@ -23,6 +23,8 @@ export class Lantern {
    * by a lamp or a fire; 1 otherwise. Multiplies the light's radius and intensity (Game.updateLantern).
    */
   dim = 1;
+  /** Round 3 (LOOP): burn-rate multiplier (the dark of the Sunken City and the Abyss eats oil: gameplay/Hazards). */
+  burn = 1;
 
   constructor(capacity: number, fuel: number = capacity) {
     this.cap = Math.max(1, Number.isFinite(capacity) ? capacity : 1);
@@ -71,7 +73,7 @@ export class Lantern {
     const wasLow = this.low;
     const wasLit = this.lit;
     // A NaN step must not poison the fuel: NaN fuel would also fail save validation forever.
-    this.fuelS = Math.max(0, this.fuelS - (dt > 0 ? dt : 0));
+    this.fuelS = Math.max(0, this.fuelS - (dt > 0 ? dt : 0) * (this.burn > 0 && Number.isFinite(this.burn) ? this.burn : 1));
     e.becameLow = !wasLow && this.low;
     e.becameEmpty = wasLit && !this.lit;
     return e;

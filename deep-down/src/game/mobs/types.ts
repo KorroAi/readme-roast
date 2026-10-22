@@ -1,24 +1,259 @@
 import type * as THREE from 'three';
 
 /**
- * The mobs seam (round 2, MOBS). Everything another specialist needs from the creatures of the
- * deep: FP's tap resolution asks `MobSystem.pick` first and attacks with `hit` (melee) or `fire`
- * (ranged), VIS's HighlightSystem reads `list()` for the catchable beings' rarity rims, WORLD's
- * EventDirector asks `spawnEvent` for the event mobs (the moth migration, the fleeing treasure mob).
+ * The mobs seam (round 3, MOBS). Everything another specialist needs from the creatures of the
+ * deep:
+ * - FP / UI's tap resolution asks `MobSystem.pick` first and attacks with `hit` (melee) or `fire`
+ *   (ranged); the sonar calls `scan`; the HUD's guardian bar reads `activeGuardian()`.
+ * - VIS's HighlightSystem reads `list()` for the catchable beings' rarity rims.
+ * - WORLD's EventDirector asks `spawnEvent` for the event mobs; WORLD's layout gives the lairs
+ *   (one guardian each) and the nests; WORLD's `BiomeId` strings are `MobBiome` here.
+ * - LOOP's quests listen to 'mob:guardianDefeated' (the Heart Shard of a biome), 'mob:bestiary'
+ *   (a page found or completed) and 'mob:died'.
  *
- * Two families: unsettling monsters (they live where the light is not) and small endearing beings.
+ * Families: unsettling monsters (they live where the light is not; guardians and the Heart's boss
+ * are monsters with a `rank`) and small endearing beings.
  */
-export type MonsterKind = 'crawler' | 'gnasher' | 'wisp' | 'stalker' | 'sentinel' | 'worm';
-export type BeingKind = 'moth' | 'lampling' | 'glimmerkin' | 'shellback' | 'jelly' | 'burrower';
-export type MobKind = MonsterKind | BeingKind;
-export type MobFamily = 'monster' | 'being';
 
-/** The same five tiers as WORLD's `config/rarity.ts` (kept structural so the seams stay independent). */
+// ---------------------------------------------------------------------------------------
+// The kinds (36 monsters, 12 beings, 12 guardians and the Heart, plus the Deep Worm's glimpse)
+
+/** The first game's monsters (they join the rosters). */
+export type LegacyMonsterKind = 'crawler' | 'gnasher' | 'wisp' | 'stalker' | 'sentinel' | 'worm';
+export type RosterMonsterKind =
+  // I Amber Hollows / Mushroom Forest
+  | 'amberTick'
+  | 'sporeling'
+  | 'capSpitter'
+  // II Root Galleries / Flooded Grottoes
+  | 'rootLasher'
+  | 'tunnelGrub'
+  | 'thornback'
+  | 'brineLeech'
+  | 'spitNewt'
+  | 'clatterclaw'
+  // III Crystal Geode / Old Halden Mines
+  | 'shardling'
+  | 'prismBat'
+  | 'geodeGolem'
+  | 'rustMite'
+  | 'fuseBeetle'
+  // IV Frost Caverns / Glowroot Jungle
+  | 'icefang'
+  | 'frostBat'
+  | 'shiverDrip'
+  | 'glowMantis'
+  | 'bloatToad'
+  | 'snapjaw'
+  // V Sulphur Bog / Sunken City
+  | 'gasbag'
+  | 'sulphurSpitter'
+  | 'mireLurker'
+  | 'gildedScarab'
+  | 'runeSentry'
+  | 'chestMimic'
+  // VI Magma Veins / Obsidian Abyss
+  | 'cinderHound'
+  | 'emberMite'
+  | 'magmaBrute'
+  | 'voidEye'
+  | 'glassWraith';
+export type MonsterKind = LegacyMonsterKind | RosterMonsterKind;
+
+export type LegacyBeingKind = 'moth' | 'lampling' | 'glimmerkin' | 'shellback' | 'jelly' | 'burrower';
+export type RosterBeingKind = 'hearthmite' | 'vinebell' | 'mudpup' | 'relicTurtle' | 'salamander' | 'starmote';
+export type BeingKind = LegacyBeingKind | RosterBeingKind;
+
+/** One guardian per biome (each holds that biome's Heart Shard), and the Heart's boss. */
+export type GuardianKind =
+  | 'amberMatriarch'
+  | 'mycelord'
+  | 'elderTaproot'
+  | 'tideWarden'
+  | 'quartzTitan'
+  | 'foremanEngine'
+  | 'rimeWyrm'
+  | 'thornmother'
+  | 'miasmaKing'
+  | 'gildedColossus'
+  | 'magmaBehemoth'
+  | 'voidHerald'
+  | 'heartOfDark';
+
+export type MobKind = MonsterKind | BeingKind | GuardianKind;
+export type MobFamily = 'monster' | 'being';
+/** A guardian and the Heart's boss are monsters of a higher rank (a lair, a HUD bar, a shard). */
+export type MobRank = 'minion' | 'guardian' | 'boss';
+
+/**
+ * The biomes (§0.2), in descent order, plus the Heart. These strings are WORLD's `BiomeId`
+ * (src/config/biomes.ts); MOBS keys its rosters by them.
+ */
+export type MobBiome =
+  | 'amberHollows'
+  | 'mushroomForest'
+  | 'rootGalleries'
+  | 'floodedGrottoes'
+  | 'crystalGeode'
+  | 'haldenMines'
+  | 'frostCaverns'
+  | 'glowrootJungle'
+  | 'sulphurBog'
+  | 'sunkenCity'
+  | 'magmaVeins'
+  | 'obsidianAbyss'
+  | 'heart';
+export const MOB_BIOMES: readonly MobBiome[] = ['amberHollows', 'mushroomForest', 'rootGalleries', 'floodedGrottoes', 'crystalGeode', 'haldenMines', 'frostCaverns', 'glowrootJungle', 'sulphurBog', 'sunkenCity', 'magmaVeins', 'obsidianAbyss', 'heart'];
+
+/**
+ * The behaviour archetypes (§0.5). Monsters: swarmer, charger, ranged spitter, ambusher (ceiling
+ * drop or a mimic), flyer (diver or a light drinker), burrower, brute / tank, exploder. Beings:
+ * flutter (moth clouds), follower (lights the way), skitter (catch it), grazer (harvest it),
+ * floater (spores), thief (catch it before it digs away). Guardians and the boss have patterns.
+ */
+export type MonsterArchetype = 'swarmer' | 'charger' | 'spitter' | 'ambusher' | 'flyer' | 'burrower' | 'brute' | 'exploder';
+export type BeingArchetype = 'flutter' | 'follower' | 'skitter' | 'grazer' | 'floater' | 'thief';
+export type MobArchetype = MonsterArchetype | BeingArchetype | 'guardian' | 'boss' | 'vista';
+
+/** What a blow or a spit carries besides damage (LOOP's hazards may add a status: chill, poison, burn, dark). */
+export type MobElement = 'none' | 'frost' | 'acid' | 'fire' | 'spore' | 'void' | 'shock';
+
+/** The five tiers of `config/rarity.ts` (kept structural so the seams stay independent). */
 export type MobRarity = 'common' | 'uncommon' | 'rare' | 'epic' | 'legendary';
+
+export type MobSize = 'tiny' | 'small' | 'medium' | 'large' | 'huge';
+
+// ---------------------------------------------------------------------------------------
+// Rosters, guardians, the bestiary
+
+/** One kind in a biome's roster: how often the spawner picks it and in what numbers. */
+export interface RosterEntry {
+  kind: MobKind;
+  /** Relative pick weight inside its family. */
+  weight: number;
+  /** Pack size [min, max] (a swarm comes several at once). */
+  pack: [number, number];
+  /** At most this many alive at once. */
+  max: number;
+  /** Times the weight at night (the day cycle) and in the dark (a low or dead flame). */
+  night?: number;
+  dark?: number;
+  /** Spawns from WORLD's nests in this biome (swarmers). */
+  nest?: boolean;
+}
+
+export interface BiomeRoster {
+  biome: MobBiome;
+  /** 1..6 (the Heart counts as VI). */
+  stratum: number;
+  monsters: RosterEntry[];
+  beings: RosterEntry[];
+  guardian: GuardianKind;
+}
+
+/** The guardian of the fight now, for the HUD's bar (UI's GuardianBarView reads name, hp, max, phase, phases). */
+export interface GuardianState {
+  id: number;
+  kind: GuardianKind;
+  biome: MobBiome;
+  /** The display name (already through t()) and its key. */
+  name: string;
+  nameKey: string;
+  hp: number;
+  max: number;
+  /** 1-based phase and how many (the Heart has 3, a guardian 2). */
+  phase: number;
+  phases: number;
+  /** 'dormant' (asleep in its lair), 'awake' (fighting), 'defeated'. */
+  status: 'dormant' | 'awake' | 'defeated';
+  /** Its guard is open: blows land for more (after each attack). */
+  vulnerable: boolean;
+  /** The attack it is winding up now (a text key, for an optional HUD line), or null. */
+  telegraph: string | null;
+}
+
+/** A bestiary page's data (static; what the explorer has done with it is in `BestiaryProgress`). */
+export interface BestiaryEntry {
+  kind: MobKind;
+  family: MobFamily;
+  rank: MobRank;
+  archetype: MobArchetype;
+  /** Its home biome (the bestiary groups by it). */
+  biome: MobBiome;
+  /** Text keys (i18n/en/mobs): its name, a line of lore, how to deal with it. */
+  nameKey: string;
+  loreKey: string;
+  tipKey: string;
+  /** 0 harmless .. 5 deadly. */
+  threat: number;
+  size: MobSize;
+  hp: number;
+  damage: number;
+  element: MobElement;
+  /** Item ids it may leave (in preference order per drop, the first the game knows is used). */
+  drops: string[];
+}
+
+export interface BestiaryProgress {
+  seen: boolean;
+  scanned: boolean;
+  defeated: number;
+  /** Caught, harvested, petted (beings). */
+  befriended: number;
+}
+
+/** UI's BestiaryEntryView, filled by MOBS (structurally the same shape). */
+export interface BestiaryEntryView {
+  kind: string;
+  name: string;
+  biome: string;
+  role: 'monster' | 'being' | 'guardian' | 'boss';
+  desc: string;
+  seen: boolean;
+  scanned: boolean;
+  defeated: number;
+  bonus: string | null;
+}
+
+// ---------------------------------------------------------------------------------------
+// Bus events (declared once, here)
+
+declare module '../../core/events' {
+  interface GameEvents {
+    'mob:spawned': { id: number; kind: MobKind };
+    /** A wind-up: every attack is announced (sound, pose, a ground marker for the big ones) before it lands. */
+    'mob:telegraph': { id: number; kind: MobKind; pan: number; gain: number };
+    'mob:attack': { id: number; kind: MobKind; damage: number; landed: boolean; element?: MobElement };
+    'mob:hit': { id: number; kind: MobKind; damage: number; killed: boolean; armoured: boolean; pan: number; gain: number; x?: number; y?: number; z?: number; weak?: boolean };
+    'mob:died': { id: number; kind: MobKind; pan: number; gain: number; biome?: MobBiome; rank?: MobRank };
+    'mob:interact': { id: number; kind: MobKind; action: 'caught' | 'harvested' | 'spores' | 'petted' };
+    /** A creature's voice (breathing, chitter, whisper, drone...), placed in stereo. */
+    'mob:cue': { kind: MobKind; cue: string; pan: number; gain: number };
+    'mob:shot': { phase: 'fly' | 'hit' | 'miss'; pan: number; gain: number };
+    'mob:met': { kind: MobKind };
+    /** Any of the creatures' sounds by its SFX name (audio/mobSfx), placed in stereo (LOOP's eventMap plays it). */
+    'mob:sfx': { name: string; pan: number; gain: number; pitch?: number };
+    /** A guardian wakes in its lair (the HUD shows its bar; the music may turn). */
+    'mob:guardianAwake': { id: number; kind: GuardianKind; biome: MobBiome };
+    'mob:guardianPhase': { id: number; kind: GuardianKind; biome: MobBiome; phase: number };
+    /** The explorer fled its lair: it heals and sleeps again. */
+    'mob:guardianReset': { id: number; kind: GuardianKind; biome: MobBiome };
+    /** A guardian is beaten: its biome's Heart Shard drops (the Heart's boss: shard 'heart', the ending). */
+    'mob:guardianDefeated': { id: number; kind: GuardianKind; biome: MobBiome; shard: MobBiome; x: number; y: number; z: number };
+    /** A creature was scanned (the sonar, or watched up close); `first` for the kind's first scan. */
+    'mob:scanned': { id: number; kind: MobKind; first: boolean };
+    /** A bestiary page: 'new' (first met), 'complete' (scanned or defeated: its bonus applies). */
+    'mob:bestiary': { kind: MobKind; page: 'new' | 'complete'; found: number; total: number };
+  }
+}
+
+// ---------------------------------------------------------------------------------------
+// The live creatures
 
 /**
  * What a mob is doing. Monsters: lurk, stalk, windup (the telegraph), attack, recoil (from light or
- * a hit), flee. Beings: idle, wander, follow, flee, caught/harvested. Everyone: dying, then gone.
+ * a hit), flee, burrow (underground). Beings: idle, wander, follow, flee, caught/harvested.
+ * Everyone: dying, then gone.
  */
 export type MobState =
   | 'idle'
@@ -34,6 +269,8 @@ export type MobState =
   | 'wake'
   | 'caught'
   | 'harvested'
+  | 'burrow'
+  | 'stunned'
   | 'dying';
 
 export interface Mob {
@@ -41,6 +278,7 @@ export interface Mob {
   readonly id: number;
   readonly kind: MobKind;
   readonly family: MobFamily;
+  readonly rank?: MobRank;
   /** The body's centre, world metres (mutated in place by the simulation). */
   readonly position: THREE.Vector3;
   /** A vertical capsule round `position`: radius, and half the height of its straight part. */
@@ -82,10 +320,14 @@ export interface MobHitResult {
   hit: boolean;
   /** The mob died or was caught / harvested by it. */
   killed: boolean;
-  /** Hit-stop length to apply (s): 0.04 on a monster, 0 otherwise. */
+  /** Hit-stop length to apply (s): 0.04-0.07 on a monster, 0 otherwise. */
   hitStop: number;
   /** The interaction a being answered with, if any. */
   action?: 'caught' | 'harvested' | 'spores' | 'petted' | 'startled';
+  /** The blow found an open guard / a weak spot (more damage, a brighter flash). */
+  weak?: boolean;
+  /** The damage dealt after armour and weak spots. */
+  damage?: number;
 }
 
 export interface MobStrike {
@@ -95,6 +337,10 @@ export interface MobStrike {
   light?: boolean;
   /** Where the strike came from (for knock-back). Defaults to the explorer. */
   from?: { x: number; y: number; z: number };
+  /** Knock-back strength multiplier (heavy weapons push more). Default 1. */
+  knock?: number;
+  /** A bomb's blast (hurts every monster in the radius, ignores a mimic's shell). */
+  blast?: boolean;
 }
 
 /** The per-frame view of the world the simulation reads. */
@@ -121,6 +367,15 @@ export interface MobContext {
   atCamp: boolean;
   /** Gameplay is running (false on menus, pause, death). */
   active: boolean;
+  /** The biome at the explorer (WORLD's biomeAt), and its stratum 1..6. Absent: the first world. */
+  biome?: MobBiome;
+  stratum?: number;
+  /** 0 day .. 1 deep night (the day cycle): more monsters at night. */
+  night?: number;
+  /** The explorer is dodging (a dash's i-frames): blows and spits pass through. */
+  invulnerable?: boolean;
+  /** The explorer's feet are off the ground (a jump clears a guardian's shockwave). */
+  airborne?: boolean;
 }
 
 export interface MobSystem {
@@ -129,11 +384,17 @@ export interface MobSystem {
   pick(ray: MobRay): Mob | null;
   /** A melee strike (or a tap on a being, which catches, harvests or touches it). */
   hit(mob: Mob, dmg: number, strike?: MobStrike): MobHitResult;
-  /** A ranged shot (the Flare Sling): a light shard flies from `from` to the mob and strikes on arrival. */
+  /** A ranged shot (the Flare Sling, a crossbow bolt): flies from `from` to the mob and strikes on arrival. */
   fire(from: { x: number; y: number; z: number }, mob: Mob | null, dmg: number, dir?: { x: number; y: number; z: number }): void;
   /** A burst of light (a Flash Charge, a raised lantern): monsters within `radius` recoil or flee; `dmg` to each. */
   flash(x: number, y: number, z: number, radius: number, dmg?: number): number;
-  /** The event director asks for an event mob (the moth migration, the fleeing treasure mob). */
+  /** A bomb: `dmg` to every monster within `radius` (falling off to half at the edge), knocked away. @returns how many were hit. */
+  blast?(x: number, y: number, z: number, radius: number, dmg: number): number;
+  /** The sonar's pulse: every creature within `radius` is scanned (a bestiary page). @returns how many. */
+  scan?(x: number, y: number, z: number, radius: number): number;
+  /** The event director asks for an event mob (the moth migration, the fleeing treasure mob, the worm). */
   spawnEvent(kind: 'migration' | 'treasure' | 'worm', at: { x: number; y: number; z: number }): Mob[];
+  /** The guardian fighting now (awake, in its lair), for the HUD's bar; null when none. */
+  activeGuardian?(): GuardianState | null;
   list(): readonly Mob[];
 }

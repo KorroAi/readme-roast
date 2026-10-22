@@ -184,6 +184,24 @@ export class ChunkRenderer {
   private warmLeft = -1;
   private readonly warmIds = new Set<number>();
   viewDistance = 96;
+  /**
+   * Round 3 (VIS): told when a chunk's voxels changed (it is taken for re-meshing, in play) and after
+   * a whole rebuild (buildAll): torches, decor and the like follow the voxels from here, whatever
+   * changed them (mining, placing, the gate opening, a restore).
+   */
+  readonly chunkListeners: Array<(cx: number, cy: number, cz: number) => void> = [];
+  readonly rebuildListeners: Array<() => void> = [];
+  private notifyChunk(i: number): void {
+    if (!this.chunkListeners.length || this.building) return;
+    const [cx, cy, cz] = this.coords(i);
+    for (const f of this.chunkListeners) {
+      try {
+        f(cx, cy, cz);
+      } catch (err) {
+        console.warn('[deep-down] chunk listener failed', err);
+      }
+    }
+  }
   /** Static meshes drawn and culled with the terrain (structure meshes): their groups are
    *  children of `group`, and they take this renderer's view distance. */
   private readonly attached: Array<{ group: THREE.Object3D; viewDistance: number; cull(focus: THREE.Vector3): void }> = [];
@@ -305,6 +323,13 @@ export class ChunkRenderer {
       this.build = null;
     }
     w.dirty.fill(0);
+    for (const f of this.rebuildListeners) {
+      try {
+        f();
+      } catch (err) {
+        console.warn('[deep-down] rebuild listener failed', err);
+      }
+    }
     if (this.warmLeft < 0) {
       this.warmLeft = 0;
       if (this.workersStarted || this.workerStartFrames <= 0) this.startWarmUp();
@@ -549,6 +574,7 @@ export class ChunkRenderer {
     this.inFlight[i] = 0;
     this.snapRevision[i] = w.revision;
     w.dirty[i] = 0;
+    this.notifyChunk(i);
     this.applyMesh(i, cx, cy, cz, meshChunk(w, cx, cy, cz), w.revision);
     this.stats.syncMeshes++;
     if (!this.building) this.noteRebuild(now() - t0);
@@ -607,6 +633,7 @@ export class ChunkRenderer {
     this.inFlight[i] = 1;
     this.snapRevision[i] = w.revision;
     w.dirty[i] = 0;
+    if (!build) this.notifyChunk(i);
     return { id, chunk: i, cx, cy, cz, rev: w.revision, t: now(), frame: this.frame, build, batch: null, result: null };
   }
 

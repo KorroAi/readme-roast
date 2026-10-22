@@ -19,12 +19,25 @@ export function buildMenu(host: ScreenHost): HTMLElement {
   const hasSave = a.hasSave();
   const savedAt = hasSave ? a.saveTimestamp() : null;
 
+  // Round 3: an optional seed for the new world (empty: a random one is rolled).
+  const seedInput = h('input', {
+    class: 'dd-seed-input',
+    type: 'text',
+    inputmode: 'numeric',
+    maxlength: 12,
+    autocomplete: 'off',
+    spellcheck: 'false',
+    placeholder: t('menu3.seed'),
+    'aria-label': t('menu3.seed'),
+    'data-key': 'seed',
+  });
+  const seed = () => (seedInput.value.trim() ? seedInput.value.trim() : undefined);
   const startNew = () => {
     if (!a.hasSave()) {
-      a.newGame();
+      a.newGame(seed());
       return;
     }
-    host.confirm({ text: t('menu.confirmNew'), yes: t('menu.confirmYes'), no: t('menu.confirmNo'), onYes: () => a.newGame(), danger: true });
+    host.confirm({ text: t('menu.confirmNew'), yes: t('menu.confirmYes'), no: t('menu.confirmNo'), onYes: () => a.newGame(seed()), danger: true });
   };
 
   return h(
@@ -47,6 +60,7 @@ export function buildMenu(host: ScreenHost): HTMLElement {
             })
           : null,
         btn(t('menu.newGame'), startNew, { variant: hasSave ? 'secondary' : 'primary', key: 'new', autofocus: !hasSave }),
+        h('details', { class: 'dd-seed' }, h('summary', { class: 'dd-seed-summary', text: t('menu3.seed') }), h('p', { class: 'dd-seed-hint', text: t('menu3.seedHint') }), seedInput),
         h(
           'div',
           { class: 'dd-menu-row' },

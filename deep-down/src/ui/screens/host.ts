@@ -36,6 +36,18 @@ export interface ScreenState {
   aboutTab: AboutTab;
   /** When the open Expedition Report was opened (its banked counts run up from here). */
   reportAt: number;
+  // Round 3 (UI): the menus' remembered tabs and selections.
+  bagTab: import('./r3/bag').BagTab;
+  bagSel: string | null;
+  /** A long-press on a hotbar slot opened the Bag to fill this slot (-1: none). */
+  assignSlot: number;
+  craftTab: string | null;
+  /** The recipe just made (its card flashes once). */
+  craftFlash: string | null;
+  questsTab: import('./r3/quests').QuestsTab;
+  bestiaryBiome: string | null;
+  /** The menu whose "?" help card is open (null: none). */
+  help: string | null;
 }
 
 /** What screen builders may use. Implemented by UI. */

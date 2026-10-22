@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import type { MobKind } from '../../game/mobs/types';
 import { block, boulder, crystal, ellipsoid, fin, lathe, limb, merge, ModelBuilder, place, type BuiltModel } from './rig';
 import type { MobLook } from './mobMaterial';
+import { bodyPlanModel } from './bodyPlan';
 
 /**
  * The creatures, sculpted from smooth and bevelled primitives (round 2, MOBS). Model space: +z is
@@ -22,14 +23,15 @@ export function mobModel(kind: MobKind, variant = 0): MobModel {
   const key = `${kind}:${variant}`;
   let m = cache.get(key);
   if (!m) {
-    m = BUILDERS[kind](variant);
+    const build = BUILDERS[kind];
+    m = build ? build(variant) : bodyPlanModel(kind, variant);
     cache.set(key, m);
   }
   return m;
 }
 
 /** The moths are drawn by MobRenderer's instanced swarm; their entry here is never used. */
-const BUILDERS: Record<MobKind, (variant: number) => MobModel> = {
+const BUILDERS: Partial<Record<MobKind, (variant: number) => MobModel>> = {
   crawler,
   gnasher,
   wisp,

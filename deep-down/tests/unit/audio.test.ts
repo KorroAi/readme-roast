@@ -70,6 +70,11 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'world:event': { event: { id: 'tremor-1', kind: 'tremor', start: 0, end: 6, anchor: [0, 0, 0], radius: 4 }, phase: 'start' },
   'world:rockfall': { x: 0, y: 0, z: 0, hit: false },
   'world:pocket': { x: 0, y: 0, z: 0, cells: 12 },
+  // WORLD (round 3): the strata.
+  'world:stratum': { stratum: 2, from: 1, biomes: ['rootGalleries', 'floodedGrottoes'] },
+  'world:biome': { biome: 'mushroomForest', from: 'amberHollows', stratum: 1, first: true },
+  'world:lairRevealed': { id: 'lair_amberHollows', biome: 'amberHollows', how: 'page' },
+  'world:gateOpened': { stratum: 1 },
   // FP (round 2): the feel events (src/game/fp/events.ts augments GameEvents).
   'block:tunk': { x: 1, y: 2, z: 3, block: B.SLATE, px: 1.5, py: 2.5, pz: 3 },
   'weapon:swing': { weapon: 'machete', ranged: false },
@@ -85,6 +90,22 @@ const SAMPLE_PAYLOADS: { [K in keyof GameEvents]: GameEvents[K] } = {
   'mob:cue': { kind: 'gnasher', cue: 'breath', pan: -0.3, gain: 0.6 },
   'mob:shot': { phase: 'hit', pan: 0, gain: 1 },
   'mob:met': { kind: 'stalker' },
+  // Round 3 (MOBS): guardians, the bestiary, the creatures' sounds by name.
+  'mob:sfx': { name: 'mob.hiss', pan: 0, gain: 0.8 },
+  'mob:guardianAwake': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
+  'mob:guardianPhase': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', phase: 2 },
+  'mob:guardianReset': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows' },
+  'mob:guardianDefeated': { id: 9, kind: 'amberMatriarch', biome: 'amberHollows', shard: 'amberHollows', x: 0, y: 0, z: 0 },
+  'mob:scanned': { id: 3, kind: 'capSpitter', first: true },
+  'mob:bestiary': { kind: 'capSpitter', page: 'new', found: 1, total: 61 },
+  // UI (round 3): the action layout's events (game/fp/events).
+  'ui:used': { control: 'sonar' },
+  'ui:opened': { screen: 'map' },
+  'player:dash': { x: 0, y: 0, z: 0, iframes: 0.25 },
+  'player:sonar': { x: 0, y: 0, z: 0, radius: 24, seconds: 2 },
+  'player:placed': { item: 'torch', block: 0, x: 1, y: 2, z: 3 },
+  'hotbar:selected': { slot: 3, item: 'torch' },
+  'mine:combo': { count: 2, x: 0, y: 0, z: 0 },
 };
 
 const WORLD_STATE: AudioWorldState = {

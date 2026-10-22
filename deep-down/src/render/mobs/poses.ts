@@ -34,7 +34,7 @@ export function pose(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
   out.pitch = 0;
   out.roll = 0;
   const s = m.seed * 10;
-  switch (m.kind) {
+  switch (poseAs(m)) {
     case 'crawler': {
       const g = m.gait;
       const rear = m.strike;
@@ -203,8 +203,224 @@ export function pose(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
       break;
     }
     default:
+      poseGeneric(m, model, rig, t, out);
       break;
   }
+  if (m.guardian) {
+    // A guardian's open guard glows: the moment to strike.
+    out.glow *= m.vulnerable ? 1.25 + Math.sin(t * 9) * 0.25 : 1;
+  }
+}
+
+/** Which pose a creature takes: the first game's own, or one by its bones (the built bodies). */
+function poseAs(m: SimMob): string {
+  switch (m.kind) {
+    case 'crawler':
+    case 'gnasher':
+    case 'wisp':
+    case 'stalker':
+    case 'sentinel':
+    case 'worm':
+    case 'lampling':
+    case 'glimmerkin':
+    case 'shellback':
+    case 'jelly':
+    case 'burrower':
+      return m.kind;
+    case 'snapjaw':
+    case 'chestMimic':
+    case 'thornmother':
+      return 'gnasher';
+    case 'vinebell':
+    case 'relicTurtle':
+      return 'shellback';
+    case 'hearthmite':
+    case 'starmote':
+      return 'lampling';
+    default:
+      return 'generic';
+  }
+}
+
+interface LegInfo {
+  i: number;
+  side: number;
+  u: number;
+  l: number;
+  /** Sprawled (insect, crab: the knee out to the side) or upright (beasts: the knee below the hip). */
+  sprawl: boolean;
+}
+
+interface BoneMap {
+  legs: LegInfo[];
+  ua: number[];
+  fa: number[];
+  w: number[];
+  wt: number[];
+  t: number[];
+  seg: number[];
+  tn: number[];
+  jaws: number[];
+  jaw: number;
+  head: number;
+  chest: number;
+  sac: number;
+  ear: number[];
+  cap: number;
+  loot: number;
+}
+
+const maps = new WeakMap<MobModel, BoneMap>();
+
+function boneMap(model: MobModel): BoneMap {
+  let b = maps.get(model);
+  if (b) return b;
+  const ix = model.index;
+  const legs: LegInfo[] = [];
+  for (let i = 0; i < 6; i++)
+    for (const side of [-1, 1]) {
+      const u = ix[`u${i}${side}`];
+      const l = ix[`l${i}${side}`];
+      if (u === undefined || l === undefined) continue;
+      const hip = model.bones[u].pivot;
+      const knee = model.bones[l].pivot;
+      legs.push({ i, side, u, l, sprawl: Math.abs(knee.x - hip.x) > Math.abs(knee.y - hip.y) * 0.8 });
+    }
+  const list = (pre: string, n = 12) => {
+    const out: number[] = [];
+    for (let k = 0; k < n; k++) {
+      const v = ix[`${pre}${k}`];
+      if (v !== undefined) out.push(v);
+    }
+    return out;
+  };
+  const pair = (pre: string) => [ix[`${pre}-1`], ix[`${pre}1`]].filter((v): v is number => v !== undefined);
+  b = {
+    legs,
+    ua: pair('ua'),
+    fa: pair('fa'),
+    w: pair('w'),
+    wt: pair('wt'),
+    t: list('t', 4),
+    seg: list('seg', 12),
+    tn: list('tn', 10),
+    jaws: pair('jaw'),
+    jaw: ix.jaw ?? -1,
+    head: ix.head ?? -1,
+    chest: ix.chest ?? -1,
+    sac: ix.sac ?? -1,
+    ear: pair('ear'),
+    cap: ix.cap ?? -1,
+    loot: ix.loot ?? -1,
+  };
+  maps.set(model, b);
+  return b;
+}
+
+/**
+ * The built bodies' animation, by the bones they have and their archetype: legs walk (a sprawled
+ * insect gait or a beast's stride), wings flap (and spread to hover in a dive's wind-up), arms rise
+ * through a brute's wind-up and slam, jaws open with the strike, tails, segments and tendrils
+ * sway, a spitter's throat sac and an exploder's body swell, a charger lowers its head, a stunned
+ * one wobbles.
+ */
+export function poseGeneric(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseOut): void {
+  const b = boneMap(model);
+  const s = m.seed * 10;
+  const st = m.strike;
+  const brain = m.brain;
+  const walk = Math.min(1, m.speedNow / Math.max(0.6, m.def.speed * 0.8));
+  const g = m.gait * TAU * (m.def.size === 'tiny' ? 1.4 : 1);
+  // Legs.
+  for (const L of b.legs) {
+    const ph = g + L.i * 1.7 + (L.side > 0 ? Math.PI : 0) + (L.sprawl ? 0 : L.i * 1.4);
+    if (L.sprawl) {
+      const sw = Math.sin(ph) * 0.42 * walk;
+      const lift = Math.max(0, Math.cos(ph)) * 0.32 * walk;
+      rig.euler(L.u, 0, sw, -L.side * lift - (st * 0.4 * L.side * (L.i === 0 ? 1 : 0)));
+      rig.euler(L.l, 0, 0, L.side * 0.1 * Math.sin(ph + 1));
+    } else {
+      const sw = Math.sin(ph) * 0.55 * walk;
+      rig.euler(L.u, -sw - (brain === 'charge' ? st * 0.25 : 0), 0, 0);
+      rig.euler(L.l, Math.max(0, Math.sin(ph + 1.3)) * 0.7 * walk, 0, 0);
+    }
+  }
+  // Arms: idle sway; a wind-up raises them overhead, the blow brings them down.
+  const atk = m.state === 'attack' ? Math.min(1, m.stateTime / 0.18) : 0;
+  b.ua.forEach((u, k) => {
+    const side = k === 0 ? -1 : 1;
+    const sway = Math.sin(g + (side > 0 ? Math.PI : 0)) * 0.3 * walk + Math.sin(t * 0.8 + side + s) * 0.04;
+    const raise = brain === 'slam' || m.guardian ? st * 2.4 - atk * 2.9 : st * 1.2;
+    rig.euler(u, -raise + sway, 0, side * (0.12 + st * 0.35));
+  });
+  b.fa.forEach((f) => rig.euler(f, -0.25 - st * 0.6 + atk * 0.5, 0, 0));
+  // Wings.
+  const flying = m.def.locomotion === 'fly';
+  b.w.forEach((w, k) => {
+    const side = k === 0 ? -1 : 1;
+    const rate = m.guardian ? 3.2 : 13;
+    const hover = m.state === 'windup' ? 1 : 0;
+    const dive = m.state === 'attack' && brain === 'dive' ? 1 : 0;
+    const amp = (flying ? 0.75 : 0.15) * (1 - dive * 0.8) * (1 - hover * 0.5);
+    const a = Math.sin(t * rate + s) * amp + hover * 0.5 - dive * 0.9;
+    rig.euler(w, 0, dive * side * 0.5, side * a);
+    const wt = b.wt[k];
+    if (wt !== undefined) rig.euler(wt, 0, 0, side * Math.sin(t * rate + s - 0.9) * amp * 0.8);
+  });
+  // Jaws and mandibles.
+  const open = Math.max(st, m.open * 0.8) + (m.state === 'attack' ? 0.3 : 0);
+  if (b.jaw >= 0) rig.euler(b.jaw, Math.min(0.9, open * 0.75 + Math.max(0, Math.sin(t * 2.3 + s)) * 0.05), 0, 0);
+  b.jaws.forEach((j, k) => rig.euler(j, 0, (k === 0 ? -1 : 1) * (0.15 + open * 0.55 + 0.1 * Math.sin(t * 9 + s)), 0));
+  // Tails, segments, tendrils.
+  b.t.forEach((tb, i) => rig.euler(tb, Math.sin(t * 1.7 + i * 0.6 + s) * 0.08, Math.sin(t * (2.2 + walk * 4) + i * 0.7 + s) * (0.22 + walk * 0.15), 0));
+  b.seg.forEach((sb, i) => rig.euler(sb, Math.sin(t * 1.9 - i * 0.7 + s) * 0.05, Math.sin(g * 0.5 + t * 1.2 - i * 0.8 + s) * (0.12 + walk * 0.12), 0));
+  b.tn.forEach((tb, k) => {
+    if (m.kind === 'heartOfDark') rig.euler(tb, 0, t * 0.35 + (m.phase - 1) * t * 0.2, 0);
+    else rig.euler(tb, Math.sin(t * 1.3 + k * 1.1 + s) * 0.28, 0, Math.cos(t * 1.1 + k * 0.9 + s) * 0.28);
+  });
+  // The head: it looks about, drops for a charge, rears for a spit.
+  if (b.head >= 0) {
+    const look = m.state === 'stalk' || m.state === 'idle' || m.state === 'wander' || m.state === 'sleep' ? Math.sin(t * 0.6 + s) * 0.25 : 0;
+    const pitch = brain === 'charge' ? st * 0.35 : brain === 'spit' ? -st * 0.3 : brain === 'pack' ? st * 0.2 : 0;
+    rig.euler(b.head, pitch + Math.sin(t * 1.3 + s) * 0.04, look, Math.sin(t * 0.7 + s) * 0.05);
+  }
+  if (b.chest >= 0) rig.euler(b.chest, (brain === 'slam' || m.guardian ? -st * 0.25 + atk * 0.35 : 0) + Math.sin(t * 1.1 + s) * 0.02, Math.sin(g) * 0.05 * walk, 0);
+  b.ear.forEach((e, k) => rig.euler(e, Math.sin(t * 5 + s + k) * 0.06 - walk * 0.3, 0, 0));
+  // The sac (a spitter's throat, an exploder's body, the Heart's heartbeat).
+  if (b.sac >= 0) {
+    const beat = m.kind === 'heartOfDark' ? Math.pow(Math.max(0, Math.sin(t * (2.2 + m.phase * 0.6))), 8) * 0.08 : 0;
+    const swell = brain === 'fuse' ? st * 0.35 : brain === 'spit' || m.guardian ? st * 0.5 : 0;
+    rig.scl[b.sac].setScalar(1 + swell + beat + Math.sin(t * 2 + s) * 0.02);
+  }
+  if (b.cap >= 0) rig.euler(b.cap, 0, 0, t * 0.6);
+  if (b.loot >= 0) rig.scl[b.loot].setScalar(m.carry > 0 ? 1 : 0.001);
+  // The whole body.
+  out.glow = 0.75 + st * 0.75 + (m.guardian ? m.glow * 0.3 : 0) + (brain === 'fuse' && m.fused ? Math.sin(t * 30) * 0.3 : 0);
+  if (flying) out.lift = Math.sin(t * 2.1 + s) * 0.05 * (m.guardian ? 3 : 1);
+  if (brain === 'charge' && m.state === 'windup') out.pitch = st * 0.12 + Math.sin(t * 30) * 0.01 * st;
+  if (brain === 'charge' && m.state === 'attack') out.pitch = 0.1;
+  if (m.state === 'stunned') {
+    out.roll = Math.sin(t * 7) * 0.14;
+    out.pitch = 0.08;
+  }
+  if (brain === 'pack' && m.state === 'windup') {
+    out.sy = 1 - st * 0.18;
+    out.sz = 1 + st * 0.1;
+  }
+  if (brain === 'fuse') {
+    const k = st * 0.28;
+    out.sx = out.sz = 1 + k;
+    out.sy = 1 + k * 0.8;
+  }
+  if (brain === 'dig' || (m.guardian && m.pattern === 'burrow')) {
+    // Emerging, or sinking back into the ground.
+    if (m.state === 'recoil' && m.stateTime < 0.45) out.lift = -(1 - m.stateTime / 0.45) * m.bounds.radius * 1.6;
+    if (m.state === 'sleep') out.lift = -m.open * m.bounds.radius * 1.8;
+    if (m.mode === 'under' || m.state === 'burrow') out.lift = -m.bounds.radius * 3;
+  }
+  if (brain === 'drop' && m.state === 'windup') out.roll = Math.sin(t * 40) * 0.04 * st;
+  if (brain === 'spit' && m.state === 'windup') out.pitch = -st * 0.1;
+  if ((brain === 'slam' || m.guardian) && m.state === 'attack' && m.stateTime < 0.2) out.sy = 1 - (1 - m.stateTime / 0.2) * 0.08;
 }
 
 const tp = new THREE.Vector3();

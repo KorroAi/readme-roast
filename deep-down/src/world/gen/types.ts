@@ -25,7 +25,55 @@ export type PropKind =
   | 'forge'
   | 'surveyTable'
   | 'relicShelf'
-  | 'runeStone';
+  | 'runeStone'
+  // Round 3 (WORLD): the strata's ambient props per biome (config/biomes BIOMES[b].props; VIS models
+  // them and batches the ones with no use), the lairs' dressing, and LOOP's placed stations.
+  | StrataPropKind;
+
+/** Round 3: the strata's prop kinds (ambient dressing, lair dressing, LOOP's stations and outposts). */
+export type StrataPropKind =
+  | 'bones'
+  | 'stalagmite'
+  | 'amberDrip'
+  | 'mushroomSmall'
+  | 'mushroomCluster'
+  | 'sporePuff'
+  | 'hangingRoots'
+  | 'rootKnot'
+  | 'reeds'
+  | 'shells'
+  | 'driftwood'
+  | 'waterfall'
+  | 'crystalSpire'
+  | 'geodeShards'
+  | 'rail'
+  | 'timberProp'
+  | 'icicle'
+  | 'iceSpike'
+  | 'frozenBones'
+  | 'vineCurtain'
+  | 'fern'
+  | 'glowBulb'
+  | 'gasVent'
+  | 'bogBubble'
+  | 'deadTree'
+  | 'statue'
+  | 'urn'
+  | 'brokenColumn'
+  | 'emberVent'
+  | 'basaltColumn'
+  | 'charredBones'
+  | 'lavaGlow'
+  | 'glassShard'
+  | 'voidSpire'
+  | 'lairPillar'
+  | 'lairBrazier'
+  | 'furnace'
+  | 'alchemyTable'
+  | 'outpost';
+
+/** Round 3: ambient props that hang from the roof (anchored on the cell above). */
+export const HANGING_PROPS: ReadonlySet<string> = new Set(['amberDrip', 'hangingRoots', 'icicle', 'vineCurtain']);
 
 export interface PropSpec {
   /** Stable id, used by saves to remember removed props. */
@@ -48,7 +96,7 @@ export interface PropSpec {
   /** Rune stones (interact 'rune'): the rune's key item and its glyph (config/runes). */
   rune?: { item: string; glyph: number };
   /** World features (interact 'feature'): what using this prop does (game/WorldFeatures). */
-  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache'; id: string; end?: 'top' | 'bottom' };
+  feature?: { kind: 'rope' | 'hoist' | 'note' | 'relic' | 'monolith' | 'cache' | 'gate' | 'lift'; id: string; end?: 'top' | 'bottom' };
   /** Halden caches, supply crates and the builders' coffers (feature 'cache'): what is inside (game/Progression). */
   loot?: Partial<Record<'stone' | 'rootFibre' | 'copperOre' | 'ironOre' | 'glimmerShard' | 'echoShard', number>>;
   /** A secret alcove's reward (content pass): opening it counts the secret. */

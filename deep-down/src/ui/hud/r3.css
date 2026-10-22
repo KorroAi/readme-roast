@@ -1,0 +1,1029 @@
+/* Round 3: the mobile action layout (Hud.ts, TouchControls.ts, Tutorial.ts). Loaded after ui.css
+   and fp.css; every rule is scoped to .dd-r3 (or the tutorial layer). Upright 390 x 844 first.
+   The centre of the view stays clear: only the reticle sits there. */
+
+.dd-ui {
+  --btn-scale: 1;
+  --btn-opacity: 0.86;
+  --hotbar-h: 56px;
+  --pad-bottom: calc(var(--hotbar-h) + 20px + var(--safe-bottom));
+  --plate-fill: rgba(9, 13, 19, 0.76);
+  --plate-rim: rgba(94, 66, 32, 0.9);
+}
+
+/* ---------------------------------------------------------------- the top HUD */
+.dd-hud.dd-r3 .dd-top {
+  position: absolute;
+  top: calc(8px + var(--safe-top));
+  left: calc(10px + var(--safe-left));
+  right: calc(10px + var(--safe-right));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: none;
+}
+.dd-hud.dd-r3 .dd-row1 {
+  display: flex;
+  gap: 6px;
+  height: 46px;
+}
+.dd-hud.dd-r3 .dd-row2,
+.dd-hud.dd-r3 .dd-row3 {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  /* the minimap sits on the right under row 1 */
+  margin-right: 100px;
+}
+/* Toasts under the whole top HUD (rows, tracker) in portrait. */
+@media (orientation: portrait) {
+  .dd-ui .dd-toasts {
+    top: calc(176px + var(--safe-top));
+  }
+}
+.dd-r3 :is(.dd-vitals, .dd-where, .dd-hbtn, .dd-tracker, .dd-guardian, .dd-hslot, .dd-arrival) {
+  --cut: var(--cut-chip);
+  box-sizing: border-box;
+  border: 1px solid var(--plate-rim);
+  background: var(--plate-fill);
+  clip-path: polygon(var(--cut) 0, calc(100% - var(--cut)) 0, 100% var(--cut), 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, var(--cut) 100%, 0 calc(100% - var(--cut)), 0 var(--cut));
+}
+.dd-r3 .dd-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  flex: none;
+}
+.dd-r3 .dd-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+/* Health and the flame: two thin bars on one plate. */
+.dd-hud.dd-r3 .dd-vitals {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+}
+.dd-hud.dd-r3 .dd-vital {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dd-hud.dd-r3 .dd-vital .dd-glyph {
+  width: 14px;
+  height: 14px;
+}
+.dd-hud.dd-r3 .dd-vital.hp {
+  color: #ff8a7a;
+}
+.dd-hud.dd-r3 .dd-vital.oil {
+  color: var(--amber-400);
+}
+.dd-hud.dd-r3 .dd-vbar {
+  position: relative;
+  flex: 1 1 auto;
+  height: 7px;
+  min-width: 40px;
+  background: rgba(4, 7, 11, 0.8);
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  overflow: hidden;
+}
+.dd-hud.dd-r3 .dd-vbar-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #b8372c, #ff6b5e);
+  transition: transform 0.12s linear;
+}
+.dd-hud.dd-r3 .dd-vital.oil .dd-vbar-fill {
+  background: linear-gradient(90deg, var(--ember), var(--amber-400) 70%, var(--amber-300));
+}
+.dd-hud.dd-r3 .dd-vbar-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #fff4dc;
+  box-shadow: 0 0 3px rgba(255, 214, 160, 0.9);
+}
+.dd-hud.dd-r3 .dd-vnum {
+  flex: none;
+  min-width: 24px;
+  text-align: right;
+  font: 800 calc(12px * var(--s)) / 1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone-100);
+}
+.dd-hud.dd-r3 .dd-vital.hz {
+  color: #8fe3ee;
+}
+.dd-hud.dd-r3 .dd-vital.hz[hidden] {
+  display: none;
+}
+.dd-hud.dd-r3 .dd-vital.hz[data-kind='gas'] {
+  color: #c8e05a;
+}
+.dd-hud.dd-r3 .dd-vital.hz[data-kind='heat'] {
+  color: #ff8a4a;
+}
+.dd-hud.dd-r3 .dd-vital.hz[data-kind='dark'] {
+  color: #b98cff;
+}
+.dd-hud.dd-r3 .dd-vital.hz .dd-vbar-fill {
+  background: currentColor;
+}
+.dd-hud.dd-r3 .dd-hz-text {
+  min-width: 0;
+  font-size: calc(9.5px * var(--s));
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: inherit;
+}
+.dd-hud.dd-r3 .dd-vitals:has(.dd-vital.hz:not([hidden])) {
+  gap: 3px;
+}
+.dd-hud.dd-r3 .dd-vital.low .dd-vbar {
+  border-color: var(--danger-400);
+  animation: dd-r3-pulse 1.1s ease-in-out infinite;
+}
+.dd-hud.dd-r3 .dd-vital.oil.is-cold .dd-vbar {
+  box-shadow: 0 0 5px rgba(143, 227, 238, 0.85);
+}
+@keyframes dd-r3-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+/* Where: depth numerals, the stratum chip, the biome name. */
+.dd-hud.dd-r3 .dd-where {
+  flex: none;
+  min-width: 104px;
+  max-width: 150px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 0 10px;
+}
+.dd-hud.dd-r3 .dd-where-top {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.dd-hud.dd-r3 .dd-where-depth {
+  font: 400 calc(19px * var(--s)) / 1 var(--font-lintel);
+  color: var(--bone-100);
+  letter-spacing: 0.02em;
+}
+.dd-hud.dd-r3 .dd-where-stratum {
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  color: var(--brass-300);
+  letter-spacing: 0.12em;
+  border: 1px solid rgba(176, 130, 63, 0.6);
+  padding: 1px 4px;
+}
+.dd-hud.dd-r3 .dd-where-biome {
+  font: 700 calc(11px * var(--s)) / 1.1 var(--font);
+  color: var(--amber-300);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The top-bar buttons (≡, Bag, Craft, Map, Quests): 46 px plates. */
+.dd-hud.dd-r3 .dd-hbtn {
+  pointer-events: auto;
+  position: relative;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  color: var(--bone-100);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-hud.dd-r3 .dd-hbtns .dd-hbtn {
+  grid-template-rows: 1fr auto;
+  padding: 6px 0 4px;
+}
+.dd-hud.dd-r3 .dd-hbtn .dd-glyph {
+  width: 20px;
+  height: 20px;
+}
+.dd-hud.dd-r3 .dd-hbtn-label {
+  font: 800 calc(8.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--bone-300);
+}
+.dd-hud.dd-r3 .dd-hbtn:active {
+  --plate-fill: rgba(255, 179, 92, 0.3);
+  --plate-rim: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-hbtn-badge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  font: 800 calc(8.5px * var(--s)) / 1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-hbtn-bag.full .dd-hbtn-badge {
+  color: var(--danger-400);
+}
+.dd-hud.dd-r3 .dd-hbtns {
+  display: flex;
+  gap: 5px;
+  flex: none;
+}
+/* The tracker: the arrow and two lines (main step, side task); a tap opens Quests. */
+.dd-hud.dd-r3 .dd-tracker {
+  pointer-events: auto;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px 4px 5px;
+  text-align: left;
+  color: var(--bone-100);
+  font: inherit;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.dd-hud.dd-r3 .dd-arrow {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  width: 38px;
+  color: #7ef0c0;
+}
+.dd-hud.dd-r3 .dd-arrow.home {
+  color: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-arrow[hidden] {
+  display: none;
+}
+.dd-hud.dd-r3 .dd-arrow-dial {
+  display: grid;
+  width: 22px;
+  height: 22px;
+  transition: transform 0.1s linear;
+}
+.dd-hud.dd-r3 .dd-arrow-dial svg {
+  width: 22px;
+  height: 22px;
+}
+.dd-hud.dd-r3 .dd-arrow-text {
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dd-hud.dd-r3 .dd-track-lines {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.dd-hud.dd-r3 .dd-track {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  font: 700 calc(12px * var(--s)) / 1.2 var(--font);
+}
+.dd-hud.dd-r3 .dd-track[hidden] {
+  display: none;
+}
+.dd-hud.dd-r3 .dd-track.side {
+  font-weight: 600;
+  font-size: calc(11px * var(--s));
+  color: var(--bone-300);
+}
+.dd-hud.dd-r3 .dd-track-mark {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  transform: rotate(45deg) translateY(-1px);
+  background: var(--amber-400);
+}
+.dd-hud.dd-r3 .dd-track.side .dd-track-mark {
+  background: transparent;
+  border: 1.5px solid var(--bone-300);
+  width: 5px;
+  height: 5px;
+}
+.dd-hud.dd-r3 .dd-track-text {
+  min-width: 0;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.dd-hud.dd-r3 .dd-track.side .dd-track-text {
+  -webkit-line-clamp: 1;
+}
+.dd-hud.dd-r3 .dd-track-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--amber-300);
+}
+/* The minimap: a round window on the right, under the menu button. */
+.dd-hud.dd-r3 .dd-minimap {
+  position: absolute;
+  top: calc(8px + 46px + 6px + var(--safe-top));
+  right: calc(10px + var(--safe-right));
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(6, 8, 12, 0.6);
+  box-shadow: 0 0 0 2px rgba(176, 130, 63, 0.7), 0 0 0 3px rgba(4, 7, 11, 0.8), 0 2px 10px rgba(0, 0, 0, 0.6);
+}
+.dd-hud.dd-r3 .dd-minimap-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.dd-hud.dd-r3 .dd-minimap-me {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  color: var(--bone-100);
+}
+.dd-hud.dd-r3 .dd-minimap-me svg {
+  width: 14px;
+  height: 14px;
+}
+.dd-hud.dd-r3 .dd-minimap.empty {
+  opacity: 0.5;
+}
+/* The guardian's bar. */
+.dd-hud.dd-r3 .dd-guardian {
+  display: none;
+  padding: 6px 10px 7px;
+  margin-right: 100px;
+  --plate-rim: rgba(255, 106, 90, 0.7);
+}
+.dd-hud.dd-r3 .dd-guardian.on {
+  display: block;
+}
+.dd-hud.dd-r3 .dd-guardian-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: 800 calc(11.5px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #ffb4a8;
+  margin-bottom: 5px;
+}
+.dd-hud.dd-r3 .dd-guardian-phase {
+  color: var(--bone-300);
+  letter-spacing: 0.04em;
+}
+.dd-hud.dd-r3 .dd-guardian-bar {
+  position: relative;
+  height: 8px;
+  background: rgba(4, 7, 11, 0.85);
+  border: 1px solid rgba(255, 106, 90, 0.6);
+  overflow: hidden;
+}
+.dd-hud.dd-r3 .dd-guardian-fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, #8a1f17, #ff6b5e 70%, #ffb4a8);
+  transition: transform 0.15s linear;
+}
+
+/* ---------------------------------------------------------------- the reticle */
+.dd-hud.dd-r3 .dd-reticle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30px;
+  height: 30px;
+  margin: -15px 0 0 -15px;
+  pointer-events: none;
+  color: rgba(239, 231, 216, 0.55);
+  filter: drop-shadow(0 0 1px rgba(4, 7, 11, 0.9));
+}
+.dd-hud.dd-r3 .dd-reticle svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+}
+.dd-hud.dd-r3 .dd-reticle :is(.dd-rt-track, .dd-rt-ring, .dd-rt-ticks, .dd-rt-x, .dd-rt-use, .dd-rt-place) {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.dd-hud.dd-r3 .dd-rt-track {
+  stroke: rgba(239, 231, 216, 0.22);
+}
+.dd-hud.dd-r3 .dd-rt-ring {
+  stroke: var(--amber-300);
+  stroke-width: 2.2;
+}
+.dd-hud.dd-r3 .dd-rt-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  margin: -2px 0 0 -2px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.dd-hud.dd-r3 .dd-reticle.k-none .dd-rt-ticks {
+  opacity: 0.4;
+}
+.dd-hud.dd-r3 .dd-reticle.k-mine {
+  color: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-reticle.k-mine .dd-rt-ticks,
+.dd-hud.dd-r3 .dd-reticle.cracking :is(.dd-rt-track, .dd-rt-ring) {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-reticle.k-attack {
+  color: #ff8a7a;
+}
+.dd-hud.dd-r3 .dd-reticle.k-attack .dd-rt-x {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-reticle.k-use {
+  color: #7ef0c0;
+}
+.dd-hud.dd-r3 .dd-reticle.k-use .dd-rt-use {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-reticle.k-place {
+  color: var(--rune-200);
+}
+.dd-hud.dd-r3 .dd-reticle.k-place .dd-rt-place {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-reticle.k-blocked {
+  color: var(--danger-400);
+}
+.dd-hud.dd-r3 .dd-reticle.k-blocked .dd-rt-x {
+  opacity: 0.7;
+}
+.dd-hud.dd-r3 .dd-combo {
+  position: absolute;
+  left: calc(50% + 22px);
+  top: calc(50% + 10px);
+  font: 800 calc(12px * var(--s)) / 1 var(--font);
+  color: var(--amber-300);
+  opacity: 0;
+  pointer-events: none;
+}
+.dd-hud.dd-r3 .dd-combo.on {
+  animation: dd-r3-combo 1.4s ease-out forwards;
+}
+@keyframes dd-r3-combo {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.9);
+  }
+  12% {
+    opacity: 1;
+    transform: translateY(0) scale(1.08);
+  }
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+.dd-hud.dd-r3 .dd-dmg-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.dd-hud.dd-r3 .dd-dmg {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font: 800 calc(12px * var(--s)) / 1 var(--font);
+  color: var(--bone-100);
+  animation: dd-r3-dmg 0.7s ease-out forwards;
+}
+.dd-hud.dd-r3 .dd-dmg.weak {
+  color: var(--amber-300);
+  font-size: calc(14px * var(--s));
+}
+.dd-hud.dd-r3 .dd-dmg.hurt {
+  color: #ff8a7a;
+}
+@keyframes dd-r3-dmg {
+  0% {
+    opacity: 0;
+    margin-top: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    margin-top: -26px;
+  }
+}
+/* The hint line: above the pads and the stick, below the centre. */
+.dd-hud.dd-r3 .dd-hint3 {
+  position: absolute;
+  left: 50%;
+  bottom: calc(var(--pad-bottom) + 250px);
+  transform: translateX(-50%);
+  max-width: min(320px, 82vw);
+  padding: 6px 12px;
+  border-radius: 3px;
+  background: var(--chip);
+  border: 1px solid rgba(94, 66, 32, 0.8);
+  font: 700 calc(12.5px * var(--s)) / 1.3 var(--font);
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+}
+.dd-hud.dd-r3 .dd-hint3.on {
+  opacity: 1;
+}
+.dd-hud.dd-r3 .dd-perf {
+  bottom: auto;
+  top: calc(170px + var(--safe-top));
+}
+
+/* ---------------------------------------------------------------- the hotbar */
+.dd-hud.dd-r3 .dd-hotbar {
+  position: absolute;
+  left: 50%;
+  bottom: calc(8px + var(--safe-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  gap: 5px;
+  pointer-events: none;
+}
+.dd-hud.dd-r3 .dd-hslot {
+  pointer-events: auto;
+  position: relative;
+  width: min(56px, calc((100vw - 52px) / 6));
+  height: var(--hotbar-h);
+  padding: 0;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+.dd-hud.dd-r3 .dd-hslot.sel {
+  --plate-rim: var(--amber-300);
+  --plate-fill: rgba(64, 40, 16, 0.82);
+  box-shadow: inset 0 0 0 1px var(--amber-400);
+}
+.dd-hud.dd-r3 .dd-slot-icon {
+  width: 30px;
+  height: 30px;
+  background: center / contain no-repeat;
+  image-rendering: pixelated;
+}
+.dd-hud.dd-r3 .dd-hslot.empty .dd-slot-icon {
+  background: none;
+  border: 1px dashed rgba(148, 139, 125, 0.45);
+  width: 22px;
+  height: 22px;
+}
+.dd-hud.dd-r3 .dd-slot-count {
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font: 800 calc(11px * var(--s)) / 1 var(--font);
+  font-variant-numeric: tabular-nums;
+  color: var(--bone-100);
+}
+.dd-hud.dd-r3 .dd-slot-key {
+  position: absolute;
+  left: 5px;
+  top: 3px;
+  font: 700 9px / 1 var(--font);
+  color: var(--bone-500);
+}
+.dd-touch-ui .dd-hud.dd-r3 .dd-slot-key {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- the arrival card */
+.dd-hud.dd-r3 .dd-arrival {
+  position: absolute;
+  left: 50%;
+  top: calc(200px + var(--safe-top));
+  width: min(330px, calc(100vw - 32px));
+  transform: translate(-50%, -8px);
+  padding: 12px 14px 13px;
+  text-align: center;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.35s, transform 0.35s, visibility 0.35s;
+  pointer-events: auto;
+  --plate-rim: rgba(226, 182, 115, 0.85);
+  --plate-fill: rgba(9, 13, 19, 0.88);
+}
+.dd-hud.dd-r3 .dd-arrival.on {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+.dd-hud.dd-r3 .dd-arrival-kicker {
+  font: 800 calc(10px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--brass-300);
+}
+.dd-hud.dd-r3 .dd-arrival-name {
+  margin: 6px 0 4px;
+  font: 400 calc(22px * var(--s)) / 1.05 var(--font-lintel);
+  color: var(--amber-300);
+  letter-spacing: 0.04em;
+}
+.dd-hud.dd-r3 .dd-arrival p {
+  margin: 4px 0 0;
+  font: 600 calc(12.5px * var(--s)) / 1.35 var(--font);
+  color: var(--bone-100);
+}
+.dd-hud.dd-r3 .dd-arrival-hazard b {
+  color: #ff8a7a;
+}
+.dd-hud.dd-r3 .dd-arrival-rumour {
+  font-style: italic;
+  color: var(--bone-300) !important;
+}
+
+/* ---------------------------------------------------------------- the touch pads */
+.dd-touch.dd-r3 .dd-stick.idle {
+  left: calc(26px + var(--safe-left));
+  bottom: calc(var(--pad-bottom) + 34px);
+  opacity: 0.34;
+}
+.dd-touch.dd-r3.dd-lefty .dd-stick.idle {
+  left: auto;
+  right: calc(26px + var(--safe-right));
+}
+.dd-touch.dd-r3 .dd-stick {
+  opacity: 0.85;
+  transition: opacity 0.12s, border-color 0.12s;
+}
+.dd-touch.dd-r3 .dd-stick.sprint {
+  border-color: var(--amber-300);
+  box-shadow: 0 0 12px rgba(255, 179, 92, 0.5);
+}
+.dd-touch.dd-r3 .dd-stick.sprint .dd-stick-knob {
+  background: radial-gradient(circle at 40% 32%, rgba(255, 236, 200, 0.85), rgba(255, 179, 92, 0.6) 60%, rgba(138, 79, 28, 0.7));
+}
+.dd-touch.dd-r3 .dd-pad {
+  position: absolute;
+  right: calc(14px + var(--safe-right));
+  bottom: var(--pad-bottom);
+  width: calc(var(--btn-scale) * 260px);
+  height: calc(var(--btn-scale) * 230px);
+  pointer-events: none;
+}
+.dd-touch.dd-r3.dd-lefty .dd-pad {
+  right: auto;
+  left: calc(14px + var(--safe-left));
+  transform: scaleX(-1);
+}
+.dd-touch.dd-r3.dd-lefty .dd-pad > * {
+  transform: scaleX(-1);
+}
+.dd-touch.dd-r3 .dd-pad-btn {
+  --d: 58px;
+  --cd: 0;
+  position: absolute;
+  width: calc(var(--d) * var(--btn-scale));
+  height: calc(var(--d) * var(--btn-scale));
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(226, 182, 115, 0.75);
+  background: radial-gradient(circle at 50% 38%, rgba(40, 32, 22, 0.86), rgba(9, 12, 17, 0.88));
+  color: var(--bone-100);
+  opacity: var(--btn-opacity);
+  pointer-events: auto;
+  display: grid;
+  place-items: center;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.55);
+  transition: transform 0.06s, opacity 0.12s;
+}
+.dd-touch.dd-r3 .dd-pad-btn[hidden] {
+  display: none;
+}
+.dd-touch.dd-r3 .dd-pad-btn.pressed {
+  transform: scale(0.93);
+  opacity: 1;
+  border-color: var(--amber-300);
+  background: radial-gradient(circle at 50% 40%, rgba(255, 179, 92, 0.5), rgba(64, 38, 14, 0.9));
+}
+.dd-touch.dd-r3.dd-lefty .dd-pad .dd-pad-btn.pressed {
+  transform: scaleX(-1) scale(0.93);
+}
+.dd-touch.dd-r3 .dd-pad-glyph {
+  display: grid;
+  width: calc(var(--d) * 0.42 * var(--btn-scale));
+  height: calc(var(--d) * 0.42 * var(--btn-scale));
+}
+.dd-touch.dd-r3 .dd-pad-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.dd-touch.dd-r3 .dd-pad-label {
+  position: absolute;
+  bottom: 14%;
+  font: 800 calc(9px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--amber-300);
+}
+/* The cooldown: a dark sweep over the button that shrinks back to ready. */
+.dd-touch.dd-r3 .dd-pad-cd {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: conic-gradient(rgba(4, 7, 11, 0.72) calc(var(--cd) * 360deg), transparent 0);
+  opacity: 0;
+}
+.dd-touch.dd-r3 .dd-pad-btn.cooling .dd-pad-cd {
+  opacity: 1;
+}
+.dd-touch.dd-r3 .dd-pad-btn.cooling {
+  border-color: rgba(148, 139, 125, 0.6);
+}
+/* Positions in the pad (bottom right corner = 0, 0). */
+.dd-touch.dd-r3 .dd-pad-action {
+  --d: 92px;
+  right: 0;
+  bottom: 0;
+  border-width: 3px;
+  border-color: var(--amber-400);
+}
+.dd-touch.dd-r3 .dd-pad-action .dd-pad-glyph {
+  margin-top: -10px;
+}
+.dd-touch.dd-r3 .dd-pad-jump {
+  --d: 66px;
+  right: calc(104px * var(--btn-scale));
+  bottom: 0;
+}
+.dd-touch.dd-r3 .dd-pad-dash {
+  --d: 58px;
+  right: calc(108px * var(--btn-scale));
+  bottom: calc(78px * var(--btn-scale));
+}
+.dd-touch.dd-r3 .dd-pad-sonar {
+  --d: 58px;
+  right: calc(17px * var(--btn-scale));
+  bottom: calc(104px * var(--btn-scale));
+  border-color: rgba(143, 227, 238, 0.75);
+  color: var(--rune-200);
+}
+.dd-touch.dd-r3 .dd-pad-place {
+  --d: 58px;
+  right: calc(182px * var(--btn-scale));
+  bottom: calc(4px * var(--btn-scale));
+  border-color: rgba(143, 227, 238, 0.75);
+  color: var(--rune-200);
+}
+/* The Interact chip: right side, above the pads, with the target's icon and verb. */
+.dd-touch.dd-r3 .dd-use {
+  position: absolute;
+  right: calc(14px + var(--safe-right));
+  bottom: calc(var(--pad-bottom) + 176px * var(--btn-scale));
+  left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 132px;
+  max-width: 220px;
+  height: 52px;
+  padding: 0 14px 0 10px;
+  --cut: var(--cut-chip);
+  --fill: rgba(16, 40, 30, 0.84);
+  --rim: #7ef0c0;
+  color: #c9ffe6;
+  opacity: 1;
+  pointer-events: auto;
+  touch-action: none;
+  animation: dd-r3-use-in 0.18s ease-out;
+}
+.dd-touch.dd-r3.dd-lefty .dd-use {
+  right: auto;
+  left: calc(14px + var(--safe-left));
+}
+.dd-touch.dd-r3 .dd-use[hidden] {
+  display: none;
+}
+@keyframes dd-r3-use-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+.dd-touch.dd-r3 .dd-use-icon {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+}
+.dd-touch.dd-r3 .dd-use-icon svg {
+  width: 24px;
+  height: 24px;
+}
+.dd-touch.dd-r3 .dd-use-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+  text-align: left;
+}
+.dd-touch.dd-r3 .dd-use-verb {
+  font: 800 calc(13px * var(--s)) / 1 var(--font);
+  letter-spacing: 0.04em;
+}
+.dd-touch.dd-r3 .dd-use-label {
+  font: 600 calc(11px * var(--s)) / 1.1 var(--font);
+  color: var(--bone-300);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dd-touch.dd-r3 .dd-flash {
+  right: calc(14px + var(--safe-right));
+  bottom: calc(var(--pad-bottom) + 240px * var(--btn-scale));
+}
+.dd-touch.dd-r3 .dd-mine-ring {
+  display: none;
+}
+/* Desktop (no touch): the pads are not drawn; keys and the mouse do it all. */
+.dd-ui:not(.dd-touch-ui) .dd-touch.dd-r3 :is(.dd-pad, .dd-stick) {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- the tutorial layer */
+.dd-tut {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 40;
+}
+.dd-tut .dd-tut-ring,
+.dd-tut .dd-tut-bubble {
+  display: none;
+}
+.dd-tut.on .dd-tut-ring,
+.dd-tut.on .dd-tut-bubble {
+  display: block;
+}
+.dd-tut.hud-off .dd-tut-ring,
+.dd-tut.hud-off .dd-tut-bubble,
+.dd-tut.hud-off .dd-tip {
+  display: none !important;
+}
+.dd-tut .dd-tut-ring {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 14px;
+  border: 2px solid #7ef0c0;
+  box-shadow: 0 0 0 3px rgba(126, 240, 192, 0.25), 0 0 18px rgba(126, 240, 192, 0.55);
+  animation: dd-tut-pulse 1.4s ease-in-out infinite;
+}
+@keyframes dd-tut-pulse {
+  50% {
+    box-shadow: 0 0 0 7px rgba(126, 240, 192, 0.12), 0 0 26px rgba(126, 240, 192, 0.75);
+  }
+}
+.dd-tut .dd-tut-bubble {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  padding: 9px 12px 11px;
+  background: rgba(10, 26, 22, 0.94);
+  border: 1px solid #7ef0c0;
+  border-radius: 6px;
+  color: #eafff5;
+  pointer-events: auto;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
+}
+.dd-tut .dd-tut-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.dd-tut .dd-tut-count {
+  font: 800 10px / 1 var(--font, system-ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #7ef0c0;
+}
+.dd-tut .dd-tut-skip {
+  border: 0;
+  background: none;
+  color: #a9cfc0;
+  font: 700 11px / 1 var(--font, system-ui);
+  text-decoration: underline;
+  padding: 6px 2px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.dd-tut .dd-tut-line {
+  margin: 0;
+  font: 700 14px / 1.3 var(--font, system-ui);
+}
+.dd-tut .dd-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  background: rgba(12, 17, 24, 0.95);
+  border: 1px solid var(--amber-400, #ffb35c);
+  border-radius: 5px;
+  color: var(--bone-100, #efe7d8);
+  font: 600 12.5px / 1.3 var(--font, system-ui);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.dd-tut .dd-tip.on {
+  opacity: 1;
+}
+.dd-tut-on {
+  z-index: 1;
+}
+
+/* ---------------------------------------------------------------- landscape */
+@media (orientation: landscape) {
+  .dd-hud.dd-r3 .dd-top {
+    right: auto;
+    width: min(560px, 58vw);
+  }
+  .dd-hud.dd-r3 .dd-row2,
+  .dd-hud.dd-r3 .dd-row3,
+  .dd-hud.dd-r3 .dd-guardian {
+    margin-right: 0;
+  }
+  .dd-ui {
+    --hotbar-h: 48px;
+    --pad-bottom: calc(14px + var(--safe-bottom));
+  }
+  .dd-hud.dd-r3 .dd-hotbar {
+    bottom: calc(6px + var(--safe-bottom));
+  }
+  .dd-touch.dd-r3 .dd-pad {
+    bottom: calc(14px + var(--safe-bottom));
+  }
+  .dd-hud.dd-r3 .dd-hint3 {
+    bottom: calc(76px + var(--safe-bottom));
+  }
+  .dd-hud.dd-r3 .dd-arrival {
+    top: calc(110px + var(--safe-top));
+  }
+}
+
+/* High contrast: solid plates. */
+.dd-contrast .dd-r3 {
+  --plate-fill: rgba(0, 0, 0, 0.94);
+  --plate-rim: var(--amber-300);
+}
+.dd-hud.dd-r3 .dd-arrival.brief :is(.dd-arrival-desc, .dd-arrival-hazard, .dd-arrival-rumour) {
+  display: none;
+}

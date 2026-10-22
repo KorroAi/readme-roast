@@ -69,6 +69,15 @@ export class Backpack {
     return false;
   }
 
+  /** How many more of `item` fit: room in matching stacks plus empty slots (0 for key items). */
+  room(item: ItemId): number {
+    if (!isItemId(item) || ITEMS[item].keyItem) return 0;
+    const stack = ITEMS[item].stackSize;
+    let n = 0;
+    for (const s of this.data) n += !s ? stack : s.item === item ? Math.max(0, stack - s.count) : 0;
+    return n;
+  }
+
   /**
    * Add up to `count` of `item`, topping up existing stacks before opening empty slots.
    * @returns how many were actually added (0 for key items, unknown items or a full pack).

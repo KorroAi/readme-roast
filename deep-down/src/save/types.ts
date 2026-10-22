@@ -3,6 +3,7 @@ import type { ItemId } from '../config/items';
 import type { CacheState } from '../gameplay/Expedition';
 import type { RecordsState, TripState } from '../gameplay/Records';
 import type { QualityLevel } from '../render/Renderer';
+import type { StrataSave } from '../game/Stratum';
 
 /** Player settings, persisted separately from game progress. */
 export interface Settings {
@@ -125,4 +126,9 @@ export interface SaveData {
   removedProps: string[];
   stats: { blocksMined: number; deaths: number; itemsBanked: number };
   progression: ProgressionSave;
+  /**
+   * Save v4 (round 3, WORLD): the strata expedition (seed, current stratum, per-stratum edits, removed
+   * props, explored maps, revealed lairs, outposts, Heart Shards). Absent in the old hand-made world.
+   */
+  strata?: StrataSave;
 }

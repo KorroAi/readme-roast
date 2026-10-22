@@ -41,6 +41,8 @@ import { ParticleSystem } from './effects/Particles';
 import { TargetMarker } from './effects/TargetMarker';
 // VIS: rarity highlights, the selection outline and the world-space progress ring (render/highlight.ts).
 import { HighlightSystem } from '../render/highlight';
+// VIS: round 3's visuals (biome looks and their blend, the sonar pulse and reveal, placed torches).
+import { VisDirector } from './effects/VisDirector';
 import { isBreakable } from '../config/rarity';
 // VIS: the lantern's light (flicker, the oil shrinking the pool, the tier's colour).
 import { LanternLight } from '../render/lanternLight';
@@ -55,10 +57,16 @@ import { installDebugApi } from '../debug/DebugApi';
 import { enterGameScreen } from '../ui/screenFormat';
 import { Haptics } from '../ui/haptics';
 import { Progression, summarizeSave } from './Progression';
+// LOOP: round 3's loop (bag, bank, gear, hotbar, crafting, stations, outposts, quests, guidance, hazards).
+import { Loop } from './craft/Loop';
+import type { Quests } from './quests/Quests';
 import type { EventDirector } from './events/EventDirector';
 import { MENU_FPS, MenuCamera, menuExplorerPose } from './MenuCamera';
 import { FrameGuard } from './FrameGuard';
 import { WorldFeatures } from './WorldFeatures';
+// WORLD: the strata of the deep (one loaded at a time), their flow glue and save part.
+import type { StratumManager } from './Stratum';
+import { bootStrata, continueExpedition, createStrata, newExpedition, strataSave } from './StratumFlow';
 import { TapController } from './TapController';
 // FP: tap a creature to attack, catch or harvest it; the weapons in hand (round 2).
 import { Combat } from './fp/Combat';
@@ -67,6 +75,12 @@ import type { HighlightTarget } from '../render/highlight';
 import { MobDirector } from './mobs/MobDirector';
 import { installMobDebug } from './mobs/debug';
 import { VERSION } from '../version';
+import { r3HudDefaults } from '../ui/hud/hudDefaults';
+// UI (round 3): the action layout's game side (Action, Dash, Sonar, Place, the hotbar, the HUD fields, the map).
+import { ActionLayer } from './fp/ActionLayer';
+import type { MenuScreen } from '../ui/hud/actions';
+import type { PropSpec as Prop } from '../world/gen/types';
+import { loadControlPrefs, saveControlPrefs, type ControlPrefs } from '../ui/controlPrefs';
 
 /** 'crashed': the frame guard tripped (three failed frames in a row); the loop has stopped. */
 export type GameMode = 'boot' | 'menu' | 'playing' | 'paused' | 'dead' | 'crashed';
@@ -118,6 +132,8 @@ export class Game {
   marker!: TargetMarker;
   // VIS: the rarity highlights and the selection (FP calls highlight.select / highlight.progress).
   highlight!: HighlightSystem;
+  // VIS: round 3's visuals (game/effects/VisDirector: biome look, sonar, torches); vis.sonar(origin).
+  vis!: VisDirector;
   // VIS: the lantern's light; lanternLight.flame is the flame size for the lantern model (FP).
   readonly lanternLight = new LanternLight();
   waterfall: Waterfall | null = null;
@@ -127,6 +143,8 @@ export class Game {
   halos!: HaloSystem;
   /** World variety: rides, rune doors, Halden logs, the black stone, moths, the living rock. */
   features!: WorldFeatures;
+  // WORLD: the strata (StratumManager: the loaded stratum, switching, the explored map, gates, outposts).
+  strata!: StratumManager;
   // MOBS: monsters and beings (FP's tap resolution asks mobs.pick first; mobs.hit / mobs.fire attack).
   mobs!: MobDirector;
   private halosDirty = false;
@@ -144,12 +162,25 @@ export class Game {
   playTime = 0;
   /** Trips, records, the cache, the cold, the walk-home field and the Next line. */
   readonly progression = new Progression(this);
+  // LOOP: the round-3 loop hub (game/craft/Loop; Progression wires, updates, resets and saves it) and its quests.
+  readonly loop: Loop = new Loop(this);
+  get quests(): Quests {
+    return this.loop.quests;
+  }
   // WORLD: the events director (game/events), hosted by Progression; MOBS and the debug API reach it here.
   get events(): EventDirector {
     return this.progression.events;
   }
   /** Stops the loop and raises 'dd:crash' after three failed frames in a row. */
   readonly frameGuard = new FrameGuard((err) => this.crash(err));
+  /** Round 3 (UI): the action layout (ui/hud/actions drives it through the InputState). */
+  readonly act = new ActionLayer(this);
+  /** Round 3 (UI): button size and opacity (a per-device preference, ui/controlPrefs). */
+  controlPrefs: ControlPrefs = loadControlPrefs();
+  /** Seconds of invulnerability left (a dash's i-frames); MOBS skips blows while it is > 0. */
+  get invulnerable(): number {
+    return this.act.invulnerable;
+  }
 
   readonly rng = new Rng(0x5eed);
   private time = 0;
@@ -177,6 +208,8 @@ export class Game {
   private readonly tmpP = new THREE.Vector3();
   private disposers: Array<() => void> = [];
   ready = false;
+  /** UI (round 3): the seed typed on New Game (WORLD's newGame block reads it), null: roll one. */
+  pendingSeed: string | null = null;
 
   constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -197,16 +230,19 @@ export class Game {
   async boot(): Promise<void> {
     this.ui = this.createUi(this.uiRoot, this.createActions(), this.bus, this.input);
     this.ui.applySettings(this.settings);
+    this.ui.setControlPrefs?.(this.controlPrefs);
     this.ui.showScreen('loading');
     this.ui.setLoading(0, t('menu.loading'));
     this.audio = new AudioSystem(this.bus);
     this.applyAudioSettings();
     this.haptics = new Haptics(this.bus, () => this.settings.vibration && this.input.lastDevice === 'touch' && this.mode === 'playing');
 
+    // WORLD: boot into the saved expedition's stratum (or stratum I of a new seed).
+    const bootWorld = bootStrata(this.saves);
     this.session = await WorldSession.create((p, phase) => {
       const label: TextKey = phase === 'carve' ? 'menu.loading' : phase === 'light' ? 'menu.loadingLight' : 'menu.loadingMesh';
       this.ui.setLoading(p, t(label));
-    });
+    }, bootWorld.seed || undefined, bootWorld.stratum);
     const s = this.session;
     const layout = s.layout;
     this.scene.add(s.chunks.group, s.props.group);
@@ -230,6 +266,9 @@ export class Game {
       usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)),
     });
     this.scene.add(this.highlight.group);
+    // VIS: round 3's visuals follow the live session (biome look, sonar on 'player:sonar', torches).
+    this.vis = new VisDirector({ bus: this.bus, session: () => this.session, highlight: () => this.highlight, grade: this.renderer.post.params, usable: (spec) => spec.interact !== 'feature' || Number.isFinite(this.features.focusDistance(spec, this.player.x, this.player.y, this.player.z)) });
+    this.scene.add(this.vis.group);
     this.marker.highlight = this.highlight;
     // VIS: ground props stand on the drawn (sculpted) rock, not the voxel top (they floated on rims).
     s.props.surfaceTop = (x, y, z) => s.chunks.surfaceTop(x, y, z);
@@ -330,6 +369,8 @@ export class Game {
     this.wireEvents();
     this.wireLifecycle();
     installDebugApi(this);
+    // WORLD: the strata manager and its __DD__ hooks (stratum, biomeHere, goto, seed).
+    this.strata = createStrata(this, bootWorld.seed);
     // MOBS: window.__DD__.mobs (tests and captures).
     installMobDebug(this, this.mobs);
 
@@ -372,6 +413,13 @@ export class Game {
     });
     // The tree, the runes, the rumours (final pass W3).
     this.progression.wire();
+    // UI (round 3): small damage numbers where a blow lands (at most 3 on screen).
+    bus.on('mob:hit', (e) => {
+      if (e.x === undefined || e.y === undefined || e.z === undefined || this.mode !== 'playing') return;
+      const at = this.screenPoint(e.x, e.y + 0.4, e.z);
+      this.ui.damageNumber?.(at[0], at[1], e.damage, e.weak ? 'weak' : 'hit');
+    });
+    bus.on('ui:opened', () => undefined);
   }
 
   private wireLifecycle(): void {
@@ -420,6 +468,7 @@ export class Game {
 
   private enterMenu(): void {
     this.mode = 'menu';
+    this.act.reset();
     this.mining?.cancel();
     this.tap?.reset(this.input);
     this.combat?.reset();
@@ -437,13 +486,14 @@ export class Game {
     this.mobs?.clear();
   }
 
-  async newGame(): Promise<void> {
+  async newGame(seed?: number): Promise<void> {
     if (this.loading || this.mode !== 'menu') return;
     this.loading = true;
     try {
       this.ui.showScreen('loading');
       this.ui.setLoading(0.5, t('menu.loadingMesh'));
-      await this.session.reset();
+      // WORLD: a new expedition (the seed given, or a fresh one) from stratum I; the old world resets.
+      await newExpedition(this, seed);
       // Only now replace the old save (a failed reset must not have erased it).
       this.saves.clear();
       this.resetProgress();
@@ -485,7 +535,8 @@ export class Game {
     try {
       this.ui.showScreen('loading');
       this.ui.setLoading(0.5, t('menu.loadingMesh'));
-      await this.session.restore(data.worldEdits, data.removedProps);
+      // WORLD: a strata save enters its stratum with that stratum's edits; the old world restores.
+      if (!(await continueExpedition(this, data))) await this.session.restore(data.worldEdits, data.removedProps);
       this.restoreProgress(data);
       this.halosDirty = true;
       this.startPlaying(data.removedProps);
@@ -628,6 +679,8 @@ export class Game {
       removedProps: [...this.session.removedProps],
       stats: { ...this.stats },
       progression: this.progression.toSave(),
+      // WORLD: save v4's world part (the seed, the stratum, each stratum's edits and map, outposts, shards).
+      strata: strataSave(this),
     };
   }
 
@@ -659,7 +712,9 @@ export class Game {
     // title screen is a slow drift: 30 fps is plenty.
     const idle = this.mode === 'paused' || this.mode === 'dead';
     const preset = this.renderer.preset.fpsCap;
-    const cap = idle ? 15 : this.mode === 'menu' ? (preset > 0 ? Math.min(preset, MENU_FPS) : MENU_FPS) : preset;
+    // UI (round 3): behind a menu screen in play (Bag, Craft, Map...) the world runs at the title's 30 fps.
+    const slow = this.mode === 'menu' || (this.mode === 'playing' && this.ready && this.ui.isBlockingInput());
+    const cap = idle ? 15 : slow ? (preset > 0 ? Math.min(preset, MENU_FPS) : MENU_FPS) : preset;
     const elapsed = Math.max(0, now - this.lastFrame);
     this.lastFrame = now;
     if (cap > 0) {
@@ -747,6 +802,9 @@ export class Game {
   }
 
   private updatePlaying(dt: number): void {
+    // WORLD: nothing steps while a stratum switch swaps the world; then the map and the biome follow the explorer.
+    if (this.strata?.busy) return;
+    this.strata?.update(dt, this.player.x, this.player.y, this.player.z);
     const input = this.input;
     const blocked = this.ui.isBlockingInput();
     this.playTime += dt;
@@ -760,9 +818,12 @@ export class Game {
     this.combat.update(dt, blocked || this.features.riding);
     if (!blocked && !this.features.riding && input.flashPressed) this.combat.flash();
     // FP: with the mouse, a click on a creature strikes it (the held button then mines nothing behind it).
-    const mouseDown = input.mining && input.lastDevice !== 'touch';
+    const mouseDown = input.mining && input.lastDevice !== 'touch' && !input.actionHeld;
     if (mouseDown && !this.mouseWasDown && !blocked && this.combat.tap(input.aimFromPointer ? input.aimX : 0, input.aimFromPointer ? input.aimY : 0)) input.mining = false;
     this.mouseWasDown = mouseDown;
+    // UI (round 3): Action, Dash, Sonar, Place, the hotbar and the menu keys (game/fp/ActionLayer).
+    this.act.update(dt, blocked, this.features.riding);
+    if (this.mode !== 'playing' || this.ui.isBlockingInput() !== blocked) return;
 
     if (!blocked) {
       if (input.pausePressed || input.pauseRequested) {
@@ -1144,7 +1205,9 @@ export class Game {
     if (best !== this.focusedProp) {
       this.focusedProp = best;
       this.session.props.setHighlight(best ? best.id : null);
-      this.ui.touch.setInteractVisible(best ? this.interactLabel(best) : null);
+      // UI (round 3): the Interact chip carries the target's icon and verb.
+      if (this.ui.touch.setInteract) this.ui.touch.setInteract(best ? this.act.interactView(best) : null);
+      else this.ui.touch.setInteractVisible(best ? this.interactLabel(best) : null);
     }
   }
 
@@ -1161,6 +1224,57 @@ export class Game {
     this.focusedProp = null;
     this.session.props.setHighlight(null);
     this.ui.touch.setInteractVisible(null);
+  }
+
+  // ------------------------------------------------------------------------------------
+  // UI (round 3): what the action layer (game/fp/ActionLayer) reaches on the hub.
+
+  /** The usable prop in focus (the Interact chip's target), or null. */
+  focusTarget(): Prop | null {
+    return this.focusedProp;
+  }
+
+  /** The Interact chip's label for a prop. */
+  interactLabelOf(spec: Prop): string {
+    return this.interactLabel(spec);
+  }
+
+  /** The eye (reach and the sonar are measured from it). */
+  eyePosition(): THREE.Vector3 {
+    return this.handPosition();
+  }
+
+  /** A ride (hoist, rope) is under way. */
+  isRiding(): boolean {
+    return this.features.riding;
+  }
+
+  /** Stop a tapped walk (a dash takes over). */
+  tapStop(): void {
+    this.tap.stop();
+  }
+
+  /** A block was placed by the Place action: light, meshes, halos and the walking fields follow. */
+  onPlaced(x: number, y: number, z: number, oldId: number): void {
+    this.session.blockChanged(x, y, z, oldId);
+    this.halosDirty = true;
+    this.progression.invalidateNext();
+  }
+
+  /** Open one of the round 3 menus (the HUD buttons, the keys, the tutorial). */
+  openMenu(screen: MenuScreen): void {
+    if (screen === 'pause') {
+      this.pause();
+      return;
+    }
+    if (this.mode !== 'playing' && !(this.mode === 'paused' && screen === 'settings')) return;
+    if (screen === 'inventory') this.openInventory();
+    else if (screen === 'crafting') this.openCrafting();
+    else if (screen === 'settings') {
+      this.pause();
+      this.ui.showScreen('settings');
+    } else this.openScreen(screen);
+    this.bus.emit('ui:opened', { screen });
   }
 
   /** Give the explorer an item as if picked up (key items go to the journal). */
@@ -1254,6 +1368,7 @@ export class Game {
 
   respawn(): void {
     const spawn = this.session.layout.spawn;
+    this.act.reset();
     this.features.cancelRide();
     // FP: no fight follows the explorer home.
     this.combat.reset();
@@ -1338,7 +1453,7 @@ export class Game {
     this.openScreen('journal');
   }
 
-  private openScreen(id: 'crafting' | 'board' | 'journal'): void {
+  private openScreen(id: 'crafting' | 'board' | 'journal' | 'map' | 'quests' | 'bestiary'): void {
     this.mining.cancel();
     this.input.mining = false;
     this.desktop.releasePointer();
@@ -1383,6 +1498,7 @@ export class Game {
     fps: 0, frameMs: 0, drawCalls: 0, triangles: 0, fuelSeconds: 0, fuelCapacity: 1, homeSeconds: null,
     turnBackFraction: null, fuelState: 'ok', cold: 0, compass: { kind: 'camp', bearing: 0, distance: 0 }, cache: null,
     bestDepth: 0, newBest: false, packFull: false, pouchSlots: 0,
+    ...r3HudDefaults(),
   };
 
   /** The HUD snapshot (one object, refreshed in place every frame). */
@@ -1411,6 +1527,12 @@ export class Game {
     h.triangles = Math.round(info.triangles / 1000);
     // Fuel, the walk home, the compass (walking metres), the cache chip and the Next line.
     this.progression.hud(h);
+    // UI (round 3): the reticle, the hotbar, cooldowns, the tracker, the guardian, the biome; the minimap.
+    this.act.fillHud(h, this.ui.isBlockingInput());
+    const touch = this.ui.touch;
+    touch.setPlaceVisible?.(h.canPlace);
+    touch.setCooldowns?.(h.dashCooldown, h.sonarCooldown);
+    this.ui.setMap?.(this.act.mapSource());
     return h;
   }
 
@@ -1442,6 +1564,8 @@ export class Game {
     s.chunks.update(cam.position);
     s.rig.flush(this.renderer.gl);
     // Zone atmosphere (camp haze, tunnel grey, Hollow blue-black, rift violet) follows the explorer.
+    // VIS: the biome look blends ahead of the atmosphere; the sonar and the torches run.
+    this.vis.update(dt, this.time, cam, this.player.x, this.player.y, this.player.z);
     s.rig.updateAtmosphere(dt, this.player.x, this.player.y, this.player.z, s.layout.camp);
     this.renderer.post.params.zoneExposure = s.rig.exposure;
     s.props.update(dt, this.time, cam.position);
@@ -1523,8 +1647,9 @@ export class Game {
         enterGameScreen();
         void this.continueGame();
       },
-      newGame: () => {
+      newGame: (seed?: string) => {
         enterGameScreen();
+        this.pendingSeed = seed && seed.trim() ? seed.trim() : null;
         void this.newGame();
       },
       openVisualLab: () => {
@@ -1573,6 +1698,28 @@ export class Game {
         if (this.ui.screen === 'ending') this.ui.showScreen('none');
       },
       dropStack: (slot) => this.dropStack(slot),
+      // UI (round 3): the menus.
+      loop: () => (this as unknown as { loop?: ReturnType<UiActions['loop']> }).loop ?? null,
+      openMenu: (screen) => this.openMenu(screen),
+      getMap: () => this.act.mapView(),
+      fastTravel: (id) => {
+        this.ui.showScreen('none');
+        void this.act.travel(id);
+      },
+      getQuests: () => this.act.seams().quests?.view() ?? null,
+      trackQuest: (id) => this.act.seams().quests?.track(id),
+      getBestiary: () => (this.mobs as unknown as { bestiaryView?(): ReturnType<UiActions['getBestiary']> }).bestiaryView?.() ?? null,
+      skipTutorial: () => this.act.seams().quests?.skipTutorial(),
+      getSeed: () => {
+        const st = this.act.seams().strata;
+        return st ? String(st.seed) : '';
+      },
+      getControlPrefs: () => ({ ...this.controlPrefs }),
+      setControlPrefs: (p) => {
+        this.controlPrefs = { ...this.controlPrefs, ...p };
+        saveControlPrefs(this.controlPrefs);
+        this.ui.setControlPrefs?.(this.controlPrefs);
+      },
     };
   }
 

@@ -1,11 +1,13 @@
 import type { InputState } from './types';
 
 /**
- * Keyboard + mouse controls for desktop play and development.
- *   WASD / arrows move, Space jumps, E interacts, I or Tab opens the bag, Esc pauses.
- *   Click the canvas to capture the mouse (pointer lock); hold the left button to mine the
- *   block under the crosshair. Without pointer lock, hold left to mine under the cursor and
- *   drag with the right button to look.
+ * Keyboard + mouse controls for desktop play and development (round 3, BRIEF §0.6):
+ *   WASD / arrows move, Shift sprints, Ctrl dashes, Space jumps, Q sonar, E interacts, F flash,
+ *   1-6 pick a hotbar slot, I or Tab the Bag, C Craft, M Map, J Quests, B Bestiary, Esc pauses.
+ *   Click the canvas to capture the mouse (pointer lock); hold the left button to mine or strike
+ *   what the reticle is on; the right button places the held torch, block, ladder or rope. Without
+ *   pointer lock, hold left to mine under the cursor, drag with the right button to look, and a
+ *   right click without a drag places.
  */
 export class DesktopInput {
   enabled = true;
@@ -18,6 +20,8 @@ export class DesktopInput {
   private unlockPauseAt = -1e9;
   private lastX = 0;
   private lastY = 0;
+  /** The right button went down here and has not dragged (a click places). */
+  private rightDownAt: { x: number; y: number } | null = null;
   private readonly disposers: Array<() => void> = [];
 
   constructor(private readonly canvas: HTMLCanvasElement, private readonly input: InputState) {
@@ -85,6 +89,15 @@ export class DesktopInput {
         e.preventDefault();
       } else if (k === 'KeyE' && !e.repeat) this.input.interactPressed = true;
       else if (k === 'KeyF' && !e.repeat) this.input.flashPressed = true;
+      else if (k === 'KeyQ' && !e.repeat) this.input.sonarPressed = true;
+      else if ((k === 'ControlLeft' || k === 'ControlRight') && !e.repeat) {
+        this.input.dashPressed = true;
+        e.preventDefault();
+      } else if (/^Digit[1-6]$/.test(k) && !e.repeat) this.input.hotbarPressed = Number(k.slice(5)) - 1;
+      else if (k === 'KeyC' && !e.repeat && !e.ctrlKey && !e.metaKey) this.input.openRequest = 'crafting';
+      else if (k === 'KeyM' && !e.repeat) this.input.openRequest = 'map';
+      else if (k === 'KeyJ' && !e.repeat) this.input.openRequest = 'quests';
+      else if (k === 'KeyB' && !e.repeat) this.input.openRequest = 'bestiary';
       else if ((k === 'KeyI' || k === 'Tab') && !e.repeat) {
         this.input.inventoryPressed = true;
         e.preventDefault();
@@ -98,6 +111,11 @@ export class DesktopInput {
     this.updateMove();
   }
 
+  /** Shift held: sprint (only while moving). */
+  private get sprintHeld(): boolean {
+    return this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
+  }
+
   private updateMove(): void {
     const k = this.keys;
     const f = (k.has('KeyW') || k.has('ArrowUp') ? 1 : 0) - (k.has('KeyS') || k.has('ArrowDown') ? 1 : 0);
@@ -105,6 +123,7 @@ export class DesktopInput {
     if (f === 0 && r === 0 && this.input.lastDevice === 'touch') return; // don't stomp the joystick
     this.input.moveX = r;
     this.input.moveY = f;
+    this.input.sprint = this.sprintHeld && (f !== 0 || r !== 0);
   }
 
   private onMouseDown(e: MouseEvent): void {
@@ -117,7 +136,14 @@ export class DesktopInput {
       this.input.mining = true;
       this.setAim(e);
     } else if (e.button === 2) {
+      // With the pointer captured the right button places at once; free, it places on a click
+      // and looks on a drag.
+      if (this.pointerLocked) {
+        this.input.placePressed = true;
+        return;
+      }
       this.rightDrag = true;
+      this.rightDownAt = { x: e.clientX, y: e.clientY };
       this.lastX = e.clientX;
       this.lastY = e.clientY;
     }
@@ -125,7 +151,12 @@ export class DesktopInput {
 
   private onMouseUp(e: MouseEvent): void {
     if (e.button === 0) this.input.mining = false;
-    if (e.button === 2) this.rightDrag = false;
+    if (e.button === 2) {
+      this.rightDrag = false;
+      const d = this.rightDownAt;
+      this.rightDownAt = null;
+      if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) this.input.placePressed = true;
+    }
   }
 
   private onMouseMove(e: MouseEvent): void {

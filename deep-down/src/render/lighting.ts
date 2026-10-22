@@ -349,8 +349,13 @@ export interface AtmospherePreset {
   fogLow: number;
   /** Exponential-squared distance fog density (1/m). */
   density: number;
-  /** World y under which the low haze pools, its e-folding thickness (m) and density (1/m). */
+  /**
+   * World y under which the low haze pools, its e-folding thickness (m) and density (1/m). With
+   * `poolRelative` (the biomes: random caves have no fixed floor) the level is metres relative to
+   * the explorer's eased height, so haze gathers in the ravines and pits below them.
+   */
   poolLevel: number;
+  poolRelative?: boolean;
   poolThickness: number;
   poolDensity: number;
   /** Base ambient (everywhere) and open-space fill (scaled by openness squared). */
@@ -410,6 +415,8 @@ interface AtmosphereMix {
   open: THREE.Color;
   /** density, poolLevel, 1/poolThickness, poolDensity, scatter, bounce, absorb, exposure, lightGain */
   k: number[];
+  /** poolLevel is relative to the explorer (AtmospherePreset.poolRelative). */
+  rel?: boolean;
 }
 
 function linearPreset(p: AtmospherePreset): AtmosphereMix {
@@ -421,6 +428,7 @@ function linearPreset(p: AtmospherePreset): AtmosphereMix {
     ambient: c(p.ambient, p.ambientGain),
     open: c(p.open, p.openGain),
     k: [p.density, p.poolLevel, 1 / p.poolThickness, p.poolDensity, p.scatter, p.bounce, p.absorb, p.exposure, p.lightGain],
+    rel: !!p.poolRelative,
   };
 }
 
@@ -429,6 +437,25 @@ export const EMIT_GAIN = 3.6;
 
 const ZONES: AtmosphereZone[] = ['camp', 'tunnel', 'hollow', 'rift', 'glowroot', 'ember', 'vault'];
 const LINEAR: Record<AtmosphereZone, AtmosphereMix> = Object.fromEntries(ZONES.map((z) => [z, linearPreset(ATMOSPHERES[z])])) as Record<AtmosphereZone, AtmosphereMix>;
+
+/**
+ * Round 3 (VIS): extra atmospheres by id (the biomes' air, render/biomeLook.ts registers them, an
+ * `<id>~open` twin for its caverns). A rig given biome targets (setBiomeTargets) blends these with the
+ * camp instead of the old zones.
+ */
+const EXTRA_LINEAR = new Map<string, AtmosphereMix>();
+const EXTRA_PRESETS = new Map<string, AtmospherePreset>();
+
+/** Register (or replace) an atmosphere preset by id for setBiomeTargets. */
+export function registerAtmosphere(id: string, preset: AtmospherePreset): void {
+  EXTRA_PRESETS.set(id, { ...preset });
+  EXTRA_LINEAR.set(id, linearPreset(preset));
+}
+
+/** A registered extra atmosphere (undefined if none). */
+export function atmosphereOf(id: string): AtmospherePreset | undefined {
+  return EXTRA_PRESETS.get(id);
+}
 
 function addScaled(out: THREE.Color, c: THREE.Color, w: number): void {
   out.r += c.r * w;
@@ -463,6 +490,14 @@ export class LightingRig {
 
   /** Current zone weights (camp, tunnel, hollow, rift, glowroot, ember), smoothed over time. */
   readonly zoneWeights: Record<AtmosphereZone, number> = { camp: 0, tunnel: 0, hollow: 1, rift: 0, glowroot: 0, ember: 0, vault: 0 };
+  /** Round 3: weights of the registered extra atmospheres (the biomes), smoothed like zoneWeights. */
+  readonly extraWeights = new Map<string, number>();
+  /** Round 3: the biome mix to blend toward (ids of registered atmospheres, any scale), or null. */
+  private biomeTargets: ReadonlyMap<string, number> | null = null;
+  /** Openness (0..1) averaged around the explorer at the last updateAtmosphere. */
+  openness = 0;
+  /** The explorer's height eased over ~2 s: relative pools (poolRelative) hang from it. */
+  private poolAnchorY = 0;
   /** Exposure multiplier of the current atmosphere (the post chain applies it): 1.0-1.15. */
   exposure = 1;
   /** Light gain of the current atmosphere (uAtmos.w; uEmitGain = EMIT_GAIN x this). */
@@ -531,6 +566,16 @@ export class LightingRig {
   }
 
   /**
+   * Round 3 (VIS): blend the registered biome atmospheres instead of the old zones (BiomeLook calls
+   * it each frame with the biome mix around the explorer; null returns to the zones). Each id's
+   * `<id>~open` twin, when registered, takes the open-cavern share (from the openness around the
+   * explorer), so caverns read wide and passages close. The camp box still blends in its own air.
+   */
+  setBiomeTargets(targets: ReadonlyMap<string, number> | null): void {
+    this.biomeTargets = targets;
+  }
+
+  /**
    * Blend the zone atmospheres for the explorer's position and ease the uniforms toward it.
    * Zones are recognised from data the world already has, so a new zone layout needs no code:
    *   camp    distance to the camp box (8 m blend)
@@ -556,6 +601,11 @@ export class LightingRig {
           sum += d[(xi + this.sx * (yi + this.sy * zi)) * 4 + 3];
         }
     const open = sum / (n * 255);
+    this.openness = open;
+    if (this.biomeTargets) {
+      this.updateBiomeAtmosphere(dt, x, y, z, camp, open, this.biomeTargets);
+      return;
+    }
     // The deep zones beyond the rift carry their own air around their anchors (setZoneAnchors).
     let green = 0;
     let red = 0;
@@ -596,6 +646,56 @@ export class LightingRig {
     zw.glowroot += (glowW - zw.glowroot) * a;
     zw.ember += (emberW - zw.ember) * a;
     zw.vault += (vaultW - zw.vault) * a;
+    for (const [id, w] of this.extraWeights) this.extraWeights.set(id, w * (1 - a));
+    this.applyAtmosphere();
+  }
+
+  private campWeight(x: number, y: number, z: number, camp: AtmosphereBox | null): number {
+    if (!camp) return 0;
+    const ex = Math.max(camp.min[0] - x, 0, x - camp.max[0]);
+    const ey = Math.max(camp.min[1] - y, 0, y - camp.max[1]);
+    const ez = Math.max(camp.min[2] - z, 0, z - camp.max[2]);
+    return 1 - smooth(0, 8, Math.hypot(ex, ey, ez));
+  }
+
+  private easeFactor(dt: number, x: number, y: number, z: number): number {
+    const jump = Math.abs(x - this.lastAtmosphereX) + Math.abs(y - this.lastAtmosphereY) + Math.abs(z - this.lastAtmosphereZ);
+    this.lastAtmosphereX = x;
+    this.lastAtmosphereY = y;
+    this.lastAtmosphereZ = z;
+    const a = !this.atmosphereInit || dt <= 0 || !(jump < 6) ? 1 : 1 - Math.exp(-dt / 0.7);
+    this.atmosphereInit = true;
+    return a;
+  }
+
+  private updateBiomeAtmosphere(dt: number, x: number, y: number, z: number, camp: AtmosphereBox | null, open: number, targets: ReadonlyMap<string, number>): void {
+    const campW = this.campWeight(x, y, z, camp);
+    let total = 0;
+    for (const [id, w] of targets) if (w > 0 && EXTRA_LINEAR.has(id)) total += w;
+    const rest = total > 0 ? 1 - campW : 0;
+    // Open caverns take the `~open` twin: clearer, wider air (the same hue).
+    const openK = smooth(0.14, 0.46, open);
+    const want = new Map<string, number>();
+    for (const [id, w] of targets) {
+      if (!(w > 0) || !EXTRA_LINEAR.has(id)) continue;
+      const share = (w / total) * rest;
+      const twin = `${id}~open`;
+      if (EXTRA_LINEAR.has(twin)) {
+        want.set(id, (want.get(id) ?? 0) + share * (1 - openK));
+        want.set(twin, (want.get(twin) ?? 0) + share * openK);
+      } else want.set(id, (want.get(id) ?? 0) + share);
+    }
+    const a = this.easeFactor(dt, x, y, z);
+    this.poolAnchorY = a >= 1 ? y : this.poolAnchorY + (y - this.poolAnchorY) * (1 - Math.exp(-Math.max(0, dt) / 2));
+    const zw = this.zoneWeights;
+    // With no biome known (a load in progress) the tunnel's air holds the rest.
+    for (const zn of ZONES) zw[zn] += ((zn === 'camp' ? campW : zn === 'tunnel' && total <= 0 ? 1 - campW : 0) - zw[zn]) * a;
+    for (const [id, w] of this.extraWeights) if (!want.has(id)) this.extraWeights.set(id, w * (1 - a));
+    for (const [id, w] of want) {
+      const cur = this.extraWeights.get(id) ?? 0;
+      this.extraWeights.set(id, cur + (w - cur) * a);
+    }
+    for (const [id, w] of this.extraWeights) if (w < 1e-4 && !want.has(id)) this.extraWeights.delete(id);
     this.applyAtmosphere();
   }
 
@@ -608,20 +708,26 @@ export class LightingRig {
     m.k.fill(0);
     let total = 0;
     for (const zn of ZONES) total += this.zoneWeights[zn];
-    for (const zn of ZONES) {
-      const w = this.zoneWeights[zn] / Math.max(1e-6, total);
-      if (w <= 0) continue;
-      const p = LINEAR[zn];
+    for (const [id, w] of this.extraWeights) if (EXTRA_LINEAR.has(id)) total += w;
+    const add = (p: AtmosphereMix, raw: number) => {
+      const w = raw / Math.max(1e-6, total);
+      if (w <= 0) return;
       addScaled(m.fog, p.fog, w);
       addScaled(m.fogLow, p.fogLow, w);
       addScaled(m.ambient, p.ambient, w);
       addScaled(m.open, p.open, w);
       // A zone without a pool contributes no pool density, but must not drag the level to 0.
-      for (let i = 0; i < m.k.length; i++) m.k[i] += (i === 1 || i === 2 ? (p.k[3] > 0 ? p.k[i] : 0) : p.k[i]) * w;
+      for (let i = 0; i < m.k.length; i++) m.k[i] += (i === 1 || i === 2 ? (p.k[3] > 0 ? p.k[i] + (i === 1 && p.rel ? this.poolAnchorY : 0) : 0) : p.k[i]) * w;
+    };
+    for (const zn of ZONES) add(LINEAR[zn], this.zoneWeights[zn]);
+    for (const [id, w] of this.extraWeights) {
+      const p = EXTRA_LINEAR.get(id);
+      if (p) add(p, w);
     }
     // Pool level and thickness are averaged over the zones that have a pool only.
     let poolW = 0;
     for (const zn of ZONES) if (LINEAR[zn].k[3] > 0) poolW += this.zoneWeights[zn] / Math.max(1e-6, total);
+    for (const [id, w] of this.extraWeights) if ((EXTRA_LINEAR.get(id)?.k[3] ?? 0) > 0) poolW += w / Math.max(1e-6, total);
     if (poolW > 1e-4) {
       m.k[1] /= poolW;
       m.k[2] /= poolW;

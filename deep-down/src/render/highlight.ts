@@ -7,6 +7,9 @@ import { hexToLinear } from '../core/math';
 import { HI_SIZE, type TerrainRig } from './terrainRig';
 import { SCENE_ENCODE } from './lighting';
 import type { PropRenderer } from './props/PropRenderer';
+import { RevealMarkers, type RevealCell } from './reveal';
+
+export type { RevealCell, RevealKind } from './reveal';
 
 /**
  * Rarity highlights and the selection (ROUND2 §0.3-§0.4, the VIS seam).
@@ -246,6 +249,8 @@ export class HighlightSystem {
   private readonly hullMats = new Map<string, THREE.ShaderMaterial>();
 
   private readonly ring: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
+  /** Round 3: marks seen through the rock (the sonar's reveal). */
+  readonly marks = new RevealMarkers();
   private readonly viewport = new THREE.Vector2(1, 1);
   private readonly tmp = new THREE.Vector3();
   private readonly tmpBox = new THREE.Box3();
@@ -286,6 +291,7 @@ export class HighlightSystem {
       ringMat.uniforms.uRadius.value = RING_PX * r.getPixelRatio();
     };
     this.group.add(this.ring);
+    this.group.add(this.marks.mesh);
     // The focused interactable (the game's use focus) wears the selection outline when it is a find.
     // Only a selection the focus made is cleared by it: a prop the game selected itself (FP's
     // select while opening a chest) keeps its outline when the use focus moves on.
@@ -316,6 +322,16 @@ export class HighlightSystem {
    */
   setTargets(list: readonly HighlightTarget[]): void {
     this.explicit = list.slice();
+  }
+
+  /**
+   * Round 3 (the sonar seam): show `cells` through the rock for `seconds` (each after its own
+   * `delay`): ore veins as diamonds in their rarity colour, chests, lairs, the gate, journal pages,
+   * cracked walls and outposts as their own marks (render/reveal.ts). Replaces the previous reveal.
+   * SonarPulse.ping builds the list from the world and calls this; anyone may call it directly.
+   */
+  reveal(cells: readonly RevealCell[], seconds = 2): void {
+    this.marks.reveal(cells, seconds);
   }
 
   /** The selected target (null: none). `blocked`: the pick is too weak for it (a muted red outline). */
@@ -430,6 +446,7 @@ export class HighlightSystem {
     this.updateObjects(eye, sel);
     this.updateHull(sel, selRarity);
     this.updateRing(dt, eye);
+    this.marks.update(time);
   }
 
   dispose(): void {
@@ -442,6 +459,7 @@ export class HighlightSystem {
     for (const m of this.hullMats.values()) m.dispose();
     this.ring.geometry.dispose();
     this.ring.material.dispose();
+    this.marks.dispose();
     this.opts.terrain.uniforms.uHiOrigin.value.w = 0;
   }
 

@@ -32,7 +32,7 @@ function spec(kind: PropKind, over: Partial<PropSpec> = {}): PropSpec {
 }
 
 /** Expected model size per kind (width X, height Y, depth Z ranges in meters, unscaled). */
-const SIZE: Record<PropKind, [[number, number], [number, number], [number, number]]> = {
+const SIZE: Partial<Record<PropKind, [[number, number], [number, number], [number, number]]>> = {
   campfire: [[0.75, 1.1], [0.45, 0.9], [0.75, 1.1]],
   workbench: [[1.45, 1.8], [0.85, 1.25], [0.6, 1.0]],
   chest: [[0.8, 1.05], [0.55, 0.7], [0.55, 0.75]],
@@ -189,13 +189,14 @@ function coplanarConflictArea(g: THREE.BufferGeometry): number {
 }
 
 describe('prop models', () => {
-  for (const kind of PROP_KINDS) {
+  // Round 3's biome props have their own checks (tests/unit/vis-r3.test.ts).
+  for (const kind of PROP_KINDS.filter((k) => k in SIZE)) {
     it(`${kind}: valid geometry and sensible size in every variant`, () => {
       for (const v of variantsOf(kind)) {
         const m = buildPropModel(kind, { variant: v, hangHeight: kind === 'hangingLantern' ? 1.8 : undefined });
         for (const g of geometries(m)) checkGeometry(g);
         const size = m.bounds.getSize(new THREE.Vector3());
-        const [w, h, d] = SIZE[kind];
+        const [w, h, d] = SIZE[kind]!;
         expect(size.x, `${kind}#${v} width`).toBeGreaterThanOrEqual(w[0]);
         expect(size.x, `${kind}#${v} width`).toBeLessThanOrEqual(w[1]);
         expect(size.y, `${kind}#${v} height`).toBeGreaterThanOrEqual(h[0]);
@@ -232,13 +233,15 @@ describe('prop models', () => {
   });
 
   it('has no visible coplanar faces of different colors (no z-fighting)', () => {
+    const bad: string[] = [];
     // Ring segments, monolith cornices/ribs and chain links used to share planes here.
     for (const kind of PROP_KINDS) {
       for (const v of variantsOf(kind)) {
         const m = buildPropModel(kind, { variant: v, hangHeight: 1.8 });
-        for (const g of geometries(m)) expect(coplanarConflictArea(g), `${kind}#${v}`).toBeLessThan(0.003);
+        for (const g of geometries(m)) { const a = coplanarConflictArea(g); if (a >= 0.003) bad.push(`${kind}#${v}:${a.toFixed(4)}`); }
       }
     }
+    expect(bad).toEqual([]);
   });
 
   it('keeps the monolith under its box budget', () => {
@@ -258,7 +261,7 @@ describe('prop models', () => {
 
 describe('PropRenderer', () => {
   it('adds, finds and removes props, sharing geometry per kind and variant', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     const a = spec('crate', { id: 'a', seed: 1 });
     const b = spec('crate', { id: 'b', seed: 1, x: 3 });
     r.add(a);
@@ -283,7 +286,7 @@ describe('PropRenderer', () => {
   });
 
   it('places props at their base point with rotation and scale', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('crate', { id: 'b', x: 10, y: 5, z: -4, rotY: 0.3, scale: 2 }));
     const box = r.bounds('b')!;
     expect(box.min.y).toBeCloseTo(5, 3);
@@ -294,7 +297,7 @@ describe('PropRenderer', () => {
   });
 
   it('raycasts the nearest prop in front and misses behind or out of range', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('crate', { id: 'near', x: 5, z: 5 }));
     r.add(spec('crate', { id: 'far', x: 5, z: 9 }));
     const dir = new THREE.Vector3(0, 0, 1);
@@ -312,7 +315,7 @@ describe('PropRenderer', () => {
   });
 
   it('tests rays against oriented boxes, not world-aligned ones', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('crate', { id: 'turned', rotY: Math.PI / 4 }));
     const hit = r.raycast(new THREE.Vector3(-3, 0.4, 0), new THREE.Vector3(1, 0, 0), 10)!;
     // A 0.81 m crate turned 45 degrees presents its corner: about 0.57 m from its center.
@@ -324,7 +327,7 @@ describe('PropRenderer', () => {
   });
 
   it('picks the monolith by its stepped tiers', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('abyssMonolith', { id: 'm' }));
     const dir = new THREE.Vector3(0, 0, -1);
     const hit = r.raycast(new THREE.Vector3(0, 10, 30), dir, 60)!;
@@ -334,7 +337,7 @@ describe('PropRenderer', () => {
   });
 
   it('animates without NaNs, flashes and highlights', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     for (const kind of PROP_KINDS) r.add(spec(kind, { id: kind, x: PROP_KINDS.indexOf(kind) * 3 }));
     const cam = new THREE.Vector3(0, 2, 5);
     for (let i = 0; i < 120; i++) r.update(1 / 60, i / 60, cam);
@@ -376,7 +379,7 @@ describe('PropRenderer', () => {
   });
 
   it('flickers fire and sways hanging lanterns over time', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('campfire', { id: 'fire' }));
     r.add(spec('hangingLantern', { id: 'lamp', x: 2, y: 2, anchor: [2, 4, 0] }));
     const cam = new THREE.Vector3(0, 1.6, 3);
@@ -399,7 +402,7 @@ describe('PropRenderer', () => {
   });
 
   it('settles ground props onto the drawn (sculpted) surface, never hanging ones', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('crate', { id: 'low', x: 0.5, y: 3, z: 0.5, anchor: [0, 2, 0] }));
     r.add(spec('crate', { id: 'far', x: 4.5, y: 3, z: 0.5, anchor: [4, 2, 0] }));
     r.add(spec('hangingLantern', { id: 'lamp', x: 2, y: 2, anchor: [2, 4, 0] }));
@@ -414,7 +417,7 @@ describe('PropRenderer', () => {
   });
 
   it('hides props beyond the view distance', () => {
-    const r = new PropRenderer(lighting());
+    const r = new PropRenderer(lighting(), { bakeDecor: false });
     r.add(spec('crate', { id: 'c', x: 200 }));
     r.update(1 / 60, 0, new THREE.Vector3(0, 0, 0));
     expect(r.group.getObjectByName('c')!.visible).toBe(false);

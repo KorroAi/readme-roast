@@ -42,6 +42,23 @@ export interface InputState {
   /** Tap to walk: automatic movement, camera-relative like moveX/moveY; the stick overrides it. */
   autoMoveX: number;
   autoMoveY: number;
+  // Round 3 (ui/hud/actions): the action layout.
+  /** Sprint: the stick pushed to its edge, or Shift held. */
+  sprint: boolean;
+  /** The Action button or the left mouse button is held: mine or attack at the reticle. */
+  actionHeld: boolean;
+  /** The Action control went down this frame. Edge. */
+  actionPressed: boolean;
+  /** Dash (Ctrl, the Dash button). Edge. */
+  dashPressed: boolean;
+  /** Sonar pulse (Q, the Sonar button). Edge. */
+  sonarPressed: boolean;
+  /** Place the held placeable (right mouse button, the Place button). Edge. */
+  placePressed: boolean;
+  /** Hotbar slot chosen this frame (0-based), -1 none. Edge. */
+  hotbarPressed: number;
+  /** A menu screen asked for this frame (C, M, J, the HUD buttons), null none. Edge. */
+  openRequest: 'crafting' | 'map' | 'quests' | 'bestiary' | 'settings' | null;
 }
 
 export function createInputState(): InputState {
@@ -69,6 +86,14 @@ export function createInputState(): InputState {
     lock: null,
     autoMoveX: 0,
     autoMoveY: 0,
+    sprint: false,
+    actionHeld: false,
+    actionPressed: false,
+    dashPressed: false,
+    sonarPressed: false,
+    placePressed: false,
+    hotbarPressed: -1,
+    openRequest: null,
   };
 }
 
@@ -84,4 +109,10 @@ export function consumeEdges(s: InputState): void {
   s.tapPressed = false;
   s.lockAssistPressed = false;
   s.flashPressed = false;
+  s.actionPressed = false;
+  s.dashPressed = false;
+  s.sonarPressed = false;
+  s.placePressed = false;
+  s.hotbarPressed = -1;
+  s.openRequest = null;
 }

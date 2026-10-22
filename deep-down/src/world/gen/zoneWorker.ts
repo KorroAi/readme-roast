@@ -1,24 +1,25 @@
 /// <reference lib="webworker" />
-import { generateWorld } from './generateWorld';
 import { LightField } from '../light';
-import type { ZoneRequest, ZoneResponse } from './zoneLoader';
+import { generateFor, type ZoneRequest, type ZoneResponse } from './zoneLoader';
 import { generateMaterials } from '../../render/materials';
 
 // Builds a zone off the main thread: voxels + full light, then transfers the buffers back.
 self.onmessage = (e: MessageEvent<ZoneRequest>) => {
   try {
     const t0 = performance.now();
-    const layout = generateWorld(e.data.seed);
+    const layout = generateFor(e.data);
     const t1 = performance.now();
     (self as unknown as Worker).postMessage({ type: 'progress', phase: 'light' } satisfies ZoneResponse);
     const light = new LightField(layout.world);
     light.computeAll();
     const t2 = performance.now();
-    // Terrain material textures do not depend on the zone, but painting them is ~0.3 s of CPU:
-    // do it here too so the loading screen never stalls.
-    const materials = generateMaterials();
+    // Terrain material textures do not depend on the zone: every layer (all twelve biomes') is painted
+    // once at boot, here, so the loading screen never stalls and a stratum switch reuses them.
+    const materials = e.data.materials === false ? null : generateMaterials();
     const t3 = performance.now();
     const { world, timings, ...rest } = layout;
+    // A stratum's biomeAt is a function (not cloneable): the loader rebuilds it.
+    delete (rest as { biomeAt?: unknown }).biomeAt;
     const msg: ZoneResponse = {
       type: 'done',
       layout: rest,
@@ -28,7 +29,9 @@ self.onmessage = (e: MessageEvent<ZoneRequest>) => {
       materials,
       timings: { generateMs: Math.round(t1 - t0), lightMs: Math.round(t2 - t1), materialsMs: Math.round(t3 - t2), genPhases: timings.phases },
     };
-    (self as unknown as Worker).postMessage(msg, [world.blocks.buffer, light.data.buffer, materials.data.buffer]);
+    const transfer: Transferable[] = [world.blocks.buffer, light.data.buffer];
+    if (materials) transfer.push(materials.data.buffer);
+    (self as unknown as Worker).postMessage(msg, transfer);
   } catch (err) {
     (self as unknown as Worker).postMessage({ type: 'error', message: String((err as Error)?.stack ?? err) } satisfies ZoneResponse);
   }

@@ -17,6 +17,8 @@ export function buildSettings(host: ScreenHost): HTMLElement {
   const drag = (p: Partial<Settings>) => host.patchSettings(p, true);
   const on = t('settings.on');
   const off = t('settings.off');
+  const prefs = a.getControlPrefs();
+  const seed = a.getSeed();
   const vol = (label: string, key: 'masterVolume' | 'musicVolume' | 'sfxVolume' | 'ambienceVolume') =>
     slider(label, s[key], (v) => drag({ [key]: v }), { min: 0, max: 1, step: 0.05, format: percent, key });
 
@@ -68,6 +70,9 @@ export function buildSettings(host: ScreenHost): HTMLElement {
           toggle(t('settings.leftHanded'), s.leftHanded, (leftHanded) => set({ leftHanded }), 'leftHanded', on, off),
           toggle(t('settings.vibration'), s.vibration, (vibration) => set({ vibration }), 'vibration', on, off),
           toggle(t('settings.cameraFollow'), s.cameraFollow, (cameraFollow) => set({ cameraFollow }), 'cameraFollow', on, off),
+          // Round 3: the action layout's button size and opacity (a per-device preference).
+          slider(t('set3.buttonSize'), prefs.scale, (scale) => a.setControlPrefs({ scale }), { min: 0.8, max: 1.3, step: 0.05, format: percent, key: 'btnScale' }),
+          slider(t('set3.buttonOpacity'), prefs.opacity, (opacity) => a.setControlPrefs({ opacity }), { min: 0.35, max: 1, step: 0.05, format: percent, key: 'btnOpacity' }),
         ),
         section(
           t('settings.audio'),
@@ -91,6 +96,7 @@ export function buildSettings(host: ScreenHost): HTMLElement {
           ),
           toggle(t('settings.highContrast'), s.highContrast, (highContrast) => set({ highContrast }), 'contrast', on, off),
         ),
+        seed ? section(t('set3.expedition'), h('p', { class: 'dd-settings-seed', text: t('set3.seed', { seed }) })) : null,
         h(
           'div',
           { class: 'dd-settings-foot' },

@@ -5,6 +5,7 @@ import { Voice, type NoiseColor, type SynthTarget } from './synth';
 import { midiToHz } from './theory';
 import { EVENT_SFX } from './eventSfx';
 import { MOB_SFX } from './mobSfx';
+import { LOOP_SFX } from './loopSfx';
 
 // Every one-shot sound in the game, synthesized from oscillators, the shared noise buffers
 // and envelopes. Recipes only talk to a Voice, so the same code plays live through the mix
@@ -591,6 +592,8 @@ export const SFX = {
   ...MOB_SFX,
   // Polish 2 (FP): the world events (audio/eventSfx).
   ...EVENT_SFX,
+  // Round 3 (LOOP): the loop's sounds (audio/loopSfx).
+  ...LOOP_SFX,
 } satisfies Record<string, SfxDef>;
 
 export type SfxName = keyof typeof SFX;

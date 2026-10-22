@@ -40,7 +40,6 @@ const vertex = /* glsl */ `
 in vec4 color;
 in float aBone;
 in vec4 aMat;
-uniform mat4 uBones[${MAX_BONES}];
 uniform float uWidth;
 uniform vec2 uViewport;
 out vec3 vWorldPos;
@@ -49,14 +48,44 @@ out vec4 vColor;
 out vec4 vMat;
 out vec3 vLocal;
 out float vDepth;
+#ifdef INSTANCED
+// Round 3: many creatures in one draw. Each instance's bones (world space, 3 texels a bone: the
+// rows of a 3x4 matrix) are a row of uBoneTex; its flash, fade, glow, seed and highlight come in
+// per-instance attributes.
+uniform highp sampler2D uBoneTex;
+in float iRow;
+in vec4 iA;
+in vec4 iHi;
+in float iSel;
+out vec4 vA;
+out vec4 vHi;
+out float vSel;
+mat4 boneMat(int bone, int row) {
+  vec4 a = texelFetch(uBoneTex, ivec2(bone * 3 + 0, row), 0);
+  vec4 b = texelFetch(uBoneTex, ivec2(bone * 3 + 1, row), 0);
+  vec4 c = texelFetch(uBoneTex, ivec2(bone * 3 + 2, row), 0);
+  return mat4(vec4(a.x, b.x, c.x, 0.0), vec4(a.y, b.y, c.y, 0.0), vec4(a.z, b.z, c.z, 0.0), vec4(a.w, b.w, c.w, 1.0));
+}
+#else
+uniform mat4 uBones[${MAX_BONES}];
+#endif
 void main() {
+#ifdef INSTANCED
+  mat4 b = boneMat(int(aBone + 0.5), int(iRow + 0.5));
+  vec4 wp = b * vec4(position, 1.0);
+  vNormal = normalize(mat3(b) * normal);
+  vA = iA;
+  vHi = iHi;
+  vSel = iSel;
+#else
   mat4 b = uBones[int(aBone + 0.5)];
   vec4 lp = b * vec4(position, 1.0);
   vec3 n = mat3(b) * normal;
-  vLocal = position;
   vec4 wp = modelMatrix * lp;
-  vWorldPos = wp.xyz;
   vNormal = normalize(mat3(modelMatrix) * n);
+#endif
+  vLocal = position;
+  vWorldPos = wp.xyz;
   vColor = color;
   vMat = aMat;
   vec4 mv = viewMatrix * wp;
@@ -75,12 +104,32 @@ const fragment = /* glsl */ `
 precision highp float;
 ${LIGHTING_GLSL}
 ${NOISE_GLSL}
+uniform vec3 uGlowTint;
+#ifdef INSTANCED
+in vec4 vA;
+in vec4 vHi;
+in float vSel;
+#define M_FLASH vA.x
+#define M_FADE vA.y
+#define M_GLOW vA.z
+#define M_SEED vA.w
+#define M_HICOL vHi.rgb
+#define M_HIAMB vHi.a
+#define M_HISEL vSel
+#else
 uniform vec3 uHiColor;
 uniform vec2 uHi;
 uniform float uFlash;
 uniform float uFade;
 uniform float uGlow;
-uniform vec3 uGlowTint;
+#define M_FLASH uFlash
+#define M_FADE uFade
+#define M_GLOW uGlow
+#define M_SEED uSeed
+#define M_HICOL uHiColor
+#define M_HIAMB uHi.x
+#define M_HISEL uHi.y
+#endif
 uniform float uPulse;
 uniform float uSeed;
 uniform float uBump;
@@ -99,16 +148,16 @@ const float MOB_KEY = 0.62;
 
 void main() {
 #ifdef HULL
-  float a = uHi.y * uFade;
+  float a = M_HISEL * M_FADE;
   if (a < 0.02) discard;
-  fragColor = vec4(sceneOut(uHiColor * 1.6 * a), 1.0);
+  fragColor = vec4(sceneOut(M_HICOL * 1.6 * a), 1.0);
   return;
 #else
   // Fade in / dissolve: a noise threshold in body space with a glowing seam.
-  float dn = vnoise(vLocal * 9.0 + uSeed * 17.0);
-  float edge = uFade * 1.06 - dn;
+  float dn = vnoise(vLocal * 9.0 + M_SEED * 17.0);
+  float edge = M_FADE * 1.06 - dn;
   if (edge < 0.0) discard;
-  float seam = (1.0 - smoothstep(0.0, 0.08, edge)) * step(uFade, 0.995);
+  float seam = (1.0 - smoothstep(0.0, 0.08, edge)) * step(M_FADE, 0.995);
 
   vec3 n = normalize(vNormal);
   if (!gl_FrontFacing) n = -n;
@@ -116,7 +165,7 @@ void main() {
   float sss = vMat.y;
   float gloss = vMat.z;
   // Surface-gradient bump (Mikkelsen): the detail lives in body space, so it moves with the body.
-  float h = fbm(vLocal * uBumpFreq + uSeed);
+  float h = fbm(vLocal * uBumpFreq + M_SEED);
   vec3 dpx = dFdx(vWorldPos);
   vec3 dpy = dFdy(vWorldPos);
   float dhx = dFdx(h);
@@ -156,8 +205,8 @@ void main() {
   color += fres * vMat.w * mix(0.35, 1.0, smoothstep(0.02, 0.2, alum)) * (env * 0.55 + gLanternRad * 0.006 + uRimDark);
 
   // Emissive parts (veins, crystal, cores, eyes), breathing slowly.
-  float breath = 0.82 + 0.18 * sin(uTime * uPulse + vLocal.y * 5.0 + uSeed * 6.0);
-  vec3 glow = vColor.rgb * uGlowTint * emit * uGlow * breath * 3.2;
+  float breath = 0.82 + 0.18 * sin(uTime * uPulse + vLocal.y * 5.0 + M_SEED * 6.0);
+  vec3 glow = vColor.rgb * uGlowTint * emit * M_GLOW * breath * 3.2;
 
   // Creatures sit a little under the props' key: their forms read by shading and rim against the
   // lit rock, not as bright cut-outs (the terrain darkens its own surface by cavity and AO).
@@ -166,11 +215,11 @@ void main() {
   color = mix(color, atm.rgb, atm.a);
   color += glow * uAtmos.w * (1.0 - atm.a * 0.6);
   // VIS highlight: the rarity rim (ambient) and the selection (stronger).
-  color += uHiColor * (fres * 0.9 + 0.08) * (uHi.x * 0.55 + uHi.y * 1.1);
+  color += M_HICOL * (fres * 0.9 + 0.08) * (M_HIAMB * 0.55 + M_HISEL * 1.1);
   // The dissolve seam glows faintly in the creature's own colour.
   color += (uGlowTint * 0.6 + vec3(0.4)) * seam * 0.6;
   // A hit flash on the mob only (warm white), never the screen.
-  color = mix(color, vec3(1.25, 1.08, 0.9), uFlash * 0.55);
+  color = mix(color, vec3(1.25, 1.08, 0.9), M_FLASH * 0.55);
 
   float alpha = 1.0;
 #ifdef TRANSLUCENT
@@ -178,7 +227,7 @@ void main() {
 #endif
 #ifdef SMOKE
   // Smoke: density from a drifting fbm, thin at the edges of each blob, solid in the core.
-  float dens = fbm(vWorldPos * 1.6 + vec3(0.0, -uTime * 0.45, uTime * 0.2) + uSeed);
+  float dens = fbm(vWorldPos * 1.6 + vec3(0.0, -uTime * 0.45, uTime * 0.2) + M_SEED);
   float soft = pow(ndv, 1.4);
   alpha = clamp((dens * 1.6 - 0.35) * soft * vColor.a + emit, 0.0, 1.0) * uOpacity;
   // Smoke drinks the light: a dark, cold veil (only its embers glow).
@@ -262,5 +311,45 @@ export function createMobHull(body: THREE.ShaderMaterial): THREE.ShaderMaterial 
     side: THREE.BackSide,
     depthWrite: false,
     transparent: false,
+  });
+}
+
+/**
+ * Round 3: the instanced material (one per creature kind and part): the bones of every instance
+ * come from `boneTex` (a row per instance), the per-creature flash, fade, glow, seed and highlight
+ * from instance attributes (iA, iHi, iSel). `hull`: the selection outline of the selected ones.
+ */
+export function createInstancedMobMaterial(lighting: LightingUniforms, boneTex: THREE.DataTexture, look: MobLook = {}, hull = false): THREE.ShaderMaterial {
+  const defines: Record<string, string> = { INSTANCED: '' };
+  if (hull) defines.HULL = '';
+  else {
+    if (look.translucent) defines.TRANSLUCENT = '';
+    if (look.smoke) defines.SMOKE = '';
+  }
+  const glow = new THREE.Color(look.glowTint ?? 0xffffff);
+  const sss = new THREE.Color(look.sssTint ?? 0xff9a7a);
+  const see = !hull && !!(look.translucent || look.smoke);
+  return new THREE.ShaderMaterial({
+    glslVersion: THREE.GLSL3,
+    uniforms: {
+      ...lighting,
+      uBoneTex: { value: boneTex },
+      uGlowTint: { value: new THREE.Vector3(glow.r, glow.g, glow.b) },
+      uPulse: { value: look.pulse ?? 1.4 },
+      uSeed: { value: 0 },
+      uBump: { value: look.bump ?? 0.012 },
+      uBumpFreq: { value: look.bumpFreq ?? 14 },
+      uSssTint: { value: new THREE.Vector3(sss.r, sss.g, sss.b) },
+      uRimDark: { value: new THREE.Vector3(...(look.rimDark ?? [0.012, 0.016, 0.024])) },
+      uOpacity: { value: 1 },
+      uWidth: { value: 1.6 },
+      uViewport: { value: new THREE.Vector2(1, 1) },
+    },
+    defines,
+    vertexShader: vertex,
+    fragmentShader: fragment,
+    side: hull ? THREE.BackSide : look.doubleSided || look.smoke ? THREE.DoubleSide : THREE.FrontSide,
+    transparent: see,
+    depthWrite: !see && !hull,
   });
 }

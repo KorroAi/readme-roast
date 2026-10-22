@@ -12,10 +12,16 @@ import { play } from './en/play';
 import { content } from './en/content';
 import { expanse } from './en/expanse';
 import { mobs } from './en/mobs';
+import { items3 } from './en/items3';
+import { loop3 } from './en/loop3';
+import { pages3 } from './en/pages3';
+import { WORLD_TEXT_EN as strata } from '../world/gen/strata/text';
+// UI: the round 3 action layout's text (UI owns en/controls.ts, as MOBS owns en/mobs.ts).
+import { controls } from './en/controls';
 
 /** The sections, in assembly order (exported for the duplicate-key test). */
-export const EN_SECTIONS = { core, loop, world, release, brand, screens, hud, feel, play, content, expanse, mobs } as const;
+export const EN_SECTIONS = { core, loop, world, release, brand, screens, hud, feel, play, content, expanse, mobs, controls, items3, loop3, pages3, strata } as const;
 
-export const en = { ...core, ...loop, ...world, ...release, ...brand, ...screens, ...hud, ...feel, ...play, ...content, ...expanse, ...mobs } as const;
+export const en = { ...core, ...loop, ...world, ...release, ...brand, ...screens, ...hud, ...feel, ...play, ...content, ...expanse, ...mobs, ...controls, ...items3, ...loop3, ...pages3, ...strata } as const;
 
 export type TextKey = keyof typeof en;

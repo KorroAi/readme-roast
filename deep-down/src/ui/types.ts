@@ -4,6 +4,10 @@ import type { CraftReason } from '../gameplay/Crafting';
 import type { FeatsView } from '../gameplay/Feats';
 import type { ExpeditionReport, RecordsState } from '../gameplay/Records';
 import type { Settings, SlotData, ItemCounts } from '../save/types';
+import type { UiTargetId } from './hud/actions';
+// Round 3: the menus read LOOP's views (game/craft, game/quests) as they are.
+export type { BagView, BagItemView, CraftMenuView, RecipeCardView, GearView, HotbarView } from '../game/craft/types';
+export type { QuestsScreenView, ArrivalCard, TutorialStepView } from '../game/quests/types';
 
 export type { ExpeditionReport, ReportNext, ReportOvernight } from '../gameplay/Records';
 export type { NodeId, Place, TreeLine, NodeResult } from '../config/recipes';
@@ -70,7 +74,164 @@ export interface HudState {
   packFull: boolean;
   /** Sealed Pouch slots at the end of the pack (0 without one). */
   pouchSlots: number;
+
+  // Round 3 (UI): the action layout's HUD. Filled by game/Game from the WORLD, LOOP and MOBS seams.
+  /** Where the explorer is: the biome's display name, the stratum (1..6) and its roman numeral. */
+  biomeName: string;
+  stratum: number;
+  /** The reticle: what the Action button would do on what is under it, and the mining progress on its ring. */
+  reticle: ReticleKind;
+  reticleProgress: number;
+  /** The quest tracker: the main step and one optional side task. */
+  tracker: TrackerView;
+  /** The compass arrow to the current objective, once it is known (null hides it). */
+  objectiveArrow: ObjectiveArrowView | null;
+  /** The guardian fight's health bar (null hides it). */
+  guardian: GuardianBarView | null;
+  /** The 6 hotbar slots and the selected one. */
+  hotbar: HudSlot[];
+  hotbarSelected: number;
+  /** The selected slot holds something placeable: the Place button shows. */
+  canPlace: boolean;
+  /** Cooldowns in [0, 1] (0 = ready). */
+  dashCooldown: number;
+  sonarCooldown: number;
+  /** The Interact button's icon kind and verb (null: nothing to use near). */
+  interact: InteractView | null;
+  /** Sprinting now (the stick at its edge or Shift). */
+  sprinting: boolean;
+  /** The tutorial step on screen (null: none). */
+  tutorial: TutorialView | null;
+  /** The hazard building up here (cold, gas, heat, dark) with its meter 0..1 and a ward's seconds left; null: none. */
+  hazard: { kind: 'cold' | 'gas' | 'heat' | 'dark'; level: number; warded: number } | null;
 }
+
+// ---------------------------------------------------------------------------------------
+// Round 3 (UI) view types: what the HUD and the menus read. game/Game builds them from the
+// other owners' seams (LOOP's items, craft, hotbar and quests, WORLD's strata and explored map,
+// MOBS's guardians and bestiary); the UI never reads game state directly.
+
+export type ReticleKind = 'none' | 'mine' | 'attack' | 'use' | 'place' | 'blocked';
+
+export interface TrackerLine {
+  id: string;
+  text: string;
+  /** Counted progress (2 of 5), when the step has one. */
+  have?: number;
+  need?: number;
+}
+
+export interface TrackerView {
+  main: TrackerLine | null;
+  side: TrackerLine | null;
+}
+
+export interface ObjectiveArrowView {
+  /** Bearing relative to the view (radians, + = right) and straight-line metres. */
+  bearing: number;
+  distance: number;
+  /** Up or down by more than a few metres: the arrow says which way (−1 down, 0 level, 1 up). */
+  vertical: -1 | 0 | 1;
+}
+
+export interface GuardianBarView {
+  name: string;
+  hp: number;
+  max: number;
+  /** 1-based phase and how many (the Heart has 3). */
+  phase: number;
+  phases: number;
+}
+
+export interface HudSlot {
+  /** The item id in the slot (null: empty). */
+  item: string | null;
+  name: string;
+  count: number;
+  /** The selected item can be placed on a face (block, torch, ladder, rope). */
+  placeable: boolean;
+}
+
+/** The Interact button's look: the target's icon and its verb ("Open", "Craft", "Talk"...). */
+export interface InteractView {
+  icon: 'chest' | 'station' | 'being' | 'door' | 'rope' | 'page' | 'gate' | 'outpost' | 'bed' | 'other';
+  verb: string;
+  label: string;
+}
+
+/** One tutorial step on screen: the ring on a control and the short line by it (LOOP's steps). */
+export interface TutorialView {
+  target: UiTargetId | null;
+  line: string;
+  step: number;
+  total: number;
+}
+
+/** A map marker (minimap and Map screen), world coordinates. */
+export interface MapMarker {
+  kind: 'camp' | 'outpost' | 'lair' | 'gate' | 'page' | 'chest' | 'objective' | 'cache' | 'shrine' | 'nest';
+  x: number;
+  z: number;
+  /** Text for the Map screen's legend and the tapped marker. */
+  label?: string;
+  id?: string;
+  /** Done (a beaten lair, an opened chest, a read page): drawn dim. */
+  done?: boolean;
+}
+
+/**
+ * The explored stratum, read by the minimap and the Map screen. `cell(x, z)` is the drawn state of a
+ * column (0 unexplored, 1 explored rock, 2 explored floor, 3 water, 4 hazard) and `biome(x, z)` its
+ * biome index (for the tint); `revision` bumps when anything changed, so the canvas redraws only then.
+ */
+export interface MapSource {
+  width: number;
+  depth: number;
+  /** World x/z of the map's (0, 0) column. */
+  originX: number;
+  originZ: number;
+  revision: number;
+  cell(x: number, z: number): number;
+  biome(x: number, z: number): number;
+  /** The tint of each biome index (sRGB hex). */
+  biomeColors: readonly number[];
+  markers: readonly MapMarker[];
+  /** The explorer (world x, z) and the view's yaw (radians, the camera's). */
+  playerX: number;
+  playerZ: number;
+  yaw: number;
+}
+
+export interface MapView {
+  source: MapSource;
+  stratum: number;
+  stratumName: string;
+  biomes: Array<{ name: string; color: number; explored: number }>;
+  /** Outposts and the camp, for fast travel (`here`: the explorer stands at it). */
+  travel: Array<{ id: string; name: string; x: number; z: number; here: boolean; can: boolean; reason: string | null }>;
+  /** The seed of this expedition (shown on the map and in Settings). */
+  seed: string;
+}
+
+export interface BestiaryEntryView {
+  kind: string;
+  name: string;
+  biome: string;
+  role: 'monster' | 'being' | 'guardian' | 'boss';
+  desc: string;
+  /** Met (seen), scanned, defeated counts. */
+  seen: boolean;
+  scanned: boolean;
+  defeated: number;
+  bonus: string | null;
+}
+
+export interface BestiaryView {
+  entries: BestiaryEntryView[];
+  found: number;
+  total: number;
+}
+
 
 /** The Continue card: a short summary of the saved game (null when there is none). */
 export interface SaveSummary {
@@ -119,7 +280,11 @@ export type ScreenId =
   | 'board'
   | 'journal'
   | 'ending'
-  | 'about';
+  | 'about'
+  // Round 3 (UI): the action layout's menus (crafting and inventory keep their ids).
+  | 'map'
+  | 'quests'
+  | 'bestiary';
 
 // ---------------------------------------------------------------------------------------
 // The upgrade tree (final pass W3; filled by game/Progression)
@@ -310,7 +475,8 @@ export interface JournalView {
 /** Actions the UI can request. Implemented by the game; the UI never touches game state directly. */
 export interface UiActions {
   continueGame(): void;
-  newGame(): void;
+  /** Start a new expedition; `seed` (the optional New Game field) picks the world, else one is rolled. */
+  newGame(seed?: string): void;
   openVisualLab(): void;
   pause(): void;
   resume(): void;
@@ -353,6 +519,26 @@ export interface UiActions {
   continueAfterEnding(): void;
   /** Drop a backpack stack on the ground in front of the explorer (it can be picked up again). */
   dropStack(slot: number): void;
+
+  // Round 3 (UI): the action layout's menus.
+  /** LOOP's menu actions (craft, use, equip, assign, bank), null before a game is loaded. */
+  loop(): import('../game/craft/types').LoopActions | null;
+  /** Open one of the menus (Bag, Craft, Map, Quests, Bestiary, Settings, pause). */
+  openMenu(screen: import('./hud/actions').MenuScreen): void;
+  /** The explored stratum for the Map screen (null before WORLD's strata are in). */
+  getMap(): MapView | null;
+  /** Fast travel to an outpost (or the camp) of this stratum. */
+  fastTravel(id: string): void;
+  getQuests(): import('../game/quests/types').QuestsScreenView | null;
+  /** Track a side task on the HUD (null: the automatic choice). */
+  trackQuest(id: string | null): void;
+  getBestiary(): BestiaryView | null;
+  skipTutorial(): void;
+  /** The expedition's seed (Settings, the Map), '' before one is rolled. */
+  getSeed(): string;
+  /** Button size and opacity (the control layout's own preferences). */
+  getControlPrefs(): { scale: number; opacity: number };
+  setControlPrefs(p: { scale?: number; opacity?: number }): void;
 }
 
 export interface DiscoveryNotice {

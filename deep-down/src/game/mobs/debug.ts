@@ -4,7 +4,9 @@ import { raycastVoxels } from '../../world/raycast';
 import type { Game } from '../Game';
 import type { MobDirector } from './MobDirector';
 import type { SimMob } from './MobSim';
-import type { MobKind } from './types';
+import type { MobBiome, MobKind } from './types';
+import { ROSTERS } from './rosters';
+import { ALL_KINDS, SPECIES } from './species';
 import { EYE_HEIGHT } from '../fp/constants';
 
 /**
@@ -35,10 +37,18 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
     crystals: m.crystals,
     open: m.open,
     fade: m.fade,
+    brain: m.brain,
+    biome: m.biome,
+    rank: m.rank,
+    mode: m.mode,
+    phase: m.phase,
+    pattern: m.pattern,
+    scanned: m.scanned,
+    marker: m.marker,
   });
   // A ring buffer of the creatures' and the weapons' events (tests: "was it caught?").
   const log: Array<{ type: string; payload: unknown }> = [];
-  const types = ['mob:spawned', 'mob:telegraph', 'mob:attack', 'mob:hit', 'mob:died', 'mob:interact', 'mob:cue', 'mob:shot', 'mob:met', 'weapon:swing', 'weapon:hit', 'weapon:flash', 'player:damaged', 'player:died', 'player:respawned', 'cache:created', 'cache:recovered', 'item:picked'] as const;
+  const types = ['mob:spawned', 'mob:telegraph', 'mob:attack', 'mob:hit', 'mob:died', 'mob:interact', 'mob:cue', 'mob:shot', 'mob:met', 'mob:sfx', 'mob:guardianAwake', 'mob:guardianPhase', 'mob:guardianReset', 'mob:guardianDefeated', 'mob:scanned', 'mob:bestiary', 'weapon:swing', 'weapon:hit', 'weapon:flash', 'player:damaged', 'player:died', 'player:respawned', 'cache:created', 'cache:recovered', 'item:picked'] as const;
   for (const type of types) {
     game.bus.on(type, (payload: unknown) => {
       log.push({ type, payload });
@@ -67,6 +77,84 @@ export function installMobDebug(game: Game, mobs: MobDirector): void {
       return m ? view(m) : null;
     },
     dim: () => mobs.sim.dim,
+    // ---- Round 3
+    kinds: () => [...ALL_KINDS],
+    roster: (b: MobBiome) => {
+      const r = ROSTERS[b];
+      return r ? { monsters: r.monsters.map((e) => e.kind), beings: r.beings.map((e) => e.kind), guardian: r.guardian, stratum: r.stratum } : null;
+    },
+    species: (k: MobKind) => {
+      const d = SPECIES[k];
+      return d ? { kind: k, brain: d.brain, archetype: d.archetype, biome: d.biome, rank: d.rank, hp: d.hp, damage: d.damage, locomotion: d.locomotion, lift: d.lift, radius: d.radius, height: d.height } : null;
+    },
+    /** Spawn as if in a biome (null: WORLD's map, or the first world's rules). */
+    biome: gate((b: MobBiome | null) => {
+      mobs.sim.forceBiome = b;
+      return b;
+    }, null),
+    guardian: () => mobs.activeGuardian(),
+    guardians: () => mobs.guardians(),
+    beaten: () => mobs.guardiansBeaten(),
+    markers: () => mobs.sim.markers.map((k) => ({ id: k.id, kind: k.kind, x: k.x, y: k.y, z: k.z, r: k.r, progress: k.progress, owner: k.owner })),
+    spits: () => mobs.sim.spits.filter((s) => s.done < 0).length,
+    bestiary: () => {
+      const v = mobs.bestiaryView();
+      return { found: v.found, total: v.total, complete: mobs.bestiary.known() };
+    },
+    scan: gate((radius = 20) => {
+      const e = game.cameraRig.camera.position;
+      return mobs.scan(e.x, e.y, e.z, radius);
+    }, 0),
+    blast: gate((radius: number, dmg: number, dist = 3) => {
+      const p = ahead(dist, 0.5);
+      return mobs.blast(p.x, p.y, p.z, radius, dmg);
+    }, 0),
+    drawStats: () => ({ drawn: mobs.renderer.drawnCount, calls: mobs.renderer.drawCalls, alive: mobs.sim.mobs.length }),
+    night: () => mobs.night,
+    /** Hurt nothing (captures: the creatures may strike, the explorer is not hurt). */
+    harmless: gate((on: boolean) => {
+      (mobs as unknown as { harmless: boolean }).harmless = on;
+      return on;
+    }, false),
+    /** Captures: a row of creatures in front of the camera (frozen), spaced by their size. @returns their ids. */
+    lineup: gate((kinds: MobKind[], dist = 5, spread = 0) => {
+      const ids: number[] = [];
+      const yaw = game.cameraRig.yaw;
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
+      const rx = Math.cos(yaw);
+      const rz = -Math.sin(yaw);
+      const widths = kinds.map((k) => Math.max(0.6, SPECIES[k].radius * 2.4));
+      const total = widths.reduce((a, b) => a + b, 0) + spread * (kinds.length - 1);
+      let off = -total / 2;
+      const world = game.session.world;
+      const solid = (x: number, y: number, z: number) => SOLID[world.get(x, y, z)] === 1;
+      kinds.forEach((k, i) => {
+        const w = widths[i];
+        const c = off + w / 2;
+        off += w + spread;
+        const d = SPECIES[k];
+        const x = game.player.x + fx * (dist + d.radius) + rx * c;
+        const z = game.player.z + fz * (dist + d.radius) + rz * c;
+        let y = Math.floor(game.player.y);
+        for (let dy = 3; dy >= -4; dy--) {
+          const yy = Math.floor(game.player.y) + dy;
+          if (!solid(Math.floor(x), yy, Math.floor(z)) && solid(Math.floor(x), yy - 1, Math.floor(z))) {
+            y = yy;
+            break;
+          }
+        }
+        const up = d.locomotion === 'fly' ? Math.max(1.2, d.lift) + ((d as { hover?: number }).hover ?? 0) * 0.3 : 0;
+        const m = mobs.spawnAt(k, x, y + up, z, { asleep: false });
+        if (m) {
+          m.fade = 1;
+          m.yaw = Math.atan2(game.player.x - m.position.x, game.player.z - m.position.z);
+          ids.push(m.id);
+        }
+      });
+      mobs.sim.brains = false;
+      return ids;
+    }, [] as number[]),
     boost: () => mobs.sim.boost,
     monsterDepth: () => mobs.sim.monsterDepth,
     sentinelSites: () => mobs.sim.sentinelSites.map((s) => ({ ...s })),

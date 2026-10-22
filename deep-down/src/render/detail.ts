@@ -313,6 +313,19 @@ export function disposeDetail(renderer: THREE.WebGLRenderer): void {
 
 /** Detail layer, strength (0..~1.2) and roughness of a material layer (by name; unknown names get rock). */
 export function detailOf(name: string): { layer: number; k: number; rough: number } {
+  // Round 3: the biome layers (materials/strata.ts).
+  if (name === 'frostIce') return { layer: DETAIL.crystal, k: 0.4, rough: 0.12 };
+  if (name === 'obsidian' || name === 'obsidianFloor') return { layer: DETAIL.crystal, k: 0.5, rough: 0.12 };
+  if (/^(sporeQuartz|amethyst|iceCrystal|verdite|mireOpal|emberite|voidshard)$/.test(name)) return { layer: DETAIL.crystal, k: 0.7, rough: 0.16 };
+  if (name === 'lava' || name === 'magmaCore') return { layer: DETAIL.rock, k: 0.6, rough: 0.8 };
+  if (name === 'toxicPool') return { layer: DETAIL.earth, k: 0.4, rough: 0.18 };
+  if (/^(mushroomStem|thickRoot|glowVine)$/.test(name)) return { layer: DETAIL.timber, k: 0.6, rough: 0.7 };
+  if (/^cap(Teal|Magenta)$/.test(name)) return { layer: DETAIL.earth, k: 0.5, rough: 0.6 };
+  if (/^(frostSnow|sporeLoam|mycelFloor|rootEarthTop|rootEarthSide|rootFloor|jungleLoam|jungleMoss|bogMud|bogCrust|ashFloor|amberFloor|floodFloor|geodeFloor|mineFloor)$/.test(name)) return { layer: DETAIL.earth, k: name === 'frostSnow' ? 0.6 : 1, rough: name === 'floodFloor' ? 0.4 : 0.9 };
+  if (/^(cityStone|cityBrick|gateSeal)$/.test(name)) return { layer: DETAIL.dressed, k: 1, rough: 0.6 };
+  if (name === 'cityTile') return { layer: DETAIL.dressed, k: 1.2, rough: 0.55 };
+  if (/^(goldVein|silverVein|frostIron|orichalcum|starsteel|runegold|pearlOre|amberOre|sapAmber|coalSeam|sulphurOre)$/.test(name)) return { layer: DETAIL.rock, k: 1, rough: 0.45 };
+  if (/^flood/.test(name)) return { layer: /Top$/.test(name) ? DETAIL.floor : DETAIL.rock, k: 1, rough: 0.36 };
   if (/crystal/i.test(name)) return { layer: DETAIL.crystal, k: 0.7, rough: 0.18 };
   if (name === 'gemOre') return { layer: DETAIL.crystal, k: 0.7, rough: 0.16 };
   if (name === 'roots') return { layer: DETAIL.timber, k: 0.7, rough: 0.7 };

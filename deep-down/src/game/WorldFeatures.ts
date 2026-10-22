@@ -6,12 +6,17 @@ import { BLOOM, BREATHE_BELOW_Y } from '../config/livingRock';
 import { dampAngle } from '../core/math';
 import { discoveryNumbering } from '../gameplay/discoveries';
 import { t, type TextKey } from '../i18n';
+import type { WorldTextKey } from '../world/gen/strata/text';
+
+/** Round 3: a key of WORLD_TEXT_EN (a TextKey once LOOP spreads the table into the English one). */
+const wt = (k: WorldTextKey) => k as string as TextKey;
 import type { PlayerFrameEvents } from './PlayerController';
 import { createEntityMaterial } from '../render/entityMaterial';
 import { HOIST_CAGE_HOOK, hoistCageGeometry, hoistRopeGeometry } from '../render/props/featureModels';
 import { applyLiving, bloomSiteFor, rollLiving } from '../world/gen/features/living';
 import type { FeatureLayout, FeatureLink, RuneDoorDef, V3 } from '../world/gen/features/types';
 import type { PropSpec } from '../world/gen/types';
+import { isStratumLayout } from '../world/gen/strata/types';
 import { LumenMoths } from './effects/LumenMoths';
 import type { Game } from './Game';
 import { MothFlock, type MothAnchor } from './moths';
@@ -72,7 +77,7 @@ const UNDERCROFT = { min: [112, 5, 116] as V3, max: [137, 14, 147] as V3 };
  * release, the stone) and SaveData.progression.day (the epoch).
  */
 export class WorldFeatures {
-  readonly layout: FeatureLayout | null;
+  layout: FeatureLayout | null;
   readonly flock: MothFlock;
   readonly moths: LumenMoths;
   /** The hoist's cage and its rope (they move with the ride). */
@@ -124,6 +129,8 @@ export class WorldFeatures {
    * fields the ride edges, and reset the moths.
    */
   attach(removed: readonly string[]): void {
+    // WORLD (round 3): a stratum switch replaces the session's layout; the features follow it.
+    this.layout = this.game.session.layout.features ?? null;
     const L = this.layout;
     this.active = null;
     this.pendingBloom = null;
@@ -248,7 +255,45 @@ export class WorldFeatures {
         return t(f.end === 'bottom' && !this.hoistReleased ? 'hint.hoistRelease' : 'hint.hoistRide');
       case 'cache':
         return t(spec.kind === 'crate' || spec.kind === 'barrel' ? 'hint.openCrate' : 'hint.openCache');
+      // Round 3 (WORLD): the stratum's gate (descend once open) and the lift back up.
+      case 'gate':
+        return this.gateLabel();
+      case 'lift':
+        return t(wt('world.gate.lift'));
     }
+  }
+
+  /** Round 3: the gate's verb (descend, open with the shards, or sealed). */
+  private gateLabel(): string {
+    const st = this.game.strata;
+    if (!st?.layout) return t('hud.interact');
+    if (st.gateOpen()) return t(wt('world.gate.open'));
+    return st.canOpenGate() ? t(wt('world.gate.unseal')) : t(wt('world.gate.sealed'), { count: st.layout.gate.shardsNeeded - st.shardsHere() });
+  }
+
+  /** Round 3: use the gate (open it with the stratum's shards, or descend) or the lift (back up). */
+  private useStrataFeature(kind: 'gate' | 'lift'): void {
+    const st = this.game.strata;
+    if (!st?.layout || st.busy) return;
+    if (kind === 'lift') {
+      void st.ascend();
+      return;
+    }
+    // LOOP's quests own the gate's use (the shards, the main quest's step); this is the fallback.
+    const quests = (this.game as unknown as { loop?: { quests?: { useGate?: () => string } } }).loop?.quests;
+    if (quests?.useGate) {
+      quests.useGate();
+      return;
+    }
+    if (st.gateOpen()) {
+      void st.descend();
+      return;
+    }
+    if (st.canOpenGate()) {
+      st.openGate();
+      return;
+    }
+    this.game.ui.hint(t(wt('world.gate.sealed'), { count: st.layout.gate.shardsNeeded - st.shardsHere() }), 2600);
   }
 
   /** How far the explorer may stand from this prop's use point (m). */
@@ -302,6 +347,10 @@ export class WorldFeatures {
         break;
       case 'cache':
         this.game.progression.openCache(spec);
+        break;
+      case 'gate':
+      case 'lift':
+        this.useStrataFeature(f.kind);
         break;
     }
   }
@@ -707,9 +756,12 @@ export class WorldFeatures {
     const L = this.layout;
     if (!L) return [];
     const out: MothAnchor[] = L.mothAnchors.map((a) => ({ id: a.id, x: a.p[0], y: a.p[1], z: a.p[2], count: a.count, radius: a.radius, secret: a.secret }));
-    // The tunnel's first crystals and the Glimmerfall's edge: life where the light already is.
-    out.push({ id: 'firstCrystals', x: 77, y: 97.5, z: 55, count: 4, radius: 1.1 });
-    out.push({ id: 'glimmerfall', x: 112, y: 43.2, z: 121, count: 6, radius: 1.6 });
+    // The tunnel's first crystals and the Glimmerfall's edge: life where the light already is (the old
+    // hand-made world only; the strata give their caverns' anchors in the layout).
+    if (!isStratumLayout(this.game.session.layout)) {
+      out.push({ id: 'firstCrystals', x: 77, y: 97.5, z: 55, count: 4, radius: 1.1 });
+      out.push({ id: 'glimmerfall', x: 112, y: 43.2, z: 121, count: 6, radius: 1.6 });
+    }
     const b = this.bloomSite(epoch);
     if (b && this.game.session.liveProps.has(`bloom_e${epoch}`)) out.push({ id: `bloom_e${epoch}`, x: b.p[0], y: b.p[1] + 1.2, z: b.p[2], count: BLOOM.moths, radius: 1.3 });
     return out;

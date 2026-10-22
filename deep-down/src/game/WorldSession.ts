@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { B, EVENT_LIGHT, SOLID, isEmitter } from '../config/blocks';
-import { loadZone } from '../world/gen/zoneLoader';
+import { loadBootZone, type LoadedZone } from '../world/gen/zoneLoader';
+import { generateMaterials } from '../render/materials';
 import { WORLD } from '../config/balance';
 import type { PropSpec, WorldLayout } from '../world/gen/types';
 import { LightField, LanternField } from '../world/light';
@@ -21,8 +22,9 @@ const yieldFrame = () => new Promise<void>((r) => setTimeout(r, 0));
  * pristine generated copy used to reset the world and to compute save deltas.
  */
 export class WorldSession {
-  readonly layout: WorldLayout;
-  readonly generated: Uint8Array;
+  /** Round 3 (WORLD): replaced in place by a stratum switch (swapZone); the world object stays. */
+  layout: WorldLayout;
+  generated: Uint8Array;
   readonly light: LightField;
   readonly lantern: LanternField;
   readonly rig: LightingRig;
@@ -57,13 +59,14 @@ export class WorldSession {
     this.props = new PropRenderer(this.rig.uniforms);
   }
 
-  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed): Promise<WorldSession> {
+  /** Round 3: `stratum` is the stratum to boot into (WORLD_GEN 'strata'; the old world ignores it). */
+  static async create(onProgress: (p: number, phase: 'carve' | 'light' | 'mesh') => void, seed: number = WORLD.seed, stratum = 1): Promise<WorldSession> {
     onProgress(0.02, 'carve');
     await yieldFrame();
     const t0 = performance.now();
-    const zone = await loadZone(seed, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));
+    const zone = await loadBootZone(seed, stratum, (phase) => onProgress(phase === 'carve' ? 0.05 : 0.3, phase));
     const atlas = generateTiles();
-    const session = new WorldSession(zone.layout, atlas, zone.light, zone.materials);
+    const session = new WorldSession(zone.layout, atlas, zone.light, zone.materials ?? generateMaterials());
     Object.assign(session.timings, zone.timings, { zoneTotalMs: Math.round(performance.now() - t0), worker: zone.usedWorker ? 1 : 0 });
     onProgress(0.5, 'mesh');
     await yieldFrame();
@@ -145,6 +148,34 @@ export class WorldSession {
     this.rig.lightTex.needsUpdate = true;
     w.markAllDirty();
     await this.chunks.buildAll();
+  }
+
+  /**
+   * Round 3 (WORLD): swap another zone (a stratum) into this session in place. The zone must have the
+   * same size: its voxels and light are copied into this session's buffers, so the world object, the
+   * light field, the lighting rig, the renderers and every controller holding the world keep working.
+   * Then the zone's saved delta is applied, the props are rebuilt and every chunk is meshed again.
+   */
+  async swapZone(zone: LoadedZone, edits: readonly number[], removedProps: readonly string[], onProgress?: (p: number) => void): Promise<void> {
+    const w = this.world;
+    const zw = zone.layout.world;
+    if (zw.sx !== w.sx || zw.sy !== w.sy || zw.sz !== w.sz) throw new Error(`zone size ${zw.sx}x${zw.sy}x${zw.sz} does not match the session's ${w.sx}x${w.sy}x${w.sz}`);
+    w.blocks.set(zw.blocks);
+    this.generated = zw.blocks.slice();
+    this.layout = { ...zone.layout, world: w } as WorldLayout;
+    // The stratum's biomeAt closure (if any) reads only its own region map: it survives the spread.
+    applyWorldEdits(w.blocks, edits);
+    w.revision++;
+    this.resetProps();
+    for (const id of removedProps) this.removeProp(id, false);
+    this.settleProps();
+    if (edits.length || removedProps.length) this.light.computeAll();
+    else this.light.data.set(zone.light.data);
+    this.rig.lightTex.needsUpdate = true;
+    this.lantern.update(0, 0, 0, 1, true);
+    w.markAllDirty();
+    await this.chunks.buildAll((p) => onProgress?.(p));
+    this.settleProps();
   }
 
   /** Delta of the live world against the generated one: [index, id, ...]. */

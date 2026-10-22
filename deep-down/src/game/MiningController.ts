@@ -3,7 +3,8 @@ import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../conf
 import type { PickaxeDef } from '../config/balance';
 import { REACH } from './fp/constants';
 import { PlainRockHint } from './fp/plainRockHint';
-import { isBreakable } from '../config/rarity';
+import { isBreakable, rarityOf, RARITY_HEX, RARITY_RANK } from '../config/rarity';
+import { VeinCombo } from './fp/abilities';
 import './fp/events';
 import type { EventBus, GameEvents } from '../core/events';
 import type { Rng } from '../core/rng';
@@ -86,6 +87,9 @@ export class MiningController {
   /** Polish 2: the tunk on plain rock says why, once in a while (fp/plainRockHint). */
   private readonly plainRockHint = new PlainRockHint();
   private time = 0;
+  /** Round 3: the vein combo (chaining the same vein speeds the pick up) and this swing's length. */
+  readonly combo = new VeinCombo();
+  private swingLen = 0.4;
   private readonly origin = new THREE.Vector3();
   private readonly dir = new THREE.Vector3();
   private readonly tmp = new THREE.Vector3();
@@ -332,11 +336,14 @@ export class MiningController {
     const tunkDone = !!tgt && tgt.key === this.tunkedKey;
     if (wantsMine && tgt && this.swingTimer <= 0 && !tunkDone) {
       const pick = this.hooks.pickaxe();
-      this.swingTimer = pick.swingInterval;
+      // Round 3: a quicker base tempo, faster still while a vein is chained (fp/abilities VeinCombo).
+      const interval = pick.swingInterval * this.combo.tempo(this.time);
+      this.swingLen = interval;
+      this.swingTimer = interval;
       this.impactPending = true;
-      this.impactAt = pick.swingInterval * 0.55;
+      this.impactAt = interval * 0.55;
       this.swingKey = tgt.key;
-      this.hooks.swing(pick.swingInterval, 0.55, tgt.point);
+      this.hooks.swing(interval, 0.55, tgt.point);
       this.bus.emit('tool:swing', { tier: pick.tier });
     }
     if (tgt && wantsMine) this.hooks.face(tgt.point.x, tgt.point.y, tgt.point.z, dt);
@@ -344,7 +351,7 @@ export class MiningController {
     if (this.swingTimer > 0) {
       const before = this.swingTimer;
       this.swingTimer -= dt;
-      const elapsedBefore = this.hooks.pickaxe().swingInterval - before;
+      const elapsedBefore = this.swingLen - before;
       const elapsedAfter = elapsedBefore + dt;
       if (this.impactPending && elapsedAfter >= this.impactAt) {
         this.impactPending = false;
@@ -440,6 +447,11 @@ export class MiningController {
       const count = this.hooks.rollDrop(def.drop);
       if (count > 0) this.drops.spawn(def.drop.item, count, cx, cy, cz, this.rng);
     }
+    // Round 3: a loot burst in the find's rarity colour (uncommon and up), and the vein combo.
+    const rarity = rarityOf(oldId);
+    if (rarity && rarity !== 'common') this.particles.sparkle(cx, cy, cz, RARITY_HEX[rarity], 6 + 2 * RARITY_RANK[rarity], this.rng, 1.8);
+    const chain = this.combo.onBreak(oldId, tgt.x, tgt.y, tgt.z, this.time);
+    if (chain > 0) this.bus.emit('mine:combo', { count: chain, x: cx, y: cy, z: cz });
     this.bus.emit('block:broken', { x: tgt.x, y: tgt.y, z: tgt.z, block: oldId });
     this.hooks.blockBroken(tgt.x, tgt.y, tgt.z, oldId);
   }

@@ -1,5 +1,6 @@
-import { B, BLOCKS, SOLID, UNBREAKABLE_TIER } from './blocks';
-import type { ItemId } from './items';
+import { B, BLOCKS, PLACEABLE, SOLID, UNBREAKABLE_TIER } from './blocks';
+import { ITEMS, type ItemId } from './items';
+import { allOres } from './biomes';
 import type { PropKind, PropSpec } from '../world/gen/types';
 
 /**
@@ -64,6 +65,12 @@ BLOCK_RARITY[B.ECHO_CRYSTAL] = 'rare';
 BLOCK_RARITY[B.CRYSTAL] = 'epic';
 BLOCK_RARITY[B.GEM_ORE] = 'epic';
 BLOCK_RARITY[B.LANTERNSTONE] = 'legendary';
+// Round 3 (WORLD's request): every biome ore takes its listed rarity; cracked walls, giant stems,
+// elder roots and glow vines (wood, fibre) read as common finds.
+for (const o of allOres()) BLOCK_RARITY[o.block & 255] = o.rarity;
+for (const id of [B.CRACKED_WALL, B.MUSHROOM_STEM, B.THICK_ROOT, B.GLOW_VINE]) if (BLOCK_RARITY[id] === null) BLOCK_RARITY[id] = 'common';
+// Any other block a pick can break is at least a common find (placed blocks excepted: no glow on what you build).
+for (let id = 1; id < 256; id++) if (BLOCK_RARITY[id] === null && !PLACEABLE.has(id) && isBreakable(id)) BLOCK_RARITY[id] = 'common';
 
 /** The progression seals: minable by tier (hardened slate 2, Ironbound 3, ember glass 4). */
 export const SEAL_BLOCKS: ReadonlySet<number> = new Set([B.HARDENED_SLATE, B.IRONBOUND, B.EMBER_GLASS]);
@@ -123,26 +130,11 @@ export function isBreakable(id: number): boolean {
   return isMinable(id, UNBREAKABLE_TIER - 1);
 }
 
-/** The rarity an item reads as (pickup flashes, the bag, the journal legend). */
-export const ITEM_RARITY: Partial<Record<ItemId, Rarity>> = {
-  stone: 'common',
-  rootFibre: 'common',
-  copperOre: 'common',
-  ironOre: 'uncommon',
-  echoShard: 'rare',
-  glimmerShard: 'epic',
-  gem: 'epic',
-  flashCharge: 'uncommon',
-  ancientTablet: 'legendary',
-  bearerLens: 'legendary',
-  firstLamp: 'legendary',
-  relicGlowroot: 'legendary',
-  relicChoir: 'legendary',
-  relicEmber: 'legendary',
-};
+/** The rarity an item reads as (pickup flashes, the bag, the journal legend): its ItemDef grade. */
+export const ITEM_RARITY: Partial<Record<ItemId, Rarity>> = Object.fromEntries((Object.keys(ITEMS) as ItemId[]).map((id) => [id, ITEMS[id].grade]));
 
 export function itemRarity(item: ItemId): Rarity {
-  return ITEM_RARITY[item] ?? (item.startsWith('rune') ? 'legendary' : 'common');
+  return ITEMS[item]?.grade ?? 'common';
 }
 
 /** The legend shown once in the first-time card and in the journal: [rarity, i18n key of its examples]. */

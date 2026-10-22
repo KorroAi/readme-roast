@@ -3,7 +3,7 @@ import { LIGHTING_GLSL, type LightingUniforms } from '../lighting';
 import { MAT, MATERIAL_NAMES } from '../materials';
 import { courseGlsl } from '../materials/courses';
 import { MAT_DENSITY, MAT_SIZE } from '../materials/paint';
-import type { TerrainUniforms } from '../terrainRig';
+import { MAT_GLOW_GLSL, type TerrainUniforms } from '../terrainRig';
 import { DETAIL_UNIFORM, detailGlsl } from '../detail';
 
 /**
@@ -89,7 +89,7 @@ precision highp sampler3D;
 ${LIGHTING_GLSL}
 uniform sampler2DArray uMat;
 uniform sampler3D uNoise;
-uniform float uMatGlow[${MATERIAL_NAMES.length}];
+${MAT_GLOW_GLSL}
 // Monolith mode: per 8-row band of the masonry layer, the longest joint-free stone of the strip
 // starting there (first texel, width), measured from the painted layer (StructureRenderer).
 uniform vec2 uSpan[16];
@@ -162,7 +162,7 @@ void main() {
   vec3 albedo = tex.rgb * (0.84 + 0.32 * macro);
   // Round 2: crisp joints on dressed stone up close (the terrain's height-threshold pass, see
   // terrainMaterial.ts): magnified bilinear joints no longer smear into soft bands.
-  if (vMode != 2 && uMatGlow[layer] <= 0.0) {
+  if (vMode != 2 && matGlow(layer) <= 0.0) {
     vec2 fwm = (abs(gx) + abs(gy)) * ${MAT_SIZE}.0;
     float pptm = 1.0 / max(max(fwm.x, fwm.y), 1e-4);
     float nearK = smoothstep(4.0, 9.0, pptm);

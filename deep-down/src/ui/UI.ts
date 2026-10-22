@@ -22,17 +22,30 @@ import { buildDeath, buildLoading, buildMenu, buildPause, updateLoading } from '
 import { buildSettings } from './screens/settings';
 import { btn } from './screens/widgets';
 import { TouchControls } from './TouchControls';
-import type { DiscoveryNotice, HudState, PickupNotice, ScreenId, UiActions } from './types';
+import type { ArrivalCard, DiscoveryNotice, HudState, MapSource, PickupNotice, ScreenId, UiActions } from './types';
+import { createPlayerActions, type MenuScreen, type PlayerActions, type UiTargetId } from './hud/actions';
+import { buildBag } from './screens/r3/bag';
+import { buildCraft } from './screens/r3/craft';
+import { buildMap } from './screens/r3/map';
+import { buildQuests } from './screens/r3/quests';
+import { buildBestiary } from './screens/r3/bestiary';
 
 type Builder = (host: ScreenHost) => HTMLElement;
+
+/** Round 3: the Bag and Craft menus read LOOP's views; before LOOP's Loop exists the first version's screens stand in. */
+const bagOrOld: Builder = (host) => (host.actions.loop() ? buildBag(host) : buildInventory(host));
+const craftOrOld: Builder = (host) => (host.actions.loop() ? buildCraft(host) : buildTree(host));
 
 const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   menu: buildMenu,
   loading: buildLoading,
   pause: buildPause,
   settings: buildSettings,
-  inventory: buildInventory,
-  crafting: buildTree,
+  inventory: bagOrOld,
+  crafting: craftOrOld,
+  map: buildMap,
+  quests: buildQuests,
+  bestiary: buildBestiary,
   death: buildDeath,
   summary: buildSummary,
   board: buildBoard,
@@ -42,7 +55,10 @@ const BUILDERS: Partial<Record<ScreenId, Builder>> = {
 };
 
 /** Screens closed by Escape (and the system Back, through Game) straight back to play. */
-const CLOSABLE: ReadonlySet<ScreenId> = new Set<ScreenId>(['inventory', 'crafting', 'board', 'journal']);
+const CLOSABLE: ReadonlySet<ScreenId> = new Set<ScreenId>(['inventory', 'crafting', 'board', 'journal', 'map', 'quests', 'bestiary']);
+
+/** The menu keys (I/Tab, C, M, J, B): each opens its menu, and closes it when it is the one open. */
+const MENU_KEYS: Record<string, MenuScreen> = { KeyI: 'inventory', Tab: 'inventory', KeyC: 'crafting', KeyM: 'map', KeyJ: 'quests', KeyB: 'bestiary' };
 
 const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: 'craft.notAtCamp', notHere: 'craft.notAtCamp', missing: 'craft.missing', locked: 'ui.tree.state.locked', carryToSite: 'ui.tree.state.carry' };
 
@@ -52,6 +68,8 @@ const CRAFT_FAIL: Record<string, TextKey> = { owned: 'craft.owned', notAtCamp: '
  */
 export class UI implements GameUi {
   readonly touch: TouchControls;
+  /** Round 3: the one action API every button and key drives (ui/hud/actions). */
+  readonly player: PlayerActions;
   private readonly el: HTMLElement;
   private readonly hud: Hud;
   private readonly toasts = new Toasts();
@@ -98,6 +116,14 @@ export class UI implements GameUi {
     journalTab: 'discoveries',
     aboutTab: 'about',
     reportAt: 0,
+    bagTab: 'all',
+    bagSel: null,
+    assignSlot: -1,
+    craftTab: null,
+    craftFlash: null,
+    questsTab: 'main',
+    bestiaryBiome: null,
+    help: null,
   };
 
   constructor(root: HTMLElement, private readonly actions: UiActions, bus: EventBus<GameEvents>, private readonly input: InputState) {
@@ -108,20 +134,27 @@ export class UI implements GameUi {
     // The host page may give its direct children pointer events; this layer must stay
     // transparent so the canvas below still receives mouse input. Inline beats any selector.
     this.el.style.pointerEvents = 'none';
+    this.player = createPlayerActions(input);
+    const player = this.player;
     this.hud = new Hud({
-      bag: () => {
-        input.inventoryPressed = true;
+      bag: () => player.open('inventory'),
+      menu: () => player.open('pause'),
+      open: (screen) => player.open(screen),
+      hotbar: (i) => player.hotbar(i),
+      // A long-press on a slot: the Bag opens to fill it.
+      assign: (i) => {
+        this.state.assignSlot = i;
+        this.state.bagTab = 'all';
+        player.open('inventory');
       },
-      menu: () => {
-        input.pausePressed = true;
-      },
+      skipTutorial: () => actions.skipTutorial(),
     });
     this.el.append(this.hud.el, h('div', { class: 'dd-notices' }, this.pickups.el, this.discovery.el));
     root.appendChild(this.el);
-    this.touch = new TouchControls(this.el, input);
+    this.touch = new TouchControls(this.el, input, player);
     // The exit layer comes after the live screens in the DOM (queries find the live screen
     // first) and sits under them (z-index), so the new screen fades in over the old one.
-    this.el.append(this.screensEl, this.exitEl, this.modalEl, this.toasts.el);
+    this.el.append(this.screensEl, this.exitEl, this.modalEl, this.toasts.el, this.hud.tutorialEl);
 
     const ui = this;
     this.host = {
@@ -177,9 +210,20 @@ export class UI implements GameUi {
         this.openWaiting();
       }),
       bus.on('craft:failed', ({ reason }) => this.toast(t(CRAFT_FAIL[reason] ?? 'craft.missing'), 'warn')),
-      // A rune door waking under the lantern: the ring on the interact chip fills (it opens at 1).
-      bus.on('world:runeWake', ({ progress }) => this.hud.wakeProgress(progress, performance.now())),
-      bus.on('world:runeOpen', () => this.hud.wakeProgress(1, performance.now())),
+      // Round 3: LOOP's guidance (arrival cards, hints with an optional control to point at),
+      // the vein combo beside the reticle, a menu refreshed by what it shows changing.
+      bus.on('guide:arrival', ({ card }) => this.arrival(card)),
+      bus.on('guide:hint', ({ id, text, target }) => {
+        this.hint(text, 4200);
+        if (target) this.hud.tutorial.tip(`hint:${id}`, target, text);
+      }),
+      bus.on('mine:combo', ({ count }) => this.hud.combo(count)),
+      bus.on('craft:made', () => {
+        if (this.current === 'crafting' || this.current === 'inventory') this.refresh();
+      }),
+      bus.on('gear:equipped', () => {
+        if (this.current === 'inventory') this.refresh();
+      }),
     );
     const onKey = (e: KeyboardEvent) => this.onKey(e);
     // Capture phase on window runs before DesktopInput, so keys a screen consumes
@@ -211,6 +255,9 @@ export class UI implements GameUi {
       this.endingWaiting = false;
     }
     if (id === 'summary') this.state.reportAt = performance.now();
+    // A long-press assignment lasts while the Bag is open; the help card closes with its menu.
+    if (id !== 'inventory') this.state.assignSlot = -1;
+    if (id !== this.current) this.state.help = null;
     this.current = id;
     this.render(false);
     // The first screen replaces the boot mark in one cut (it is drawn over it), not a crossfade.
@@ -281,6 +328,31 @@ export class UI implements GameUi {
 
   hint(text: string, ms = 3500): void {
     this.hud.hint(text, ms);
+  }
+
+  /** Round 3: a biome arrival card (LOOP's 'guide:arrival', or WORLD's arrivalCard). */
+  arrival(card: ArrivalCard): void {
+    if (this.gameplay) this.hud.arrival(card);
+  }
+
+  /** Round 3: the explored stratum for the minimap (null before WORLD's strata are in). */
+  setMap(src: MapSource | null): void {
+    this.hud.setMap(src);
+  }
+
+  /** Round 3: a small damage number at a screen point (0..1 from the top left). */
+  damageNumber(sx: number, sy: number, amount: number, kind: 'hit' | 'weak' | 'hurt' = 'hit'): void {
+    if (this.gameplay && this.current === 'none') this.hud.damageNumber(sx, sy, amount, kind);
+  }
+
+  /** Round 3: a first-time tooltip by a control (once per install). */
+  tip(id: string, target: UiTargetId, text: string): boolean {
+    return this.gameplay && this.current === 'none' ? this.hud.tutorial.tip(id, target, text) : false;
+  }
+
+  /** Round 3: the control layout's size and opacity. */
+  setControlPrefs(p: { scale: number; opacity: number }): void {
+    this.touch.setPrefs(p);
   }
 
   showDeath(lost: ItemCounts): void {
@@ -522,10 +594,12 @@ export class UI implements GameUi {
       }
       return;
     }
-    // The keys that open the bag (I, Tab) also close it.
-    if ((e.code === 'KeyI' || e.code === 'Tab') && this.current === 'inventory' && !e.repeat) {
+    // The menu keys: the key of the open menu closes it, another menu's key switches to it.
+    const menu = MENU_KEYS[e.code];
+    if (menu && !e.repeat && !e.ctrlKey && !e.metaKey && !e.altKey && (CLOSABLE.has(this.current) || this.current === 'settings')) {
       stop();
-      this.actions.closeScreen();
+      if (this.current === menu) this.actions.closeScreen();
+      else if (CLOSABLE.has(this.current)) this.actions.openMenu(menu);
       return;
     }
     // Tab moves focus and Space presses the focused control. DesktopInput binds both (bag,

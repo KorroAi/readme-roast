@@ -33,12 +33,12 @@ describe('PlayerController', () => {
     run(p, 0.5, 0, 0);
     expect(p.grounded).toBe(true);
     expect(p.y).toBeCloseTo(5, 3);
-    // First person: about 3.3 m/s once in stride, eased in over a quarter second.
+    // Round 3 (the nervous feel): about 4.2 m/s once in stride, eased in over a sixth of a second.
     run(p, 0.1, 0, 1);
-    expect(p.speed).toBeGreaterThan(0.8);
-    expect(p.speed).toBeLessThan(2.2);
+    expect(p.speed).toBeGreaterThan(1.5);
+    expect(p.speed).toBeLessThan(3.2);
     run(p, 0.9, 0, 1);
-    expect(p.speed).toBeCloseTo(3.3, 2);
+    expect(p.speed).toBeCloseTo(4.2, 2);
     expect(p.x).toBeGreaterThan(11);
     expect(Math.abs(p.z - 16.5)).toBeLessThan(0.05);
     // ... and eased to a stop (no snap), within a few tenths of a metre.
