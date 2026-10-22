@@ -60,9 +60,16 @@ export async function waitMode(page: Page, mode: string, timeout = LOADED_CEILIN
   await page.waitForFunction((m) => window.__DD__?.ready && window.__DD__.state().mode === m, mode, { timeout, polling: 200 });
 }
 
+/**
+ * Game time per drawn frame on a test machine: `?catchup=N` lets a late frame run up to N 50 ms
+ * simulation steps before drawing once (Game.catchUp), so a SwiftShader frame a second still plays
+ * at about N x 50 ms of game time. Players never pass it (their game slows down below 20 fps).
+ */
+export const CATCH_UP = 'catchup=6';
+
 /** Load the game and wait for the title. */
 export async function boot(page: Page, query = ''): Promise<void> {
-  await page.goto(`/index.html${query ? `?${query}` : ''}`);
+  await page.goto(`/index.html?${[CATCH_UP, query].filter(Boolean).join('&')}`);
   await waitMode(page, 'menu');
   await mark(page, 'title');
 }

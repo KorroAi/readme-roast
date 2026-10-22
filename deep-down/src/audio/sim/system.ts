@@ -36,7 +36,9 @@ export class SceneGame {
   readonly hazards: { active: HazardName | null; meter: number } = { active: null, meter: 0 };
   readonly loop = { hazards: this.hazards };
   readonly sonar: { pings: number; last: Array<{ x: number; y: number; z: number; kind: string; rarity: string | null; delay: number }> } = { pings: 0, last: [] };
-  readonly vis = { sonarState: this.sonar };
+  /** VIS's geysers: the column standing now and the columns so far (game.vis.geysers). */
+  readonly geysers: { active: [number, number, number] | null; eruptions: number } = { active: null, eruptions: 0 };
+  readonly vis = { sonarState: this.sonar, geysers: this.geysers };
   readonly camera = { position: { x: 128, y: 41.6, z: 128 }, matrixWorld: { elements: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1] } };
   /** The explorer's feet (the probe reads its climbing state; the ear is the camera). */
   readonly player = { x: 128, y: 40, z: 128, climbing: false, vy: 0 };

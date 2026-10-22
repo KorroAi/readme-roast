@@ -429,6 +429,9 @@ export class AudioSystem {
     played: Record<string, number>;
     stingNotes: number;
     shadowed: number;
+    /** The score's notes started so far (every deck, every layer) and how far ahead they are handed out (s). */
+    notes: number;
+    lookahead: number;
   } {
     const live = this.live;
     const now = live?.ctx.currentTime ?? 0;
@@ -457,6 +460,8 @@ export class AudioSystem {
       played: Object.fromEntries(this.playedCount),
       stingNotes: live?.music.played.sting ?? 0,
       shadowed: this.shadowed,
+      notes: live ? Object.values(live.music.played).reduce((a, b) => a + b, 0) : 0,
+      lookahead: live?.music.lookahead ?? 0,
     };
   }
 

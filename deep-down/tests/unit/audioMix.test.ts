@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { B } from '../../src/config/blocks';
 import { SFX_VOICES } from '../../src/audio/AudioSystem';
 import { EMITTERS, emitterLayer } from '../../src/audio/ambience';
@@ -565,6 +565,79 @@ describe('the AudioSystem on the emulator: one moment, one sound; the sliders', 
     });
     expect(count()).toBe(1);
     expect(rig.audio.stats().played['loop.hazard.cold']).toBe(1);
+  });
+
+  it("huffs each of VIS's geyser columns once from its vent, by distance, quieter behind rock; never paused or too far", () => {
+    rig = systemRig({ sampleRate: 8000 });
+    const g = rig.game;
+    g.strata.biomeHere = 'sulphurBog';
+    const huffs: Array<{ pan: number; gain: number }> = [];
+    const audio = rig.audio as unknown as { play(name: string, params: { pan?: number; gain?: number }): void };
+    const play = audio.play.bind(rig.audio);
+    vi.spyOn(audio, 'play').mockImplementation((name, params) => {
+      if (name === 'amb.geyser') huffs.push({ pan: params.pan ?? 0, gain: params.gain ?? 1 });
+      play(name, params);
+    });
+    const column = (at: [number, number, number] | null, seconds = 4.4) => {
+      g.geysers.active = at;
+      if (at) g.geysers.eruptions++;
+      rig!.run(seconds);
+      g.geysers.active = null;
+      rig!.run(0.5);
+    };
+    // A column standing on and on is one huff, not one per frame.
+    g.geysers.active = [136, 39, 128];
+    g.geysers.eruptions = 3;
+    rig.run(4.4);
+    g.geysers.active = null;
+    rig.run(0.5);
+    expect(huffs).toHaveLength(1);
+    huffs.length = 0;
+    // 8 m to the right (the ear faces +z, its right is +x), then 24 m off, then 40 m (too far).
+    column([136, 39, 128]);
+    column([152, 39, 128]);
+    column([168, 39, 128]);
+    expect(huffs).toHaveLength(2);
+    expect(huffs[0].pan).toBeGreaterThan(0.5);
+    expect(huffs[1].gain).toBeLessThan(huffs[0].gain * 0.5);
+    // The same vent behind a wall of rock: heard, softer.
+    g.voxel = (x) => (x >= 130 && x <= 133 ? B.SLATE : B.AIR);
+    column([136, 39, 128]);
+    expect(huffs).toHaveLength(3);
+    expect(huffs[2].gain).toBeLessThan(huffs[0].gain * 0.75);
+    g.voxel = () => B.AIR;
+    // Paused (a menu over the game): the column stands silent.
+    rig.audio.setPaused(true);
+    column([136, 39, 128]);
+    rig.audio.setPaused(false);
+    expect(huffs).toHaveLength(3);
+    expect(rig.audio.stats().played['amb.geyser']).toBe(4);
+  });
+
+  it('keeps real time on a slow device: at 2 fps a border settles in its own seconds and the score drops no notes', () => {
+    const run = (fps: number) => {
+      const r = systemRig({ sampleRate: 8000, fps });
+      try {
+        r.run(18);
+        const before = r.audio.stats().notes;
+        r.run(12);
+        const notes = r.audio.stats().notes - before;
+        const lookahead = r.audio.stats().lookahead;
+        r.game.strata.biomeHere = 'mushroomForest';
+        r.run(2.6);
+        return { notes, lookahead, biome: r.audio.stats().biome };
+      } finally {
+        r.close();
+      }
+    };
+    const fast = run(30);
+    const slow = run(2);
+    expect(fast.biome).toBe('mushroomForest');
+    expect(slow.biome).toBe('mushroomForest');
+    expect(fast.lookahead).toBeCloseTo(0.35, 2);
+    expect(slow.lookahead).toBeGreaterThan(0.7);
+    expect(fast.notes).toBeGreaterThan(20);
+    expect(slow.notes).toBeGreaterThanOrEqual(fast.notes * 0.9);
   });
 
   it('follows the volume sliders: music, effects and beds each silenced alone, all with the master', () => {

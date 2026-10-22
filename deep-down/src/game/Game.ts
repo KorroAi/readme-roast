@@ -180,6 +180,19 @@ export class Game {
   }
   /** Stops the loop and raises 'dd:crash' after three failed frames in a row. */
   readonly frameGuard = new FrameGuard((err) => this.crash(err));
+  /**
+   * Test machines (`?catchup=N`, 2..8; the e2e specs): a late frame runs up to N simulation steps of
+   * 50 ms before drawing once, so game time keeps pace with the wall clock under SwiftShader at a
+   * frame a second. Without it (players) a frame slower than 50 ms slows the game down instead.
+   */
+  private readonly catchUp = (() => {
+    try {
+      const n = Math.floor(Number(new URLSearchParams(window.location.search).get('catchup')));
+      return Number.isFinite(n) ? Math.max(1, Math.min(8, n)) : 1;
+    } catch {
+      return 1;
+    }
+  })();
   /** Round 3 (UI): the action layout (ui/hud/actions drives it through the InputState). */
   readonly act = new ActionLayer(this);
   /** Round 3 (UI): button size and opacity (a per-device preference, ui/controlPrefs). */
@@ -760,6 +773,9 @@ export class Game {
     }
     const dt = (now - this.lastStep) / 1000;
     this.lastStep = now;
+    // Catch-up (test machines only): the late part of the frame as undrawn 50 ms steps first.
+    let late = Math.max(0, dt) - 0.05;
+    for (let k = 1; k < this.catchUp && late > 0.025 && !this.frameGuard.crashed; k++, late -= 0.05) this.frameGuard.run(() => this.step(0.05, false));
     const step = Math.min(0.05, Math.max(0, dt));
     this.frameGuard.run(() => this.step(step));
   };
@@ -787,8 +803,11 @@ export class Game {
     window.dispatchEvent(new CustomEvent('dd:crash', { detail: err }));
   }
 
-  /** One simulation + render step. Public so tests can advance deterministically. */
-  step(dt: number): void {
+  /**
+   * One simulation + render step. Public so tests can advance deterministically. `draw` false (the
+   * catch-up's extra steps) simulates without drawing.
+   */
+  step(dt: number, draw = true): void {
     const t0 = performance.now();
     this.time += dt;
     this.session.rig.uniforms.uTime.value = this.time;
@@ -797,7 +816,7 @@ export class Game {
     else if (this.mode === 'playing') this.updatePlaying(dt);
     else this.updateIdle(dt);
 
-    this.render(dt);
+    if (draw) this.render(dt);
     consumeEdges(this.input);
     const awake = this.mode === 'playing';
     if (awake !== this.keepAwake) {

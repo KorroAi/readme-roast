@@ -8,7 +8,8 @@ import { loop3 } from './fr/loop3';
 import { pages3 } from './fr/pages3';
 import { stretch3 } from './fr/stretch3';
 import { controls } from './fr/controls';
+import { strata } from './fr/strata';
 
-export const FR_SECTIONS = { items3, loop3, stretch3, pages3, controls } as const;
+export const FR_SECTIONS = { items3, loop3, stretch3, pages3, controls, strata } as const;
 
-export const fr: Partial<Record<TextKey, string>> = { ...items3, ...loop3, ...stretch3, ...pages3, ...controls };
+export const fr: Partial<Record<TextKey, string>> = { ...items3, ...loop3, ...stretch3, ...pages3, ...controls, ...strata };

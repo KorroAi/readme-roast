@@ -408,6 +408,9 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   };
   const biomeAtCell = (x: number, z: number): BiomeId => plan.biomes[st.biomeCol[x + z * sx]];
   const solidN = (x: number, y: number, z: number) => (SOLID[get(x + 1, y, z)] ? 1 : 0) + (SOLID[get(x - 1, y, z)] ? 1 : 0) + (SOLID[get(x, y, z + 1)] ? 1 : 0) + (SOLID[get(x, y, z - 1)] ? 1 : 0);
+  /** No drop beside the cell (each side is rock at the feet or has rock under it): a prop wider than its cell never overhangs a ledge. */
+  const steady = (x: number, y: number, z: number) =>
+    (SOLID[get(x + 1, y, z)] || SOLID[get(x + 1, y - 1, z)]) && (SOLID[get(x - 1, y, z)] || SOLID[get(x - 1, y - 1, z)]) && (SOLID[get(x, y, z + 1)] || SOLID[get(x, y - 1, z + 1)]) && (SOLID[get(x, y, z - 1)] || SOLID[get(x, y - 1, z - 1)]);
   const occupied = new Set<number>();
   const free = (x: number, y: number, z: number) => !occupied.has(x + sx * (y + sy * z)) && get(x, y, z) === B.AIR && get(x, y + 1, z) === B.AIR;
   const claim = (x: number, y: number, z: number) => occupied.add(x + sx * (y + sy * z));
@@ -639,7 +642,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       const z = Math.floor(c[2]) + rng.int(-r, r);
       for (let dy = -2; dy <= 2; dy++) {
         const y = c[1] + dy;
-        if (!seen[x + sx * (y + sy * z)] || !free(x, y, z) || solidN(x, y, z) === 0) continue;
+        if (!seen[x + sx * (y + sy * z)] || !free(x, y, z) || solidN(x, y, z) === 0 || !steady(x, y, z)) continue;
         claim(x, y, z);
         return [x + 0.5, y, z + 0.5];
       }
@@ -892,7 +895,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
     const p = cellOf(i);
     const [x, y, z] = p;
     if (!spaced('prop', p, STRATA_GEN.findSpacing)) continue;
-    if (curated(x, z) || nearArrival(p, 10) || inLair(p) || !free(x, y, z) || solidN(x, y, z) === 0) continue;
+    if (curated(x, z) || nearArrival(p, 10) || inLair(p) || !free(x, y, z) || solidN(x, y, z) === 0 || !steady(x, y, z)) continue;
     const biome = biomeAtCell(x, z);
     const kinds = ambient[biome] ?? ['crate'];
     const kind = kinds[rng.int(0, kinds.length - 1)];
@@ -937,7 +940,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       claim(x, y, z);
       addProp({ kind, x: x + 0.5, y, z: z + 0.5, rotY: Math.atan2(-az, ax), scale: rng.range(0.9, 1) });
     } else {
-      if (!free(x, y, z) || solidN(x, y, z) === 0) continue;
+      if (!free(x, y, z) || solidN(x, y, z) === 0 || !steady(x, y, z)) continue;
       claim(x, y, z);
       addProp({ kind, x: x + 0.5, y, z: z + 0.5, scale: rng.range(0.75, 1.25) });
     }
@@ -1112,6 +1115,14 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
         addProp({ kind: 'lanternPost', x: q[0], y: q[1], z: q[2] }, B.LIGHT_AMBER);
       }
     }
+    // Lamp posts down the ramp: from the balcony, a line of lights winds down to the lake.
+    for (const lp of V.rampLamps) {
+      const lx = Math.floor(lp[0]);
+      const lz = Math.floor(lp[2]);
+      if (!free(lx, lp[1], lz) || !SOLID[get(lx, lp[1] - 1, lz)]) continue;
+      claim(lx, lp[1], lz);
+      addProp({ kind: 'lanternPost', x: lp[0], y: lp[1], z: lp[2] }, V.lava ? B.LIGHT_MAGMA : B.LIGHT_AMBER);
+    }
     // The hall's floor, dressed generously with its biome's props round the lake.
     const kinds = BIOMES[V.biome].props.filter((k) => !HANGING_PROPS.has(k as PropKind) && !['chest', 'crate', 'barrel', 'lanternPost', 'runeStone', 'abyssMonolith'].includes(k));
     if (kinds.length) {
@@ -1143,7 +1154,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       if (!q) continue;
       const qx = Math.floor(q[0]);
       const qz = Math.floor(q[2]);
-      if (curated(qx, qz) || !free(qx, q[1], qz) || !spaced('bank', q, 3)) continue;
+      if (curated(qx, qz) || !free(qx, q[1], qz) || !steady(qx, q[1], qz) || !spaced('bank', q, 3)) continue;
       claim(qx, q[1], qz);
       mark('bank', q, 3);
       addProp({ kind: bank[rng.int(0, bank.length - 1)] as PropKind, x: q[0], y: q[1], z: q[2], scale: rng.range(0.8, 1.2) });
@@ -1229,7 +1240,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       }
       const x = Math.floor(pr.p[0]);
       const z = Math.floor(pr.p[2]);
-      if (!free(x, pr.p[1], z) || !SOLID[get(x, pr.p[1] - 1, z)]) continue;
+      if (!free(x, pr.p[1], z) || !SOLID[get(x, pr.p[1] - 1, z)] || !steady(x, pr.p[1], z)) continue;
       claim(x, pr.p[1], z);
       addProp({ kind: pr.kind as PropKind, x: pr.p[0], y: pr.p[1], z: pr.p[2], rotY: pr.rotY ?? rng.range(0, Math.PI * 2), scale: rng.range(0.85, 1.25) }, pr.kind === 'lanternPost' ? B.LIGHT_AMBER : undefined);
       stats[pn.biome].props++;

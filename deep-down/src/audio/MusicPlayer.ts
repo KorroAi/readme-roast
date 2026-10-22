@@ -7,6 +7,8 @@ import { VoiceLimiter } from './voices';
 
 /** How far ahead of the audio clock notes are scheduled. Covers frame hitches at 30 fps. */
 const LOOKAHEAD = 0.35;
+/** The widest the window grows on a slow device (s): its notes are handed out before the next frame. */
+const MAX_LOOKAHEAD = 1.2;
 /**
  * Score polyphony: a chord (and the one ringing out under it), the lead and its counter, the
  * ostinato and a few short drum hits. Beyond it new notes steal by priority.
@@ -83,6 +85,9 @@ export class MusicPlayer {
   private decks: Deck[] = [];
   private current: Deck | null = null;
   private now = 0;
+  /** The audio clock at the last update, and the widest gap between updates lately (s). */
+  private lastUpdate = Number.NaN;
+  private span = 0;
   private seed: number;
   private mix: LayerMix = { ...CALM_MIX };
   private stingUntil = 0;
@@ -198,7 +203,17 @@ export class MusicPlayer {
     return len;
   }
 
+  /** How far ahead the notes are handed out now (s): wider while the frames come slowly. */
+  get lookahead(): number {
+    return Math.min(MAX_LOOKAHEAD, Math.max(LOOKAHEAD, this.span * 1.5 + 0.05));
+  }
+
   update(now: number, mix: Readonly<LayerMix> = this.mix): void {
+    // A slow device (or a stalled frame) widens the window so no note falls between two frames; it
+    // eases back once the frames come quickly again.
+    const gap = Number.isFinite(this.lastUpdate) ? Math.max(0, now - this.lastUpdate) : 0;
+    this.lastUpdate = now;
+    this.span = gap > this.span ? Math.min(gap, 2) : this.span + (gap - this.span) * 0.02;
     this.now = now;
     if (mix !== this.mix) this.setMix(mix, now);
     else if (this.stingUntil > 0 && now >= this.stingUntil) {
@@ -207,7 +222,7 @@ export class MusicPlayer {
     }
     const d = this.current;
     if (d) {
-      const n = d.scheduler.advance(now, now + LOOKAHEAD, this.mix, this.batch);
+      const n = d.scheduler.advance(now, now + this.lookahead, this.mix, this.batch);
       for (let i = 0; i < n; i++) this.start(d, this.batch[i], now);
     }
     // Release decks that have faded and rung out.

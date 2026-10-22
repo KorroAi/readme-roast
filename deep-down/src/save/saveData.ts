@@ -306,7 +306,9 @@ function normalizeCache(x: unknown, report?: NormalizeReport): CacheState | null
     }
   }
   if (Object.keys(items).length === 0) return null;
-  return { x: x.x as number, y: x.y as number, z: x.z as number, depth: finite(x.depth) ? (x.depth as number) : 0, items };
+  // Round 3 (LOOP's 20:47 ask): the stratum the pack was left in (absent in the old world and older saves).
+  const stratum = Number.isInteger(x.stratum) && (x.stratum as number) >= 1 && (x.stratum as number) <= STRATUM_COUNT ? { stratum: x.stratum as number } : {};
+  return { x: x.x as number, y: x.y as number, z: x.z as number, depth: finite(x.depth) ? (x.depth as number) : 0, items, ...stratum } as CacheState;
 }
 
 /**

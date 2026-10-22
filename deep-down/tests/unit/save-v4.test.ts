@@ -71,6 +71,18 @@ describe('save v4 (round 3: the strata)', () => {
     expect(res.data).toEqual(d);
   });
 
+  it("keeps the black-out pack's stratum (LOOP's cache.stratum), and drops a stratum that is not one", () => {
+    const d = createNewSave(SPAWN, WORLD.seed, 1_700_000_000_000);
+    d.strata = strataPart();
+    d.progression.cache = { x: 10.5, y: 30, z: 12.5, depth: 120, items: { copperOre: 4 }, stratum: 3 };
+    const res = new SaveSystem(storeWith(d)).load();
+    expect(res.data?.progression.cache).toEqual({ x: 10.5, y: 30, z: 12.5, depth: 120, items: { copperOre: 4 }, stratum: 3 });
+    const bad = { ...d, progression: { ...d.progression, cache: { ...d.progression.cache!, stratum: 9 } } };
+    const res2 = new SaveSystem(storeWith(bad)).load();
+    expect(res2.data?.progression.cache?.stratum).toBeUndefined();
+    expect(res2.data?.progression.cache?.items).toEqual({ copperOre: 4 });
+  });
+
   it('drops a malformed strata part piece by piece, never the whole save', () => {
     const st = strataPart() as unknown as Record<string, unknown>;
     (st.strata as Record<string, unknown>)['9'] = { edits: [1, 2] };

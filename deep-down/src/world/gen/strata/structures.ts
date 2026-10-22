@@ -66,6 +66,10 @@ export interface VistaOut {
   lights: V3[];
   /** Lava instead of water (the fire strata). */
   lava: boolean;
+  /** Lamp posts down the ramp (feet, on its outer edge): from the balcony a line of lights winds to the lake. */
+  rampLamps: V3[];
+  /** The island at the lake's heart and the top of its spire (a light burns there). */
+  island: V3;
 }
 
 /** The vista's name per stratum (WORLD_TEXT_EN `site.vista<n>.*`). */
@@ -205,6 +209,67 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
     }
     if (k === steps) rampFoot = [n.x + Math.cos(a) * rr, n.y, n.z + Math.sin(a) * rr];
   }
+  // Lamp posts down the ramp, on its outer edge.
+  const rampLamps: V3[] = [];
+  for (const t of [0.16, 0.38, 0.6, 0.82]) {
+    const a = rampStart + side * span * t;
+    const h = Math.round(by - OVERLOOK_RISE * t);
+    rampLamps.push([Math.floor(n.x + Math.cos(a) * (rr + 1.1)) + 0.5, h, Math.floor(n.z + Math.sin(a) * (rr + 1.1)) + 0.5]);
+  }
+
+  // 3b. The island at the lake's heart, and its spire with a light at the top: the first thing the
+  // eye finds from the balcony, mirrored in the water (across the lava in the fire strata).
+  const islandR = Math.max(2.2, Math.min(3.3, lakeR * 0.3));
+  const islandCells = new Set<number>();
+  for (let dz = -4; dz <= 4; dz++) for (let dx = -4; dx <= 4; dx++) {
+    const x = Math.floor(n.x) + dx;
+    const z = Math.floor(n.z) + dz;
+    if (Math.hypot(x + 0.5 - n.x, z + 0.5 - n.z) > islandR) continue;
+    put(st, x, n.y - 1, z, host[0]);
+    put(st, x, n.y - 2, z, host[0]);
+    islandCells.add(x + z * sx);
+    reserved[x + z * sx] = 1;
+  }
+  const spireH = rng.int(8, 12);
+  for (let k = 0; k < spireH; k++) {
+    const r0 = 1.35 * (1 - k / (spireH + 1.5));
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++) {
+      if ((dx + 0.5) ** 2 + (dz + 0.5) ** 2 > r0 * r0 + 0.35) continue;
+      putAir(st, Math.floor(n.x) + dx, n.y + k, Math.floor(n.z) + dz, host[1]);
+    }
+  }
+  const island: V3 = [Math.floor(n.x) + 0.5, n.y + spireH, Math.floor(n.z) + 0.5];
+  for (let i = lakeMask.length - 1; i >= 0; i--) if (islandCells.has(lakeMask[i][0] + lakeMask[i][1] * sx)) lakeMask.splice(i, 1);
+
+  // 3c. Stalactites from the dome (none over the balcony, the ramp or the fall): the hall's height reads.
+  const dripStone = n.biome === 'frostCaverns' ? B.FROST_ICE : n.biome === 'obsidianAbyss' ? B.OBSIDIAN : host[1];
+  const tipLight = lava ? B.LIGHT_MAGMA : BIOMES[n.biome].lightBlock;
+  const stalactiteTips: V3[] = [];
+  for (let k = 0, made = 0; k < 60 && made < 14; k++) {
+    const a = rng.range(0, Math.PI * 2);
+    // Inside the ramp's ring (it winds along the wall), never over the balcony's view line or the fall.
+    const r = rng.range(0.15, 1) * (rr - 4);
+    if (Math.abs(angDiff(a, a0)) < 0.7 && r > R * 0.45) continue;
+    const x = Math.floor(n.x + Math.cos(a) * r);
+    const z = Math.floor(n.z + Math.sin(a) * r);
+    if (Math.hypot(x + 0.5 - n.x, z + 0.5 - n.z) < islandR + 2 || reserved[x + z * sx]) continue;
+    let roof = -1;
+    for (let y = n.y + 8; y < w.sy - 3; y++) if (SOLID[get(st, x, y, z)]) {
+      roof = y;
+      break;
+    }
+    if (roof < 0) continue;
+    const len = Math.min(roof - (n.y + 7), rng.int(3, 8));
+    if (len < 3) continue;
+    const base = rng.range(1.1, 2.2);
+    for (let j = 0; j < len; j++) {
+      const rj = base * (1 - j / (len + 0.5));
+      const Rj = Math.ceil(rj);
+      for (let dz = -Rj; dz <= Rj; dz++) for (let dx = -Rj; dx <= Rj; dx++) if (dx * dx + dz * dz <= rj * rj + 0.3) putAir(st, x + dx, roof - 1 - j, z + dz, dripStone);
+    }
+    if (made % 3 === 0) stalactiteTips.push([x, roof - 1 - len, z]);
+    made++;
+  }
 
   // 4. The plunge pool under the fall (one deep) and the stream from it to the lake.
   const lakes: LakeDef[] = [];
@@ -250,9 +315,16 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
       }
     }
   }
-  for (const [x, y, z] of [[Math.floor(rampFoot[0]), n.y + 2, Math.floor(rampFoot[2])], [Math.floor(n.x), n.y + 4, Math.floor(n.z)], [Math.floor(P[0]), by + 2, Math.floor(P[2])]] as V3[]) {
+  for (const [x, y, z] of [[Math.floor(rampFoot[0]), n.y + 2, Math.floor(rampFoot[2])], [Math.floor(island[0]), island[1], Math.floor(island[2])], [Math.floor(P[0]), by + 2, Math.floor(P[2])]] as V3[]) {
     if (get(st, x, y, z) === B.AIR) {
       put(st, x, y, z, lb);
+      lights.push([x, y, z]);
+    }
+  }
+  // A glow under some of the stalactites' tips (glow-worm threads, a drop of light).
+  for (const [x, y, z] of stalactiteTips) {
+    if (get(st, x, y, z) === B.AIR) {
+      put(st, x, y, z, tipLight);
       lights.push([x, y, z]);
     }
   }
@@ -271,6 +343,8 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
     lakes,
     lights,
     lava,
+    rampLamps,
+    island,
   };
 }
 

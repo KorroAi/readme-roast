@@ -695,6 +695,15 @@ if (opt.game) {
 }
 
 async function gameFlow(page, st, until, shot) {
+  // A tap is one CDP gesture (start and end together): Playwright's tap() awaits each half, and
+  // under load the page reads a long-press (no click).
+  const cdp = await page.context().newCDPSession(page);
+  const tapLoc = async (loc) => {
+    await loc.waitFor({ state: 'visible', timeout: 180_000 });
+    const b = await loc.boundingBox();
+    const p = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), id: 1, radiusX: 8, radiusY: 8, force: 1 };
+    await Promise.all([cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] }), cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })]);
+  };
   // The boot mark: index.html's inline emblem, painted before the bundle runs.
   await page.goto(`${base}index.html`, { waitUntil: 'commit' });
   const boot = await page.evaluate(
@@ -729,10 +738,10 @@ async function gameFlow(page, st, until, shot) {
   check('game: HUD shows the stratum', (await page.locator('.dd-where-stratum').innerText()) === 'I');
   check('game: the minimap is drawn', await page.locator('.dd-minimap:not(.empty)').isVisible());
 
-  await page.locator('.dd-hud [data-ui-target="menu"]').tap();
+  await tapLoc(page.locator('.dd-hud [data-ui-target="menu"]'));
   await until(() => window.__DD__.state().mode === 'paused');
   check('game: ≡ pauses', (await st()).screen === 'pause');
-  await page.getByRole('button', { name: /^Settings$/ }).tap();
+  await tapLoc(page.getByRole('button', { name: /^Settings$/ }));
   await until(() => window.__DD__.state().screen === 'settings');
   const invert = page.getByRole('switch', { name: /Invert vertical/i });
   await invert.focus();
@@ -741,21 +750,21 @@ async function gameFlow(page, st, until, shot) {
   await page.keyboard.press('Space');
   check('game: settings show the expedition seed', /\d+/.test(await page.locator('.dd-settings-seed').innerText().catch(() => '')));
   const fps = page.getByRole('switch', { name: /Show performance/i });
-  await fps.tap();
+  await tapLoc(fps);
   check('game: performance switch toggles', (await fps.getAttribute('aria-checked')) === 'true');
   await shot('settings');
-  await page.getByRole('button', { name: /Back/i }).tap();
+  await tapLoc(page.getByRole('button', { name: /Back/i }));
   await until(() => window.__DD__.state().screen === 'pause');
-  await page.getByRole('button', { name: /Resume/i }).tap();
+  await tapLoc(page.getByRole('button', { name: /Resume/i }));
   await until(() => window.__DD__.state().mode === 'playing' && window.__DD__.state().screen === 'none');
   const perfOn = await page.locator('.dd-perf.on').waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false);
   check('game: perf line visible after enabling it', perfOn, await page.locator('.dd-perf').innerText());
 
-  await page.locator('.dd-hud [data-ui-target="bag"]').tap();
+  await tapLoc(page.locator('.dd-hud [data-ui-target="bag"]'));
   await until(() => window.__DD__.state().screen === 'inventory');
   check('game: the Bag lists the pick worn', (await page.locator('.dd-m3-gearslot:not(.empty)').count()) > 0);
   await shot('bag');
-  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await tapLoc(page.locator('.dd-menu3 [data-key="close"]').first());
   await until(() => window.__DD__.state().screen === 'none');
 
   // The camp's Workbench: its Interact chip opens Craft; torches by hand.
@@ -769,19 +778,19 @@ async function gameFlow(page, st, until, shot) {
   const use = page.locator('.dd-use');
   await use.waitFor({ state: 'visible', timeout: 30_000 });
   await shot('use');
-  await use.tap();
+  await tapLoc(use);
   await until(() => window.__DD__.state().screen === 'crafting');
-  await page.locator('[data-key="tab:building"]').tap();
+  await tapLoc(page.locator('[data-key="tab:building"]'));
   await shot('crafting');
   const torches0 = await page.evaluate(() => window.__DD__.game.backpack.count('torch'));
-  await page.locator('[data-key="craft:torch:1"]').tap();
+  await tapLoc(page.locator('[data-key="craft:torch:1"]'));
   await until((n) => window.__DD__.game.backpack.count('torch') > n, torches0);
   check('game: torches crafted in the Craft menu', true);
-  await page.locator('.dd-menu3 [data-key="close"]').first().tap();
+  await tapLoc(page.locator('.dd-menu3 [data-key="close"]').first());
   await until(() => window.__DD__.state().screen === 'none');
 
-  await page.locator('.dd-hud [data-ui-target="menu"]').tap();
-  await page.getByRole('button', { name: /Save and Quit/i }).tap();
+  await tapLoc(page.locator('.dd-hud [data-ui-target="menu"]'));
+  await tapLoc(page.getByRole('button', { name: /Save and Quit/i }));
   await until(() => window.__DD__.state().mode === 'menu');
   const cont = page.getByRole('button', { name: /Continue/i });
   await cont.waitFor({ state: 'visible' });

@@ -38,7 +38,7 @@ export function installUiDebug(game: Game): UiDebug {
   for (const type of UI_EVENT_TYPES) {
     game.bus.on(type, (payload: unknown) => {
       log.push({ type, payload, t: performance.now() });
-      if (log.length > 600) log.shift();
+      if (log.length > 3000) log.shift();
     });
   }
   const api: UiDebug = {
