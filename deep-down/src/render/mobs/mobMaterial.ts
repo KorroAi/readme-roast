@@ -149,8 +149,17 @@ in vec3 vLocal;
 in float vDepth;
 layout(location = 0) out highp vec4 fragColor;
 const float MOB_KEY = 0.62;
+// A 4x4 ordered dither (the near-lens fade).
+const float MOB_BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
 
 void main() {
+  // Never a wall of body at the lens (QA 22:10): within ~1 m of the eye a creature dissolves in a fine
+  // screen-space dither, so the fight beyond it (its legs, its tell, the marker) stays readable.
+  float lens = smoothstep(0.35, 1.15, vDepth);
+  if (lens < 1.0) {
+    ivec2 q = ivec2(gl_FragCoord.xy) & 3;
+    if (lens * 16.0 <= MOB_BAYER[q.x + q.y * 4] + 0.5) discard;
+  }
 #ifdef HULL
   float a = M_HISEL * M_FADE;
   if (a < 0.02) discard;

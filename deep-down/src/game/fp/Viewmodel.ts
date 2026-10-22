@@ -668,7 +668,31 @@ export class Viewmodel {
    * @param ambient world light at the eye (linear)
    * @param flameColor the lantern light's colour times its intensity (linear)
    */
+  /**
+   * The hands at rest again (a respawn, a new session): the lantern's pendulum, the walk, a swap or
+   * a raise under way. Also what update() falls back to if a bad number got into them: a NaN in a
+   * spring never leaves it, and the hands would stay drawn black, the lantern gone, for good.
+   */
+  resetMotion(): void {
+    this.swayX = this.swayZ = this.swayVX = this.swayVZ = 0;
+    this.lastYaw = NaN;
+    this.walkPhase = 0;
+    this.moving = 0;
+    this.raiseT = 1e9;
+    this.lowered = 0;
+    this.actT = 1;
+    this.freeze = 0;
+    this.flashT = 0;
+    this.aim.yaw = 0;
+    this.aim.pitch = 0;
+  }
+
   update(dt: number, camera: THREE.PerspectiveCamera, aspect: number, speed: number, lateral: number, ambient: THREE.Color, flameColor: THREE.Color): void {
+    // Inputs and state stay finite (a NaN speed on a frame of no time once left both hands black).
+    if (!Number.isFinite(dt) || dt < 0) dt = 0;
+    if (!Number.isFinite(speed)) speed = 0;
+    if (!Number.isFinite(lateral)) lateral = 0;
+    if (![this.swayX, this.swayZ, this.swayVX, this.swayVZ, this.walkPhase, this.moving, this.lowered, this.actT, this.raiseT, this.aim.yaw, this.aim.pitch].every(Number.isFinite)) this.resetMotion();
     this.time = this.clock ?? this.time + dt;
     if (this.freeze > 0) this.freeze = Math.max(0, this.freeze - dt);
     else this.actT = Math.min(1, this.actT + dt / this.actDur);

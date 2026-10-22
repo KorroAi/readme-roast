@@ -939,6 +939,13 @@ export class MobSim {
     if (Math.abs(k.x) + Math.abs(k.z) < 0.02) return;
     const loco = m.def.locomotion;
     if (loco === 'walk' || loco === 'still') {
+      // A blow never knocks a monster into the camp or an outpost (where it would be put away, fading
+      // at the edge: QA 22:25, the tutorial's Tick): it stops at the edge of the light instead.
+      if (m.hostile && !m.guardian && this.unsafe(m.foot.x + k.x * 0.12, m.foot.y + 0.5, m.foot.z + k.z * 0.12)) {
+        k.x = 0;
+        k.z = 0;
+        return;
+      }
       if (m.mode !== 'under') {
         walkStep(this.env.solid, m.foot, k.x, k.z, dt, this.heightOf(m), m.bounds.radius);
         this.placeWalker(m);

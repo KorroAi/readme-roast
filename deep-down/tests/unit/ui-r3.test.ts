@@ -15,6 +15,8 @@ import { clampZoom, homeCamera, mapToView, scaleBarMetres, viewToMap, zoomAbout 
 import { MapRaster } from '../../src/ui/hud/Minimap';
 import { trackerText } from '../../src/ui/hud/Hud';
 import { openStratum } from '../../src/ui/screens/r3/quests';
+import * as THREE from 'three';
+import { Viewmodel } from '../../src/game/fp/Viewmodel';
 import { sanitizeControlPrefs, DEFAULT_CONTROL_PREFS, languageOf } from '../../src/ui/controlPrefs';
 import { GLYPH_NAMES, iconSvg } from '../../src/ui/hud/glyphs';
 import { en } from '../../src/i18n/en';
@@ -304,6 +306,23 @@ describe('round 3 HUD and menu helpers', () => {
     expect(rim[0] + rim[1] + rim[2]).toBeGreaterThan(inner[0] + inner[1] + inner[2]);
     const rock = px(3, 3);
     expect(rock[0] + rock[1] + rock[2]).toBeLessThan(inner[0] + inner[1] + inner[2]);
+  });
+
+  it('keeps the hands finite through a bad frame (QA 22:10: black hands, no lantern after a black-out)', () => {
+    const vm = new Viewmodel();
+    const cam = new THREE.PerspectiveCamera(70, 390 / 844, 0.05, 100);
+    cam.updateMatrixWorld();
+    const amb = new THREE.Color(0.2, 0.2, 0.2);
+    const flame = new THREE.Color(1, 0.6, 0.3);
+    // A frame with no time and a NaN speed (0 / 0), then ordinary frames.
+    vm.update(0, cam, 390 / 844, Number.NaN, Number.NaN, amb, flame);
+    for (let i = 0; i < 5; i++) vm.update(1 / 30, cam, 390 / 844, 1.2, 0.3, amb, flame);
+    const bad: string[] = [];
+    vm.group.traverse((o) => {
+      o.updateMatrixWorld(true);
+      if (!o.matrixWorld.elements.every(Number.isFinite)) bad.push(o.name || o.type);
+    });
+    expect(bad).toEqual([]);
   });
 
   it('opens the main chain on the stratum under way (the deeper ones stay sealed)', () => {

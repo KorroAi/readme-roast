@@ -1436,6 +1436,9 @@ export class Game {
     // FP: no fight follows the explorer home.
     this.combat.reset();
     this.viewmodel.setRightHand('pick', true);
+    // FP: the hands wake at rest (and lit: the lantern is refilled just below).
+    this.viewmodel.resetMotion();
+    this.viewmodel.setVisible(true);
     this.health = new Health(this.health.max);
     this.lanternFuel.refill(lanternForTier(this.equipment.tiers.lantern));
     this.player.teleport(spawn.x, spawn.y, spawn.z, spawn.yaw);

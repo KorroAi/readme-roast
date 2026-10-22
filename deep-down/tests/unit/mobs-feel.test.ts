@@ -445,3 +445,39 @@ describe('hunters find the explorer round rock (the flow field)', () => {
     expect(closest, `${kind} came round`).toBeLessThan(5);
   });
 });
+
+// QA 22:10: at striking range the lens was inside the Amber Matriarch (its model three times its
+// capsule). Every guardian and big creature now keeps the explorer out of its drawn bulk.
+describe('the explorer is kept out of a big body', () => {
+  it("bodyExtent reads a model's bulk: the Matriarch is wider than its capsule, a serpent is long", async () => {
+    const { bodyExtent, mobModel } = await import('../../src/render/mobs/models');
+    const mat = bodyExtent(mobModel('amberMatriarch'));
+    expect(mat.side).toBeGreaterThan(SPECIES.amberMatriarch.radius * 1.15);
+    const wyrm = bodyExtent(mobModel('rimeWyrm'));
+    expect(wyrm.back + wyrm.front).toBeGreaterThan(wyrm.side * 4);
+    expect(mat.top).toBeGreaterThan(mat.bottom);
+  });
+
+  it('bodyPush puts the explorer on the edge of the body along the nearest way out, and leaves one outside alone', async () => {
+    const { bodyPush } = await import('../../src/game/mobs/bodyPush');
+    const b = { front: 2, back: 1, side: 1.5 };
+    // Outside: nothing.
+    expect(bodyPush(10, 0, 0, 0, 0, b, 0.4)).toBeNull();
+    // Inside on its right flank (yaw 0: right is +x): out along +x to side + pad.
+    const p = bodyPush(1, 0, 0, 0, 0, b, 0.4)!;
+    expect(p.x).toBeCloseTo(0.9, 5);
+    expect(p.z).toBeCloseTo(0, 5);
+    // Ahead of it, turned to face +x (yaw pi/2): out along +x past its front (2 ahead: spine to 0.5, then 1.9).
+    const q = bodyPush(1.5, 0, 0, 0, Math.PI / 2, b, 0.4)!;
+    expect(1.5 + q.x).toBeCloseTo(0.5 + 1.9, 5);
+    expect(Math.abs(q.z)).toBeLessThan(1e-6);
+    // A long body: beside its tail, pushed sideways, not to its far end.
+    const long = { front: 1, back: 5, side: 0.6 };
+    const r = bodyPush(0.3, -3, 0, 0, 0, long, 0.4)!;
+    expect(r.z).toBeCloseTo(0, 5);
+    expect(0.3 + r.x).toBeCloseTo(1.0, 5);
+    // Right on its spine: still out, to a side.
+    const s = bodyPush(0, 0.2, 0, 0, 0, b, 0.4)!;
+    expect(Math.hypot(s.x, s.z)).toBeGreaterThan(1);
+  });
+});

@@ -1,9 +1,11 @@
 import * as THREE from 'three';
 import { SOLID } from '../../config/blocks';
 import { ITEMS, type ItemId } from '../../config/items';
-import { WORLD, lanternForTier } from '../../config/balance';
+import { PLAYER, WORLD, lanternForTier } from '../../config/balance';
 import { hasText, t, type TextKey } from '../../i18n';
 import { MobRenderer } from '../../render/mobs/MobRenderer';
+import { bodyExtent, mobModel } from '../../render/mobs/models';
+import { bodyPush } from './bodyPush';
 import { MOB_DROPS, MOBS_RULES, TREASURE_DROPS } from './config';
 import { MobSim, type MobEnv, type MobSimEvent, type SentinelSite, type SimMob } from './MobSim';
 import { standableFor } from './nav';
@@ -313,6 +315,7 @@ export class MobDirector implements MobSystem {
       simDt = dt - used;
     }
     this.update(active ? simDt : 0, ctx);
+    if (active) this.keepExplorerOut();
     if (active) {
       const u = g.session.rig.uniforms;
       u.uLanternIntensity.value *= this.sim.dim * this.sim.boost;
@@ -324,6 +327,49 @@ export class MobDirector implements MobSystem {
     if (active) this.lockHeartbeat(dt);
     if (active && this.fightWanted) this.tutorialFight(dt, ctx);
     if (active && this.companionState) this.keepCompanion(ctx);
+  }
+
+  /**
+   * The explorer never stands inside a big body (QA 22:10: at striking range the lens was inside the
+   * Amber Matriarch, whose model is three times its capsule): every guardian and large or huge
+   * creature pushes the explorer out of its drawn bulk (a capsule along its yaw, from its model),
+   * never into rock, and takes the explorer's speed into it; a charge shoves the explorer aside.
+   */
+  private keepExplorerOut(): void {
+    const p = this.game.player as unknown as { x: number; y: number; z: number; vx: number; vz: number };
+    const world = this.game.session.world;
+    const hw = PLAYER.width / 2;
+    const free = (x: number, z: number): boolean => {
+      for (let yy = Math.floor(p.y + 0.05); yy <= Math.floor(p.y + PLAYER.height - 0.05); yy++)
+        for (const ox of [-hw, hw]) for (const oz of [-hw, hw]) if (SOLID[world.get(Math.floor(x + ox), yy, Math.floor(z + oz))] === 1) return false;
+      return true;
+    };
+    for (const m of this.sim.mobs) {
+      if (m.dying || m.tame || m.fade < 0.5 || m.brain === 'vista' || m.mode === 'under') continue;
+      if (!m.guardian && m.def.size !== 'large' && m.def.size !== 'huge') continue;
+      const e = bodyExtent(mobModel(m.kind, m.brain === 'thief' && m.treasure ? 1 : 0));
+      const sc = m.scale;
+      if (p.y > m.position.y + e.top * sc || p.y + PLAYER.height < m.position.y + e.bottom * sc) continue;
+      const push = bodyPush(p.x, p.z, m.position.x, m.position.z, m.yaw, { front: e.front * sc, back: e.back * sc, side: e.side * sc }, hw + 0.12);
+      if (!push) continue;
+      const l = Math.hypot(push.x, push.z);
+      if (!(l > 1e-5)) continue;
+      // Out along the push if the rock allows, else along one axis of it, else stay.
+      if (free(p.x + push.x, p.z + push.z)) {
+        p.x += push.x;
+        p.z += push.z;
+      } else if (Math.abs(push.x) > 1e-4 && free(p.x + push.x, p.z)) p.x += push.x;
+      else if (Math.abs(push.z) > 1e-4 && free(p.x, p.z + push.z)) p.z += push.z;
+      else continue;
+      // No walking on into the body.
+      const nx = push.x / l;
+      const nz = push.z / l;
+      const into = p.vx * nx + p.vz * nz;
+      if (into < 0) {
+        p.vx -= into * nx;
+        p.vz -= into * nz;
+      }
+    }
   }
 
   /**

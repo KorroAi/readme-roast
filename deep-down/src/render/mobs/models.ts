@@ -30,6 +30,51 @@ export function mobModel(kind: MobKind, variant = 0): MobModel {
   return m;
 }
 
+/**
+ * A creature's drawn bulk in model space (metres at scale 1, +z its front): how far its body reaches
+ * ahead, behind and to each side (the 90th percentile of its vertices, so a whisker or a claw tip
+ * does not count), and its height. The explorer is kept out of it (MobDirector), so the lens never
+ * ends up inside a guardian whose model is wider than its capsule.
+ */
+export interface BodyExtent {
+  front: number;
+  back: number;
+  side: number;
+  top: number;
+  bottom: number;
+}
+
+const extents = new WeakMap<BuiltModel, BodyExtent>();
+
+export function bodyExtent(model: BuiltModel): BodyExtent {
+  let e = extents.get(model);
+  if (e) return e;
+  const p = model.geometry.getAttribute('position');
+  const fronts: number[] = [];
+  const backs: number[] = [];
+  const sides: number[] = [];
+  let top = -Infinity;
+  let bottom = Infinity;
+  for (let i = 0; i < p.count; i++) {
+    const x = p.getX(i);
+    const y = p.getY(i);
+    const z = p.getZ(i);
+    if (z >= 0) fronts.push(z);
+    else backs.push(-z);
+    sides.push(Math.abs(x));
+    top = Math.max(top, y);
+    bottom = Math.min(bottom, y);
+  }
+  const q = (a: number[], f: number) => {
+    if (!a.length) return 0;
+    a.sort((u, v) => u - v);
+    return a[Math.min(a.length - 1, Math.floor(f * a.length))];
+  };
+  e = { front: q(fronts, 0.9), back: q(backs, 0.9), side: q(sides, 0.9), top: Number.isFinite(top) ? top : 0, bottom: Number.isFinite(bottom) ? bottom : 0 };
+  extents.set(model, e);
+  return e;
+}
+
 /** The moths are drawn by MobRenderer's instanced swarm; their entry here is never used. */
 const BUILDERS: Partial<Record<MobKind, (variant: number) => MobModel>> = {
   crawler,
