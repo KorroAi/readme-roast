@@ -46,8 +46,12 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   const block = vein!;
   const at = await screenOf(page, [block[0] + 0.5, block[1] + 0.5, block[2] + 0.5]);
   expect(at, 'the vein is on screen').not.toBeNull();
+  // (The tap's ray may meet the cell of the same vein in front of this one first: any copper broken.)
+  const copper0 = await page.evaluate((id) => window.__DD__.events('block:broken').filter((e: { payload: { block?: number } }) => e.payload?.block === id).length, COPPER);
   await touch.tap({ x: Math.round(at!.x), y: Math.round(at!.y) });
-  expect(await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), block)) === AIR, 20), 'the tapped vein broke').toBe(true);
+  const veinBroke = () =>
+    page.evaluate(([x, y, z, id, n, air]) => window.__DD__.block(x, y, z) === air || window.__DD__.events('block:broken').filter((e: { payload: { block?: number } }) => e.payload?.block === id).length > n, [...block, COPPER, copper0, AIR] as const);
+  expect(await untilGame(page, veinBroke, 20), 'the tapped vein broke').toBe(true);
 
   await mark(page, 'controls look');
   // A drag on the view turns it.

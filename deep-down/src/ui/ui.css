@@ -2190,6 +2190,10 @@
   }
   .dd-death-story {
     gap: 6px;
+    /* What scrolls fades out at the foot instead of being cut through a row. */
+    padding-bottom: 18px;
+    -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent);
+    mask-image: linear-gradient(180deg, #000 calc(100% - 22px), transparent);
   }
 }
 .dd-death-panel .dd-ledger {

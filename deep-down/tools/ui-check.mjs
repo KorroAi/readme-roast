@@ -107,8 +107,9 @@ if (opt.shots) {
     const vp = VIEWPORTS[name];
     for (const scene of SCENES) {
       const { page, context } = await openPage(vp, scene);
-      // The discovery banner rises over 1 s; the arrival card and the menus settle; the trip card's rise.
-      await page.waitForTimeout(scene === 'discovery' || scene.startsWith('hud:arrival') ? 1100 : scene.startsWith('trip') || scene.startsWith('map') ? 900 : 600);
+      // The discovery banner rises over 1 s; the arrival card and the menus settle; the trip card's rise;
+      // the black-out's fall to dark, its dying flame and the card rising out of it (1.75 s).
+      await page.waitForTimeout(scene.startsWith('death') ? 1900 : scene === 'discovery' || scene.startsWith('hud:arrival') ? 1100 : scene.startsWith('trip') || scene.startsWith('map') ? 900 : 600);
       const file = `${opt.out}/${scene.replace(':', '-').replaceAll('+', '_')}-${name}.png`;
       await page.screenshot({ path: file });
       const issues = await audit(page);
@@ -222,9 +223,10 @@ if (opt.touch) {
   check('look drag -> lookDX/lookDY', Math.abs(ldx - 60) < 1.5 && Math.abs(ldy - 10) < 1.5, { lookDX: ldx, lookDY: ldy });
   check('look drag never mines', after.miningFrames === before.miningFrames && !s.mining, { miningFrames: after.miningFrames - before.miningFrames });
 
-  // Hold to mine: still for 230 ms -> mining at the finger in NDC; moving re-aims, no look.
+  // Hold to mine: still for 230 ms -> mining at the finger in NDC; moving re-aims, no look. (On the
+  // open view right of the top block: a finger landing on the tracker presses it instead.)
   before = await seen();
-  await touch('touchStart', [{ x: 520, y: 150 }]);
+  await touch('touchStart', [{ x: 600, y: 210 }]);
   await wait(100);
   s = await input();
   check('hold: not mining before 230 ms', !s.mining, { mining: s.mining });
@@ -235,15 +237,15 @@ if (opt.touch) {
     await wait(30);
     s = await input();
   }
-  const nx = (520 / vp.width) * 2 - 1;
-  const ny = 1 - (150 / vp.height) * 2;
+  const nx = (600 / vp.width) * 2 - 1;
+  const ny = 1 - (210 / vp.height) * 2;
   check('hold: mining with pointer aim', s.mining && s.aimFromPointer && Math.abs(s.aimX - nx) < 0.01 && Math.abs(s.aimY - ny) < 0.01, { aimX: s.aimX, aimY: s.aimY, expect: [nx, ny] });
-  await touch('touchMove', [{ x: 560, y: 120 }]);
-  await touch('touchMove', [{ x: 600, y: 100 }]);
+  await touch('touchMove', [{ x: 640, y: 190 }]);
+  await touch('touchMove', [{ x: 680, y: 175 }]);
   await wait(60);
   s = await input();
   after = await seen();
-  check('hold: moving re-aims', Math.abs(s.aimX - ((600 / vp.width) * 2 - 1)) < 0.01 && Math.abs(s.aimY - (1 - (100 / vp.height) * 2)) < 0.01, { aimX: s.aimX, aimY: s.aimY });
+  check('hold: moving re-aims', Math.abs(s.aimX - ((680 / vp.width) * 2 - 1)) < 0.01 && Math.abs(s.aimY - (1 - (175 / vp.height) * 2)) < 0.01, { aimX: s.aimX, aimY: s.aimY });
   check('hold: moving does not rotate the camera', after.lookDX === before.lookDX && after.lookDY === before.lookDY && s.lookDX === 0, { d: after.lookDX - before.lookDX });
   await touch('touchEnd', []);
   await wait(30);
@@ -391,10 +393,11 @@ if (opt.touch) {
     await page.locator(`[data-key="rail:${id}"]`).tap();
     await wait(100);
     const got = await screen();
-    await page.locator('.dd-menu3 [data-key="help"]').tap();
-    const help = (await page.locator('.dd-m3-helpcard').count()) === 1;
-    await page.locator('.dd-menu3 [data-key="help"]').tap();
-    check(`the rail reaches ${id}; its help card toggles`, got === id && help && (await page.locator('.dd-m3-helpcard').count()) === 0, { got, help });
+    // (The live screen's: the one leaving along the rail is still in the exit layer a moment.)
+    await page.locator('.dd-screens .dd-menu3 [data-key="help"]').tap();
+    const help = (await page.locator('.dd-screens .dd-m3-helpcard').count()) === 1;
+    await page.locator('.dd-screens .dd-menu3 [data-key="help"]').tap();
+    check(`the rail reaches ${id}; its help card toggles`, got === id && help && (await page.locator('.dd-screens .dd-m3-helpcard').count()) === 0, { got, help });
   }
   await page.locator('[data-key="tab:building"]').tap();
   check('switching tabs does not replay the screen entrance', await page.evaluate(() => document.querySelector('.dd-screens .dd-screen').getAnimations({ subtree: true }).length === 0));
@@ -425,15 +428,33 @@ if (opt.touch) {
 
   // A long-press on a hotbar slot opens the Bag to fill it; a tap on an item puts it there and closes.
   const free = await box('.dd-hslot[data-slot="5"]');
+  // Held until the Bag opens (the long-press is timed on the page: a slow frame runs it late).
   await touch('touchStart', [{ x: free.x, y: free.y, id: 6 }]);
   await wait(650);
+  for (let i = 0; i < 30 && (await screen()) !== 'inventory'; i++) await wait(100);
   await touch('touchEnd', []);
   await wait(150);
-  check('long-press a slot -> the Bag in "choose for slot 6" mode', (await screen()) === 'inventory' && (await page.locator('.dd-m3-banner').count()) === 1);
-  await page.locator('[data-key="item:rope"]').tap();
-  await wait(150);
-  const slot6 = await page.evaluate(() => window.__UI__.actions.loop().hotbarView().slots[5].item);
-  check('a tap on an item fills the slot and closes the Bag', slot6 === 'rope' && (await screen()) === 'none', { slot6 });
+  const rebuilt = await page.evaluate(
+    () =>
+      new Promise((done) => {
+        let n = 0;
+        const mo = new MutationObserver((list) => (n += list.filter((m) => m.type === 'childList').length));
+        mo.observe(document.querySelector('.dd-screens'), { childList: true, subtree: true });
+        setTimeout(() => {
+          mo.disconnect();
+          done(n);
+        }, 800);
+      }),
+  );
+  const assignView = { screen: await screen(), banner: await page.locator('.dd-screens .dd-m3-banner').count(), rebuilt };
+  check('long-press a slot -> the Bag in "choose for slot 6" mode', assignView.screen === 'inventory' && assignView.banner === 1, assignView);
+  // (Without the Bag up there is no item to tap: the rest of the checks still run.)
+  if (assignView.screen === 'inventory') {
+    await page.locator('.dd-screens [data-key="item:rope"]').tap();
+    await wait(150);
+    const slot6 = await page.evaluate(() => window.__UI__.actions.loop().hotbarView().slots[5].item);
+    check('a tap on an item fills the slot and closes the Bag', slot6 === 'rope' && (await screen()) === 'none', { slot6 });
+  }
 
   // The Map: zoom with its buttons, pan with a drag, a marker's name on a tap.
   await page.locator('.dd-hud [data-ui-target="map"]').tap();
@@ -476,19 +497,24 @@ if (opt.touch) {
   check('pickups of one item merge into one line', iron.length === 1 && iron[0].includes('+3 Iron Ore'), iron);
   check('discovery banner shows the first', (await page.locator('.dd-discovery-title').textContent()) === 'First Discovery');
   check('discovery banner counts index/total', (await page.locator('.dd-discovery-count').textContent()) === '3/9');
+  // One notice at a time (QA 22:10): the toast shown just before stands aside while the cards are up.
+  check('a toast steps aside while a notice card is up', (await page.locator('.dd-toast.held').count()) === 1);
   await wait(4000);
-  check('toast auto-dismisses', (await page.getByText('check-toast').count()) === 0);
   const second = await page
     .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'Second Discovery', null, { timeout: 4000 })
     .then(() => true, () => false);
   check('queued discovery plays next', second);
 
-  // The milestone card (a feat): one calm card under the top HUD, never over the centre; a tap opens Quests.
+  // The milestone card (a feat): it waits for the discovery up, then one calm card under the top HUD,
+  // never over the centre; a tap opens Quests.
   await page.evaluate(() => {
     window.__UI__.bus.emit('reward:paid', { items: { torch: 8 }, reason: 'feat' });
     window.__UI__.bus.emit('feat:earned', { id: 'firstTorch' });
   });
   await wait(500);
+  check('a milestone card waits for the discovery up', (await page.locator('.dd-milestone.on').count()) === 0 && (await page.locator('.dd-discovery.on').count()) === 1);
+  await page.waitForFunction(() => !document.querySelector('.dd-discovery.on'), null, { timeout: 9000 }).catch(() => {});
+  await page.waitForFunction(() => !!document.querySelector('.dd-milestone.on'), null, { timeout: 4000 }).catch(() => {});
   const ms = await box('.dd-milestone.on');
   // Clear of the centre: no overlap with 140 x 180 px round the reticle.
   const clearOfCentre = (r) => r && (r.x + r.w / 2 < vp.width / 2 - 70 || r.x - r.w / 2 > vp.width / 2 + 70 || r.top + r.h < vp.height / 2 - 90 || r.top > vp.height / 2 + 90);
@@ -535,9 +561,14 @@ if (opt.touch) {
   check('left-handed: joystick on the right', Math.abs(s.moveY - 1) < 1e-6, { moveY: s.moveY });
   const lefty = await box('.dd-pad-action');
   check('left-handed: Action on the left', lefty && lefty.x < vp.width / 2, lefty);
-  await touch('touchStart', [{ x: 300, y: 150 }]);
+  // (On the open view under the top block: a finger on the tracker presses it.)
+  await touch('touchStart', [{ x: 320, y: 220 }]);
   await wait(320);
   s = await input();
+  for (let i = 0; i < 50 && !s.mining; i++) {
+    await wait(30);
+    s = await input();
+  }
   await touch('touchEnd', []);
   check('left-handed: hold-to-mine on the left', s.mining, { mining: s.mining });
   await page.evaluate(() => window.__UI__.actions.updateSettings({ leftHanded: false }));

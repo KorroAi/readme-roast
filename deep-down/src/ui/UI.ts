@@ -821,6 +821,8 @@ export class UI implements GameUi {
     const live = this.gameplay && this.current === 'none' && !this.ceremony;
     this.touch.setEnabled(live);
     this.hud.setVisible(live);
+    // A screen up: the toasts stand at the foot of it, clear of its header (title, ?, Close).
+    this.el.classList.toggle('dd-screen-up', this.current !== 'none');
     this.pumpNotices();
   }
 

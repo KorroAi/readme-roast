@@ -156,7 +156,8 @@ test('a drag looks (pitch held, no roll); a tap into the dark raises the lantern
   await page.evaluate(() => window.__DD__.look(window.__DD__.game.cameraRig.yaw, 0.9));
   await untilGame(page, async () => true, 0.3);
   const b = await cam();
-  await touch.tap({ x: 195, y: 160 });
+  // (On the view, under the top HUD: a finger on the tracker presses it.)
+  await touch.tap({ x: 195, y: 300 });
   const reacted = await untilGame(page, async () => {
     const c = await cam();
     return (await page.evaluate(() => window.__DD__.game.viewmodel.raised as number)) > 0 || Math.abs(c.yaw - b.yaw) + Math.abs(c.pitch - b.pitch) > 1e-4;

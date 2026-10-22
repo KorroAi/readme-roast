@@ -63,6 +63,18 @@
     top: var(--toast-top, calc(168px + var(--safe-top)));
   }
 }
+/* Over a menu or another screen, toasts (a craft's "Made 4 Torches") stand at its foot, clear of its
+   header with the title, the help and Close. */
+.dd-ui.dd-screen-up .dd-toasts {
+  top: auto;
+  bottom: calc(18px + var(--safe-bottom));
+  left: 50%;
+  right: auto;
+  width: min(330px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  align-items: center;
+  transition: none;
+}
 .dd-r3 :is(.dd-vitals, .dd-where, .dd-hbtn, .dd-tracker, .dd-guardian, .dd-hslot, .dd-arrival) {
   --cut: var(--cut-chip);
   box-sizing: border-box;
@@ -1579,4 +1591,89 @@
     opacity: 0;
     transform: translateY(-3px);
   }
+}
+
+/* ---------------------------------------------------------------- the black-out */
+/* The lantern goes out: the world falls dark, the flame dies in the middle of it, then the card
+   rises out of the dark with what did it, where, what was left and where the explorer wakes. */
+.dd-death.dd-bo {
+  background: radial-gradient(ellipse at center, rgba(34, 7, 5, 0.72), rgba(2, 2, 4, 0.96));
+}
+.dd-bo-veil {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #000;
+  pointer-events: none;
+  animation: dd-bo-veil 1.7s ease-in-out forwards;
+}
+.dd-bo-flame {
+  display: block;
+  width: 56px;
+  height: 56px;
+  color: var(--amber-300);
+  filter: drop-shadow(0 0 16px rgba(255, 170, 80, 0.85));
+  transform-origin: 50% 100%;
+  animation: dd-bo-flame 1.25s ease-in forwards;
+}
+.dd-bo-flame svg {
+  width: 100%;
+  height: 100%;
+}
+.dd-death.dd-bo .dd-death-panel {
+  animation: dd-bo-rise 0.6s var(--ease-enter) 1.15s both;
+}
+@keyframes dd-bo-veil {
+  0% {
+    opacity: 0;
+  }
+  18%,
+  68% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+@keyframes dd-bo-flame {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  40% {
+    opacity: 0.95;
+    transform: scale(1.06, 0.9);
+  }
+  75% {
+    opacity: 0.45;
+    transform: scale(0.6, 0.45);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.15, 0.08);
+  }
+}
+@keyframes dd-bo-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+}
+/* Reduced motion: no fall, no dying flame; the card is simply there. */
+@media (prefers-reduced-motion: reduce) {
+  .dd-bo-veil {
+    display: none;
+  }
+  .dd-death.dd-bo .dd-death-panel {
+    animation: none !important;
+  }
+}
+/* Settings → Motion: Reduced (the root class from brand/motion setReducedMotion). */
+.dd-reduce-motion .dd-bo-veil {
+  display: none;
+}
+.dd-reduce-motion .dd-death.dd-bo .dd-death-panel {
+  animation: none !important;
 }

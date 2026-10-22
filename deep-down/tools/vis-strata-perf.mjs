@@ -14,7 +14,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = { strata: '1,2,3,4,5,6', seed: '7', q: 'balanced', caverns: '3', headings: '6', out: 'artifacts/r3/vis/perf.json', port: '4175', prod: '0', size: '390x844', dpr: '1' };
+const opt = { strata: '1,2,3,4,5,6', seed: '7', q: 'balanced', caverns: '3', headings: '6', out: 'artifacts/r3/vis/perf.json', port: '4175', prod: '0', size: '390x844', dpr: '1', floor: '1' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 
@@ -51,7 +51,7 @@ try {
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   for (const n of opt.strata.split(',').map(Number)) {
-    const r = await page.evaluate(async ({ n, caverns, headings }) => {
+    const r = await page.evaluate(async ({ n, caverns, headings, floor }) => {
       const HEADINGS = headings;
       const D = window.__DD__;
       const g = D.game;
@@ -61,7 +61,7 @@ try {
       const spots = [];
       if (L.vista) {
         spots.push({ name: 'vista', at: L.vista.balcony });
-        spots.push({ name: 'vistaFloor', at: L.vista.rampFoot });
+        if (floor) spots.push({ name: 'vistaFloor', at: L.vista.rampFoot });
       }
       for (const b of L.biomes) {
         const cav = L.caverns.filter((c) => c.biome === b).sort((a, c) => c.radius[0] * c.radius[2] - a.radius[0] * a.radius[2]).slice(0, caverns);
@@ -105,7 +105,7 @@ try {
         out.push({ name: s.name, biome: D.biomeHere(), at: at.map((v) => +v.toFixed(1)), meanCalls: Math.round(sumC / HEADINGS), meanTris: Math.round(sumT / HEADINGS), maxCalls: worst.calls, maxTris: worst.tris, worstYaw: worst.yaw });
       }
       return { stratum: n, biomes: L.biomes, spots: out };
-    }, { n, caverns: Number(opt.caverns), headings: Number(opt.headings) });
+    }, { n, caverns: Number(opt.caverns), headings: Number(opt.headings), floor: opt.floor === '1' });
     const maxC = Math.max(...r.spots.map((s) => s.maxCalls));
     const maxT = Math.max(...r.spots.map((s) => s.maxTris));
     console.log(`stratum ${n} (${r.biomes.join(', ')}): ${r.spots.length} spots, worst ${maxC} calls, ${Math.round(maxT / 1000)}k tris`);
