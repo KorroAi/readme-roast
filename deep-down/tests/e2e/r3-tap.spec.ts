@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame, waitPlay } from './dd';
-import { PHONE, aimAtOre, boot, closeTripCard, newExpedition, quiet } from './r3';
+import { PHONE, aimAtOre, boot, closeTripCard, dismissArrival, newExpedition, quiet } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): the tap-to-act accelerator in the strata (BRIEF §0.6: "a tap on a target within reach
@@ -185,19 +185,36 @@ test('a drag looks (pitch held, no roll); a tap into the dark raises the lantern
   expect(await page.evaluate(() => window.__DD__.events('block:hit').length)).toBe(0);
   expect(await page.evaluate(() => window.__DD__.game.cameraRig.camera.rotation.z)).toBe(0);
 
-  // A tap on the dark roof of the camp hall (no find, no floor in reach): the lantern is raised. The way
-  // up is one where the game's own answer for that point is "look" (TapController.intentAt): a find in
-  // the roof within reach takes the tap and is locked (gate run 7, 10:47: a block at the finger).
-  let intent = '';
-  for (let k = 0; k < 16 && intent !== 'look'; k++) {
-    await page.evaluate((turn) => window.__DD__.look(window.__DD__.game.cameraRig.yaw + turn, 0.9), k ? Math.PI / 8 : 0);
-    await untilGame(page, async () => true, 0.3);
-    intent = await page.evaluate(() => window.__DD__.game.tap.intentAt((195 / innerWidth) * 2 - 1, 1 - (300 / innerHeight) * 2) as string);
+  // A tap into the dark, as on the camp hall's high roof (no find, no floor in reach): the lantern is
+  // raised. The way and the point are ones where the game's own answer is "look" (TapController.intentAt):
+  // a find or rock in reach takes the tap and is locked (gate run 7, 10:47: a block in the roof), and a
+  // low hall can have no such way up (10:55: none at 0.9 rad in 16 ways). Else the explorer looks out
+  // from the vista's balcony. (The points are on the view, under the top HUD: a finger on the tracker
+  // presses it.)
+  const dark = async (): Promise<{ x: number; y: number } | null> => {
+    for (const pitch of [0.9, 0.5, 1.2])
+      for (let k = 0; k < 16; k++) {
+        await page.evaluate(([turn, p]) => window.__DD__.look(window.__DD__.game.cameraRig.yaw + turn, p), [k ? Math.PI / 8 : 0, pitch] as const);
+        await untilGame(page, async () => true, 0.3);
+        const at = await page.evaluate(() => {
+          for (const [x, y] of [[195, 300], [120, 320], [270, 320]]) if (window.__DD__.game.tap.intentAt((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2) === 'look') return { x, y };
+          return null;
+        });
+        if (at) return at;
+      }
+    return null;
+  };
+  let tapAt = await dark();
+  if (!tapAt) {
+    console.log('[e2e] no way into the dark from the camp hall: from the vista balcony');
+    await page.evaluate(() => window.__DD__.goto('vista'));
+    await closeTripCard(page, touch, 1);
+    await dismissArrival(page, touch);
+    tapAt = await dark();
   }
-  expect(intent, 'a way up with nothing in reach under the finger').toBe('look');
+  expect(tapAt, 'a way into the dark with nothing in reach under the finger').not.toBeNull();
   const b = await cam();
-  // (On the view, under the top HUD: a finger on the tracker presses it.)
-  await touch.tap({ x: 195, y: 300 });
+  await touch.tap(tapAt!);
   const reacted = await untilGame(page, async () => {
     const c = await cam();
     return (await page.evaluate(() => window.__DD__.game.viewmodel.raised as number)) > 0 || Math.abs(c.yaw - b.yaw) + Math.abs(c.pitch - b.pitch) > 1e-4;
@@ -274,6 +291,7 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
   const vy = 380;
   let block: [number, number, number] | null = null;
   let backed = -1;
+  let off: { x: number; y: number; edge: number } | null = null;
   for (const [ox, oz] of [[0, 0], [12, 0], [0, 12], [-12, 0], [0, -12], [16, 16], [-16, -16], [24, -8]]) {
     const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p1.x + ox, p1.y, p1.z + oz]);
     if (!prep) continue;
@@ -289,7 +307,7 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
             if ((dx || dy || dz) && dd.isSolid(x, y, z) && dd.block(x, y, z) !== 1) dd.setBlock(x, y, z, 1);
           }
     }, b);
-    backed = await page.evaluate(([bx, by, bz, sx, sy, sz, ay]) => {
+    const k = await page.evaluate(([bx, by, bz, sx, sy, sz, ay]) => {
       const dd = window.__DD__;
       const g = dd.game;
       const dx = Math.sign(sx - bx);
@@ -305,34 +323,41 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
       }
       return -1;
     }, [...b, ...prep.stand, 1 - (vy / 844) * 2] as [number, number, number, number, number, number, number]);
-    if (backed >= 0) {
+    if (k < 0) {
+      console.log(`[e2e] the vein ${JSON.stringify(b)} is out of the pick's reach from its stands: another`);
+      continue;
+    }
+    // A step across the camp's edge may have ended a trip: its card first (it would take the tap), then the aim again.
+    if (await closeTripCard(page, touch, 1.5)) await page.evaluate(([bx, by, bz, ay]) => window.__DD__.aimAt(bx, by, bz, 0, ay), [...b, 1 - (vy / 844) * 2] as [number, number, number, number]);
+    // Plain rock 20 px past the vein's edge, on the view between the HUD's rows: a vein seen from close
+    // fills that band (gate rerun 10:55: none of the four ways had room), so then the next vein.
+    off = await page.evaluate(([vy]) => {
+      const g = window.__DD__.game;
+      const e = g.cameraRig.eye;
+      const find = (x: number, y: number) => {
+        const r = g.mining.pick((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2, e.x, e.y, e.z, 48);
+        return !!r.prop || (!!r.target && r.target.protectedReason === null);
+      };
+      for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
+        for (let d = 4; d < 300; d += 4) {
+          if (find(195 + ux * d, vy + uy * d)) continue;
+          const x = Math.round(195 + ux * (d + 20));
+          const y = Math.round(vy + uy * (d + 20));
+          // Clear of the HUD's top rows and the bottom pads.
+          if (x > 20 && x < innerWidth - 20 && y > 240 && y < innerHeight - 260 && !find(x, y)) return { x, y, edge: d };
+          break;
+        }
+      return null;
+    }, [vy]);
+    if (off) {
       block = b;
-      // A step across the camp's edge may have ended a trip: its card first (it would take the tap), then the aim again.
-      if (await closeTripCard(page, touch, 1.5)) await page.evaluate(([bx, by, bz, ay]) => window.__DD__.aimAt(bx, by, bz, 0, ay), [...b, 1 - (vy / 844) * 2] as [number, number, number, number]);
+      backed = k;
       break;
     }
-    console.log(`[e2e] the vein ${JSON.stringify(b)} is out of the pick's reach from its stands: another`);
+    console.log(`[e2e] the vein ${JSON.stringify(b)} leaves no plain rock beside it on the view: another`);
   }
   expect(block, 'a copper vein in reach').not.toBeNull();
   expect(backed, 'the vein in reach from a step back').toBeGreaterThanOrEqual(0);
-  const off = await page.evaluate(([vy]) => {
-    const g = window.__DD__.game;
-    const e = g.cameraRig.eye;
-    const find = (x: number, y: number) => {
-      const r = g.mining.pick((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2, e.x, e.y, e.z, 48);
-      return !!r.prop || (!!r.target && r.target.protectedReason === null);
-    };
-    for (const [ux, uy] of [[1, 0], [-1, 0], [0, 1], [0, -1]])
-      for (let d = 4; d < 300; d += 4) {
-        if (find(195 + ux * d, vy + uy * d)) continue;
-        const x = Math.round(195 + ux * (d + 20));
-        const y = Math.round(vy + uy * (d + 20));
-        // Clear of the HUD's top rows and the bottom pads.
-        if (x > 20 && x < innerWidth - 20 && y > 240 && y < innerHeight - 260 && !find(x, y)) return { x, y, edge: d };
-        break;
-      }
-    return null;
-  }, [vy]);
   expect(off, 'plain rock beside the vein').not.toBeNull();
   await page.evaluate(() => window.__DD__.clearEvents());
   await touch.tap(off!);
