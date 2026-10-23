@@ -381,7 +381,7 @@ describe('the last look pass (VIS round 3, lead 01:17)', () => {
     expect(jungle.atmosphere.reach).toBeGreaterThan(1);
     // Brighter by its fill and its pool, not its saturation (0.9 since the 00:13 pass).
     expect(jungle.grade.saturation).toBeLessThanOrEqual(0.9);
-    expect(LIGHTING_GLSL).toContain('uLanternRadius * reach');
+    expect(LIGHTING_GLSL).toContain('min(uLanternRadius * reach, max(uLanternRadius, 15.0))');
     const u = { uLanternRadius: { value: 0 }, uLanternIntensity: { value: 0 }, uLanternColor: { value: new THREE.Color() }, uLanternReach: { value: 1.25 } } as never;
     const field = new LanternLight().update(u, { dt: 1 / 30, time: 0, fuel: 1, lit: true, tier: 1, radius: 11, intensity: 1, ember: 0.3 });
     expect((u as { uLanternRadius: { value: number } }).uLanternRadius.value).toBeCloseTo(11, 5);

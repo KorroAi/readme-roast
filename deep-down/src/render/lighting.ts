@@ -210,9 +210,12 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
   vec3 l = d / max(dist, 1e-3);
-  // The zone's reach (AtmospherePreset.reach): a dark-floored biome carries its pool further.
+  // The zone's reach (AtmospherePreset.reach): a dark-floored biome carries its pool further, but
+  // never past the line-of-sight field's 15 m (world/light.ts LanternField: no light edge out
+  // there); a lantern bigger than that keeps its own radius.
   float reach = uLanternReach > 0.0 ? uLanternReach : 1.0;
-  float x = max(dist, minDist) / max(uLanternRadius * reach, 0.5);
+  float rad = min(uLanternRadius * reach, max(uLanternRadius, 15.0));
+  float x = max(dist, minDist) / max(rad, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
   // Arm's length: a wall right in front of the flame would wash to cream; the near field rolls off
