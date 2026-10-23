@@ -10,7 +10,7 @@ config) is the same from e4db249, which built the APK, to the final commit; afte
 | `npx tsc --noEmit` | exit 0 |
 | `node tools/run-ts.mjs tools/loop-fr-sync.ts --report` | 0 English keys without French, 0 stale French lines (French table 2,314 keys) |
 | `npx vitest run`, twice | 95 files, **1352/1352** both times (about 85 s each) |
-| `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | Run 4 on aa98d52, the final game code: **27/28** (29.1 min). The one failure was in a test's own tooling. r3-desktop's mouse mining found no screen point on its copper vein: the debug picker had chosen a cell sealed in rock, behind another cell. This was reproduced in the game on seed 22; a replica of the picker chose such a cell 1 time in 60 over 12 seeds. The spec now tries the next vein, as the touch specs already did. Re-run 3 times on new random worlds: **6/6**; the first of those worlds held a sealed vein, which the spec passed over. The earlier full runs gave 24, 25 and 26 of 28, and each failure was root-caused (below). Run 5 on d150914: **27/28** (31.9 min); the desktop spec passed, stepping over another sealed vein. The one failure was again in a spec's setup, r3-first5's tutorial fight. Its natural Amber Tick was not struck in the first two rounds, and the fallback, which places a tick beside the explorer, kept none of its 16. Checked in the game: monsters keep out of the camp and a 4 m margin round it, and one placed there is put away at once; the explorer stood in that zone. A first fix stepped out of the camp's own box, and one more run failed in the margin. The fallback now stands the explorer 3 m clear of the zone, by the game's own rule. With it, r3-first5 passed **4/4** on new random worlds, one of them through the fallback, and **2/2** forced through the fallback. A fight round that strikes nothing now logs why. Run 6 on a741948: **27/28** (32.6 min); every random-world spec passed, the desktop and tutorial ones included. The one failure was a 5 s wait in release.spec. After a manual quality choice, the game writes its flag on the next frame, and the first frame at High compiles its effects. That frame took 28 ms to 4.7 s on this machine when quiet, and over 5 s at the end of the suite. The wait is now 60 s, and release.spec re-run 3 times gave **18/18**. A seventh full run on the final tree is under way; its result is added here. |
+| `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | Four full runs on the final game code (runs 4–7): **27/28** each, in 29–33 min. Each run failed a different test, every time in the test's own setup or timing on a new random world, never in the game. Each failure was root-caused, fixed and re-run (run by run, below). An eighth full run on the final tree is under way; its result is added here. |
 | `tools/ui-check.mjs` (every screen at portrait, landscape and desktop; the touch layer; a game smoke flow) | `--vp port,land --no-touch`: **0 layout problems, 0 console problems**. `--vp desk --game`: **124/124**. The lead's first run gave 119/121; both failures were in the tool, not the game. One check counted a second, legitimately held toast. The game flow tapped Craft's Building tab while it was scrolled off screen. Both were fixed. UI's repeat and the lead's final runs on aa98d52 both give the numbers above. |
 | `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000, built from e4db249) | **15/15 PASS**: boots from the APK files and reports 2.0.0, generates in the worker, New Expedition plays, the action HUD is up, the save survives a reload (Continue), privacy and licences render offline, the crash panel, Back and Restart work, 0 refused requests, 0 page errors |
 | Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2, real touches) | 19 shots opened by the lead: the title (v2.0.0, seed field), arrival, tutorial, Craft ("make this next: Furnace"), Bag, Map, Quests, Bestiary, HUD, Settings, companion, black-out, the road after the tutorial, a lair, a vista, the descent's own loading screen (Stratum II, its two biomes, -90 m to -180 m), and the arrival in stratum II |
@@ -29,6 +29,25 @@ before a re-run. Three were real game bugs, now fixed and covered by unit tests:
 The other failures were tests that depended on the random world, for example standing the explorer on a cell's corner, or
 waiting in real time for a creature's attack under SwiftShader. Each such test now asks the game before it acts, and each was
 re-run on new random worlds 2–3 times.
+
+**The browser suite on the final game code, run by run:**
+- **Run 4 (aa98d52).** r3-desktop's mouse mining found no screen point on its copper vein. The debug picker had chosen a cell
+  sealed in rock, behind another cell. This was reproduced in the game on seed 22, and a replica of the picker chose such a
+  cell 1 time in 60 over 12 seeds. The spec now tries the next vein, as the touch specs already did: **6/6** over 3 re-runs,
+  and later runs logged sealed veins and passed over them.
+- **Run 5 (d150914).** r3-first5's tutorial fight. Its natural Amber Tick was not struck in the first two rounds, and the
+  fallback, which places a tick beside the explorer, kept none of its 16. Checked in the game: monsters keep out of the camp
+  and a 4 m margin round it, and one placed there is put away at once. The fallback now stands the explorer 3 m clear of that
+  zone, by the game's own rule; a first fix that left only the camp's own box failed once more in the margin. r3-first5:
+  **4/4** on new worlds, one of them through the fallback, and **2/2** forced through it. A fight round that strikes nothing
+  now logs why.
+- **Run 6 (a741948).** release.spec waited 5 s for the quality governor to note a manual choice of High. The game notes it on
+  the next frame, and the first frame at High compiles its effects: 28 ms to 4.7 s on this machine when quiet, and over 5 s
+  at the end of the suite. The wait is now 60 s: release.spec **18/18** over 3 runs.
+- **Run 7 (e1461aa).** r3-tap's tap into the dark locked a block: looking up from the camp hall, a block was in reach under
+  the finger. The spec now asks the game where a tap would only look (TapController.intentAt, over 3 pitches, 16 ways and 3
+  points, else from the vista's balcony). Its tap beside a vein now passes over a vein seen too close to leave plain rock
+  beside it. r3-tap: **20/20** over 4 runs; 3 of them looked out from the vista.
 
 **Evidence from the specialists, re-checked by the lead** (each line's log and captures are in `docs/round3/STATUS.md`):
 - **World.** On 16 seeds × 6 strata, 96/96 plans pass on the first attempt: 0 trapped cells, every route reachable, and no
