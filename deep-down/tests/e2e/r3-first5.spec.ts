@@ -185,17 +185,35 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
    * finds it under the reticle once aimed at (Combat.pickMob, what the reticle's "attack" reads):
    * else it goes and the next way round is tried (gate 05:28: a tick out of the pick's sight kept the
    * reticle on "place" for two rounds). The creatures hold still; the others are put away first, so
-   * the nearest creature is this one. The camp puts away every monster but the tutorial's own: one
-   * placed while the explorer stands in the camp is gone a frame later (gate run 5, 08:40: 16 placings
-   * in a row, none kept), so the explorer steps out of the camp first.
+   * the nearest creature is this one. Monsters keep out of the camp and a 4 m margin round it (and
+   * 11 m round an outpost: MobSim.unsafe): one placed there is put away a frame later (gate run 5,
+   * 08:40: 16 placings in a row, none kept; out of the camp's own box but in its margin, 09:12). So
+   * the explorer first stands 3 m clear of that zone, and only cells out of it take a tick.
    */
   const tickInSight = async (): Promise<number | null> => {
-    if (await page.evaluate(() => window.__DD__.state().atCamp)) {
-      const out = await awayFromCamp(page);
-      if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), out);
-      const left = await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.state().atCamp)), 2);
-      console.log(`[e2e] the fight: out of the camp for the placed tick (${left ? 'out' : 'still in'})`);
-    }
+    const stand = await page.evaluate(() => {
+      const dd = window.__DD__ as any;
+      const g = dd.game;
+      const sim = g.mobs.sim;
+      const p = g.player;
+      const clear = (x: number, y: number, z: number) => {
+        for (let a = 0; a < 8; a++) if (sim.unsafe(x + Math.sin((a * Math.PI) / 4) * 3, y, z + Math.cos((a * Math.PI) / 4) * 3)) return false;
+        return !sim.unsafe(x, y, z);
+      };
+      if (clear(p.x, p.y, p.z)) return 'where it stands';
+      const f = (g.session.layout.campSite?.fire ?? [p.x, p.y, p.z]) as number[];
+      for (let d = 18; d < 64; d += 4)
+        for (let a = 0; a < 16; a++) {
+          const s = dd.standableNear(f[0] + Math.sin((a * Math.PI) / 8) * d, f[1], f[2] + Math.cos((a * Math.PI) / 8) * d);
+          if (s && clear(s[0], s[1], s[2])) {
+            dd.teleport(s[0], s[1], s[2]);
+            return `${d} m from the fire`;
+          }
+        }
+      return 'nowhere clear';
+    });
+    const left = await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.state().atCamp)), 2);
+    console.log(`[e2e] the fight: the placed tick's explorer stands ${stand}${left ? '' : ' (still at camp)'}`);
     for (let k = 0; k < 16; k++) {
       const id = await page.evaluate((kk) => {
         const dd = window.__DD__ as any;
@@ -207,6 +225,7 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
           const x = Math.floor(p.x - Math.sin(yaw) * d);
           const z = Math.floor(p.z - Math.cos(yaw) * d);
           if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z) || !dd.isSolid(x, y - 1, z) || dd.mobs.underwater(x, y, z)) continue;
+          if (g.mobs.sim.unsafe(x + 0.5, y, z + 0.5)) continue;
           dd.mobs.clear();
           const id = dd.mobs.spawn('amberTick', x + 0.5, y, z + 0.5, { asleep: false });
           dd.mobs.freeze(true);
