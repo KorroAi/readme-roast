@@ -521,13 +521,17 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
         sim.snuffLeft = 6;
         // (Its inhale was the wind-up's tell; now the dark hums as the adds come in.)
         sim.sfx(m, 'mob.drone');
-        for (let i = 0; i < 2 + (m.phase - 1); i++) {
+        // Its adds out of the dark: lesser brood (BROOD), never more than BROOD.most about at once.
+        const alive = sim.mobs.filter((o) => o.owner === m.id && !o.dying).length;
+        for (let i = 0; i < Math.min(2 + (m.phase - 1), BROOD.most - alive); i++) {
           const kind = def.brood[sim.rng.int(0, def.brood.length - 1)] as MobKind;
           const a = sim.rng.range(-Math.PI, Math.PI);
           const x = ctx.player.x + Math.sin(a) * 7;
           const z = ctx.player.z + Math.cos(a) * 7;
           const fy = floorNear(sim.env.solid, Math.floor(x), Math.floor(ctx.player.y), Math.floor(z), 1, 5);
-          if (fy !== null) sim.spawn(kind, x, fy + (isFlyer(kind) ? 2 : 0), z, { owner: m.id, biome: m.biome });
+          if (fy === null) continue;
+          const o = sim.spawn(kind, x, fy + (isFlyer(kind) ? 2 : 0), z, { owner: m.id, biome: m.biome });
+          if (o) lesserBrood(sim, o);
         }
       }
       settle(sim, m, dt, ctx);
