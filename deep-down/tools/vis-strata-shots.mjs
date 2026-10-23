@@ -69,6 +69,8 @@ try {
     const [target, nViews] = spec.split('*');
     for (let view = 1; view <= Number(nViews ?? opt.views); view++) {
       const name = `${target.replace(/[:@]/g, '-')}-${view}`;
+      // One view's failure (a target that does not exist in this layout, an API change) is logged and
+      // the next view goes on.
       const res = await page.evaluate(async ({ target, view }) => {
         const D = window.__DD__;
         const g = D.game;
@@ -299,7 +301,7 @@ try {
         if (kind === 'stations') {
           // LOOP's stations and an outpost in an arc 3-5 m ahead (the models as placed in play).
           const dx = -Math.sin(yaw), dz = -Math.cos(yaw);
-          const kinds = ['furnace', 'forge', 'alchemyTable', 'outpost'];
+          const kinds = ['furnace', 'forge', 'alchemy', 'outpost'];
           kinds.forEach((st, i) => {
             const side = (i - 1.5) * 1.9;
             const at = stand(eye[0] + dx * (3.6 + Math.abs(side) * 0.3) + dz * side, py + 1, eye[2] + dz * (3.6 + Math.abs(side) * 0.3) - dx * side);
@@ -361,7 +363,7 @@ try {
           else D.step(fx.startsWith('weather') ? 12 : 6, 0.5);
         }
         return { at: [px, py, pz].map((n) => +n.toFixed(1)), yaw: +yaw.toFixed(2), pitch: +pitch.toFixed(3), feet: [px, py, pz], biome: D.biomeHere(), stratum: g.strata.current, ...(fx ? { fx, report: g.vis.report().weather ?? null } : {}) };
-      }, { target, view });
+      }, { target, view }).catch((e) => ({ err: `failed: ${String(e.message).split('\n')[0]}` }));
       if (res.err) {
         console.log(`[${name}] ${res.err}`);
         continue;

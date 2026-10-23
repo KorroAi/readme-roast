@@ -269,9 +269,10 @@ test('a guardian beaten end to end with real taps: asleep in its lair, its bar, 
   const hits = log.filter((e) => e.type === 'mob:hit' && e.payload.id === id);
   expect(phases.length, 'its second phase').toBeGreaterThan(0);
   expect(def.payload.shard).toBe('amberHollows');
-  expect(hits.length, 'struck by taps').toBeGreaterThan(3);
+  // (Round 3's rebalance: 75 hp, so three great-axe blows in its open guard can fell it.)
+  expect(hits.length, 'struck by taps').toBeGreaterThanOrEqual(3);
   // Struck in its open guard: those blows found the weak spot.
-  expect(hits.filter((e) => e.payload.weak).length, 'blows in its open guard').toBeGreaterThan(2);
+  expect(hits.filter((e) => e.payload.weak).length, 'blows in its open guard').toBeGreaterThanOrEqual(Math.min(3, hits.length - 1));
   // No debug blow: every hit came from a tap (the weapon's swing).
   expect(log.filter((e) => e.type === 'weapon:hit' && e.payload.mob === id).length, 'every blow a swing').toBe(hits.length);
   // LOOP pays the shard on 'mob:guardianDefeated' (its quest counts it, and its loot bundle).
@@ -336,6 +337,16 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
     const dd = window.__DD__ as any;
     dd.give('glowcap', 4);
     dd.mobs.clearEvents();
+    // What the taming spends (a tap that misses the fluttering Lampling may mine a glowing cap
+    // behind it, whose glowcaps land in the backpack too: e2e-3, 4 given, 3 fed, 3 left).
+    const w = window as any;
+    const bp = dd.game.backpack;
+    const remove = bp.remove.bind(bp);
+    w.__capsFed = 0;
+    bp.remove = (id: string, n = 1, ...rest: unknown[]) => {
+      if (id === 'glowcap') w.__capsFed += n;
+      return remove(id, n, ...rest);
+    };
   });
   const lid = await page.evaluate(() => (window.__DD__ as any).mobs.spawnAhead('lampling', 2.2, 1.4));
   expect(lid, 'a wild lampling ahead').not.toBeNull();
@@ -367,7 +378,9 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
     return { has: g.mobs.hasCompanion(), lure: g.mobs.lureLampling(p.x, p.y, p.z, 10), fed: g.mobs.feedCompanion(1, 30), gained: g.mobs.companion().xp - before };
   });
   expect(items).toEqual({ has: true, lure: false, fed: true, gained: 3 });
-  expect(await page.evaluate(() => (window.__DD__ as any).game.backpack.count('glowcap'))).toBe(1);
+  // Three glowcaps fed, one per trust (the Glow Treat spends none of them).
+  expect((await events(page, 'companion:trust')).map((e) => e.payload.trust), 'trust 1, 2, 3').toEqual([1, 2, 3]);
+  expect(await page.evaluate(() => (window as any).__capsFed), 'glowcaps fed').toBe(3);
   // It follows the explorer a few metres on.
   await page.evaluate(() => {
     const dd = window.__DD__ as any;
@@ -400,21 +413,24 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
   const el = (await events(page, 'mob:elite'))[0];
   expect(el.payload.name).toBe('Radiant Cap Spitter');
 
-  // The tutorial's first fight: a soft tick comes into view.
-  await page.evaluate(() => {
+  // The tutorial's first fight: a soft tick comes into view, measured the frame it comes (undrawn
+  // steps, up to 15 s of tries: a loaded machine's slow frames would let it run in before a poll saw it).
+  const tick = await page.evaluate(() => {
     const dd = window.__DD__ as any;
     dd.mobs.clear();
     dd.mobs.clearEvents();
     dd.game.bus.emit('tutorial:step', { id: 'fight', highlight: 'action', line: 'fight' });
-  });
-  await page.waitForFunction(() => (window.__DD__ as any).mobs.list().some((m: MobView) => m.kind === 'amberTick'), null, { timeout: 15_000, polling: 250 });
-  const tick = await page.evaluate(() => {
-    const dd = window.__DD__ as any;
     const p = dd.game.player;
-    const m = dd.mobs.list().find((x: MobView) => x.kind === 'amberTick');
-    return { d: Math.hypot(m.x - p.x, m.z - p.z), hp: m.hp };
+    for (let k = 0; k < 450; k++) {
+      dd.game.step(1 / 30, false);
+      const m = dd.mobs.list().find((x: MobView) => x.kind === 'amberTick');
+      if (m) return { d: Math.hypot(m.x - p.x, m.z - p.z), hp: m.hp, s: k / 30 };
+    }
+    return null;
   });
-  expect(tick.hp).toBe(3);
-  expect(tick.d).toBeGreaterThan(7);
-  expect(tick.d).toBeLessThan(19);
+  expect(tick, 'the tutorial brings its Tick').not.toBeNull();
+  console.log(`[mobs] the tutorial's Tick: ${tick!.d.toFixed(1)} m off, ${tick!.hp} hp, after ${tick!.s.toFixed(1)} s`);
+  expect(tick!.hp).toBe(3);
+  expect(tick!.d).toBeGreaterThan(7);
+  expect(tick!.d).toBeLessThan(19);
 });

@@ -10,6 +10,13 @@ import { DecorBatch, isDecor } from './DecorBatch';
 
 /** Draw distance of props smaller than 2 m in radius (m). */
 const SMALL_PROP_FAR = 45;
+/**
+ * Round 3: draw distance of the smallest props (radius under 0.8 m: crystal clusters, chests,
+ * satchels, lanterns), about 10-15 px tall at 30 m in the phone's lens and half in the haze: the
+ * strata's vista halls held 35-47 crystal clusters and 20-30 chests in view (two draw calls each),
+ * 187-191 calls from the balcony against the 150 budget. Their light and halos stay.
+ */
+const TINY_PROP_FAR = 30;
 
 export interface PropHit {
   id: string;
@@ -333,7 +340,7 @@ export class PropRenderer {
     const far = Math.min(this.viewDistance, FOG_CULL.value);
     for (const e of this.list) {
       const dist = cameraPos.distanceTo(e.center) - e.radius;
-      e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, SMALL_PROP_FAR)) && (!this.drawnAt || e.radius >= 2 || this.drawnAt(e.center.x, e.center.y, e.center.z));
+      e.root.visible = dist < (e.radius >= 2 ? far : Math.min(far, e.radius < 0.8 ? TINY_PROP_FAR : SMALL_PROP_FAR)) && (!this.drawnAt || e.radius >= 2 || this.drawnAt(e.center.x, e.center.y, e.center.z));
       if (e.flash > 0) e.flash = Math.max(0, e.flash - dt / FLASH_TIME);
       const lit = this.highlighted === e;
       if ((lit || e.flash > 0 || e.fxActive) && !(e.hi && !lit && e.flash <= 0)) this.applyFx(e, lit ? highlightPulse : 0);
