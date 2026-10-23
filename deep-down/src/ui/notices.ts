@@ -116,6 +116,12 @@ export class Toasts {
     this.waiting = [];
   }
 
+  /** Take back the shown and waiting toasts that `stale` picks (news the moment has overtaken). */
+  drop(stale: (text: string) => boolean): void {
+    for (const text of [...this.live.keys()]) if (stale(text)) this.dismiss(text);
+    this.waiting = this.waiting.filter((w) => !stale(w.text));
+  }
+
   dispose(): void {
     for (const e of this.live.values()) window.clearTimeout(e.timer);
     this.live.clear();

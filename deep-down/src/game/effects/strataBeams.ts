@@ -87,12 +87,12 @@ export function strataBeams(world: VoxelWorld, sources: readonly ShaftSource[], 
   return out;
 }
 
-/** Every cell within r (m) of (x, z) has its floor at y: open at y, rock under it. */
+/** Every cell a disc of radius r (m) round cell (x, z)'s centre touches has its floor at y: open at y, rock under it. */
 function flatFloor(world: VoxelWorld, x: number, y: number, z: number, r: number): boolean {
-  const R = Math.ceil(r);
+  const R = Math.ceil(r + 0.5);
   for (let dz = -R; dz <= R; dz++)
     for (let dx = -R; dx <= R; dx++) {
-      if (dx * dx + dz * dz > r * r) continue;
+      if (Math.hypot(Math.max(0, Math.abs(dx) - 0.5), Math.max(0, Math.abs(dz) - 0.5)) >= r) continue;
       if (SOLID[world.get(x + dx, y, z + dz)] || !SOLID[world.get(x + dx, y - 1, z + dz)]) return false;
     }
   return true;
