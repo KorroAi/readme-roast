@@ -141,3 +141,26 @@ export function advanceLookPhase(phase: LookPhase, dx: number, dy: number, heldM
 export function releaseLook(phase: LookPhase): 'tapMine' | 'endMine' | 'none' {
   return phase === 'pending' ? 'tapMine' : phase === 'mine' ? 'endMine' : 'none';
 }
+
+/**
+ * What a touch may do from where it lands (gate 03:32: a drag that started on the biome arrival card
+ * never looked, a dead zone over the upper view for the card's seconds): on a control ('own': a
+ * button, a field, a screen) it is the control's; on a notice card ('card': the arrival card, a
+ * milestone card, the tutorial's bubble) a drag still looks while its tap and hold stay the card's;
+ * anywhere else it is the world's (look, tap, hold to mine).
+ */
+export function touchStart(onOwn: boolean, onCard: boolean): 'own' | 'card' | 'world' {
+  if (onCard) return 'card';
+  return onOwn ? 'own' : 'world';
+}
+
+/** advanceLookPhase for a touch that may have started on a card: a card's touch never mines by holding. */
+export function advanceTouchPhase(phase: LookPhase, dx: number, dy: number, heldMs: number, card: boolean): LookPhase {
+  return advanceLookPhase(phase, dx, dy, card ? 0 : heldMs);
+}
+
+/** releaseLook for a touch that may have started on a card: a card's tap is its own (its click), never the world's. */
+export function releaseTouch(phase: LookPhase, card: boolean): 'tapMine' | 'endMine' | 'none' {
+  const a = releaseLook(phase);
+  return card && a === 'tapMine' ? 'none' : a;
+}

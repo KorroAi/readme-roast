@@ -728,6 +728,29 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     }
   });
 
+  it('lets a drag that starts on a notice card look, and keeps its tap and hold for the card (gate 03:32)', async () => {
+    const { touchStart, advanceTouchPhase, releaseTouch, HOLD_SLOP_PX, HOLD_TO_MINE_MS } = await import('../../src/ui/touchMath');
+    // Where it lands: a control keeps it; a notice card (the arrival card, a milestone, the bubble) is a card; the rest is the world's.
+    expect(touchStart(true, false)).toBe('own');
+    expect(touchStart(true, true)).toBe('card');
+    expect(touchStart(false, false)).toBe('world');
+    // The gate's drag, 120 px to the left from the arrival card: it looks, as from the open view.
+    const far = HOLD_SLOP_PX + 1;
+    for (const card of [true, false]) {
+      expect(advanceTouchPhase('pending', -far, 0, 40, card), card ? 'from a card' : 'from the view').toBe('look');
+      expect(releaseTouch('look', card)).toBe('none');
+    }
+    // A tap on the card is the card's (its click closes it): no world tap behind it. On the view it mines.
+    expect(advanceTouchPhase('pending', 2, 1, 120, true)).toBe('pending');
+    expect(releaseTouch('pending', true)).toBe('none');
+    expect(releaseTouch('pending', false)).toBe('tapMine');
+    // A still hold on a card never mines what lies behind it; on the view it does.
+    expect(advanceTouchPhase('pending', 0, 0, HOLD_TO_MINE_MS + 400, true)).toBe('pending');
+    expect(advanceTouchPhase('pending', 0, 0, HOLD_TO_MINE_MS + 400, false)).toBe('mine');
+    // A card's touch that moved after a long press still looks (no mining at the finger).
+    expect(advanceTouchPhase('pending', -far, 0, HOLD_TO_MINE_MS + 400, true)).toBe('look');
+  });
+
   it('holds a first-use tip while a tutorial bubble is up, and a moment after it goes (QA 01:31)', async () => {
     const { tipTurn, TIP_AFTER_BUBBLE_MS } = await import('../../src/ui/hud/Tutorial');
     const free = { bubbleUp: false, held: false, tipUp: false, sinceBubbleMs: 1e9 };

@@ -151,7 +151,7 @@ export class TutorialOverlay implements UiHighlighter {
     this.countEl = h('span', { class: 'dd-tut-count' });
     this.skipBtn = h('button', { class: 'dd-tut-skip', type: 'button', text: t('tut.skip') });
     this.skipBtn.addEventListener('click', () => onSkip());
-    this.bubble = h('div', { class: 'dd-tut-bubble', role: 'status', 'aria-live': 'polite', 'data-touch-ignore': '' }, h('div', { class: 'dd-tut-head' }, this.countEl, this.skipBtn), this.lineEl);
+    this.bubble = h('div', { class: 'dd-tut-bubble', role: 'status', 'aria-live': 'polite', 'data-touch-look': '' }, h('div', { class: 'dd-tut-head' }, this.countEl, this.skipBtn), this.lineEl);
     this.tipEl = h('div', { class: 'dd-tip', role: 'status' });
     this.swipe = h('div', { class: 'dd-tut-swipe', 'aria-hidden': 'true' }, h('span', { class: 'dd-tut-finger' }), h('span', { class: 'dd-tut-trail' }));
     this.el = h('div', { class: 'dd-tut' }, this.ring, this.swipe, this.bubble, this.tipEl);

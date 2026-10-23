@@ -63,7 +63,7 @@ export class MilestoneBanner {
     this.reward = h('span', { class: 'dd-ms-reward' });
     this.el = h(
       'button',
-      { class: 'dd-milestone', type: 'button', 'aria-live': 'polite' },
+      { class: 'dd-milestone', type: 'button', 'aria-live': 'polite', 'data-touch-look': '' },
       this.glyph,
       h('span', { class: 'dd-ms-text' }, this.kicker, this.name, this.line, this.reward),
     );

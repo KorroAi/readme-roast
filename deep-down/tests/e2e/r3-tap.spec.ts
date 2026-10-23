@@ -136,6 +136,24 @@ test('a drag looks (pitch held, no roll); a tap into the dark raises the lantern
   const touch = await start(page);
   const cam = () => page.evaluate(() => ({ yaw: window.__DD__.game.cameraRig.yaw as number, pitch: window.__DD__.game.cameraRig.pitch as number }));
   await page.evaluate(() => window.__DD__.clearEvents());
+  // The biome's arrival card over the upper view, as at the start of an expedition or in a new biome
+  // (gate 03:32: a drag that started on it never looked, the card swallowed it): a drag from it looks.
+  await page.evaluate(() => {
+    const g = window.__DD__.game;
+    g.bus.emit('world:biome', { biome: (g.strata.layout.biomes as string[])[0], from: null, stratum: g.strata.current, first: false });
+  });
+  await expect(page.locator('.dd-arrival.on'), 'the arrival card is up').toHaveCount(1, { timeout: 15_000 });
+  const onCard = await page.evaluate(() => {
+    const r = document.querySelector('.dd-arrival.on')!.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width * 0.75), y: Math.round(r.top + r.height / 2) };
+  });
+  const c0 = await cam();
+  await dragNow(page, onCard, { x: onCard.x - 120, y: onCard.y });
+  const lookedFromCard = await untilGame(page, async () => (await cam()).yaw - c0.yaw > 0.3, 3);
+  expect(lookedFromCard, `a 120 px drag that starts on the arrival card turns the view (${((await cam()).yaw - c0.yaw).toFixed(3)} rad)`).toBe(true);
+  // A tap on the card is the card's: it closes (no tap on the world behind it).
+  await touch.tap(onCard);
+  await expect(page.locator('.dd-arrival.on'), 'a tap closed the card').toHaveCount(0, { timeout: 5_000 });
   const a0 = await cam();
   await dragNow(page, { x: 280, y: 300 }, { x: 160, y: 300 });
   const turned = await untilGame(page, async () => (await cam()).yaw - a0.yaw > 0.3, 3);

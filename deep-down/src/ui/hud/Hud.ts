@@ -231,7 +231,7 @@ export class Hud {
     this.hotbarEl = h('div', { class: 'dd-hotbar', role: 'toolbar', 'aria-label': t('hud3.hotbar'), 'data-ui-target': 'hotbar' });
     for (let i = 0; i < HOTBAR_SLOTS; i++) this.hotbarEl.append(this.slotButton(i));
     // A tap on the card is the card's (never a look or a tap on the world behind it).
-    this.arrivalEl = h('div', { class: 'dd-arrival', role: 'status', 'aria-live': 'polite', 'data-touch-ignore': '' });
+    this.arrivalEl = h('div', { class: 'dd-arrival', role: 'status', 'aria-live': 'polite', 'data-touch-look': '' });
     // A tap dismisses the card (and lets a waiting tutorial step show at once).
     this.arrivalEl.addEventListener('click', () => this.endArrival(0));
     this.dmgLayer = h('div', { class: 'dd-dmg-layer', 'aria-hidden': 'true' });

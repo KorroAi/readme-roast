@@ -157,29 +157,34 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
     expect(id, `${kind} stands in ${biome}`).not.toBeNull();
     // Let it come at the explorer (its first blows, told), watching for its marker on the ground (a
     // charger's lane, a brute's slam circle) and the telegraph decals actually drawn while it is down.
-    let marked = false;
-    let decalsDrawn = false;
     await page.waitForFunction((i) => (window.__DD__ as any).mobs.events('mob:attack').some((e: Ev) => e.payload.id === i), id, { timeout: 60_000, polling: 250 });
-    const trail: string[] = [];
-    for (let k = 0; k < 40 && !(marked && decalsDrawn); k++) {
-      const seen = await page.evaluate((i) => {
-        const dd = window.__DD__ as any;
-        const own = dd.mobs.markers().some((mk: { owner: number }) => mk.owner === i);
-        const mesh = dd.game.mobs.group.getObjectByName('mobTelegraphs');
-        // (Its own clock, for the log when no marker comes.)
-        const sim = dd.game.mobs.sim;
-        const m = sim.mobs.find((x: { id: number }) => x.id === i);
-        const p = dd.game.player;
-        const r = (v: number) => Math.round(v * 100) / 100;
-        const at = m ? `${r(sim.clock)}:${m.state}/cd${r(m.cooldown)}/dp${r(Math.hypot(m.position.x - p.x, m.position.z - p.z))}/${sim.brains ? 'b' : 'nb'}/${dd.game.mode}` : `${r(sim.clock)}:gone`;
-        return { own, drawn: own && !!mesh?.visible && mesh.geometry.instanceCount > 0, at };
-      }, id);
-      marked ||= seen.own;
-      decalsDrawn ||= seen.drawn;
-      trail.push(seen.at);
-      if (!(marked && decalsDrawn)) await page.waitForTimeout(250);
-    }
-    if (!marked) console.log(`[mobs] ${kind}: its clock through the wait: ${trail.filter((_, j) => j % 3 === 0).join(' ')}`);
+    // Watched in the game's own time, not the wall clock's: under SwiftShader at about a frame a
+    // second the catch-up (?catchup=6) runs at most 0.3 s of game a frame, so on a loaded machine the
+    // game runs at a quarter of real time (the re-run of 03:50: 3 s of the Clatterclaw's clock in the
+    // old loop's 12 s, short of its 4.2 s between slams). Up to 12 s of its clock: three of its cycles.
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__mkSeen = { own: false, drawn: false, t0: w.__DD__.game.mobs.sim.clock };
+    });
+    const seen = (await (
+      await page.waitForFunction(
+        (i) => {
+          const w = window as any;
+          const dd = w.__DD__;
+          const own = dd.mobs.markers().some((mk: { owner: number }) => mk.owner === i);
+          const mesh = dd.game.mobs.group.getObjectByName('mobTelegraphs');
+          const s = w.__mkSeen;
+          s.own ||= own;
+          s.drawn ||= own && !!mesh?.visible && mesh.geometry.instanceCount > 0;
+          s.t = dd.game.mobs.sim.clock - s.t0;
+          return (s.own && s.drawn) || s.t > 12 ? { ...s } : false;
+        },
+        id,
+        { timeout: 150_000, polling: 100 },
+      )
+    ).jsonValue()) as { own: boolean; drawn: boolean; t: number };
+    const marked = seen.own;
+    const decalsDrawn = seen.drawn;
     if (!marked) {
       // What it is doing when no wind-up came (for the log: its state, how far, how high, the others).
       const why = await page.evaluate((i) => {
@@ -187,11 +192,10 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
         const p = dd.game.player;
         const r = (v: number) => Math.round(v * 100) / 100;
         const all = dd.mobs.list().map((m: MobView) => `${m.id}:${m.kind}:${m.state}@${r(Math.hypot(m.x - p.x, m.z - p.z))}m,dy${r(m.foot.y - p.y)}`);
-        const ms = dd.mobs.markers().map((k: { owner: number; kind: string }) => `${k.owner}:${k.kind}`);
         const own = dd.mobs.events().filter((e: Ev) => e.payload?.id === i).map((e: Ev) => e.type.replace('mob:', ''));
-        return `explorer at ${r(p.x)},${r(p.y)},${r(p.z)}; mobs ${all.join(' ')}; markers ${ms.join(' ') || 'none'}; its events ${own.slice(-12).join(',')}`;
+        return `mobs ${all.join(' ')}; its events ${own.slice(-12).join(',')}`;
       }, id);
-      console.log(`[mobs] ${kind} (id ${id}): no marker seen: ${why}`);
+      console.log(`[mobs] ${kind} (id ${id}): no marker in ${seen.t.toFixed(1)} s of its clock: ${why}`);
     }
     expect(marked, `${kind}: its blow marked on the ground`).toBe(true);
     expect(decalsDrawn, `${kind}: the telegraph decals drawn`).toBe(true);

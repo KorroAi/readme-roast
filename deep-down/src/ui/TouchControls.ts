@@ -6,16 +6,17 @@ import type { PlayerActions } from './hud/actions';
 import type { InteractView } from './types';
 import { iconSvg } from './hud/glyphs';
 import {
-  advanceLookPhase,
+  advanceTouchPhase,
   clampBase,
   followBase,
   HOLD_TO_MINE_MS,
   isTap,
   joystick,
   joystickRadiusFor,
-  releaseLook,
+  releaseTouch,
   toNdc,
   touchSide,
+  touchStart,
   type LookPhase,
   type StickOutput,
 } from './touchMath';
@@ -39,10 +40,16 @@ interface LookTouch {
   lastX: number;
   lastY: number;
   startT: number;
+  /** It landed on a notice card ([data-touch-look]): a drag looks, its tap and hold are the card's. */
+  card: boolean;
 }
 
-/** Elements that handle their own pointers; touches starting on them never look or mine. */
-const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [data-touch-ignore]';
+/**
+ * Elements that handle their own pointers; touches starting on them never look or mine, except on
+ * the notice cards that carry `data-touch-look` (the arrival card, a milestone card, the tutorial's
+ * bubble): a drag that starts on one still looks (gate 03:32), its tap stays the card's.
+ */
+const OWN_POINTER_TARGETS = 'button, input, select, a, .dd-screen, .dd-modal, [data-touch-ignore], [data-touch-look]';
 
 /** Cooldown rings are drawn in this many steps (a still cooldown writes nothing). */
 const CD_STEPS = 40;
@@ -332,11 +339,15 @@ export class TouchControls {
   private onDown(e: PointerEvent): void {
     if (!this.accepts(e)) return;
     const target = e.target as Element | null;
-    if (target?.closest?.(OWN_POINTER_TARGETS)) return;
+    const own = target?.closest?.(OWN_POINTER_TARGETS) ?? null;
+    const role = touchStart(own !== null, own?.hasAttribute('data-touch-look') ?? false);
+    if (role === 'own') return;
+    const card = role === 'card';
     if (e.pointerType === 'touch') this.noteTouch();
     const w = window.innerWidth;
     const hgt = window.innerHeight;
-    if (touchSide(e.clientX, w, this.leftHanded, e.clientY, hgt) === 'move') {
+    // (A card's touch is a look one wherever it lands: never the stick under a card.)
+    if (!card && touchSide(e.clientX, w, this.leftHanded, e.clientY, hgt) === 'move') {
       if (this.stick) return;
       this.sizeStick(w, hgt);
       const [bx, by] = clampBase(e.clientX, e.clientY, w, hgt, this.radius);
@@ -348,12 +359,13 @@ export class TouchControls {
       if (this.look) return;
       // Event timestamps (same clock as performance.now) judge the hold by when the finger
       // actually moved, even if a busy main thread delivers the move late.
-      this.look = { id: e.pointerId, phase: 'pending', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: e.timeStamp };
+      this.look = { id: e.pointerId, phase: 'pending', startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastY: e.clientY, startT: e.timeStamp, card };
       window.clearTimeout(this.aimResetTimer);
       window.clearTimeout(this.holdTimer);
-      this.holdTimer = window.setTimeout(() => this.onHoldTimer(), HOLD_TO_MINE_MS);
+      if (!card) this.holdTimer = window.setTimeout(() => this.onHoldTimer(), HOLD_TO_MINE_MS);
     }
-    e.preventDefault();
+    // (A card keeps its own press: its click still comes.)
+    if (!card) e.preventDefault();
   }
 
   private onMove(e: PointerEvent): void {
@@ -368,7 +380,7 @@ export class TouchControls {
     const x = e.clientX;
     const y = e.clientY;
     const prev = look.phase;
-    look.phase = advanceLookPhase(prev, x - look.startX, y - look.startY, e.timeStamp - look.startT);
+    look.phase = advanceTouchPhase(prev, x - look.startX, y - look.startY, e.timeStamp - look.startT, look.card);
     if (look.phase === 'look') {
       // The first drag frame includes the slop so the camera follows the finger 1:1.
       this.actions.look(x - (prev === 'pending' ? look.startX : look.lastX), y - (prev === 'pending' ? look.startY : look.lastY));
@@ -392,7 +404,7 @@ export class TouchControls {
     if (!look || e.pointerId !== look.id) return;
     window.clearTimeout(this.holdTimer);
     this.look = null;
-    const action = e.type === 'pointercancel' ? 'endMine' : releaseLook(look.phase);
+    const action = e.type === 'pointercancel' ? 'endMine' : releaseTouch(look.phase, look.card);
     if (action === 'tapMine') {
       // A tap: the game mines the tapped block until it breaks (or walks there, or uses it).
       this.emitTap(look.lastX, look.lastY);
@@ -418,7 +430,7 @@ export class TouchControls {
 
   private decideHold(look: LookTouch): void {
     if (this.look !== look || look.phase !== 'pending') return;
-    look.phase = advanceLookPhase('pending', look.lastX - look.startX, look.lastY - look.startY, Math.max(HOLD_TO_MINE_MS, performance.now() - look.startT));
+    look.phase = advanceTouchPhase('pending', look.lastX - look.startX, look.lastY - look.startY, Math.max(HOLD_TO_MINE_MS, performance.now() - look.startT), look.card);
     if (look.phase === 'mine') {
       this.beginMine();
       this.aimAt(look.lastX, look.lastY);
