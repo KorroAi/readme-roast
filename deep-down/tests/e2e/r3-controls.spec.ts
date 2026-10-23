@@ -1,6 +1,6 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, mark, aimAtOre, awayFromCamp, boot, centreOf, closeTripCard, faceOpen, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, aimAtOre, awayFromCamp, boot, centreOf, closeTripCard, dismissArrival, faceOpen, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -17,38 +17,32 @@ const COPPER = 7;
 const AIR = 0;
 
 
-/** Where a world point is on screen (CSS px) under the current camera, or null behind it. */
-async function screenOf(page: Page, p: [number, number, number]): Promise<{ x: number; y: number } | null> {
-  return page.evaluate(([x, y, z]) => {
-    const cam = window.__DD__.game.cameraRig.camera;
-    cam.updateMatrixWorld();
-    const v = cam.matrixWorldInverse.elements;
-    const P = cam.projectionMatrix.elements;
-    const vx = v[0] * x + v[4] * y + v[8] * z + v[12];
-    const vy = v[1] * x + v[5] * y + v[9] * z + v[13];
-    const vz = v[2] * x + v[6] * y + v[10] * z + v[14];
-    const cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
-    const cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
-    const cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
-    if (cw <= 0) return null;
-    return { x: ((cx / cw + 1) / 2) * innerWidth, y: ((1 - cy / cw) / 2) * innerHeight };
-  }, p);
-}
-
 test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at its edge; Jump, Dash, Sonar', async ({ page }) => {
   await boot(page);
   const touch = await newExpedition(page, { tutorial: false });
   await quiet(page);
 
-  // A tap on a vein mines it until it breaks (nothing held).
-  const vein = await aimAtOre(page, COPPER, [0, -0.1]);
+  // A tap on a vein mines it until it breaks (nothing held). The finger goes where aimAtOre checked
+  // that the ray meets the vein (its aim point), not on the projection of the block's centre: that
+  // one lands on the rock over the vein's face about half the time (a diagnostic, 4 of 8 new
+  // expeditions) and was mined only by the snap to a find near the finger, which another find can win
+  // (gate rerun 05:51: nothing broke). The game's own answer is asked first: a tap there mines copper.
+  const aim: [number, number] = [0, -0.1];
+  const vein = await aimAtOre(page, COPPER, aim);
   expect(vein, 'a copper vein near the camp').not.toBeNull();
   const block = vein!;
-  const at = await screenOf(page, [block[0] + 0.5, block[1] + 0.5, block[2] + 0.5]);
-  expect(at, 'the vein is on screen').not.toBeNull();
+  await dismissArrival(page, touch);
+  const at = { x: Math.round(((aim[0] + 1) / 2) * PHONE.width), y: Math.round(((1 - aim[1]) / 2) * PHONE.height) };
+  const under = await page.evaluate(([nx, ny]) => {
+    const g = window.__DD__.game;
+    const e = g.cameraRig.eye;
+    const r = g.mining.pick(nx, ny, e.x, e.y, e.z, 48);
+    return { intent: g.tap.intentAt(nx, ny) as string, block: r.target?.block ?? null, free: r.target?.protectedReason === null };
+  }, aim);
+  expect(under, 'a tap there mines the copper under the finger').toEqual({ intent: 'mine', block: COPPER, free: true });
   // (The tap's ray may meet the cell of the same vein in front of this one first: any copper broken.)
   const copper0 = await page.evaluate((id) => window.__DD__.events('block:broken').filter((e: { payload: { block?: number } }) => e.payload?.block === id).length, COPPER);
-  await touch.tap({ x: Math.round(at!.x), y: Math.round(at!.y) });
+  await touch.tap(at);
   const veinBroke = () =>
     page.evaluate(([x, y, z, id, n, air]) => window.__DD__.block(x, y, z) === air || window.__DD__.events('block:broken').filter((e: { payload: { block?: number } }) => e.payload?.block === id).length > n, [...block, COPPER, copper0, AIR] as const);
   expect(await untilGame(page, veinBroke, 20), 'the tapped vein broke').toBe(true);
