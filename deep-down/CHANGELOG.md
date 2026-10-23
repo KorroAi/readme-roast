@@ -65,6 +65,8 @@ The game was rebuilt on the same engine and look. Brief: `docs/round3/BRIEF.md`.
     - Place.
   - A 6-slot hotbar, and a reticle that changes with its target. A tap on a target in reach still acts on it.
   - Holding Action on a creature strikes again and again at the weapon's rate.
+  - A drag that starts on a notice card still turns the view. Cards include the biome's arrival card, a milestone card and
+    the tutorial bubble. A tap on a card still closes it.
   - Going down a Gate shows the new stratum's own loading screen: its numeral and name, its two biomes and its depth band.
   - Desktop:
     - WASD to move, Shift to sprint, mouse to look;
@@ -89,6 +91,8 @@ The game was rebuilt on the same engine and look. Brief: `docs/round3/BRIEF.md`.
     - consumables;
     - building pieces: planks, bricks, torches, ladders, ropes and doors;
     - the Outpost Kit: a bank, fast travel, a respawn bed and a light.
+- **Loot reaches the bag.** A creature killed at a long weapon's reach, or a find mined at the edge of the pick's reach, now
+  drops its loot on the explorer's side, within the bag's pull. Before, it could stay on the floor and fade.
 - **Denser and faster:**
   - 3–4.5× the old density of ore veins, with rarity rising with depth;
   - chests along the tunnels;
