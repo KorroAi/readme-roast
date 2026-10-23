@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame, waitPlay } from './dd';
-import { PHONE, aimAtOre, boot, newExpedition, quiet } from './r3';
+import { PHONE, aimAtOre, boot, closeTripCard, newExpedition, quiet } from './r3';
 import type { Touch } from './touch';
 
 // Round 3 (UI): the tap-to-act accelerator in the strata (BRIEF §0.6: "a tap on a target within reach
@@ -82,6 +82,9 @@ test('one tap mines a vein until it breaks, with nothing held; holding still min
   // Holding still on another vein mines it (no button pressed).
   const vein2 = await aimAtOre(page, COPPER);
   expect(vein2, 'another copper vein').not.toBeNull();
+  // The step to it may cross the camp's edge: back in the camp from a trip, its card comes up (and
+  // would stop the hold; gate rerun 04:40). Closed first, then aimed again.
+  if (await closeTripCard(page, touch, 1.5)) await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), vein2!);
   await page.evaluate(() => window.__DD__.clearEvents());
   await touch.down({ x: 195, y: 422 });
   const held = await untilGame(page, async () => (await page.evaluate(([x, y, z]) => window.__DD__.block(x, y, z), vein2!)) === AIR, 25);
@@ -257,38 +260,53 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
   expect(await untilGame(page, async () => (await page.evaluate(() => window.__DD__.game.input.lock)) === null, 3)).toBe(true);
 
   // A vein alone in slate: a tap 20 px past its edge on plain rock still takes it, and it wears the selection.
+  // The vein is one that the pick reaches, under the finger, from its stand or a step or two back
+  // (checked with the game's own pick before committing): else the next vein round (gate rerun
+  // 04:40: none of the three stands of the first one reached it).
   const p1 = await player(page);
-  const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p1.x, p1.y, p1.z]);
-  expect(prep, 'a copper vein in reach').not.toBeNull();
-  const block = prep!.block;
-  await page.evaluate(([bx, by, bz]) => {
-    const dd = window.__DD__;
-    for (let dz = -2; dz <= 2; dz++)
-      for (let dy = -2; dy <= 2; dy++)
-        for (let dx = -2; dx <= 2; dx++) {
-          const x = bx + dx;
-          const y = by + dy;
-          const z = bz + dz;
-          if ((dx || dy || dz) && dd.isSolid(x, y, z) && dd.block(x, y, z) !== 1) dd.setBlock(x, y, z, 1);
-        }
-  }, block);
   const vy = 380;
-  const backed = await page.evaluate(([bx, by, bz, sx, sy, sz, ay]) => {
-    const dd = window.__DD__;
-    const g = dd.game;
-    const dx = Math.sign(sx - bx);
-    const dz = Math.sign(sz - bz);
-    for (const k of [2, 1, 0]) {
-      const c = dd.standableNear(sx + 0.5 + dx * k, sy, sz + 0.5 + dz * k);
-      if (!c) continue;
-      dd.teleport(c[0], c[1], c[2]);
-      dd.aimAt(bx, by, bz, 0, ay);
-      const e = g.cameraRig.eye;
-      const r = g.mining.pick(0, ay, e.x, e.y, e.z, 48);
-      if (r.target && r.target.key === `${bx},${by},${bz}` && r.target.inReach) return k;
+  let block: [number, number, number] | null = null;
+  let backed = -1;
+  for (const [ox, oz] of [[0, 0], [12, 0], [0, 12], [-12, 0], [0, -12], [16, 16], [-16, -16], [24, -8]]) {
+    const prep = await page.evaluate(([id, x, y, z]) => window.__DD__.prepareMining(id, x, y, z, 48), [COPPER, p1.x + ox, p1.y, p1.z + oz]);
+    if (!prep) continue;
+    const b = prep.block;
+    await page.evaluate(([bx, by, bz]) => {
+      const dd = window.__DD__;
+      for (let dz = -2; dz <= 2; dz++)
+        for (let dy = -2; dy <= 2; dy++)
+          for (let dx = -2; dx <= 2; dx++) {
+            const x = bx + dx;
+            const y = by + dy;
+            const z = bz + dz;
+            if ((dx || dy || dz) && dd.isSolid(x, y, z) && dd.block(x, y, z) !== 1) dd.setBlock(x, y, z, 1);
+          }
+    }, b);
+    backed = await page.evaluate(([bx, by, bz, sx, sy, sz, ay]) => {
+      const dd = window.__DD__;
+      const g = dd.game;
+      const dx = Math.sign(sx - bx);
+      const dz = Math.sign(sz - bz);
+      for (const k of [2, 1, 0]) {
+        const c = dd.standableNear(sx + 0.5 + dx * k, sy, sz + 0.5 + dz * k);
+        if (!c) continue;
+        dd.teleport(c[0], c[1], c[2]);
+        dd.aimAt(bx, by, bz, 0, ay);
+        const e = g.cameraRig.eye;
+        const r = g.mining.pick(0, ay, e.x, e.y, e.z, 48);
+        if (r.target && r.target.key === `${bx},${by},${bz}` && r.target.inReach) return k;
+      }
+      return -1;
+    }, [...b, ...prep.stand, 1 - (vy / 844) * 2] as [number, number, number, number, number, number, number]);
+    if (backed >= 0) {
+      block = b;
+      // A step across the camp's edge may have ended a trip: its card first (it would take the tap), then the aim again.
+      if (await closeTripCard(page, touch, 1.5)) await page.evaluate(([bx, by, bz, ay]) => window.__DD__.aimAt(bx, by, bz, 0, ay), [...b, 1 - (vy / 844) * 2] as [number, number, number, number]);
+      break;
     }
-    return -1;
-  }, [...block, ...prep!.stand, 1 - (vy / 844) * 2] as [number, number, number, number, number, number, number]);
+    console.log(`[e2e] the vein ${JSON.stringify(b)} is out of the pick's reach from its stands: another`);
+  }
+  expect(block, 'a copper vein in reach').not.toBeNull();
   expect(backed, 'the vein in reach from a step back').toBeGreaterThanOrEqual(0);
   const off = await page.evaluate(([vy]) => {
     const g = window.__DD__.game;
