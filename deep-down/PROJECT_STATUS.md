@@ -1,10 +1,10 @@
 # DEEP DOWN — Project Status
 
-_Milestone M1 (vertical slice "The Lantern Hollow"): **feature-complete; verified in this
-environment by unit, end-to-end, UI and packaging tests plus screenshot review** (evidence per
-acceptance criterion in DEVELOPMENT_ROADMAP.md; what is only checked by hand is listed in
-TEST_REPORT.md → "Not covered by automated tests"). Not yet verified on a real phone: no Android
-device or emulator was available._
+_Version 2.0.0, round 3 "Le Grand Gouffre": a random open world of 6 strata and 12 biomes plus the Heart, 74 kinds of
+creatures, a real goal (relight the Heart), a mobile action layout, menus and crafting for everything, and French. It is
+**verified in this environment** by unit, end-to-end, UI and packaging tests, plus captures opened by the lead and a
+playtester (TEST_REPORT.md → "2.0.0 gate"). It is **not yet verified on a real phone**: no Android device or emulator was
+available, so the feel, the frame rate and the sound by ear are unverified._
 
 ## Play it
 
@@ -16,20 +16,52 @@ npm run build          # production build in dist/
 ./android/build-apk.sh # debug APK (see android/README.md)
 ```
 
-**First person everywhere** (the explorer is never drawn; you hold the pickaxe on the right and the lantern on the left).
-Only interesting things break (ores, crystals, gem pockets, rubble, roots); plain rock is solid and answers a tap with a
-soft tunk. Finds glow in their rarity colour: common white, uncommon green, rare blue, epic violet, legendary gold.
-Touch, upright phone, one thumb: there is no centre dot; a tap snaps to the best find within 56 px (the rarer one first)
-and, within 3.5 m, mines it to the end; tap farther rock, the floor or an
-object and you walk there (the view turns along the way), then mine or use it; drag anywhere to look; hold on a vein to
-mine it out block after block; a floating joystick appears under the thumb in the lower left third if you want to walk
-freely; 1-block ledges are climbed on their own. The top bar shows depth, lantern oil, the pack (tap: bag) and ≡ (pause);
-the objective line is always on. After the first iron, the Forge makes weapons (machete, spear, sling, flash charges):
-tap a monster to strike it. Creatures of every size live in the caves, from unsettling monsters (Crawler, Gnasher, Shade
-Wisp, Hollow Stalker, Stone Sentinel, the Deep Worm) to endearing beings (Lamplings, Glimmerkin, Shellback, Drift Jelly,
-Burrower, Lumen Moths); none spawn in the camp. World events (tremors, rockfalls, gusts, geysers, crystal blooms,
-migrations, treasure glints, echo lights) keep the trip alive. Desktop: WASD move, mouse look (click to capture), hold left button to mine, Space jump,
-E use, I / Tab bag, Esc pause.
+**The goal.** The Heart of the deep has gone dark. Go down through 6 strata, each with 2 biomes:
+- I: Amber Hollows and the Mushroom Forest;
+- II: the Root Galleries and the Flooded Grottoes;
+- III: the Crystal Geode and the Old Halden Mines;
+- IV: the Frost Caverns and the Glowroot Jungle;
+- V: the Sulphur Bog and the Sunken City;
+- VI: the Magma Veins and the Obsidian Abyss.
+
+Each biome's guardian holds a Heart Shard, and a stratum's 2 shards open its Gate to the next. At the bottom, the 12 shards
+relight the Heart, then come its guardian, the ending and free play. The tracker at the top always shows the next step, and a
+compass arrow points to it. Quests (J) holds the main chain, biome tasks, camp orders and feats.
+
+**Touch, upright phone** (390 × 844 is the reference):
+- **Move and look.** The left lower third is a floating joystick; push it to its edge to sprint. Drag anywhere else to look.
+- **Buttons on the right:**
+  - Action: mine the find or strike the creature under the reticle, hold to continue;
+  - Jump;
+  - Dash: a dodge with a moment of invulnerability;
+  - Interact: appears next to chests, stations, beings and gates;
+  - Sonar: shows ores, chests and lairs through rock for a moment;
+  - Place: appears when a torch, block, ladder or rope is in the hand.
+- **Taps.** A tap on a target in reach still acts on it.
+- **Hotbar.** The bottom has 6 slots: tap a slot to select it, long-press it to assign.
+- **Top bar.** Health and the flame, depth, the biome and the stratum, the minimap, and the Bag, Craft, Map, Quests and ≡
+  buttons.
+
+**Craft everything.** The Workbench, Furnace, Forge and Alchemy Table make:
+- picks I–VI;
+- weapons: the machete, sword, great axe, spears, the sling, crossbows and bombs;
+- armour sets that guard against cold, gas and heat;
+- lanterns and consumables;
+- building pieces: torches, ladders, ropes, planks, bricks and doors;
+- the Outpost Kit: a bank, fast travel, a respawn bed and a light.
+
+The camp can be upgraded, and a trader barters. The Map shows the explored stratum and its markers, with fast travel. Only finds
+break: ores, crystals, gems, rubble and roots. Plain rock holds, and each find glows in its rarity colour.
+
+**Desktop:**
+- WASD to move, Shift to sprint, the mouse to look (click to capture it);
+- the left button for Action and the right button to Place;
+- Space to jump, Ctrl to dash, E to interact, Q for the sonar, F for a flash charge;
+- 1–6 for the hotbar;
+- I or Tab for the Bag, C for Craft, M for the Map, J for Quests, B for the Bestiary;
+- Esc to pause.
+
+**Language.** English or French, from Settings → Accessibility, or the device's language.
 
 ## Systems
 
@@ -56,6 +88,12 @@ E use, I / Tab bag, Esc pause.
 | Automatic quality governor | ✅ Done | governor unit tests (9), e2e with CPU throttling ×6; thresholds unverified on phones |
 | Versioning (`tools/version.mjs`, 1.0.0 → versionCode 1000000) | ✅ Done | version unit tests (7), aapt badging |
 | Android shell + APK | ✅ Smoke-test APK builds (API 23 toolchain, targetSdk 36, versionCode 1000000), signed, packaging simulated (apk-sim incl. crash panel, privacy, licences) | Play AAB via Gradle + CI written, **unverified until the first CI run**; **never installed on a device** |
+| Round 3 world: 6 random strata of about 256 × 96 × 256 blocks, 12 biomes + the Heart, vistas, rivers, structures, lairs, gates, outposts | ✅ Done | strata, strata-traps and world-r3 unit tests; 16 seeds × 6 strata = 96/96 plans pass on the first attempt, 0 trapped cells, every route reachable; props probe 0 flagged on 6 seeds |
+| Round 3 creatures: 49 monsters, 12 beings, 13 guardians (the Dark Heart in 3 phases), the Lampling companion | ✅ Done | mob unit tests; duel simulator per guardian; e2e mobs.spec (a fight in 3 biomes, 36 creatures of 12 kinds drawn, a guardian beaten end to end, the companion tamed) |
+| Round 3 loop: the main chain (24 steps), side tasks, camp orders, Bestiary, feats, an 11-step tutorial, hazards, 121 items, 96 recipes, 4 stations, outposts | ✅ Done | LOOP unit tests; economy sim 136–142 min to the Heart on 3 seeds; the whole chain driven in the real game (stratum I to the ending and free play) |
+| Round 3 controls, HUD and menus (joystick sprint, Action, Jump, Dash, Interact, Sonar, Place, hotbar, minimap, tracker, compass; Bag, Craft, Map with fast travel, Quests, Bestiary, Settings) | ✅ Done | r3 e2e specs with real CDP touches at 390 × 844 (first five minutes, menus, controls, build, descent, travel, cards, tap, desktop); ui-check 124/124 |
+| French (about 2,300 lines; device language or Settings) | ✅ Done | i18n-fr guard (0 missing, 0 stale), loop-text guard, seen in the browser at 390 × 844 |
+| Save v4 + the 1.x card (feats, records and lifetime stats kept) | ✅ Done | save unit tests; a real 1.1.0 save loaded by QA in the 2.0.0 build |
 
 ## Definition of success (from the brief)
 
@@ -86,6 +124,7 @@ is proven walkable by `routeWalk.test.ts`).
 4. The director-only release steps in `docs/release-checklist.md`: Play account, trademark
    and title check, upload key and secrets, listing forms, device runs
    (`docs/device-test-protocol.md`).
-5. The rest of the final pass (`docs/final-pass/MERGE.md`): waves 2–5.
+5. A balance pass with real players. The guardians are tuned by a duel simulator and one scripted playtester, and the run to
+   the Heart (about 136–142 minutes in the economy simulator) has not been timed by a person.
 
 See KNOWN_ISSUES.md for limitations and DEVELOPMENT_ROADMAP.md for what comes next.

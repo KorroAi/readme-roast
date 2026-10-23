@@ -2,6 +2,109 @@
 
 Newest first. Each entry says what changed and how it was verified.
 
+## 2.0.0 — round 3: "Le Grand Gouffre", the open, random, dense deep (2026-10-23)
+
+The director's verdict on 1.1.0 was "not really satisfied with the game or the gameplay". They asked for:
+- at least 10 biomes, with many mobs per biome;
+- better guidance and a real goal;
+- much better controls and buttons;
+- an immense, randomly generated open cave;
+- menus, and crafting for everything;
+- a denser, faster game.
+
+The game was rebuilt on the same engine and look. Brief: `docs/round3/BRIEF.md`. Coordination log: `docs/round3/STATUS.md`.
+
+- **A random open world of 6 strata** (`src/world/gen/strata/**`):
+  - Every new expedition rolls a seed. It is shown in Settings, and New Expedition takes an optional seed.
+  - Each stratum is a generated zone of about 256 × 96 × 256 blocks with 2 biomes. One stratum is loaded at a time.
+  - The caves are winding tunnels, huge caverns, ravines, lakes, rivers and waterfalls, pillars, rock bridges and shafts with
+    ledges.
+  - Each stratum has a vista hall: a balcony over a lake, a ramp down its wall, and the river's fall.
+  - Structures are placed per biome: abandoned mine camps, Halden's 24 journal pages, ruined shrines, ore rooms, vaults behind
+    cracked walls, nests, a guardian lair per biome, and each stratum's Gate.
+  - Proven on 16 seeds × 6 strata:
+    - 96/96 plans pass on the first attempt;
+    - no trapped cell, and every route is reachable;
+    - no hazard on a key place;
+    - generation takes about 2.8 s per stratum.
+- **12 biomes, plus the Heart:**
+  - I: Amber Hollows, Mushroom Forest.
+  - II: Root Galleries, Flooded Grottoes.
+  - III: Crystal Geode, Old Halden Mines.
+  - IV: Frost Caverns, Glowroot Jungle.
+  - V: Sulphur Bog, Sunken City.
+  - VI: Magma Veins, Obsidian Abyss, with the Heart at the very bottom.
+
+  Each biome has its own rocks and ores, palette, light, fog and grade, props and effects, and sound bed. Each also has a
+  hazard (from stratum IV: cold, gas, heat and darkness), its own creatures and a guardian.
+- **74 kinds of creatures** (`src/game/mobs/**`):
+  - 49 monsters, 12 endearing beings and 13 guardians. Each biome has 3 to 5 monsters and 1 to 3 beings.
+  - They are built from 8 behaviour archetypes and a modular body builder.
+  - Each guardian fights in an arena, with 2–3 telegraphed attack patterns, an open-guard window to strike into and a health
+    bar on the HUD. The Dark Heart has 3 phases.
+  - A Lampling can be tamed as a companion.
+  - Monsters never spawn in the camp, at an outpost or in torch light.
+- **A real goal: relight the Heart.**
+  - Each guardian holds a Heart Shard, and the 2 shards of a stratum open its Gate.
+  - The 12 shards relight the Heart. Then come its guardian, the ending and free play.
+  - The 24-step main chain was played end to end in the real game.
+  - Always on screen: the quest tracker (the main step plus one side task) and a compass arrow to the objective.
+  - The Quests screen holds the main chain, biome tasks, camp orders (3 at a time, plus a daily one) and feats.
+  - New players get an 11-step tutorial that teaches by doing, an arrival card per biome, suggested crafts and hints.
+- **A mobile action layout** (`src/ui/**`, `src/game/fp/**`):
+  - A floating movement joystick (push it to the edge to sprint), and drag anywhere else to look.
+  - Buttons:
+    - Action: mine or strike, hold to continue;
+    - Jump;
+    - Dash: a short dodge with a moment of invulnerability;
+    - Interact: appears next to chests, stations and beings;
+    - Sonar: reveals ores, chests and lairs through rock;
+    - Place.
+  - A 6-slot hotbar, and a reticle that changes with its target. A tap on a target in reach still acts on it.
+  - Desktop:
+    - WASD to move, Shift to sprint, mouse to look;
+    - left button for Action, right button to Place;
+    - Space to jump, Ctrl to dash, E to interact, Q for the sonar, F for a flash charge;
+    - 1–6 for the hotbar;
+    - I or Tab for the Bag, C for Craft, M for the Map, J for Quests, B for the Bestiary;
+    - Esc to pause.
+- **Menus, and crafting for everything:**
+  - Screens:
+    - the Bag: categories, details, use and equip;
+    - Craft: categories, have and need counts, ×1 and ×5, stations, camp upgrades and a trader;
+    - the Map: the explored stratum under fog of war, with markers, pan and zoom, and fast travel between the camp and
+      outposts;
+    - Quests, the Bestiary and Settings, which adds a Language row;
+    - a black-out screen and a trip card.
+  - The stations are the Workbench, the Furnace, the Forge and the Alchemy Table.
+  - 121 items and 96 recipes:
+    - picks I–VI;
+    - weapons: the machete, sword and great axe, spears, the sling and crossbows, and bombs;
+    - armour sets that guard against cold, gas and heat, and lanterns;
+    - consumables;
+    - building pieces: planks, bricks, torches, ladders, ropes and doors;
+    - the Outpost Kit: a bank, fast travel, a respawn bed and a light.
+- **Denser and faster:**
+  - 3–4.5× the old density of ore veins, with rarity rising with depth;
+  - chests along the tunnels;
+  - an encounter every 20–40 s in the deep;
+  - the world events are kept.
+- **French.** The whole game is translated, about 2,300 lines. The language follows the device or the Settings choice.
+- **The look** (`src/render/**`):
+  - Every biome has its own atmosphere, grade and light, and the look blends across biome borders.
+  - Every new rock, floor and ore is painted.
+  - Biome props and effects, dressed arenas, visible hazards, placed torches that light the cave, and the sonar pulse.
+  - The Heart's finale plays in two acts.
+  - The worst measured frame is 138 draw calls and 210k triangles, within Balanced's budget of 150 and 250k.
+- **Sound** (`src/audio/**`):
+  - Waterfalls, rivers, braziers, lamps, drips, spores, ice and void spires sound from where they are, within a voice budget.
+  - Combat stabs, guardian phases, and the Dark Heart's 3 phases with the main theme.
+  - A density duck and a limiter. Every score was rendered offline and measured; nobody has listened to them yet.
+- **Saves.** Save v4. A 1.x save shows one calm card ("The deep has changed…") and starts a new expedition. Feats, records and
+  lifetime stats are kept, and the camp leaves a gift.
+- **Version.** 2.0.0, versionCode 2000000. It installs over 1.1.0, because the signing key is the same.
+- **Verified:** see TEST_REPORT.md, "2.0.0 gate".
+
 ## 1.1.0 — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21)
 
 The director's notes on 1.0.0 drove this round: bugs and glitches, "not everything should be minable", rarity highlights,
