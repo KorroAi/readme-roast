@@ -185,9 +185,16 @@ test('a drag looks (pitch held, no roll); a tap into the dark raises the lantern
   expect(await page.evaluate(() => window.__DD__.events('block:hit').length)).toBe(0);
   expect(await page.evaluate(() => window.__DD__.game.cameraRig.camera.rotation.z)).toBe(0);
 
-  // A tap on the dark roof of the camp hall (no find, no floor in reach): the lantern is raised.
-  await page.evaluate(() => window.__DD__.look(window.__DD__.game.cameraRig.yaw, 0.9));
-  await untilGame(page, async () => true, 0.3);
+  // A tap on the dark roof of the camp hall (no find, no floor in reach): the lantern is raised. The way
+  // up is one where the game's own answer for that point is "look" (TapController.intentAt): a find in
+  // the roof within reach takes the tap and is locked (gate run 7, 10:47: a block at the finger).
+  let intent = '';
+  for (let k = 0; k < 16 && intent !== 'look'; k++) {
+    await page.evaluate((turn) => window.__DD__.look(window.__DD__.game.cameraRig.yaw + turn, 0.9), k ? Math.PI / 8 : 0);
+    await untilGame(page, async () => true, 0.3);
+    intent = await page.evaluate(() => window.__DD__.game.tap.intentAt((195 / innerWidth) * 2 - 1, 1 - (300 / innerHeight) * 2) as string);
+  }
+  expect(intent, 'a way up with nothing in reach under the finger').toBe('look');
   const b = await cam();
   // (On the view, under the top HUD: a finger on the tracker presses it.)
   await touch.tap({ x: 195, y: 300 });
