@@ -97,21 +97,33 @@ test('a tap on far floor walks there; a tap on the camp Workbench walks up to it
   const spot = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x - 2, y, z + 3), f);
   expect(spot, 'floor by the fire').not.toBeNull();
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), spot!);
+  // Open floor 4+ m away where a tap walks (the game's own answer, TapController.intentAt): a floor
+  // beside a find is not one, the tap snaps to the find near the finger and mines it (by design: a
+  // tap a little off a vein still mines it; gate rerun 04:05, a coal seam by the goal). The tap goes
+  // on the middle of the goal's floor cell (standableNear gives the cell's centre).
   let goal: [number, number, number] | null = null;
-  for (const [dx, dz] of [[-2, 9], [2, 9], [-6, 6], [6, 6], [0, -8], [-8, 0], [8, 0]]) {
-    goal = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), [f[0] + dx, f[1], f[2] + dz]);
-    if (goal && Math.hypot(goal[0] - spot![0], goal[2] - spot![2]) > 4) break;
+  let pt: { x: number; y: number } | null = null;
+  for (const [dx, dz] of [[-2, 9], [2, 9], [-6, 6], [6, 6], [0, -8], [-8, 0], [8, 0], [-5, -6], [5, -6], [9, 4], [-9, 4], [0, 11]]) {
+    const g = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), [f[0] + dx, f[1], f[2] + dz]);
+    if (!g || Math.hypot(g[0] - spot![0], g[2] - spot![2]) <= 4) continue;
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(Math.floor(x), y - 1, Math.floor(z), 0, -0.1), g);
+    const at = await screenOf(page, [g[0], g[1] + 0.02, g[2]]);
+    if (!at) continue;
+    const intent = await page.evaluate(([x, y]) => window.__DD__.game.tap.intentAt((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2) as string, [at.x, at.y] as const);
+    if (intent === 'walk') {
+      goal = g;
+      pt = at;
+      break;
+    }
+    console.log(`[e2e] a tap on the floor at ${JSON.stringify(g)} would ${intent}: another`);
   }
-  expect(goal, 'open floor at camp').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y - 1, z, 0, -0.1), goal!);
-  const pt = await screenOf(page, [goal![0] + 0.5, goal![1], goal![2] + 0.5]);
-  expect(pt, 'the floor is on screen').not.toBeNull();
+  expect(goal, 'open floor at camp where a tap walks').not.toBeNull();
   const before = await player(page);
-  const d0 = Math.hypot(before.x - goal![0] - 0.5, before.z - goal![2] - 0.5);
+  const d0 = Math.hypot(before.x - goal![0], before.z - goal![2]);
   await touch.tap({ x: Math.round(pt!.x), y: Math.round(pt!.y) });
   const arrived = await untilGame(page, async () => {
     const p = await player(page);
-    return Math.hypot(p.x - goal![0] - 0.5, p.z - goal![2] - 0.5) < 1.4;
+    return Math.hypot(p.x - goal![0], p.z - goal![2]) < 1.4;
   }, 15);
   expect(arrived, `walked to the tapped floor (${d0.toFixed(1)} m away)`).toBe(true);
 
