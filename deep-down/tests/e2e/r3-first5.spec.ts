@@ -193,7 +193,8 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
     if (await page.evaluate(() => window.__DD__.state().atCamp)) {
       const out = await awayFromCamp(page);
       if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), out);
-      await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.state().atCamp)), 2);
+      const left = await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.state().atCamp)), 2);
+      console.log(`[e2e] the fight: out of the camp for the placed tick (${left ? 'out' : 'still in'})`);
     }
     for (let k = 0; k < 16; k++) {
       const id = await page.evaluate((kk) => {
