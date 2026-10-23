@@ -306,28 +306,44 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
     window.__DD__.give('machete', 1);
     window.__DD__.game.loop.equip('machete');
   });
+  // A crawler on the floor ahead, kept where the game's own pick finds it at its point on screen (in
+  // sight, no lip of rock between): else it goes and the next way round is tried.
   let id: number | null = null;
+  let pt: { x: number; y: number } | null = null;
   for (let k = 0; k < 16 && id === null; k++) {
     await page.evaluate((y) => window.__DD__.look(y, -0.12), (k * Math.PI) / 8);
-    id = await page.evaluate(() => {
+    // The view turns on the next frames: the floor ahead is read from where it then looks.
+    await untilGame(page, async () => true, 0.12);
+    const cand = await page.evaluate(() => {
       const dd = window.__DD__ as any;
       const fl = dd.mobs.floorAhead(2, 3.6);
       if (!fl) return null;
       const id = dd.mobs.spawn('crawler', fl[0], fl[1], fl[2]);
       dd.mobs.freeze(true);
-      return id;
+      return id as number;
     });
-    if (id !== null) break;
+    if (cand === null) continue;
+    await untilGame(page, async () => true, 0.12);
+    const c = await page.evaluate((i) => (window.__DD__ as any).mobs.get(i), cand);
+    const at = c ? await screenOf(page, [c.x, c.y + 0.3, c.z]) : null;
+    const picked = at
+      ? await page.evaluate(([x, y, i]) => window.__DD__.game.combat.pickMob((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2)?.id === i, [at.x, at.y, cand] as const)
+      : false;
+    if (picked) {
+      id = cand;
+      pt = at;
+      break;
+    }
+    console.log(`[e2e] the crawler at ${JSON.stringify(c && [c.x, c.y, c.z])} is out of the pick's sight (${JSON.stringify(at)}): the next way`);
+    await page.evaluate(() => (window.__DD__ as any).mobs.clear());
   }
-  expect(id, 'a crawler on the floor ahead').not.toBeNull();
+  expect(id, 'a crawler on the floor ahead, in sight').not.toBeNull();
   await page.evaluate(() => {
     const w = window as unknown as { __fp: Array<{ type: string; p: any }> };
     w.__fp = [];
     const bus = window.__DD__.game.bus;
     for (const type of ['weapon:swing', 'weapon:hit', 'block:hit']) bus.on(type, (p: any) => w.__fp.push({ type, p }));
   });
-  const m = await page.evaluate((i) => (window.__DD__ as any).mobs.get(i), id);
-  const pt = await screenOf(page, [m.x, m.y + 0.3, m.z]);
   expect(pt, 'the crawler is on screen').not.toBeNull();
   await touch.tap({ x: Math.round(pt!.x), y: Math.round(pt!.y) });
   const hit = await untilGame(page, async () => page.evaluate(() => (window as unknown as { __fp: Array<{ type: string }> }).__fp.some((e) => e.type === 'weapon:hit')), 8);

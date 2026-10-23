@@ -177,6 +177,44 @@ export async function awayFromCamp(page: Page): Promise<[number, number, number]
   });
 }
 
+/**
+ * Turn the explorer to the longest open run of floor round it (a walk, then a sprint, needs room:
+ * a vein's wall right ahead keeps the speed at nought whatever the stick does). Returns the run (m).
+ */
+export async function faceOpen(page: Page, metres = 12): Promise<number> {
+  let best = { yaw: 0, run: -1 };
+  for (let k = 0; k < 16 && best.run < metres; k++) {
+    const yaw = (k * Math.PI) / 8;
+    await page.evaluate((y) => window.__DD__.look(y, 0), yaw);
+    // The view turns on the next frames: the way ahead is read from where it then looks.
+    await untilGame(page, async () => true, 0.1);
+    const run = await page.evaluate((max) => {
+      const dd = window.__DD__;
+      const g = dd.game;
+      const cam = g.cameraRig.camera;
+      cam.updateMatrixWorld();
+      const e = cam.matrixWorld.elements;
+      const l = Math.hypot(e[8], e[10]) || 1;
+      const fx = -e[8] / l;
+      const fz = -e[10] / l;
+      const p = g.player;
+      const y = Math.floor(p.y + 0.05);
+      let d = 0;
+      for (; d < max; d += 0.5) {
+        const x = Math.floor(p.x + fx * (d + 0.6));
+        const z = Math.floor(p.z + fz * (d + 0.6));
+        if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z)) break;
+        if (!dd.isSolid(x, y - 1, z) && !dd.isSolid(x, y - 2, z)) break;
+      }
+      return d;
+    }, metres);
+    if (run > best.run) best = { yaw, run };
+  }
+  await page.evaluate((y) => window.__DD__.look(y, 0), best.yaw);
+  await untilGame(page, async () => true, 0.1);
+  return best.run;
+}
+
 /** Round 3 events recorded since the last clear (window.__DD__.ui). */
 export const uiEvents = (page: Page, type: string) => page.evaluate((t) => window.__DD__.ui.events(t), type);
 

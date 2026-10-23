@@ -1307,6 +1307,7 @@ export const FR_SOURCES: Record<string, string> = {
   "menu.visualLab": "Visual Lab",
   "menu3.cardShards": "{n}/12 shards",
   "menu3.cardTime": "{time} played",
+  "menu3.descent.band": "{top} to {bottom}",
   "menu3.hours": "{h} h {m}",
   "menu3.minutes": "{n} min",
   "menu3.seed": "Seed (optional)",

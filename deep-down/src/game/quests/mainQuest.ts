@@ -93,16 +93,26 @@ const barsIn = (list: Array<[string, number]>) => list.find(([id]) => id === 'co
 export function armStep(a: ArmState): { step: ArmStepId; progress: { have: number; need: number } | null; target: P3 | null } {
   const have = (id: string) => (a.counts as Record<string, number>)[id] ?? 0;
   const units = (list: Array<[string, number]>) => ({ have: list.reduce((t, [id, n]) => t + Math.min(have(id), n), 0), need: list.reduce((t, [, n]) => t + n, 0) });
-  const missing = (list: Array<[string, number]>) => list.find(([id, n]) => have(id) < n)?.[0] ?? null;
   const source = (id: string): P3 | null => (id === 'stone' ? a.targets.stone : id === 'coal' ? a.targets.coal : id === 'hide' ? a.targets.boar : id === 'copperIngot' ? a.targets.copper : null) ?? null;
+  // A card still short of something: the nearest source of the first short input that has one in
+  // range; everything in hand: the Workbench to build it on.
+  const toward = (list: Array<[string, number]>): P3 | null => {
+    let short = false;
+    for (const [id, n] of list) {
+      if (have(id) >= n) continue;
+      short = true;
+      const p = source(id);
+      if (p) return p;
+    }
+    return short ? null : a.targets.bench ?? null;
+  };
   // Bars for the Forge (until it stands) and the Machete: a Furnace first to smelt them.
   const barsNeed = (a.forge ? 0 : barsIn(FORGE_NEEDS)) + barsIn(MACHETE_NEEDS);
   const bars = have('copperIngot');
   if (bars < barsNeed) {
     if (!a.furnace) {
       if (a.furnaceItem) return { step: 'placeFurnace', progress: null, target: a.targets.furnaceSpot ?? a.targets.bench ?? null };
-      const m = missing(FURNACE_NEEDS);
-      return { step: 'furnace', progress: units(FURNACE_NEEDS), target: (m ? source(m) : a.targets.bench) ?? null };
+      return { step: 'furnace', progress: units(FURNACE_NEEDS), target: toward(FURNACE_NEEDS) };
     }
     const short = barsNeed - bars;
     const target = have('copperOre') < short * BAR_ORE ? a.targets.copper : have('fuel') < short ? a.targets.coal : a.targets.furnace;
@@ -110,8 +120,7 @@ export function armStep(a: ArmState): { step: ArmStepId; progress: { have: numbe
   }
   if (!a.forge) {
     if (a.forgeItem) return { step: 'placeForge', progress: null, target: a.targets.forgeSpot ?? a.targets.bench ?? null };
-    const m = missing(FORGE_NEEDS);
-    return { step: 'forge', progress: units(FORGE_NEEDS), target: (m ? source(m) : a.targets.bench) ?? null };
+    return { step: 'forge', progress: units(FORGE_NEEDS), target: toward(FORGE_NEEDS) };
   }
   if (have('hide') < 1) return { step: 'hide', progress: { have: have('hide'), need: 1 }, target: a.targets.boar ?? null };
   return { step: 'machete', progress: units(MACHETE_NEEDS), target: a.targets.forge ?? null };

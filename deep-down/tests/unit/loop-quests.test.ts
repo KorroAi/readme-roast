@@ -132,7 +132,7 @@ const of = (h: TestHost, type: string) => h.events.filter((e) => e.type === type
  * The camp and its surroundings for the road to the first weapon: loose stone, a coal and a copper
  * vein (each with an open face), the camp plan's Workbench, Furnace and Forge spots, a Grit Boar.
  */
-function chainWorld(h: TestHost) {
+function chainWorld(h: TestHost, opts: { rubble?: boolean; extra?: Array<[{ x: number; y: number; z: number }, number]> } = {}) {
   const at = {
     rubble: { x: 6.5, y: 10.5, z: 2.5 },
     coal: { x: -6.5, y: 10.5, z: 3.5 },
@@ -144,6 +144,8 @@ function chainWorld(h: TestHost) {
   };
   const block = (p: { x: number; y: number; z: number }) => [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)].join();
   const blocks = new Map<string, number>([[block(at.rubble), B.RUBBLE], [block(at.coal), B.COAL_ORE], [block(at.copper), B.COPPER_ORE]]);
+  if (opts.rubble === false) blocks.delete(block(at.rubble));
+  for (const [p, id] of opts.extra ?? []) blocks.set(block(p), id);
   (h as { session: unknown }).session = {
     world: { get: (x: number, y: number, z: number) => blocks.get([x, y, z].join()) ?? B.AIR },
     liveProps: new Map(), props: { add() {}, remove() {}, has: () => false, setLift() {} }, setBlock() {}, removeProp() {},
@@ -929,6 +931,28 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     expect(of(h, 'guide:hint').filter((e) => e.id === 'arm:chain')).toHaveLength(1);
     // Stratum I's outline opens with it, now done.
     expect(q.view().main[0].steps[0]).toMatchObject({ text: en['quest.chain.machete'], done: true });
+  });
+
+  it('with no loose stone in range, the stone compass takes the nearest rock vein (each gives stone 40 %), never a cap or a vine; with nothing in range, no arrow', () => {
+    // The real round-3 camp has no rubble near it (only the nests have some): the arrow was missing.
+    const cap = { x: 1.5, y: 10.5, z: 1.5 };
+    const vine = { x: -1.5, y: 10.5, z: 1.5 };
+    const { h, loop } = game(false, false);
+    const at = chainWorld(h, { rubble: false, extra: [[cap, B.MUSHROOM_CAP_TEAL], [vine, B.GLOW_VINE]] });
+    loop.update(0.3);
+    expect(loop.quests.main()).toMatchObject({ id: 'main:arm.furnace', target: { x: at.coal.x, y: at.coal.y, z: at.coal.z, kind: 'point' } });
+    // The same for the Forge's stone, once the bars are in.
+    loop.placeStation('furnace', { x: 9, y: 10, z: 9 });
+    h.storage.add('copperIngot', 7);
+    h.storage.add('coal', 2);
+    loop.update(0.3);
+    expect(loop.quests.main()).toMatchObject({ id: 'main:arm.forge', target: { x: at.coal.x, y: at.coal.y, z: at.coal.z, kind: 'point' } });
+    // An empty cave: the step and its count, no arrow.
+    const bare = game(false, false);
+    chainWorld(bare.h, { rubble: false });
+    (bare.h as unknown as { session: { world: { get: () => number } } }).session.world.get = () => B.AIR;
+    bare.loop.update(0.3);
+    expect(bare.loop.quests.main()).toMatchObject({ id: 'main:arm.furnace', progress: { have: 0, need: 14 }, target: null });
   });
 
   it('a step whose result is already there is skipped at once, never shown; a save in the middle of the road resumes at its step', () => {

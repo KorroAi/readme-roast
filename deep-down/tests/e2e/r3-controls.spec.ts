@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, mark, aimAtOre, boot, centreOf, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, aimAtOre, awayFromCamp, boot, centreOf, faceOpen, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -59,7 +59,17 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   await touch.drag({ x: 300, y: 380 }, { x: 180, y: 380 }, 80, 4);
   expect(await untilGame(page, async () => Math.abs((await page.evaluate(() => window.__DD__.game.cameraRig.yaw as number)) - yaw0) > 0.25, 4), 'the drag looked round').toBe(true);
 
-  // The stick: a short push walks, a push to the edge sprints (its ring lights).
+  // The stick: a short push walks, a push to the edge sprints (its ring lights). First the view
+  // turns to open floor (the mined vein's wall can fill the way ahead), out of the camp if need be.
+  let room = await faceOpen(page, 12);
+  if (room < 8) {
+    const open = await awayFromCamp(page);
+    if (open) {
+      await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), open);
+      room = await faceOpen(page, 12);
+    }
+  }
+  console.log(`[e2e] the stick has ${room} m of open floor ahead`);
   const stick = { x: 70, y: 690 };
   const half = { x: stick.x, y: stick.y - 24 };
   await touch.press(stick, half, 7);

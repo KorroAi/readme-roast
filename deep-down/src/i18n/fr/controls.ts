@@ -194,6 +194,8 @@ export const controls: Partial<Record<TextKey, string>> = {
   'menu3.seed': 'Graine (facultatif)',
   'menu3.seedHint': 'Laissez vide pour un nouveau monde au hasard, ou tapez une graine pour en partager un.',
   'menu3.seedRandom': 'Aléatoire',
+  // L’écran de chargement d’une strate (une descente, une remontée) : sa tranche de profondeur.
+  'menu3.descent.band': '{top} à {bottom}',
   'menu3.start': 'Partir en expédition',
   'menu3.cardShards': '{n}/12 éclats',
   'menu3.cardTime': '{time} de jeu',

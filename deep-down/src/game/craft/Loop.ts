@@ -82,11 +82,20 @@ const ARM_NEAR = 30;
 /** The card the Crafting menu opens on for each step of the road to the first weapon. */
 const ARM_FOCUS: Partial<Record<string, ItemId>> = { furnace: 'furnace' as ItemId, bars: 'copperIngot', forge: 'forge' as ItemId, machete: 'machete' };
 
-/** The road to the first weapon's compass: how far it looks for stone, coal and copper (m), and for a Grit Boar. */
+/**
+ * The road to the first weapon's compass: how far it looks for stone, coal and copper (m), and for a
+ * Grit Boar. Loose stone: a nest's rubble and old bricks give it for sure, and every rock vein the
+ * first pick breaks gives it 40 % of the time (config/loot BONUS_DROPS; not the caps and vines), so
+ * the compass takes the nearest of them all (the strata's plain rock is never mined).
+ */
 const CHAIN_RANGE = 34;
 const BOAR_RANGE = 80;
 const STONE_BLOCK = new Uint8Array(256);
-STONE_BLOCK[B.RUBBLE] = 1;
+for (const [id, d] of BONUS_DROPS) {
+  const b = blockDef(id);
+  if (d.item === 'stone' && b.tier <= 1 && (b.sound === 'stone' || b.sound === 'metal' || b.sound === 'crystal')) STONE_BLOCK[id & 255] = 1;
+}
+STONE_BLOCK[B.RUBBLE] = STONE_BLOCK[B.CRUMBLING_BRICK] = 1;
 const COAL_BLOCK = new Uint8Array(256);
 COAL_BLOCK[B.COAL_ORE] = 1;
 const COPPER_BLOCK = new Uint8Array(256);
@@ -1757,6 +1766,8 @@ export class Loop implements LoopActions {
     for (const store of [h.backpack.totals(), h.storage.toJSON()] as Array<Partial<Record<ItemId, number>>>)
       for (const [id, n] of Object.entries(store) as Array<[ItemId, number]>) if (isItem(id) && ITEMS[id].fuel) fuel += (ITEMS[id].fuel ?? 0) * n;
     const placed = (station: StationId) => this.stations.filter((x) => x.station === station);
+    const near = (key: string, match: Uint8Array) => this.nearestOf(key, match);
+    const boar = () => this.nearestMob('gritBoar', BOAR_RANGE);
     const here = (station: StationId) => {
       const p = h.player;
       let best: { x: number; y: number; z: number } | null = null;
@@ -1782,11 +1793,20 @@ export class Loop implements LoopActions {
       forge: placed('forge').length > 0,
       forgeItem: h.backpack.count('forge' as ItemId) > 0,
       counts: { stone: held('stone'), coal: held('coal'), copperOre: held('copperOre'), copperIngot: held('copperIngot'), hide: held('hide'), fuel },
+      // The block searches run only for the target the step reads (getters), at most every VEIN_EVERY s.
       targets: {
-        stone: this.nearestOf('stone', STONE_BLOCK),
-        coal: this.nearestOf('coal', COAL_BLOCK),
-        copper: this.nearestOf('copper', COPPER_BLOCK),
-        boar: this.nearestMob('gritBoar', BOAR_RANGE),
+        get stone() {
+          return near('stone', STONE_BLOCK);
+        },
+        get coal() {
+          return near('coal', COAL_BLOCK);
+        },
+        get copper() {
+          return near('copper', COPPER_BLOCK);
+        },
+        get boar() {
+          return boar();
+        },
         bench: spot('workbench'),
         furnaceSpot: spot('furnace'),
         forgeSpot: spot('forge'),
