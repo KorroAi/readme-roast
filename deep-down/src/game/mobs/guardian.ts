@@ -65,6 +65,9 @@ function phaseAt(def: GuardianDef, hp: number, max: number): number {
  * render/mobs/poses) and the 'mob:guardianOpen' event (the HUD's bar may pulse). Phase-quickened.
  */
 export function openGuard(sim: MobSim, m: SimMob, seconds: number, state: 'recoil' | 'stunned' = 'recoil'): void {
+  // A flier opens wherever it hangs, often across the arena: its window is longer, the time to come
+  // in under it (OPEN_FLIER.window; it sinks within reach meanwhile, settle()).
+  if (fly(m) && OPEN_FLIER.sink) seconds *= OPEN_FLIER.window;
   m.setState(state);
   m.timer = seconds;
   m.openLeft = seconds;
@@ -225,7 +228,7 @@ function settle(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
 }
 
 /** How low (m over the floor, plus its half height) a flying guardian sinks while its guard is open. */
-export const OPEN_FLIER = { hover: 1.3, sink: true };
+export const OPEN_FLIER = { hover: 1.3, sink: true, window: 1.4 };
 
 function stalk(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: GuardianDef): void {
   if (m.state !== 'stalk') m.setState('stalk');
@@ -467,8 +470,8 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
     case 'summon': {
       if (!m.landed) {
         m.landed = true;
-        // Its brood: two (three from its second phase), lesser than their wild kin (BROOD).
-        const n = BROOD.base + m.phase;
+        // Its brood: two (three from its second phase on), lesser than their wild kin (BROOD).
+        const n = BROOD.base + (BROOD.lesserAdds ? Math.min(2, m.phase) : m.phase);
         for (let i = 0; i < n; i++) {
           const kind = def.brood[sim.rng.int(0, def.brood.length - 1)] as MobKind;
           const a = sim.rng.range(-Math.PI, Math.PI);

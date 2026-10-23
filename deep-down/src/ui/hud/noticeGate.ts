@@ -47,6 +47,28 @@ export function noticeTurns(s: NoticeScene): NoticeTurns {
   return { arrival, discovery, milestones, holdToasts };
 }
 
+/** A guide hint (a first-time find, a hazard, a stuck explorer): where it shows, once (QA 00:03). */
+export interface HintScene {
+  /** A first-time item tip ('item:<id>'). */
+  item: boolean;
+  /** It names a control to point at. */
+  target: boolean;
+  fight: boolean;
+  /** A notice card is up (an arrival, a discovery, a milestone). */
+  cardUp: boolean;
+}
+
+/**
+ * 'hold': a new find waits while a guardian is awake (its bar is where the Bag's tip would stand);
+ * 'tip': by its control (the tip bubble), when nothing is up there; 'line': the hint line otherwise
+ * (or when the tip cannot show). Never both.
+ */
+export function hintPlace(h: HintScene): 'hold' | 'tip' | 'line' {
+  if (h.item && h.fight) return 'hold';
+  if (h.target && !h.fight && !h.cardUp) return 'tip';
+  return 'line';
+}
+
 /** Where the toast column starts: under the top HUD block, the guardian's bar or a bubble up there. */
 export function toastTop(hudBottom: number, bubbleBottom: number, gap = 10): number {
   return Math.round(Math.max(hudBottom, bubbleBottom) + gap);

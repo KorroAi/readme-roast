@@ -598,8 +598,9 @@ if (opt.touch) {
   check('button size grows the pads', a1.w > a0.w * 1.15, { before: a0.w, after: a1.w });
   await page.evaluate(() => window.__UI__.actions.setControlPrefs({ scale: 1, opacity: 0.86 }));
 
-  // The mouse does not drive the touch layer unless the page opts in.
-  await page.mouse.move(520, 150);
+  // The mouse does not drive the touch layer unless the page opts in. (On the open view right of the
+  // top block, not on the tracker.)
+  await page.mouse.move(600, 210);
   await page.mouse.down();
   await wait(320);
   s = await input();
@@ -627,7 +628,7 @@ if (opt.touch) {
       const cy = innerHeight / 2;
       const hits = [];
       for (const el of document.querySelectorAll('.dd-hud *, .dd-touch *')) {
-        if (el.closest('.dd-reticle, .dd-target, .dd-combo, .dd-dmg-layer')) continue;
+        if (el.closest('.dd-reticle, .dd-target, .dd-combo, .dd-dmg-layer, .dd-fly-layer')) continue;
         const r = el.getBoundingClientRect();
         if (r.width === 0 || getComputedStyle(el).visibility === 'hidden' || Number(getComputedStyle(el).opacity) === 0) continue;
         if (r.left < cx + 70 && r.right > cx - 70 && r.top < cy + 90 && r.bottom > cy - 90) hits.push(`${el.className}`);
@@ -690,7 +691,8 @@ if (opt.touch) {
     check('keyboard users land on the primary button', /New Expedition/.test(f), f);
     await p.keyboard.press('ArrowDown');
     f = await focused();
-    check('arrow keys move focus to the seed field', /Seed/.test(f), f);
+    const seedFocused = await p.evaluate(() => !!document.activeElement?.matches('.dd-seed-input'));
+    check('arrow keys move focus to the seed field', seedFocused, f);
     await p.keyboard.press('ArrowDown');
     f = await focused();
     check('then to the Daily Descent', /Daily Descent/.test(f), f);
@@ -816,15 +818,24 @@ async function gameFlow(page, st, until, shot) {
 
   // The camp's Workbench: its Interact chip opens Craft; torches by hand.
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite?.stations.find((s) => s.station === 'workbench')?.p ?? null);
-  const stand = bench ? await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench) : null;
-  if (stand) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
-  // Face it: the camp's Workbench is a prop, its chip comes with it in focus (`p` is its base centre).
-  if (bench) await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 0.6, z, 0, 0), bench);
+  // Face it from a step away, from the side where no other prop takes the focus: the camp's Workbench
+  // is a prop, its chip comes with it in focus (`p` is its base centre; aimAt takes a block and aims
+  // at its centre, so the bench's middle is passed half a cell back).
+  const use = page.locator('.dd-use');
+  for (const [dx, dz] of bench ? [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]] : []) {
+    const stand = await page.evaluate(([x, y, z, ox, oz]) => {
+      const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
+      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+    }, [...bench, dx, dz]);
+    if (!stand) continue;
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench);
+    if (await use.waitFor({ state: 'visible', timeout: 6000 }).then(() => true, () => false)) break;
+  }
   await page.evaluate(() => {
     window.__DD__.give('fungalWood', 4);
     window.__DD__.give('coal', 2);
   });
-  const use = page.locator('.dd-use');
   await use.waitFor({ state: 'visible', timeout: 30_000 });
   await shot('use');
   await tapLoc(use);

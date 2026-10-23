@@ -539,6 +539,33 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(toastTop(157, 270)).toBe(280);
   });
 
+  it("names what did a black-out with the right article: a guardian's own, else a or an (QA 00:03)", async () => {
+    const { causeByName } = await import('../../src/game/fp/ActionLayer');
+    expect(causeByName('The Amber Matriarch')).toBe('Struck down by the Amber Matriarch');
+    expect(causeByName('Grit Boar')).toBe('Struck down by a Grit Boar');
+    expect(causeByName('Amber Tick')).toBe('Struck down by an Amber Tick');
+    expect(causeByName(null)).toBe('Struck down by a creature');
+    const { setLanguage } = await import('../../src/i18n');
+    setLanguage('fr');
+    try {
+      // French places the name after its line, so no article is ever doubled.
+      expect(causeByName('Sanglier de grès')).toMatch(/^Coup fatal\s:\sSanglier de grès$/u);
+    } finally {
+      setLanguage('en');
+    }
+  });
+
+  it('shows a guide hint once: by its control, else the hint line; a new find waits out a fight (QA 00:03)', async () => {
+    const { hintPlace } = await import('../../src/ui/hud/noticeGate');
+    const calm = { item: true, target: true, fight: false, cardUp: false };
+    expect(hintPlace(calm)).toBe('tip');
+    expect(hintPlace({ ...calm, fight: true })).toBe('hold');
+    expect(hintPlace({ ...calm, cardUp: true })).toBe('line');
+    expect(hintPlace({ ...calm, target: false })).toBe('line');
+    // A hazard's hint (not a find) in a fight goes to the hint line at once, never over the guardian's bar.
+    expect(hintPlace({ ...calm, item: false, fight: true })).toBe('line');
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');

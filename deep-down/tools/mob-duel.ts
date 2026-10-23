@@ -122,7 +122,7 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
       hp -= dmg;
       out.taken += dmg;
       out.blows++;
-      const src = g && e.mob === g ? (g.pattern ?? 'other') : e.mob.owner ? 'brood' : 'other';
+      const src = g && e.mob === g ? (g.pattern ?? 'other') : e.mob.owner ? (process.env.MOB_BROODKIND ? `brood:${e.mob.kind}` : 'brood') : 'other';
       out.by[src] = (out.by[src] ?? 0) + dmg;
     }
     // A brood exploder's fuse (told): back off out of its blast (or strike it first), when read.
@@ -449,7 +449,7 @@ const BEFORE_DEFS: Partial<Record<GuardianKind, { hp?: number; damage?: number; 
   gildedColossus: { hp: 520, shot: { damage: 20 } },
   magmaBehemoth: { hp: 650, shot: { damage: 24, splash: 1.8 } },
   voidHerald: { hp: 700, shot: { damage: 24, count: 6 } },
-  heartOfDark: { hp: 1100, shot: { damage: 22, count: 8 } },
+  heartOfDark: { hp: 1100, damage: 44, shot: { damage: 22, count: 8 } },
 };
 function useBefore(): void {
   Object.assign(BROOD, { hp: 1, power: 1, scale: 1, firstBlow: 0, most: 3, base: 2, addsMost: 99, lesserAdds: false });

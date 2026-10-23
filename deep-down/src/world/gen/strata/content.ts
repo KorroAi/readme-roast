@@ -162,6 +162,9 @@ export function liftBuried(w: { sx: number; sy: number; sz: number; blocks: Uint
     const z = Math.floor(p.z);
     const y = Math.floor(p.y);
     const hangs = !!p.anchor && p.anchor[1] >= y;
+    // (Only what the explorer uses or takes; buried dressing is validateProps' to drop: raised onto a
+    // step it would stand half on air.)
+    if (!p.interact && !p.feature && !p.minable) continue;
     if (hangs || !SOLID[at(x, y, z)]) continue;
     let up = 0;
     for (let k = 1; k <= 4 && !up; k++) if (!SOLID[at(x, y + k, z)] && !SOLID[at(x, y + k + 1, z)] && SOLID[at(x, y + k - 1, z)]) up = k;
@@ -343,13 +346,13 @@ export function nestKind(biome: BiomeId, h: number): MobKind | null {
  * The base radius (m, at scale 1) of VIS's prop models that reach past their own cell (measured from
  * the models: `node tools/run-ts.mjs tools/strata-prop-footprints.ts`); the rest stand inside it.
  */
-const FOOT: Partial<Record<string, number>> = {
+export const FOOT: Partial<Record<string, number>> = {
   basaltColumn: 0.81, bones: 0.7, brokenCart: 0.94, brokenColumn: 1.08, charredBones: 0.81, chest: 0.56, crate: 0.57,
   driftwood: 0.53, frozenBones: 0.69, geodeShards: 0.47, lavaGlow: 0.65, mushroomCluster: 0.55, ropeCoil: 0.76,
   rootKnot: 0.58, satchel: 0.56, shells: 0.54, statue: 0.57, timberProp: 0.58, waterfall: 0.75,
 };
 /** Kinds placed by rules of their own (along a wall, across a drift, round an arena, the camp's layout). */
-const OWN_RULES: ReadonlySet<string> = new Set(['rail', 'mineSet', 'lairPillar', 'lairBrazier', 'abyssMonolith', 'campfire', 'workbench', 'bedroll', 'hoistWinch']);
+export const OWN_RULES: ReadonlySet<string> = new Set(['rail', 'mineSet', 'lairPillar', 'lairBrazier', 'abyssMonolith', 'campfire', 'workbench', 'bedroll', 'hoistWinch']);
 
 export function placeContent(st: CarveState, stratum: StratumIndex, seed: number, seen: Uint8Array, decor: Decor, places: ReturnType<typeof buildPlaces>, extras: ContentExtras): ContentOut {
   const w = st.world;
@@ -571,8 +574,10 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   const mono: V3 = [places.gateStand[0], places.gateStand[1], places.gateStand[2] + (plan.heart === null ? 1.5 : 0)];
   let monoAt: V3 = mono;
   let monoScale = 0.25;
-  search: for (const sc of [0.35, 0.3, 0.25]) for (let r = 0; r <= 4; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
-    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+  // (Its stand stays within reach of its plinth: WorldFeatures uses a gate from the plinth's edge, 2.4 m.)
+  const reachable = (x: number, z: number, sc: number) => Math.hypot(Math.max(0, Math.abs(places.gateStand[0] - x) - 7.52 * sc), Math.max(0, Math.abs(places.gateStand[2] - z) - 7.52 * sc)) <= 1.6;
+  search: for (const sc of [0.35, 0.3, 0.25, 0.2]) for (let r = 0; r <= 4; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r || !reachable(mono[0] + dx, mono[2] + dz, sc)) continue;
     for (const dy of [0, 1, -1]) if (monolithFits(mono[0] + dx, mono[1] + dy, mono[2] + dz, sc)) {
       monoAt = [mono[0] + dx, mono[1] + dy, mono[2] + dz];
       monoScale = sc;
@@ -1060,11 +1065,12 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       if (left < 1.15 || right < 1.15 || left + right > 3.6) continue;
       const mx = px - dz * ((left - right) / 2);
       const mz = pz + dx * ((left - right) / 2);
+      // The floor level right across (rock under every post, nothing of it in a step) and room up to the cap.
       let tall = true;
       for (let r = -1.1; r <= 1.1 && tall; r += 0.55) {
         const cx = Math.floor(mx - dz * r);
         const cz = Math.floor(mz + dx * r);
-        if (SOLID[get(cx, y + 2, cz)] || !SOLID[get(cx, y - 1, cz)]) tall = false;
+        if (SOLID[get(cx, y, cz)] || SOLID[get(cx, y + 1, cz)] || SOLID[get(cx, y + 2, cz)] || !SOLID[get(cx, y - 1, cz)]) tall = false;
       }
       if (!tall || !spaced('mineSet', [mx, y, mz], 6)) continue;
       mark('mineSet', [mx, y, mz], 6);

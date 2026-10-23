@@ -475,16 +475,31 @@ export class Hud {
     const btn = h('button', { class: 'dd-hslot', type: 'button', 'data-ui-target': `hotbar:${i}`, 'data-slot': String(i) }, icon, count, h('span', { class: 'dd-slot-key', 'aria-hidden': 'true', text: String(i + 1) }));
     let timer = 0;
     let long = false;
+    /** The long-press opened the Bag: the lift's click must not land on it (it would pick a tile). */
+    let opened = false;
     btn.addEventListener('pointerdown', (e) => {
       e.preventDefault();
       long = false;
+      opened = false;
       btn.setPointerCapture?.(e.pointerId);
       window.clearTimeout(timer);
       timer = window.setTimeout(() => {
         long = true;
+        opened = true;
         this.actions.assign(i);
       }, HOTBAR_LONG_PRESS_MS);
     });
+    // A touch's lift is followed by a click where the finger was, now over the Bag the press opened:
+    // cancelling the touchend cancels that click (the slot keeps its own pointerup).
+    btn.addEventListener(
+      'touchend',
+      (e) => {
+        if (!opened) return;
+        opened = false;
+        if (e.cancelable) e.preventDefault();
+      },
+      { passive: false },
+    );
     const up = (e: PointerEvent) => {
       window.clearTimeout(timer);
       if (!long && e.type === 'pointerup') this.actions.hotbar(i);

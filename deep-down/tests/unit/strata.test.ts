@@ -2,7 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { B } from '../../src/config/blocks';
 import { BIOMES, PAGE_PLAN, STRATUM_SIZE, allOres, stratumDef, type StratumIndex } from '../../src/config/biomes';
 import { hash32 } from '../../src/core/math';
-import { reachNear, walkBfs } from '../../src/world/gen/strata/content';
+import { FOOT, OWN_RULES, reachNear, walkBfs } from '../../src/world/gen/strata/content';
 import { generateStratum } from '../../src/world/gen/strata/generateStratum';
 import { SET_PIECES } from '../../src/world/gen/strata/structures';
 import { withBiomeAt, type StratumLayout, type V3 } from '../../src/world/gen/strata/types';
@@ -251,6 +251,45 @@ describe('the strata generator (round 3)', () => {
   it('the river pours out of its spring in most strata (a fall from the spring chamber\'s wall)', () => {
     const springs = [1, 2, 3, 4, 5, 6].filter((n) => L(n).falls.some((f) => f.id.startsWith('spring_'))).length;
     expect(springs).toBeGreaterThanOrEqual(4);
+  });
+
+  it('stands its big props on rock (VIS\'s props probe): the gate\'s monolith whole and in reach of its stand, wide decor never over a drop', () => {
+    for (let n = 1; n <= 6; n++) {
+      const l = L(n);
+      const w = l.world;
+      const m = l.props.find((p) => p.id === `gate_${n}`)!;
+      expect(m, `gate_${n}`).toBeTruthy();
+      // The monolith's base (a square 15 x scale across): on rock, out of the rock.
+      const half = 7.52 * m.scale;
+      let cells = 0;
+      let held = 0;
+      let inRock = 0;
+      for (let dz = -half; dz <= half + 1e-6; dz += 0.5) for (let dx = -half; dx <= half + 1e-6; dx += 0.5) {
+        cells++;
+        const cx = Math.floor(m.x + dx);
+        const cz = Math.floor(m.z + dz);
+        if (SOLID[w.get(cx, m.y, cz)]) inRock++;
+        else if (SOLID[w.get(cx, m.y - 1, cz)]) held++;
+      }
+      expect(held / cells, `gate_${n} base on rock`).toBeGreaterThanOrEqual(0.8);
+      expect(inRock / cells, `gate_${n} base in rock`).toBeLessThanOrEqual(0.08);
+      // Used from its plinth's edge (WorldFeatures.focusDistance): the stand is within reach.
+      const st = l.gate.stand;
+      expect(Math.hypot(Math.max(0, Math.abs(st[0] - m.x) - half), Math.max(0, Math.abs(st[2] - m.z) - half)), `gate_${n} reach`).toBeLessThanOrEqual(1.6);
+      // Decor wider than its cell: three quarters of its base disc over rock.
+      for (const p of l.props) {
+        const R = (FOOT[p.kind] ?? 0.5) * p.scale;
+        if (R <= 0.72 || p.interact || p.minable || p.feature || OWN_RULES.has(p.kind)) continue;
+        let k = 0;
+        let on = 0;
+        for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5) {
+          if (dx * dx + dz * dz > R * R) continue;
+          k++;
+          if (!SOLID[w.get(Math.floor(p.x + dx), Math.round(p.y), Math.floor(p.z + dz))] && SOLID[w.get(Math.floor(p.x + dx), Math.round(p.y) - 1, Math.floor(p.z + dz))]) on++;
+        }
+        expect(on / k, `${p.id} footing`).toBeGreaterThanOrEqual(0.75);
+      }
+    }
   });
 
   it('keeps its hazard pockets where the hazard is, and off the places the explorer must use (and Halden\'s pages)', () => {

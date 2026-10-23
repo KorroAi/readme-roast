@@ -31,7 +31,7 @@ import { buildQuests } from './screens/r3/quests';
 import { buildBestiary } from './screens/r3/bestiary';
 import { buildTrip } from './screens/r3/trip';
 import { MilestoneBanner } from './hud/Milestones';
-import { noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
+import { hintPlace, noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
 import { languageOf, type ControlPrefs } from './controlPrefs';
 import { setReducedMotion } from './brand/motion';
 import { rewardLine } from '../game/quests/Quests';
@@ -113,6 +113,9 @@ export class UI implements GameUi {
   /** The toast column's top (portrait: under the HUD, the guardian's bar, a bubble up there). */
   private toastTopV = '';
   private toastTopAt = 0;
+  /** First-time item tips waiting for a guardian fight to end (QA 00:03), and when the next may show. */
+  private heldHints: Array<{ id: string; text: string; target: UiTargetId | null }> = [];
+  private hintFreeAt = 0;
   /** Round 3: feats, Heart Shards and completed bestiary pages (one calm card at a time). */
   private readonly milestones: MilestoneBanner;
   /** The last reward paid for a feat (its card says what it gave). */
@@ -309,10 +312,7 @@ export class UI implements GameUi {
       // Round 3: LOOP's guidance (arrival cards, hints with an optional control to point at),
       // the vein combo beside the reticle, a menu refreshed by what it shows changing.
       bus.on('guide:arrival', ({ card }) => this.arrival(card)),
-      bus.on('guide:hint', ({ id, text, target }) => {
-        this.hint(text, 4200);
-        if (target) this.hud.tutorial.tip(`hint:${id}`, target, text);
-      }),
+      bus.on('guide:hint', (g) => this.guideHint(g)),
       bus.on('mine:combo', ({ count }) => this.hud.combo(count)),
       // The companion's chip pings when it senses a rare ore, zaps a foe or grows.
       bus.on('companion:ore', () => this.hud.companionPing('ore')),
@@ -477,6 +477,18 @@ export class UI implements GameUi {
     this.pumpNotices();
   }
 
+  /** A guide hint, shown once: by its control, else in the hint line; a new find waits out a fight. */
+  private guideHint(g: { id: string; text: string; target: UiTargetId | null }): void {
+    const place = hintPlace({ item: g.id.startsWith('item:'), target: g.target !== null, fight: this.hud.fighting, cardUp: this.hud.arrivalUp || this.discovery.up || this.milestones.up });
+    if (place === 'hold') {
+      if (!this.heldHints.some((x) => x.id === g.id)) this.heldHints.push(g);
+      return;
+    }
+    this.hintFreeAt = performance.now() + 4600;
+    if (place === 'tip' && g.target && this.hud.tutorial.tip(`hint:${g.id}`, g.target, g.text)) return;
+    this.hint(g.text, 4200);
+  }
+
   /** What the notice cards may do now (ui/hud/noticeGate: one at a time, in turns). */
   private noticeTurns(): NoticeTurns {
     return noticeTurns({
@@ -510,6 +522,8 @@ export class UI implements GameUi {
     if (turns.discovery) this.discovery.pump();
     this.toasts.hold(this.noticeTurns().holdToasts);
     const now = performance.now();
+    // The finds that waited out a fight, one at a time once its bar is gone.
+    if (this.heldHints.length && !this.hud.fighting && this.gameplay && this.current === 'none' && now >= this.hintFreeAt) this.guideHint(this.heldHints.shift()!);
     if (now - this.toastTopAt < 250) return;
     this.toastTopAt = now;
     const top = `${toastTop(this.hud.topBottom(), this.hud.tutorial.bandBottom())}px`;

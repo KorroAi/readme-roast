@@ -331,6 +331,14 @@ export class WorldFeatures {
       const dz = Math.max(0, Math.abs(pz - spec.z) - 4.9);
       return py - spec.y > 4 ? Infinity : Math.hypot(dx, dz);
     }
+    if (f.kind === 'gate') {
+      // Round 3: a stratum's gate monolith is used from its plinth's edge (VIS's model: a square base
+      // 15 x its scale across; the content pass keeps the gate's stand within reach of it).
+      const half = 7.52 * spec.scale;
+      const dx = Math.max(0, Math.abs(px - spec.x) - half);
+      const dz = Math.max(0, Math.abs(pz - spec.z) - half);
+      return Math.abs(py - spec.y) > 3 ? Infinity : Math.hypot(dx, dz);
+    }
     return Math.hypot(spec.x - px, (spec.y - py) * 0.7, spec.z - pz);
   }
 

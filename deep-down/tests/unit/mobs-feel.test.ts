@@ -585,3 +585,88 @@ describe('a tap on what is drawn picks it', () => {
     expect(sim.pick({ ...ray, oz: g.position.z + 6 })).toBeNull();
   });
 });
+
+// The rebalance (lead, 00:10): measured by tools/mob-duel.ts on the descent plan's gear (STATUS 00:5x).
+// These pin its rules: a guardian's brood is lesser and fewer, a snuff's adds are capped, a phase-2
+// volley's salvos are a dash apart, a flier's open guard is long enough to reach and it sinks into reach.
+describe('the guardian rebalance: brood, adds, salvos, fliers', () => {
+  const awake = (kind: GuardianKind, at = { x: 40, z: 34 }) => {
+    const sim = new MobSim(env(), 61);
+    sim.spawning = false;
+    sim.lairs = [lairOf(kind, 40, 20, 22)];
+    const c = ctx(at);
+    run(sim, c, 2);
+    const g = sim.mobs.find((m) => m.kind === kind)!;
+    g.setState('stalk');
+    g.cooldown = 99;
+    return { sim, c, g };
+  };
+  const force = (_sim: MobSim, g: SimMob, pattern: string) => {
+    g.pattern = pattern as SimMob['pattern'];
+    g.setState('attack');
+    g.landed = false;
+    g.run = 0;
+    g.stateTime = 0;
+  };
+
+  it('a summon calls two lesser brood (three from its second phase): half the health, 0.6 of the bite, a moment before the first', async () => {
+    const { BROOD } = await import('../../src/game/mobs/guardian');
+    const { sim, c, g } = awake('amberMatriarch');
+    force(sim, g, 'summon');
+    run(sim, c, 0.1);
+    const brood = sim.mobs.filter((m) => m.owner === g.id && !m.dying);
+    expect(brood.length).toBe(2);
+    for (const b of brood) {
+      expect(b.maxHp).toBe(Math.max(1, Math.round(b.def.hp * BROOD.hp)));
+      expect(b.power).toBeCloseTo(BROOD.power, 5);
+    }
+    for (const b of brood) sim.remove(b);
+    run(sim, c, 1.5);
+    g.phase = 2;
+    g.cooldown = 99;
+    force(sim, g, 'summon');
+    run(sim, c, 0.1);
+    expect(sim.mobs.filter((m) => m.owner === g.id && !m.dying).length).toBe(3);
+  });
+
+  it("a snuff's adds out of the dark are lesser and never more than three about", async () => {
+    const { BROOD } = await import('../../src/game/mobs/guardian');
+    const { sim, c, g } = awake('voidHerald');
+    for (let k = 0; k < 3; k++) {
+      g.cooldown = 99;
+      force(sim, g, 'snuff');
+      run(sim, c, 0.2);
+    }
+    const adds = sim.mobs.filter((m) => m.owner === g.id && !m.dying);
+    expect(adds.length).toBeLessThanOrEqual(BROOD.addsMost);
+    expect(adds.length).toBeGreaterThan(0);
+    for (const a of adds) expect(a.power).toBeCloseTo(BROOD.power, 5);
+  });
+
+  it("a phase-2 volley's two salvos fly a dash's cooldown apart (1.2 s)", () => {
+    const { sim, c, g } = awake('magmaBehemoth');
+    g.phase = 2;
+    const shots: number[] = [];
+    sim.on((e) => {
+      if (e.type === 'sfx' && e.name === 'mob.spit' && e.mob === g) shots.push(sim.clock);
+    });
+    force(sim, g, 'volley');
+    run(sim, c, 2.2);
+    expect(shots.length).toBe(2);
+    expect(shots[1] - shots[0]).toBeGreaterThanOrEqual(1.15);
+  });
+
+  it('a flying guardian opens longer (it opens wherever it hangs) and sinks into reach meanwhile', async () => {
+    const { OPEN_FLIER, openGuard } = await import('../../src/game/mobs/guardian');
+    const { sim, c, g } = awake('voidHerald');
+    run(sim, c, 2);
+    const def = GUARDIAN_DEFS.voidHerald;
+    const floor = sim.floorY(g.position.x, g.position.y, g.position.z);
+    openGuard(sim, g, 1.4);
+    expect(g.openFor).toBeCloseTo(1.4 * OPEN_FLIER.window, 5);
+    run(sim, c, 1.2, 1 / 30, () => {
+      g.cooldown = 99;
+    });
+    expect(g.position.y - floor, 'sunk below its hover').toBeLessThan(def.hover - 0.8);
+  });
+});

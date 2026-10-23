@@ -25,6 +25,7 @@ import type { HudState, InteractView, MapMarker, MapSource, MapView, ReticleKind
 import type { MenuScreen, UiControl } from '../../ui/hud/actions';
 import type { LoopActions, PlaceRequest, HotbarView } from '../craft/types';
 import type { QuestSystem, QuestStepView } from '../quests/types';
+import { inSentence } from '../quests/Quests';
 import type { PropSpec } from '../../world/gen/types';
 import { DashAbility, SonarAbility, dashDirection, sonarScan } from './abilities';
 import { LEVELS as LEVEL_XP } from '../mobs/companion';
@@ -152,6 +153,18 @@ interface Throw {
   t: number;
 }
 
+/**
+ * The black-out line for a creature (QA 00:03): a name with its own article ("The Amber Matriarch",
+ * "La Matriarche…") keeps it, lowered in the sentence ("Struck down by the Amber Matriarch"); any
+ * other takes the language's own (English "a Grit Boar", "an Amber Tick": the templates hold the
+ * article, so French and others place the name as their line wants it). Null: an unnamed creature.
+ */
+export function causeByName(name: string | null): string {
+  if (!name) return t('bo3.cause.creature');
+  if (/^(The|Le|La|Les)\s/.test(name) || /^L['’]/.test(name)) return t('bo3.cause.named', { name: inSentence(name) });
+  return t(/^[AEIOU]/i.test(name) ? 'bo3.cause.mobAn' : 'bo3.cause.mob', { name });
+}
+
 export class ActionLayer {
   readonly dash = new DashAbility();
   readonly sonar = new SonarAbility();
@@ -225,13 +238,13 @@ export class ActionLayer {
     return t('bo3.wakeCamp');
   }
 
-  /** The black-out card's line of what did it. */
+  /** The black-out card's line of what did it (causeByName for a creature). */
   blackoutCause(): string {
     const h = this.lastHurt;
     if (!h) return t('bo3.cause.unknown');
     if (h.what === 'mob') {
       const name = (this.game.mobs as unknown as { bestiaryView?(): { entries: Array<{ kind: string; name: string }> } }).bestiaryView?.().entries.find((e) => e.kind === h.kind)?.name;
-      return name ? t('bo3.cause.mob', { name }) : t('bo3.cause.creature');
+      return causeByName(name ?? null);
     }
     if (h.what === 'fall') return t('bo3.cause.fall');
     if (h.what === 'cold' || h.hazard === 'cold') return t('bo3.cause.cold');

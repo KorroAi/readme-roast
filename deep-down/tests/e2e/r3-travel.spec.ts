@@ -116,8 +116,20 @@ test('an outpost from the hotbar, its rest, and fast travel from the Map to the 
   expect(await waitEvent(page, 'player:travelled', 30)).toBe(true);
   const p = await player(page);
   expect(Math.hypot(p.x - outpost.x, p.z - outpost.z), 'back beside the outpost').toBeLessThan(4);
-  // Away from both, the rows wait (a trip starts from the camp or an outpost).
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), (await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 14, y, z + 14), [Math.floor(outpost.x), Math.floor(p.y), Math.floor(outpost.z)]))!);
+  // Away from both, the rows wait (a trip starts from the camp or an outpost): standable floor 10-24 m
+  // from the outpost, out of the camp, in whichever direction the rock allows.
+  const apart = await page.evaluate(([ox, oy, oz]) => {
+    const dd = window.__DD__;
+    for (let d = 12; d <= 24; d += 4)
+      for (let a = 0; a < 12; a++) {
+        const s = dd.standableNear(Math.floor(ox + Math.sin((a * Math.PI) / 6) * d), oy, Math.floor(oz + Math.cos((a * Math.PI) / 6) * d));
+        if (s && Math.hypot(s[0] + 0.5 - ox, s[2] + 0.5 - oz) > 9) return s as [number, number, number];
+      }
+    return null;
+  }, [outpost.x, Math.floor(p.y), outpost.z] as const);
+  expect(apart, 'floor away from the outpost').not.toBeNull();
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), apart!);
+  await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 3);
   await tapControl(page, touch, 'map');
   expect(await waitScreen(page, 'map')).toBe(true);
   await expect(page.locator('[data-key="travelrow:camp"] .dd-btn')).toBeDisabled();

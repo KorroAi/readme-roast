@@ -586,11 +586,12 @@
     margin-top: -26px;
   }
 }
-/* The hint line: above the pads and the stick, below the centre. */
+/* The hint line: above the pads and the stick, below the centre (clear of the 180 px round the
+   reticle on an upright phone: ui-check). */
 .dd-hud.dd-r3 .dd-hint3 {
   position: absolute;
   left: 50%;
-  bottom: calc(var(--pad-bottom) + 250px);
+  bottom: calc(var(--pad-bottom) + 170px);
   transform: translateX(-50%);
   max-width: min(320px, 82vw);
   padding: 6px 12px;

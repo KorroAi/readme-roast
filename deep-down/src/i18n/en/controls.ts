@@ -216,6 +216,8 @@ export const controls = {
   // The black-out card
   'bo3.title': 'The lantern went out',
   'bo3.cause.mob': 'Struck down by a {name}',
+  'bo3.cause.mobAn': 'Struck down by an {name}',
+  'bo3.cause.named': 'Struck down by {name}',
   'bo3.cause.creature': 'Struck down by a creature',
   'bo3.cause.fall': 'A fall too far',
   'bo3.cause.cold': 'The cold took the last warmth',
