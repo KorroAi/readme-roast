@@ -62,6 +62,24 @@ describe('languages (English, French)', () => {
     expect(frenchSpacing('Attention : la lave ! 20 %')).toBe('Attention\u00a0: la lave\u00a0! 20\u00a0%');
   });
 
+  it('a stratum never wraps its numeral alone: a no-break space before it, in English and in French (QA 00:32)', () => {
+    const E = en as Record<string, string>;
+    const F = fr as Record<string, string>;
+    for (let n = 1; n <= 6; n++) {
+      expect(E[`stratum.${n}`]).toMatch(/^Stratum\u00a0[IVX]+$/);
+      expect(F[`stratum.${n}`]).toMatch(/^Strate\u00a0[IVX]+$/);
+    }
+    const plain = /\bStrat(?:um|e) (?=[IVX]+\b|\{[a-z]+\})/;
+    expect(Object.keys(F).filter((k) => plain.test(F[k]))).toEqual([]);
+    // English: every section but UI's controls and MOBS's creatures (theirs to space; asked in STATUS).
+    const enBad = Object.entries(EN_SECTIONS)
+      .filter(([name]) => name !== 'controls' && name !== 'mobs')
+      .flatMap(([, sec]) => Object.keys(sec).filter((k) => plain.test(E[k])));
+    expect(enBad).toEqual([]);
+    expect(frenchSpacing('Ouvrez la Porte de la Strate I')).toBe('Ouvrez la Porte de la Strate\u00a0I');
+    expect(frenchSpacing('Strate {n}')).toBe('Strate\u00a0{n}');
+  });
+
   it('the device language picks French for any French locale, else English', () => {
     expect(detectLanguage(['fr-FR', 'en-US'])).toBe('fr');
     expect(detectLanguage(['fr_CA'])).toBe('fr');

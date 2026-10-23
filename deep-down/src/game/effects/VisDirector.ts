@@ -141,8 +141,10 @@ interface StrataView {
  * Lead 01:17 (the Glass Garden's focal points): the garden's spires of black glass are tipped with
  * voidshard (WORLD's structures.ts glassGarden); each tip wears a soft violet glow, so the garden
  * reads as lit points across the dark rather than black on black. Tips: a voidshard cell with open
- * air over it on at least two cells of obsidian (a spire, not an ore in the floor).
+ * air over it and round it, on at least two cells of obsidian (a spire, not an ore in the floor).
  */
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
 export function spireTipHalos(w: Pick<VoxelWorld, 'get'>, sites: ReadonlyArray<{ name?: string; centre: readonly number[]; radius: number }>): HaloSource[] {
   const out: HaloSource[] = [];
   for (const site of sites) {
@@ -154,6 +156,10 @@ export function spireTipHalos(w: Pick<VoxelWorld, 'get'>, sites: ReadonlyArray<{
         if (Math.hypot(x + 0.5 - cx, z + 0.5 - cz) > site.radius + 1) continue;
         for (let y = Math.floor(cy) - 4; y <= cy + 14; y++) {
           if (w.get(x, y, z) !== B.VOIDSHARD || SOLID[w.get(x, y + 1, z)] || w.get(x, y - 1, z) !== B.OBSIDIAN || w.get(x, y - 2, z) !== B.OBSIDIAN) continue;
+          // Free-standing (air on three sides at least): not a vein in an obsidian floor or wall.
+          let open = 0;
+          for (const [dx, dz] of SIDES) if (!SOLID[w.get(x + dx, y, z + dz)]) open++;
+          if (open < 3) continue;
           out.push({ x, y, z, id: B.LIGHT_ABYSS, color: [0.5, 0.28, 1.25], size: 1.5, lift: 0.6 });
         }
       }
