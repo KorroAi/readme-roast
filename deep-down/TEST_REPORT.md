@@ -11,8 +11,8 @@ Run by the lead on a quiet machine, on the tree that ships (65e835e plus docs on
 | `npx vitest run`, twice | 95 files, **1352/1352** both times (about 85 s each) |
 | `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | PENDING_E2E |
 | `tools/ui-check.mjs` (every screen at portrait, landscape and desktop; the touch layer; a game smoke flow) | PENDING_UICHECK |
-| `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000) | PENDING_APKSIM |
-| Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2) | PENDING_CAPS |
+| `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000, built from e4db249) | **15/15 PASS**: boots from the APK files and reports 2.0.0, generates in the worker, New Expedition plays, the action HUD is up, the save survives a reload (Continue), privacy and licences render offline, the crash panel, Back and Restart work, 0 refused requests, 0 page errors |
+| Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2, real touches) | 19 shots opened by the lead: the title (v2.0.0, seed field), arrival, tutorial, Craft ("make this next: Furnace"), Bag, Map, Quests, Bestiary, HUD, Settings, companion, black-out, the road after the tutorial, a lair, a vista, the descent's own loading screen (Stratum II, its two biomes, -90 m to -180 m), and the arrival in stratum II |
 
 **What the gate itself found.** The gate's first full browser run, on ddde538, failed 4 of 28 tests. Each failure was root-caused
 before a re-run. Three were real game bugs, now fixed and covered by unit tests:
