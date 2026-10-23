@@ -90,6 +90,13 @@ const ARM_FOCUS: Partial<Record<string, ItemId>> = { furnace: 'furnace' as ItemI
  */
 const CHAIN_RANGE = 34;
 const BOAR_RANGE = 80;
+/**
+ * With no Grit Boar in sight, the hide step points at its ground: the nearest dark spot of its biome
+ * (MOBS' roster: the Amber Hollows) at least BOAR_OUT m from the camp fire, where creatures spawn
+ * round an explorer (never in the camp or in the light).
+ */
+const BOAR_BIOME: BiomeId = 'amberHollows';
+const BOAR_OUT = 24;
 const STONE_BLOCK = new Uint8Array(256);
 for (const [id, d] of BONUS_DROPS) {
   const b = blockDef(id);
@@ -1767,7 +1774,7 @@ export class Loop implements LoopActions {
       for (const [id, n] of Object.entries(store) as Array<[ItemId, number]>) if (isItem(id) && ITEMS[id].fuel) fuel += (ITEMS[id].fuel ?? 0) * n;
     const placed = (station: StationId) => this.stations.filter((x) => x.station === station);
     const near = (key: string, match: Uint8Array) => this.nearestOf(key, match);
-    const boar = () => this.nearestMob('gritBoar', BOAR_RANGE);
+    const boar = () => this.nearestMob('gritBoar', BOAR_RANGE) ?? this.boarGround();
     const here = (station: StationId) => {
       const p = h.player;
       let best: { x: number; y: number; z: number } | null = null;
@@ -1854,6 +1861,28 @@ export class Loop implements LoopActions {
           }
     }
     return c.at;
+  }
+
+  /** Where to look for a Grit Boar when none is in sight (BOAR_BIOME's dark ground out of the camp), or null. */
+  private boarGround(): { x: number; y: number; z: number } | null {
+    const st = this.host.strata ?? null;
+    const layout = st && st.current === 1 ? st.layout : null;
+    if (!layout?.spawnPoints?.length) return null;
+    const fire = layout.campSite?.fire ?? null;
+    const p = this.host.player;
+    let best: { x: number; y: number; z: number } | null = null;
+    let bd = Infinity;
+    for (const sp of layout.spawnPoints) {
+      if (sp.biome !== BOAR_BIOME || !sp.dark) continue;
+      const [x, y, z] = sp.p;
+      if (fire && (x - fire[0]) ** 2 + (z - fire[2]) ** 2 < BOAR_OUT * BOAR_OUT) continue;
+      const d = (x - p.x) ** 2 + (y - p.y) ** 2 + (z - p.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = { x, y, z };
+      }
+    }
+    return best;
   }
 
   /** The nearest live creature of a kind within `range` m (MOBS' list), or null. */
