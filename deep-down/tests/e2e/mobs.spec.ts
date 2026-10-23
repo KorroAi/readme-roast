@@ -171,6 +171,19 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
       decalsDrawn ||= seen.drawn;
       if (!(marked && decalsDrawn)) await page.waitForTimeout(250);
     }
+    if (!marked) {
+      // What it is doing when no wind-up came (for the log: its state, how far, how high, the others).
+      const why = await page.evaluate((i) => {
+        const dd = window.__DD__ as any;
+        const p = dd.game.player;
+        const r = (v: number) => Math.round(v * 100) / 100;
+        const all = dd.mobs.list().map((m: MobView) => `${m.id}:${m.kind}:${m.state}@${r(Math.hypot(m.x - p.x, m.z - p.z))}m,dy${r(m.foot.y - p.y)}`);
+        const ms = dd.mobs.markers().map((k: { owner: number; kind: string }) => `${k.owner}:${k.kind}`);
+        const own = dd.mobs.events().filter((e: Ev) => e.payload?.id === i).map((e: Ev) => e.type.replace('mob:', ''));
+        return `explorer at ${r(p.x)},${r(p.y)},${r(p.z)}; mobs ${all.join(' ')}; markers ${ms.join(' ') || 'none'}; its events ${own.slice(-12).join(',')}`;
+      }, id);
+      console.log(`[mobs] ${kind} (id ${id}): no marker seen: ${why}`);
+    }
     expect(marked, `${kind}: its blow marked on the ground`).toBe(true);
     expect(decalsDrawn, `${kind}: the telegraph decals drawn`).toBe(true);
     const dropsBefore = await page.evaluate(() => (window.__DD__ as any).game.drops.count as number);
