@@ -156,8 +156,23 @@ export async function aimAtOre(page: Page, id: number, ndc: [number, number] = [
     // (aimAt takes the block: it aims at the face of it the eye sees.)
     await page.evaluate(([x, y, z, nx, ny]) => window.__DD__.aimAt(x, y, z, nx, ny), [...b, ...ndc]);
     const hit = await page.evaluate(([nx, ny]) => window.__DD__.ui.ray(nx, ny, 6), ndc);
+    // ...and no prop in front of it on that ray (the camp's Workbench would take the press and open
+    // Craft: the voxel ray does not see props).
+    const propFirst = hit
+      ? await page.evaluate(([nx, ny, hx, hy, hz]) => {
+          const g = window.__DD__.game;
+          const cam = g.cameraRig.camera;
+          cam.updateMatrixWorld();
+          const o = cam.position.clone();
+          cam.getWorldPosition(o);
+          const d = o.clone().set(nx, ny, 0.5).unproject(cam).sub(o).normalize();
+          const ph = g.session.props?.raycast?.(o, d, 8);
+          return !!ph && ph.distance < Math.hypot(hx + 0.5 - o.x, hy + 0.5 - o.y, hz + 0.5 - o.z) - 0.4;
+        }, [ndc[0], ndc[1], hit[0], hit[1], hit[2]] as const)
+      : false;
     // The vein itself, or another cell of the same ore in front of it (what the pick meets first).
-    if (hit && hit[3] === id) return [hit[0], hit[1], hit[2]];
+    if (hit && hit[3] === id && !propFirst) return [hit[0], hit[1], hit[2]];
+    if (propFirst) console.log(`[e2e] vein ${JSON.stringify(b)} is behind a prop: another`);
     console.log(`[e2e] vein ${JSON.stringify(b)} is behind ${JSON.stringify(hit)}: another`);
   }
   return null;

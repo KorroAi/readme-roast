@@ -125,8 +125,15 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   // turning until the reticle reads "place".
   let ladderAim = false;
   let ladderWall: [number, number, number] = [wall[0], wall[1], wall[2]];
-  for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [0, 0]]) {
+  // The wall's face toward the stand (its main axis): the ladder goes in the cells in front of it.
+  const nx = Math.abs(stand[0] - wall[0]) >= Math.abs(stand[2] - wall[2]) ? Math.sign(stand[0] - wall[0]) : 0;
+  const nz = nx === 0 ? Math.sign(stand[2] - wall[2]) : 0;
+  for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [0, 0]]) {
     ladderWall = [wall[0] + ox, wall[1], wall[2] + oz];
+    // A wall three cells tall with room in front of it (the ladder climbs while both hold; the
+    // torch's column has the torch in front).
+    const tall = await page.evaluate(([x, y, z, fx, fz]) => [0, 1, 2].every((k) => window.__DD__.isSolid(x, y + k, z) && !window.__DD__.isSolid(x + fx, y + k, z + fz) && window.__DD__.block(x + fx, y + k, z + fz) === 0), [...ladderWall, nx, nz] as const);
+    if (!tall) continue;
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), ladderWall);
     ladderAim = await untilGame(page, async () => (await hud(page)).reticle === 'place', 2);
     if (ladderAim) break;
