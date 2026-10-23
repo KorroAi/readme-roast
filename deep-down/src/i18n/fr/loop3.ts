@@ -263,7 +263,7 @@ export const loop3: Partial<Record<TextKey, string>> = {
   'hint3.tooHard': 'Trop dur pour votre pioche : il faut le rang {tier}.',
   'hint3.armChain': 'Une pioche égratigne à peine un gardien : d’abord, votre Machette. Le suivi vous guide pas à pas.',
   'hint3.stuck.arm': 'L’Atelier montre ce que chaque carte demande et où le trouver ; la boussole pointe le plus proche.',
-  'hint3.stuck.place': 'Tenez-le depuis la barre rapide et appuyez sur Poser : il s’installe près du feu du camp.',
+  'hint3.stuck.place': 'Tenez-le (depuis le Sac ou la barre rapide) et appuyez sur Poser : il s’installe près du feu du camp.',
   'hint3.stuck.hide': 'Les sangliers de grès fouillent les Creux d’Ambre : quittez leur charge, puis frappez leur flanc.',
   'hint3.needWeapon': 'Une pioche égratigne à peine un gardien. Fabriquez d’abord une arme — {item} ({station}) : l’Atelier montre ce qu’il faut.',
   'hint3.tooHardPick': 'Trop dur pour votre pioche : il faut la {pick} (rang {tier}). Voyez l’Atelier.',

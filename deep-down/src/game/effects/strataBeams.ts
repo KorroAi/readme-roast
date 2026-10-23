@@ -77,7 +77,23 @@ export function strataBeams(world: VoxelWorld, sources: readonly ShaftSource[], 
     // From the roof (narrow) down toward the floor (wide): the beam fades in under the roof and out
     // before the floor (LightBeams' ends), so it never cuts the rock.
     const k = Math.min(1.4, 0.8 + c.fall / 30);
-    out.push({ from: [x, c.s.roof!, z], to: [x, c.floor + 0.3, z], r0: sh.top, r1: sh.foot * k, color: sh.color });
+    const r1 = sh.foot * k;
+    // QA 01:50: the shaft's foot is a soft pool of light on the floor (its dust thins out above it,
+    // LightBeams), laid only where the floor round it is flat (no glow hanging over a dip or cut by a
+    // step), a smaller one if only the middle is.
+    const pool = [0.8, 0.5].map((f) => r1 * f).find((r) => flatFloor(world, c.s.x, c.floor, c.s.z, r)) ?? 0;
+    out.push({ from: [x, c.s.roof!, z], to: [x, c.floor + 0.3, z], r0: sh.top, r1, color: sh.color, fall: true, pool });
   }
   return out;
+}
+
+/** Every cell within r (m) of (x, z) has its floor at y: open at y, rock under it. */
+function flatFloor(world: VoxelWorld, x: number, y: number, z: number, r: number): boolean {
+  const R = Math.ceil(r);
+  for (let dz = -R; dz <= R; dz++)
+    for (let dx = -R; dx <= R; dx++) {
+      if (dx * dx + dz * dz > r * r) continue;
+      if (SOLID[world.get(x + dx, y, z + dz)] || !SOLID[world.get(x + dx, y - 1, z + dz)]) return false;
+    }
+  return true;
 }

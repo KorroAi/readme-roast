@@ -22,14 +22,24 @@ export interface BeamSpec {
   r1: number;
   /** Linear HDR colour of the glow on the axis. */
   color: readonly [number, number, number];
+  /**
+   * Round 3 (QA 01:50): a shaft falling from a roof to the floor at `to` (strataBeams). Its dust thins
+   * out over the last metres above the floor and what it adds is capped, so its foot is a soft glow
+   * the cave shows through, never a white cloud; `pool` (m) lays a faint round glow on the floor
+   * under it (a flat floor only: strataBeams checks).
+   */
+  fall?: boolean;
+  pool?: number;
 }
 
 const vert = /* glsl */ `
 in float aT;
+in float aFoot;
 in vec3 aColor;
 out vec3 vWorldPos;
 out vec3 vNormal;
 out float vT;
+out float vFoot;
 out vec3 vColor;
 out float vDepth;
 void main() {
@@ -37,6 +47,7 @@ void main() {
   vWorldPos = wp.xyz;
   vNormal = normalize(mat3(modelMatrix) * normal);
   vT = aT;
+  vFoot = aFoot;
   vColor = aColor;
   vec4 mv = viewMatrix * wp;
   vDepth = length(mv.xyz);
@@ -53,22 +64,39 @@ uniform float uIntensity;
 in vec3 vWorldPos;
 in vec3 vNormal;
 in float vT;
+in float vFoot;
 in vec3 vColor;
 in float vDepth;
 layout(location = 0) out highp vec4 fragColor;
 void main() {
   vec3 v = normalize(cameraPosition - vWorldPos);
-  // Facing the view: the axis of the cone (soft core); grazing: its rim (fades to nothing).
-  float f = abs(dot(normalize(vNormal), v));
-  float core = f * f * f;
-  float ends = smoothstep(0.0, 0.18, vT) * (1.0 - smoothstep(0.65, 1.0, vT));
-  // Dust drifting up through the light: two slow, broad octaves of the world noise, kept faint (a
-  // finer, stronger dust read as a marbled slab at 390 x 844 @2 in the Crystal Geode).
-  vec3 q = vWorldPos * vec3(0.26, 0.1, 0.26) + vec3(0.0, -uTime * 0.06, 0.0);
-  float dust = textureLod(uNoise, q, 0.0).r * 0.7 + textureLod(uNoise, q * 2.1 + 0.37, 0.0).g * 0.3;
   float near = smoothstep(1.5, 5.0, vDepth);
   float fog = atmosphere(vWorldPos, vDepth, vec3(0.0)).a;
-  vec3 col = vColor * core * ends * (0.8 + 0.4 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
+  vec3 col;
+  if (vT < -0.5) {
+    // The pool under a shaft (QA 01:50): a faint round glow on the floor (vT -1 at its centre, -2 at
+    // its rim), softer still at a grazing angle.
+    float rf = clamp(-vT - 1.0, 0.0, 1.0);
+    float pool = (1.0 - rf * rf) * (1.0 - rf * rf);
+    col = vColor * pool * (0.3 + 0.7 * abs(v.y)) * 0.5 * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
+  } else {
+    // Facing the view: the axis of the cone (soft core); grazing: its rim (fades to nothing).
+    float f = abs(dot(normalize(vNormal), v));
+    float core = f * f * f;
+    float ends = smoothstep(0.0, 0.18, vT) * (1.0 - smoothstep(0.65, 1.0, vT));
+    // A falling shaft thins out over its last 4 m above the floor (vFoot: metres above it; 100 for
+    // the beams that rise): its foot is the pool's soft glow, the cave seen through it (QA 01:50:
+    // the Frost Caverns' foot read as a white cloud filling the middle of the view).
+    ends *= smoothstep(0.4, 4.0, vFoot) * (vFoot < 50.0 ? 1.0 - 0.45 * smoothstep(0.35, 0.9, vT) : 1.0);
+    // Dust drifting up through the light: two slow, broad octaves of the world noise, kept faint (a
+    // finer, stronger dust read as a marbled slab at 390 x 844 @2 in the Crystal Geode).
+    vec3 q = vWorldPos * vec3(0.26, 0.1, 0.26) + vec3(0.0, -uTime * 0.06, 0.0);
+    float dust = textureLod(uNoise, q, 0.0).r * 0.7 + textureLod(uNoise, q * 2.1 + 0.37, 0.0).g * 0.3;
+    col = vColor * core * ends * (0.8 + 0.4 * dust) * near * (1.0 - 0.7 * fog) * uAtmos.w * uIntensity;
+  }
+  // A falling shaft never adds more than a veil (two surfaces, the cone's front and back, at most
+  // ~0.1 linear between them), so what is behind it always shows through.
+  if (vFoot < 50.0) col *= min(1.0, 0.05 / max(dot(col, vec3(0.2126, 0.7152, 0.0722)), 1e-5));
   // Additive over the scene: on the 8-bit fallback the target holds sqrt(x / (1 + x)), where a
   // faint glow added as sceneOut(col) would be strongly amplified; its slope at a dark scene (~1.4)
   // keeps the beam as faint there as on HDR targets.
@@ -84,6 +112,7 @@ export class LightBeams {
     const pos: number[] = [];
     const nrm: number[] = [];
     const ts: number[] = [];
+    const foot: number[] = [];
     const col: number[] = [];
     const idx: number[] = [];
     const SEG = 18;
@@ -117,6 +146,8 @@ export class LightBeams {
           const nl = Math.hypot(nx, ny, nz) || 1;
           nrm.push(nx / nl, ny / nl, nz / nl);
           ts.push(t);
+          // Metres above the floor the shaft falls to (its height there, linear along it).
+          foot.push(s.fall ? Math.max(0, (s.from[1] - s.to[1]) * (1 - t)) : 100);
           col.push(...s.color);
         }
       }
@@ -126,11 +157,32 @@ export class LightBeams {
           const i1 = i0 + SEG + 1;
           idx.push(i0, i1, i0 + 1, i0 + 1, i1, i1 + 1);
         }
+      // The pool on the floor: a fan just over the floor (`to` is 0.3 m above it), aT -1 at its
+      // centre to -2 at its rim.
+      if (s.fall && s.pool && s.pool > 0) {
+        const c0 = pos.length / 3;
+        const y = s.to[1] - 0.26;
+        pos.push(s.to[0], y, s.to[2]);
+        nrm.push(0, 1, 0);
+        ts.push(-1);
+        foot.push(0);
+        col.push(...s.color);
+        for (let k = 0; k <= SEG; k++) {
+          const ang = (k / SEG) * Math.PI * 2;
+          pos.push(s.to[0] + Math.cos(ang) * s.pool, y, s.to[2] + Math.sin(ang) * s.pool);
+          nrm.push(0, 1, 0);
+          ts.push(-2);
+          foot.push(0);
+          col.push(...s.color);
+        }
+        for (let k = 0; k < SEG; k++) idx.push(c0, c0 + 1 + k + 1, c0 + 1 + k);
+      }
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
     g.setAttribute('aT', new THREE.Float32BufferAttribute(ts, 1));
+    g.setAttribute('aFoot', new THREE.Float32BufferAttribute(foot, 1));
     g.setAttribute('aColor', new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(idx);
     g.computeBoundingSphere();

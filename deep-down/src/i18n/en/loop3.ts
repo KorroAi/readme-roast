@@ -267,7 +267,7 @@ export const loop3 = {
   'hint3.tooHard': 'Too hard for your pick: tier {tier} needed.',
   'hint3.armChain': 'A pick barely scratches a guardian: first, your Machete. The tracker walks you through it.',
   'hint3.stuck.arm': 'Craft shows what each card needs and where to find it; the compass points at the nearest.',
-  'hint3.stuck.place': 'Hold it from the hotbar and press Place: it goes up by the camp fire.',
+  'hint3.stuck.place': 'Hold it (from the Bag or the hotbar) and press Place: it goes up by the camp fire.',
   'hint3.stuck.hide': 'Grit Boars root in the Amber Hollows: step off their charge, then strike their flank.',
   'hint3.needWeapon': 'A pick barely scratches a guardian. Make the {item} at the {station} first: the Craft menu shows what it takes.',
   'hint3.tooHardPick': 'Too hard for your pick: it takes the {pick} (tier {tier}). See Craft.',

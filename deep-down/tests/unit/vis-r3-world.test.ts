@@ -154,6 +154,35 @@ describe('light shafts (VIS round 3)', () => {
     // A low room (under 7 m from the floor to the roof): no shaft.
     expect(strataBeams(w, [{ x: 10, y: 6, z: 10, biome: 'amberHollows', roof: 8 }]).length).toBe(0);
   });
+
+  it('ends a shaft in a soft pool on a flat floor, its dust thinning out above it (QA 01:50)', async () => {
+    const THREE = await import('three');
+    const { VoxelWorld } = await import('../../src/world/VoxelWorld');
+    const { strataBeams } = await import('../../src/game/effects/strataBeams');
+    const { LightBeams } = await import('../../src/game/effects/LightBeams');
+    const w = new VoxelWorld(64, 48, 64, 16);
+    for (let x = 0; x < 64; x++) for (let z = 0; z < 64; z++) w.setRaw(x, 2, z, B.SLATE);
+    // A step beside the second light: no pool can lie flat there (or only a small one).
+    for (let x = 38; x < 64; x++) for (let z = 30; z < 64; z++) w.setRaw(x, 3, z, B.SLATE);
+    const [flat, step] = strataBeams(w, [{ x: 10, y: 28, z: 10, biome: 'frostCaverns', roof: 30 }, { x: 39, y: 28, z: 31, biome: 'frostCaverns', roof: 30 }]);
+    expect(flat.fall).toBe(true);
+    expect(flat.pool).toBeCloseTo(flat.r1 * 0.8, 5);
+    expect(step.pool ?? 0).toBeLessThan(step.r1 * 0.8);
+    const tex = (n: number) => new THREE.Data3DTexture(new Uint8Array(n * n * n * 4), n, n, n);
+    const lighting = { uLightTex: { value: tex(2) }, uLanternTex: { value: tex(2) }, uTime: { value: 0 } } as never;
+    const beams = new LightBeams(lighting, tex(2), [flat]);
+    const g = beams.mesh.geometry;
+    // The cone (7 rings of 19) and the pool's fan (a centre and 19 on its rim).
+    expect(g.getAttribute('position').count).toBe(7 * 19 + 1 + 19);
+    const foot = g.getAttribute('aFoot');
+    // Metres above the floor: the roof's ring the whole fall, the floor's ring 0.
+    expect(foot.getX(0)).toBeCloseTo(30 - 3.3, 5);
+    expect(foot.getX(6 * 19)).toBeCloseTo(0, 5);
+    // A rising beam (the old world's, the Heart's) keeps its foot: no thinning, no pool.
+    const rise = new LightBeams(lighting, tex(2), [{ from: [5, 3, 5], to: [5, 20, 5], r0: 1, r1: 2, color: [0.05, 0.05, 0.05] }]);
+    expect(rise.mesh.geometry.getAttribute('position').count).toBe(7 * 19);
+    expect(rise.mesh.geometry.getAttribute('aFoot').getX(0)).toBe(100);
+  });
 });
 
 describe('the bog\'s geysers (VIS round 3)', () => {

@@ -753,7 +753,7 @@ export const FR_SOURCES: Record<string, string> = {
   "hint3.stuck.heart": "The Heart lies at the very bottom of the Obsidian Abyss.",
   "hint3.stuck.hide": "Grit Boars root in the Amber Hollows: step off their charge, then strike their flank.",
   "hint3.stuck.lairs": "Use Sonar often: a lair glows red through the rock. A rumour now points the compass toward the nearest one.",
-  "hint3.stuck.place": "Hold it from the hotbar and press Place: it goes up by the camp fire.",
+  "hint3.stuck.place": "Hold it (from the Bag or the hotbar) and press Place: it goes up by the camp fire.",
   "hint3.stuck.prepare": "Open Craft: the next pick needs bars from the Furnace.",
   "hint3.stuck.tutorial": "Follow the ringed button.",
   "hint3.tooHard": "Too hard for your pick: tier {tier} needed.",
