@@ -98,7 +98,8 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   copperTop: { glow: 0 },
   ironVein: { glow: 0 },
   ironTop: { glow: 0 },
-  crystal: { glow: 0.85 },
+  // Lead 01:17 (the geode's crystals pop): glimmer 0.85 -> 1.05, echo 0.95 -> 1.15.
+  crystal: { glow: 1.05 },
   sealStone: { glow: 0 },
   masonry: { glow: 0 },
   masonryTop: { glow: 0 },
@@ -113,7 +114,7 @@ export const MATERIAL_INFO: Record<MaterialName, MaterialInfo> = {
   masonryB: { glow: 0 },
   crumblingB: { glow: 0.9 },
   script: { glow: 0 },
-  echoCrystal: { glow: 0.95 },
+  echoCrystal: { glow: 1.15 },
   rubble: { glow: 0 },
   roots: { glow: 0 },
   gemOre: { glow: 0.9 },

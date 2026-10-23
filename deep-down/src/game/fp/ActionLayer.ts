@@ -82,6 +82,8 @@ export interface StrataLike {
   readonly biomeHere: BiomeId | null;
   depth?(y: number): number;
   isRevealed(id: string): boolean;
+  /** The loaded stratum's gate is open (its two shards given). */
+  gateOpen?(): boolean;
   /** Named places (vista, river, works, set pieces, secrets) and whether each was reached. */
   namedSites?(): ReadonlyArray<{ id: string; kind: string; name?: string; centre: [number, number, number] }>;
   isFound?(id: string): boolean;
@@ -165,6 +167,25 @@ export function causeByName(name: string | null): string {
   return t(/^[AEIOU]/i.test(name) ? 'bo3.cause.mobAn' : 'bo3.cause.mob', { name });
 }
 
+/**
+ * The Map's markers depend on more than the explored map (QA 00:47): this key changes the moment an
+ * outpost is set down or taken up in the loaded stratum, a lair is revealed or the gate opens, so
+ * the marker list is rebuilt at once (cheap: a few ids and flags, read every call).
+ */
+export function markerStateKey(
+  outposts: ReadonlyArray<{ id: string; stratum: number }>,
+  stratum: number,
+  lairs: ReadonlyArray<{ id: string }>,
+  revealed: (id: string) => boolean,
+  gateOpen: boolean,
+): string {
+  let key = '';
+  for (const o of outposts) if (o.stratum === stratum) key += `${o.id};`;
+  key += '|';
+  for (const l of lairs) key += revealed(l.id) ? '1' : '0';
+  return gateOpen ? `${key}|open` : key;
+}
+
 export class ActionLayer {
   readonly dash = new DashAbility();
   readonly sonar = new SonarAbility();
@@ -186,7 +207,7 @@ export class ActionLayer {
   private readonly origin = new THREE.Vector3();
   private readonly ray = new THREE.Vector3();
   /** The minimap's source, rebuilt when the stratum, its layout or its explored map is a new object. */
-  private mapCache: { rev: number; map: object; layout: object; src: MapSource; cacheKey: string; found: number } | null = null;
+  private mapCache: { rev: number; map: object; layout: object; src: MapSource; cacheKey: string; found: number; stateKey: string } | null = null;
   /** The stratum a black-out left the pack in (the cache itself records only x, y, z). */
   private cacheStratum: number | null = null;
   private readonly markers: MapMarker[] = [];
@@ -815,7 +836,7 @@ export class ActionLayer {
         yaw: g.cameraRig.yaw,
       };
       this.markers.length = 0;
-      c = this.mapCache = { rev: -1, map, layout, src, cacheKey: '', found: -1 };
+      c = this.mapCache = { rev: -1, map, layout, src, cacheKey: '', found: -1, stateKey: '' };
     }
     const src = c.src;
     src.playerX = p.x;
@@ -826,10 +847,15 @@ export class ActionLayer {
     const cache = this.cacheHere();
     const cacheKey = cache ? `${Math.round(cache.x)},${Math.round(cache.z)}` : '';
     const found = this.foundCount();
-    if (c.rev !== map.revision || this.markers.length === 0 || c.cacheKey !== cacheKey || c.found !== found) {
+    // What the markers read besides the explored map, read every call (QA 00:47: none of these moves
+    // map.revision): the outposts set down here, the lairs revealed, the gate opened.
+    const gateOpen = strata.gateOpen?.() ?? false;
+    const stateKey = markerStateKey(strata.outposts, strata.current, layout.lairs, (id) => strata.isRevealed(id), gateOpen);
+    if (c.rev !== map.revision || this.markers.length === 0 || c.cacheKey !== cacheKey || c.found !== found || c.stateKey !== stateKey) {
       c.rev = map.revision;
       c.cacheKey = cacheKey;
       c.found = found;
+      c.stateKey = stateKey;
       const m = this.markers;
       m.length = 0;
       const seen = (x: number, z: number) => map.has(x, z);
@@ -840,7 +866,8 @@ export class ActionLayer {
       if (fire) m.push({ kind: 'camp', x: fire[0] + 0.5, z: fire[2] + 0.5 });
       else m.push({ kind: 'camp', x: layout.arrival.x, z: layout.arrival.z, label: t('m3.map.lift') });
       for (const l of layout.lairs) if (strata.isRevealed(l.id)) m.push({ kind: 'lair', x: l.centre[0], z: l.centre[2], id: l.id, label: t(BIOMES[l.biome].name), done: this.guardianBeaten(l.biome) });
-      if (seen(layout.gate.centre[0], layout.gate.centre[2])) m.push({ kind: 'gate', x: layout.gate.centre[0], z: layout.gate.centre[2] });
+      // The gate once its spot is seen, or once open (its marker then says so).
+      if (gateOpen || seen(layout.gate.centre[0], layout.gate.centre[2])) m.push({ kind: 'gate', x: layout.gate.centre[0], z: layout.gate.centre[2], label: gateOpen ? t('m3.map.gateOpen') : undefined });
       const live = g.session.liveProps;
       for (const pg of layout.pages) if (seen(pg.p[0], pg.p[2])) m.push({ kind: 'page', x: pg.p[0], z: pg.p[2], id: pg.id, done: !live.has(pg.prop) });
       for (const ch of layout.chests) if (seen(ch.p[0], ch.p[2])) m.push({ kind: 'chest', x: ch.p[0], z: ch.p[2], id: ch.id, done: !live.has(ch.prop) });

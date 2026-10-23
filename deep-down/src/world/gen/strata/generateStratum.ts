@@ -264,7 +264,7 @@ export function attemptStratum(seed: number, stratum: StratumIndex, attempt: num
     campSite: content.campSite,
     heart: content.heart,
     stats: content.stats,
-    vista: vista ? { id: vista.id, name: vista.name, biome: vista.biome, centre: vista.centre, radius: vista.radius, balcony: vista.balcony, rampFoot: vista.rampFoot, lava: vista.lava, island: vista.island, lamps: vista.rampLamps, stalactites: vista.stalactites } : null,
+    vista: vista ? { id: vista.id, name: vista.name, biome: vista.biome, centre: vista.centre, radius: vista.radius, balcony: vista.balcony, rampFoot: vista.rampFoot, lava: vista.lava, lookout: vista.lookout, island: vista.island, lamps: vista.rampLamps, stalactites: vista.stalactites } : null,
     falls,
     rivers: river ? [river.river] : [],
     dungeon: content.dungeon,

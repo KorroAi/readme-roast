@@ -638,7 +638,8 @@ function crystalCluster(m: ModelBuilder, rng: Rng): void {
     g.pop();
   }
   m.anim = 'crystal';
-  m.glowScale = 1.8;
+  // Lead 01:17 (the geode's crystals pop): 1.8 -> 2.0.
+  m.glowScale = 2.0;
 }
 
 function tablet(m: ModelBuilder, rng: Rng, o: PropModelOptions): void {

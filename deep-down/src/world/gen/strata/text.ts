@@ -77,12 +77,13 @@ export const WORLD_TEXT_EN = {
   'block.haldenDoor': 'Halden Door',
   'block.pressurePlate': 'Pressure Plate',
   // Strata.
-  'stratum.1': 'Stratum I',
-  'stratum.2': 'Stratum II',
-  'stratum.3': 'Stratum III',
-  'stratum.4': 'Stratum IV',
-  'stratum.5': 'Stratum V',
-  'stratum.6': 'Stratum VI',
+  // A no-break space before the numeral: "Stratum" never ends a line with its numeral on the next (QA 00:32).
+  'stratum.1': 'Stratum\u00a0I',
+  'stratum.2': 'Stratum\u00a0II',
+  'stratum.3': 'Stratum\u00a0III',
+  'stratum.4': 'Stratum\u00a0IV',
+  'stratum.5': 'Stratum\u00a0V',
+  'stratum.6': 'Stratum\u00a0VI',
   // Biomes: name, one line, hazard line, the gear that answers it, the guardian's rumour.
   'biome.amberHollows.name': 'Amber Hollows',
   'biome.amberHollows.desc': 'Warm limestone halls where the expedition makes camp.',

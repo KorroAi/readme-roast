@@ -60,6 +60,8 @@ export interface VistaOut {
   radius: number;
   /** The balcony's centre (feet), where the view opens; the ramp's foot on the hall floor. */
   balcony: V3;
+  /** The balcony's lip on the view line (feet): the parapet is open there, the hall in view below. */
+  lookout: V3;
   rampFoot: V3;
   falls: FallSite[];
   lakes: LakeDef[];
@@ -192,8 +194,18 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
       const ang = Math.atan2(z + 0.5 - n.z, x + 0.5 - n.x);
       const nearRamp = Math.abs(angDiff(ang, rampStart)) < 0.16;
       const nearFall = Math.abs(angDiff(ang, fallAng)) < 0.12;
-      if (dd > 5.2 && inner < R - 6 && !nearRamp && !nearFall) put(st, x, by, z, host[1]);
+      // Open on the view line (three cells across the axis to the hall's centre): from there the
+      // lake, the island and the fall show below (a 1 m parapet hides all 6 degrees under the eye).
+      const onView = Math.abs((x + 0.5 - P[0]) * uz - (z + 0.5 - P[2]) * ux) < 1.6;
+      if (dd > 5.2 && inner < R - 6 && !nearRamp && !nearFall && !onView) put(st, x, by, z, host[1]);
     }
+  }
+  // The lookout: the slab's last cell on the axis toward the hall (where the view opens).
+  let lookout: V3 = [P[0], by, P[2]];
+  for (let d = 0; d <= 6.2; d += 0.25) {
+    const x = Math.floor(P[0] - ux * d);
+    const z = Math.floor(P[2] - uz * d);
+    if (SOLID[get(st, x, by - 1, z)] && !SOLID[get(st, x, by, z)] && !SOLID[get(st, x, by + 1, z)]) lookout = [x + 0.5, by, z + 0.5];
   }
   // The fall's lip: the river's channel runs over the balcony to the edge (one block lower).
   const lipX = n.x + Math.cos(fallAng) * (R - 6.8);
@@ -396,6 +408,7 @@ export function carveVista(st: CarveState, seed: number, reserved: Reserved): Vi
     centre: [n.x, n.y, n.z],
     radius: R,
     balcony: [P[0], by, P[2]],
+    lookout,
     rampFoot,
     falls,
     lakes,

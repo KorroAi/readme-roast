@@ -89,3 +89,56 @@ describe('creature poses keep every bone on the body', () => {
     expect(errors.slice(0, 5)).toEqual([]);
   });
 });
+
+describe("the Dark Heart's three phases read apart", () => {
+  // Round 3's capture sheets (heart-phase1..3.png) showed its phases alike: its veins and its core sat
+  // inside the shell, so only their glow changed. Now, posed: in phase 1 the shell stays closed; in
+  // phase 2 its veins split it (glowing cracks); in phase 3 its core blazes through the shell's dents.
+  it('veins out through the shell from phase 2, the core through it in phase 3', () => {
+    const model = mobModel('heartOfDark');
+    const rig = new Rig(model.bones);
+    const out: PoseOut = { glow: 1, lift: 0, sx: 1, sy: 1, sz: 1, pitch: 0, roll: 0 };
+    const m = new SimMob('heartOfDark', 0.37);
+    m.state = 'stalk';
+    // Between two swells of its beat (no pulse).
+    m.beat = 0.6;
+    const pos = model.geometry.getAttribute('position');
+    const bone = model.geometry.getAttribute('aBone');
+    const radiiOf = (b: number): number[] => {
+      const out: number[] = [];
+      for (let i = 0; i < pos.count; i++) {
+        if (Math.round(bone.getX(i)) !== b) continue;
+        const e = rig.matrices[b].elements;
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        out.push(Math.hypot(e[0] * x + e[4] * y + e[8] * z + e[12], e[1] * x + e[5] * y + e[9] * z + e[13], e[2] * x + e[6] * y + e[10] * z + e[14]));
+      }
+      return out.sort((a, b) => a - b);
+    };
+    const { sac, veins, core } = model.index;
+    expect(veins, 'its veins on a bone of their own').toBeDefined();
+    expect(core, 'its core on a bone of their own').toBeDefined();
+    const seen: Record<number, { veinsOut: number; coreOut: number; glow: number }> = {};
+    for (const ph of [1, 2, 3]) {
+      m.phase = ph;
+      pose(m, model, rig, 4, out);
+      rig.update();
+      const shell = radiiOf(sac);
+      const median = shell[Math.floor(shell.length / 2)];
+      const dents = shell[Math.floor(shell.length * 0.1)];
+      const v = radiiOf(veins);
+      const c = radiiOf(core);
+      seen[ph] = { veinsOut: v.filter((r) => r > median).length / v.length, coreOut: c.filter((r) => r > dents).length / c.length, glow: out.glow };
+    }
+    // Phase 1: a closed shell (a vein tip at most here and there, no core).
+    expect(seen[1].veinsOut).toBeLessThan(0.1);
+    expect(seen[1].coreOut).toBe(0);
+    // Phase 2: the veins split it.
+    expect(seen[2].veinsOut).toBeGreaterThan(0.3);
+    // Phase 3: the core shows through its dents, and it burns brightest.
+    expect(seen[3].coreOut).toBeGreaterThan(0.3);
+    expect(seen[3].glow).toBeGreaterThan(seen[2].glow);
+    expect(seen[2].glow).toBeGreaterThan(seen[1].glow);
+  });
+});

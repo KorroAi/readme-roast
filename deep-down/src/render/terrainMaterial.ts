@@ -762,7 +762,8 @@ void main() {
       float tl = max(max(tex.r, max(tex.g, tex.b)), 0.02);
       glass = clamp(tex.rgb / tl, 0.0, 1.0) * 0.8 + 0.12;
     }
-    color += glass * luma(lantern) * (sheen * 0.2 + flare * glint * 2.5);
+    // Lead 01:17 (crystals pop): a little more of both (0.2 -> 0.28, 2.5 -> 3.0).
+    color += glass * luma(lantern) * (sheen * 0.28 + flare * glint * 3.0);
   }
   // Round 3 (VIS): the deep's gems are iridescent: their inner light shifts hue with the angle they
   // are seen at (walk past a geode wall and it turns from violet to cyan; the bog's opals play every

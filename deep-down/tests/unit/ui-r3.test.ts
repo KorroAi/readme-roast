@@ -566,6 +566,45 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(hintPlace({ ...calm, item: false, fight: true })).toBe('line');
   });
 
+  it('rebuilds the Map markers at once when an outpost is set down or taken up, a lair revealed or the gate opened (QA 00:47)', async () => {
+    const { ActionLayer, markerStateKey } = await import('../../src/game/fp/ActionLayer');
+    const { EventBus } = await import('../../src/core/events');
+    const revealed = new Set<string>();
+    let open = false;
+    const outposts: Array<{ id: string; stratum: number; x: number; y: number; z: number; biome: 'amberHollows' }> = [];
+    const layout = {
+      stratum: 1,
+      biomes: ['amberHollows', 'mushroomForest'],
+      lairs: [{ id: 'lair_a', biome: 'amberHollows', centre: [40, 5, 40] }],
+      gate: { centre: [50, 5, 50] },
+      pages: [],
+      chests: [],
+      outpostSites: [],
+      campSite: { fire: [8, 5, 8] },
+      arrival: { x: 8, y: 5, z: 8 },
+      regionMap: new Uint8Array(64 * 64),
+      biomeAt: () => 'amberHollows',
+    };
+    // Nothing explored: map.revision never moves in this test.
+    const map = { sx: 64, sz: 64, revision: 3, has: () => false, heightAt: () => 5, fraction: () => 0 };
+    const strata = { current: 1, seed: 1, layout, map, biomeHere: 'amberHollows', isRevealed: (id: string) => revealed.has(id), gateOpen: () => open, outposts };
+    const game = { bus: new EventBus(), player: { x: 8, y: 5, z: 8 }, cameraRig: { yaw: 0 }, session: { world: { get: () => 0 }, liveProps: new Set<string>() }, progression: { cache: null }, strata, mobs: { guardiansBeaten: () => [] } };
+    const act = new ActionLayer(game as never);
+    const kinds = () => act.mapSource()!.markers.map((m) => m.kind);
+    expect(kinds()).toEqual(['camp']);
+    outposts.push({ id: 'outpost_1', stratum: 1, x: 30, y: 5, z: 30, biome: 'amberHollows' });
+    expect(kinds(), 'an outpost set down shows at once').toContain('outpost');
+    outposts.length = 0;
+    expect(kinds(), 'and goes at once').not.toContain('outpost');
+    revealed.add('lair_a');
+    expect(kinds(), 'a revealed lair').toContain('lair');
+    open = true;
+    const gate = act.mapSource()!.markers.find((m) => m.kind === 'gate');
+    expect(gate?.label, 'the opened gate says so').toBe('The Gate · open');
+    // The key itself: outposts of another stratum do not count.
+    expect(markerStateKey([{ id: 'x', stratum: 2 }], 1, [], () => false, false)).toBe(markerStateKey([], 1, [], () => false, false));
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');

@@ -76,6 +76,8 @@ export interface VistaSite {
   balcony: V3;
   rampFoot: V3;
   lava: boolean;
+  /** The balcony's lip on the view line (feet): the parapet is open there; the vista's card shows there. */
+  lookout?: V3;
   /** The top of the island's spire in the lake (a light burns there), the lamp posts' feet down the ramp, the dome's stalactites. */
   island?: V3;
   lamps?: V3[];

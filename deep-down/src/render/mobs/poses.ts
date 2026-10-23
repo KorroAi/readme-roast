@@ -210,6 +210,10 @@ export function pose(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
   overlay(m, model, rig, t, out);
 }
 
+/** The Dark Heart's veins and core by phase (asleep, 1, 2, 3): the scale of their bones about its centre. */
+export const HEART_VEINS = [0.9, 0.92, 1.26, 1.36] as const;
+export const HEART_CORE = [1, 1, 1.6, 2.05] as const;
+
 /** The Dark Heart's beat and its three phases: a closed shell, then cracked and bleeding light, then its last blaze. */
 function heartPhases(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseOut): void {
   const b = boneMap(model);
@@ -226,6 +230,13 @@ function heartPhases(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
     rig.euler(tb, Math.sin(t * 0.9 + k * 1.7) * 0.08 * ph, t * spin + k * 0.3, Math.cos(t * 0.8 + k) * 0.05 * ph);
     rig.scl[tb].setScalar(spread);
   });
+  // Its veins and its core (their own bones): inside the closed shell in phase 1; in phase 2 the
+  // veins split it, glowing cracks across the shell; in phase 3 the core swells into its dents and
+  // blazes through (the captures of round 3 showed the three phases alike: only their glow differed).
+  const veins = model.index['veins'];
+  const core = model.index['core'];
+  if (veins !== undefined) rig.scl[veins].setScalar(HEART_VEINS[ph]);
+  if (core !== undefined) rig.scl[core].setScalar(HEART_CORE[ph] * (1 + pulse * 0.05 * ph));
   // Its light: dim in its shell, bleeding through the cracks, then a flickering blaze.
   out.glow = [0.35, 0.6, 1.0, 1.45][ph] + pulse * (0.35 + 0.2 * ph) + (ph === 3 ? Math.sin(t * 23) * 0.12 : 0);
   out.sx *= 1 + pulse * amp * 0.4;

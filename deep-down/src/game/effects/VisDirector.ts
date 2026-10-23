@@ -134,6 +134,32 @@ interface StrataView {
   falls?: ReadonlyArray<FallView>;
   dungeon?: WorksView | null;
   secrets?: ReadonlyArray<{ id?: string; centre?: readonly number[] }>;
+  sites?: ReadonlyArray<{ name?: string; centre: readonly number[]; radius: number }>;
+}
+
+/**
+ * Lead 01:17 (the Glass Garden's focal points): the garden's spires of black glass are tipped with
+ * voidshard (WORLD's structures.ts glassGarden); each tip wears a soft violet glow, so the garden
+ * reads as lit points across the dark rather than black on black. Tips: a voidshard cell with open
+ * air over it on at least two cells of obsidian (a spire, not an ore in the floor).
+ */
+export function spireTipHalos(w: Pick<VoxelWorld, 'get'>, sites: ReadonlyArray<{ name?: string; centre: readonly number[]; radius: number }>): HaloSource[] {
+  const out: HaloSource[] = [];
+  for (const site of sites) {
+    if (site.name !== 'glassGarden') continue;
+    const [cx, cy, cz] = site.centre;
+    const r = Math.ceil(site.radius) + 1;
+    for (let z = Math.floor(cz) - r; z <= cz + r; z++) {
+      for (let x = Math.floor(cx) - r; x <= cx + r; x++) {
+        if (Math.hypot(x + 0.5 - cx, z + 0.5 - cz) > site.radius + 1) continue;
+        for (let y = Math.floor(cy) - 4; y <= cy + 14; y++) {
+          if (w.get(x, y, z) !== B.VOIDSHARD || SOLID[w.get(x, y + 1, z)] || w.get(x, y - 1, z) !== B.OBSIDIAN || w.get(x, y - 2, z) !== B.OBSIDIAN) continue;
+          out.push({ x, y, z, id: B.LIGHT_ABYSS, color: [0.5, 0.28, 1.25], size: 1.5, lift: 0.6 });
+        }
+      }
+    }
+  }
+  return out;
 }
 
 /** A point from WORLD's records, whatever the field is called (centre, center, at, position, x/y/z). */
@@ -183,6 +209,8 @@ export class VisDirector {
   private readonly pocketIds: string[] = [];
   private pocketProps: PropRenderer | null = null;
   private readonly pocketHalos: HaloSystem;
+  /** What pocketHalos shows (the pockets' glows and the Glass Garden's spire tips). */
+  private haloSources: HaloSource[] = [];
   /** The arenas' floor runes (decor props), per lair biome. */
   private readonly runeIds = new Map<string, string[]>();
   private look: BiomeLook | null = null;
@@ -254,6 +282,14 @@ export class VisDirector {
       o.bus.on('world:lever', (e) => this.syncLevers(e.id)),
       // The works' iron door grinds open: the dust of a century falls from its frame.
       o.bus.on('world:worksOpened', () => this.worksDust()),
+      // A spire tip mined away takes its glow with it.
+      o.bus.on('block:broken', (e) => {
+        if (e.block !== B.VOIDSHARD) return;
+        const i = this.haloSources.findIndex((h) => h.id === B.LIGHT_ABYSS && h.x === e.x && h.y === e.y && h.z === e.z);
+        if (i < 0) return;
+        this.haloSources.splice(i, 1);
+        this.pocketHalos.setSources(this.haloSources);
+      }),
     );
   }
 
@@ -515,6 +551,7 @@ export class VisDirector {
     this.pockets = [];
     this.pocketProps = s.props;
     if (typeof strata.biomeAt !== 'function') {
+      this.haloSources = [];
       this.pocketHalos.setSources([]);
       if (this.beams) {
         this.group.remove(this.beams.mesh);
@@ -548,6 +585,8 @@ export class VisDirector {
       const k = (floating ? 0.5 : 0.3) * dark;
       halos.push({ x: p.x, y: p.y, z: p.z, id: B.LIGHT_EMBER, color: [r * k, g * k, b * k], size: (floating ? 0.85 : 1.7) * (dark > 1 ? 1.4 : 1), lift: floating ? 0.5 : 0.25 });
     }
+    halos.push(...spireTipHalos(w, strata.sites ?? []));
+    this.haloSources = halos;
     this.pocketHalos.setSources(halos);
     // The high lights of the shaft biomes fall in soft shafts to the floor (a few, spaced apart).
     if (this.beams) {

@@ -833,13 +833,17 @@ function herald(p: HeraldP, s: Skin): MobModel {
   if (p.kind === 'heart') {
     b.bone('sac', 'body', [0, 0, 0]);
     b.add(boulder(R, 31, 0.18, 2, 1.0), 'sac', { color: s.c, top: s.t, y0: -R, y1: R, gloss: 0.95, sss: 0.6, flat: true, emit: 0.12 });
+    // Its glowing veins and its core on bones of their own: the phases push them out through the
+    // shell (poses.ts heartPhases): hidden in the closed shell, then splitting it, then blazing through.
+    b.bone('veins', 'sac', [0, 0, 0]);
     for (let i = 0; i < 10; i++) {
       const a = i * 2.39996;
       const y = 1 - (i / 9) * 2;
       const rr = Math.sqrt(Math.max(0, 1 - y * y));
-      b.add(limb([Math.sin(a) * rr * R * 0.7, y * R * 0.7, Math.cos(a) * rr * R * 0.7], [Math.sin(a + 0.6) * rr * R * 1.02, y * R * 0.95, Math.cos(a + 0.6) * rr * R * 1.02], R * 0.05, R * 0.03, 5), 'sac', G(s, 1));
+      b.add(limb([Math.sin(a) * rr * R * 0.7, y * R * 0.7, Math.cos(a) * rr * R * 0.7], [Math.sin(a + 0.6) * rr * R * 1.02, y * R * 0.95, Math.cos(a + 0.6) * rr * R * 1.02], R * 0.05, R * 0.03, 5), 'veins', G(s, 1));
     }
-    b.add(ellipsoid(R * 0.5, R * 0.5, R * 0.5, [0, 0, 0], 14), 'sac', G(s, 1.2));
+    b.bone('core', 'sac', [0, 0, 0]);
+    b.add(ellipsoid(R * 0.5, R * 0.5, R * 0.5, [0, 0, 0], 14), 'core', G(s, 1.2));
     for (let k = 0; k < 6; k++) {
       const a = (k / 6) * Math.PI * 2;
       b.bone(`tn${k}`, 'body', [0, 0, 0]);

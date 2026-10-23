@@ -1186,7 +1186,9 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   let dungeon: DungeonSite | null = null;
   const V = extras.vista;
   if (V) {
-    sites.push({ id: V.id, kind: 'vista', biome: V.biome, centre: V.balcony, radius: 8, name: V.name });
+    // Its card shows at the lookout (the balcony's lip on the view line, its parapet open), the hall in
+    // view below: 3 m round it (from the balcony's middle, the 1 m parapet hid the lake: QA 01:19).
+    sites.push({ id: V.id, kind: 'vista', biome: V.biome, centre: V.lookout, radius: 3, name: V.name });
     landmarks.vista = V.balcony;
     for (const l of V.lights) {
       lights.push(l);

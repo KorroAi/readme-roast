@@ -64,8 +64,8 @@ export const TUTORIAL_REWARD: Partial<Record<ItemId, number>> = { torch: 6, band
 /** Starter gift when the tutorial begins (so the first craft is in reach right away). */
 export const STARTER_KIT: Partial<Record<ItemId, number>> = { fungalWood: 3, coal: 2, glowcap: 2, bandage: 2 };
 
-/** The gift a 1.x explorer gets with the "deep has changed" card (BRIEF §0.8). */
-export const UPGRADE_GIFT: Partial<Record<ItemId, number>> = { copperIngot: 6, torch: 12, bandage: 4, oilFlask: 2, flashCharge: 2 };
+// The 1.x explorer's gift with the "deep has changed" card (BRIEF §0.8) is WORLD's CHANGED_GIFT
+// (game/StratumFlow.freshFromOld puts it in the new pack); the loop adds only STARTER_KIT then.
 
 // -------------------------------------------------------------------------------------
 // Rewards

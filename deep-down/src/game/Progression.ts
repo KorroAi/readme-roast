@@ -19,7 +19,7 @@ import { Backpack } from '../gameplay/Inventory';
 import { buildJournalView } from '../gameplay/Journal';
 import { NO_LIFE, buildFeatsView, featDef, newFeats, rewardText, type FeatSnapshot, type FeatsView } from '../gameplay/Feats';
 import { CONTENT } from '../config/content';
-import { STARTER_KIT, UPGRADE_GIFT } from '../config/quests';
+import { STARTER_KIT } from '../config/quests';
 import { StuckWatch } from '../gameplay/Hints';
 import { DISCOVERIES } from '../gameplay/discoveries';
 import { anyCraftable, availableCounts, buildTreeView, closestNode } from '../gameplay/Tree';
@@ -250,10 +250,13 @@ export class Progression {
     this.nextTimer = 0;
     this.resetTarget();
     this.lastBreath = null;
-    // LOOP (round 3): the loop's slice; a save without one (1.x) starts the new loop with the gift.
+    // LOOP (round 3): the loop's slice. A save without one (a 1.x save begun anew from the "deep has
+    // changed" card) starts the loop with the tutorial and its starter kit only: the camp's gift is
+    // already in its pack (StratumFlow.freshFromOld's CHANGED_GIFT, "the camp left you a gift"), so it
+    // is given once (QA 00:55: it was given twice, 24 torches).
     const slice = (p as ProgressionSave & { loop?: unknown }).loop;
     if (slice && typeof slice === 'object') this.game.loop.fromSave(slice);
-    else this.game.loop.newGame(this.expeditionSeed, true, { ...STARTER_KIT, ...UPGRADE_GIFT });
+    else this.game.loop.newGame(this.expeditionSeed, true, STARTER_KIT);
   }
 
   toSave(): ProgressionSave {

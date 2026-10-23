@@ -22,14 +22,16 @@ export const FR_SECTIONS = { core, loop, world, release, screens, content, expan
 
 /**
  * French typography, applied once to the whole table: the space before « : ; ! ? % » and after «,
- * and the one between thousands (2 000), is a no-break space, so a narrow phone HUD never wraps a
- * lone "!" or ":" onto its own line. The tables are written with plain spaces (easier to read).
+ * the one between thousands (2 000) and the one between "Strate" and its numeral (QA 00:32) is a
+ * no-break space, so a narrow phone HUD never wraps a lone "!", ":" or "I" onto its own line. The
+ * tables are written with plain spaces (easier to read).
  */
 export function frenchSpacing(s: string): string {
   return s
     .replace(/ ([:;!?%\u00bb])/g, '\u00a0$1')
     .replace(/\u00ab /g, '\u00ab\u00a0')
-    .replace(/(\d) (\d{3})(?!\d)/g, '$1\u00a0$2');
+    .replace(/(\d) (\d{3})(?!\d)/g, '$1\u00a0$2')
+    .replace(/\bStrate (?=[IVX]+\b|\{[a-z]+\})/g, 'Strate\u00a0');
 }
 
 const merged: Partial<Record<TextKey, string>> = { ...core, ...loop, ...world, ...release, ...screens, ...content, ...expanse, ...items3, ...loop3, ...stretch3, ...pages3, ...controls, ...strata, ...mobs };

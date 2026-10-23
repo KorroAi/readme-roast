@@ -53,7 +53,9 @@ const R = {
   calcite: [0x26222c, 0x322d3a, 0x3e3948, 0x4b4557, 0x595267, 0x676077, 0x766e87, 0x857c97],
   // Round 3 (lead 00:13): calcite grit, grey with a breath of lavender (the violet floor drank the
   // lantern's pool and read as murk; the crystals pop against a neutral floor).
-  geodeFloor: [0x221f2a, 0x2a2633, 0x322d3c, 0x3b3546, 0x453e51, 0x50485d],
+  // Lead 01:17: a paler, cool calcite grit (was violet-grey), so the geode's violet light reads as
+  // pockets of colour on it, not a wash.
+  geodeFloor: [0x2e3036, 0x37393f, 0x404248, 0x4a4c52, 0x55575d, 0x616369],
   amethyst: [0x0e0618, 0x150a24, 0x1f0f33, 0x2a1545, 0x381c5a, 0x48256f, 0x5a2f86, 0x6e3a9e],
   mine: [0x18120e, 0x201812, 0x292017, 0x33281c, 0x3e3022, 0x4a3a29, 0x574430, 0x655038],
   mineShale: [0x131315, 0x19191c, 0x1f1f23, 0x26262b, 0x2e2e33, 0x37373d, 0x414148, 0x4c4c54],
@@ -986,7 +988,8 @@ export const STRATA_LAYERS = {
   geodeTop: { painter: top('geode', 'deep', R.geode, 0x04030a), glow: 0, biomes: ['crystalGeode'] },
   calciteSide: { painter: side('calcite'), glow: 0, biomes: ['crystalGeode'] },
   geodeFloor: { painter: recolour(gravel, R.geodeFloor), glow: 0, biomes: ['crystalGeode'] },
-  amethyst: { painter: (c, rng) => druse(c, rng, R.amethyst, 0xc08cff, 0xf0dcff, R.geode, 1.1), glow: 1.0, biomes: ['crystalGeode'] },
+  // Lead 01:17 (the geode's crystals pop): 1.0 -> 1.3.
+  amethyst: { painter: (c, rng) => druse(c, rng, R.amethyst, 0xc08cff, 0xf0dcff, R.geode, 1.1), glow: 1.3, biomes: ['crystalGeode'] },
   // III-B Old Halden Mines
   mineSide: { painter: side('mine'), glow: 0, biomes: ['haldenMines'] },
   mineTop: { painter: top('mine', 'weathered', R.mine, 0x080604), glow: 0, biomes: ['haldenMines'] },
@@ -1036,7 +1039,8 @@ export const STRATA_LAYERS = {
   voidStoneSide: { painter: side('voidStone'), glow: 0, biomes: ['obsidianAbyss', 'sunkenCity', 'heart'] },
   obsidianFloor: { painter: (c, rng) => { obsidian(c, rng); for (let i = 0; i < S * S; i++) c.a[i] *= 0.5; }, glow: 0.4, biomes: ['obsidianAbyss'] },
   // The glass garden's spire tips and the Abyss's finds: a beacon in the dark (glow 1.1 -> 1.6).
-  voidshard: { painter: (c, rng) => druse(c, rng, R.voidshard, 0xa070ff, 0xeadcff, R.voidStone, 1.1), glow: 1.6, biomes: ['obsidianAbyss'] },
+  // Lead 01:17 (the Glass Garden's spire tips as its focal points): 1.6 -> 1.9.
+  voidshard: { painter: (c, rng) => druse(c, rng, R.voidshard, 0xa070ff, 0xeadcff, R.voidStone, 1.1), glow: 1.9, biomes: ['obsidianAbyss'] },
   starsteel: { painter: ore('voidStone', 'band', R.starsteel, 0xffffff), glow: 0, biomes: ['obsidianAbyss'] },
   heartStone: { painter: heartStone, glow: 1.2, biomes: ['heart', 'obsidianAbyss'] },
   // Built things (every stratum)

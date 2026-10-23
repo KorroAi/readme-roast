@@ -150,6 +150,7 @@ export const controls = {
   'm3.quests.shards': 'Heart Shards {have}/{total}',
   'm3.quests.free': 'The Heart burns again: free play.',
   'm3.quests.sealed': 'Below the next Gate: its steps show when you reach it.',
+  'm3.map.gateOpen': 'The Gate · open',
   'm3.quests.track': 'Track',
   'm3.quests.tracked': 'Tracking',
   'm3.quests.daily': 'Daily order',

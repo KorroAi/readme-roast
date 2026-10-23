@@ -404,7 +404,8 @@ const crystalSpire: Build = (m, rng, o) => {
   for (let i = 0; i < 6; i++) m.body.cube(rng.range(-0.25, 0.25) + i * 0.0031, 0.05 + i * 0.004, rng.range(-0.25, 0.25) - i * 0.0027, rng.range(0.12, 0.22) + i * 0.0043, 0.1 + i * 0.006, rng.range(0.12, 0.22) + i * 0.0037, STONE[rng.int(0, 2)]);
   crystals(m.glow, rng, rng.int(5, 8), 0.3, rng.range(1.6, 2.8), 0.32, violet ? 0x9a6aff : 0x6ae0f0, violet ? 0x4a2a9a : 0x1a6a8a, 0.55);
   m.anim = 'crystal';
-  m.glowScale = 1.6;
+  // Lead 01:17 (the geode's crystals pop): 1.6 -> 1.9.
+  m.glowScale = 1.9;
 };
 
 const geodeShards: Build = (m, rng) => {
@@ -415,7 +416,7 @@ const geodeShards: Build = (m, rng) => {
     m.glow.crystal(rng.range(0.02, 0.05), rng.range(0.06, 0.22), 0.05, 4, 0x9a6aff, 0x4a2a9a, 0.5);
     m.glow.pop();
   }
-  m.glowScale = 1.5;
+  m.glowScale = 1.8;
 };
 
 const rail: Build = (m, rng) => {
@@ -669,7 +670,12 @@ const glassShard: Build = (m, rng) => {
     m.body.pop();
   }
   for (let i = 0; i < 3; i++) m.glow.cube(rng.range(-0.25, 0.25), rng.range(0.1, 0.5), rng.range(-0.25, 0.25), 0.02, 0.15, 0.02, OBS.edge, 0.5);
-  m.glowScale = 1.5;
+  // Lead 01:17 (a focal point in the Glass Garden): a shard of violet light at the heart of the black
+  // glass, paler at its tip, so a cluster reads as lit from across the garden.
+  m.glow.push().rotateY(rng.range(0, Math.PI)).rotateZ(-rng.range(0.05, 0.2));
+  m.glow.crystal(0.06, rng.range(0.45, 0.7), 0.22, 5, OBS.glow, OBS.edge, 0.95);
+  m.glow.pop();
+  m.glowScale = 1.9;
 };
 
 const voidSpire: Build = (m, rng) => {

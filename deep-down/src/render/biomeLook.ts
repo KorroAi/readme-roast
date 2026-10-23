@@ -128,7 +128,7 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     // Lead 01:17: the crystals pop: cooler, clearer air (slate blue, not violet; thinner, less
     // in-scatter), less placed light (the violet pockets as accents on a pale calcite floor, not a
     // wash: materials/strata.ts geodeFloor), the crystals' own glow raised instead.
-    atmosphere: air({ fog: 0x141c2c, fogLow: 0x0e1a26, ambient: 0x0c1016, open: 0x52627a, density: 0.016, scatter: 0.07, lightGain: 1.9, exposure: 1.04 }),
+    atmosphere: air({ fog: 0x141c2c, fogLow: 0x0e1a26, ambient: 0x0c1016, open: 0x52627a, density: 0.016, scatter: 0.07, lightGain: 2.0, exposure: 1.04 }),
     open: { ...CAVERN, density: 0.011 },
     grade: { lift: [0.003, 0.0035, 0.0044], gain: [1.03, 1.03, 1.03], saturation: 1.0 },
     light: [0.42, 0.45, 1.0],
