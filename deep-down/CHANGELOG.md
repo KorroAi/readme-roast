@@ -51,6 +51,9 @@ The game was rebuilt on the same engine and look. Brief: `docs/round3/BRIEF.md`.
   - Always on screen: the quest tracker (the main step plus one side task) and a compass arrow to the objective.
   - The Quests screen holds the main chain, biome tasks, camp orders (3 at a time, plus a daily one) and feats.
   - New players get an 11-step tutorial that teaches by doing, an arrival card per biome, suggested crafts and hints.
+  - After the tutorial, the tracker walks an unarmed explorer to the first weapon, one step at a time: build and place a
+    Furnace, smelt copper bars, build and place the Forge, hunt a Grit Boar for its hide, then forge the Machete. Each step
+    shows its count and a compass arrow.
 - **A mobile action layout** (`src/ui/**`, `src/game/fp/**`):
   - A floating movement joystick (push it to the edge to sprint), and drag anywhere else to look.
   - Buttons:
@@ -61,6 +64,8 @@ The game was rebuilt on the same engine and look. Brief: `docs/round3/BRIEF.md`.
     - Sonar: reveals ores, chests and lairs through rock;
     - Place.
   - A 6-slot hotbar, and a reticle that changes with its target. A tap on a target in reach still acts on it.
+  - Holding Action on a creature strikes again and again at the weapon's rate.
+  - Going down a Gate shows the new stratum's own loading screen: its numeral and name, its two biomes and its depth band.
   - Desktop:
     - WASD to move, Shift to sprint, mouse to look;
     - left button for Action, right button to Place;
