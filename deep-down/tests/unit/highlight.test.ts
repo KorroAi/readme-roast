@@ -35,6 +35,36 @@ const code = (t: TerrainRig, x: number, y: number, z: number) => {
 };
 
 describe('HighlightSystem (rarity highlights, VIS)', () => {
+  it('codes open cells under the water 7 (no ambient rim looks into them) and still finds what lies there', async () => {
+    const { waterColumns } = await import('../../src/render/rivers');
+    const { world, terrain, hs, cam } = setup();
+    // A pond over x 14..19, z 10..14, its surface at y 11.4; a river point at (25, 10.8, 25), 2 m wide.
+    const mask = new Uint8Array(6 * 5).fill(1);
+    hs.waterLevel = waterColumns(world.sx, world.sz, [{ level: 11.4, min: [14, 10], max: [19, 14], mask }], [{ kind: 'water', points: [[25.5, 10.8, 25.5]], width: 2 }]);
+    hs.update(1 / 30, 0, cam);
+    expect(code(terrain, 15, 10, 11)).toBe(7);
+    expect(code(terrain, 15, 11, 11)).toBe(7);
+    expect(code(terrain, 15, 12, 11)).toBe(0);
+    expect(code(terrain, 25, 10, 25)).toBe(7);
+    expect(code(terrain, 25, 11, 25)).toBe(0);
+    // A find under the pond is still a find (sonar, the selection); the water around it is open.
+    expect(code(terrain, 16, 10, 12)).toBe(RARITY_CODE[B.COPPER_ORE] + 1);
+    expect(hs.targetsNear(cam.position, 14).some((t) => t.kind === 'block' && t.at.x === 16.5 && t.at.y === 10.5 && t.at.z === 12.5)).toBe(true);
+    hs.dispose();
+  });
+
+  it('codes a find that is a whole structure 8 (a giant cap: no ambient rim), still a common find', () => {
+    const { world, terrain, hs, cam } = setup();
+    world.setRaw(20, 10, 16, B.MUSHROOM_CAP_TEAL);
+    world.setRaw(21, 10, 16, B.THICK_ROOT);
+    hs.update(1 / 30, 0, cam);
+    expect(code(terrain, 20, 10, 16)).toBe(8);
+    expect(code(terrain, 21, 10, 16)).toBe(8);
+    const cap = hs.targetsNear(cam.position, 14).find((t) => t.kind === 'block' && t.at.x === 20.5 && t.at.y === 10.5);
+    expect(cap?.rarity).toBe('common');
+    hs.dispose();
+  });
+
   it('codes the cells around the eye: air 0, plain rock 1, finds 2..6 by rarity', () => {
     const { terrain, hs, cam } = setup();
     hs.update(1 / 30, 0, cam);

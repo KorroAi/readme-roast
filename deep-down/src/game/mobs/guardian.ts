@@ -80,6 +80,26 @@ export function openGuard(sim: MobSim, m: SimMob, seconds: number, state: 'recoi
 export const HEART_BEAT: readonly number[] = [2.0, 1.5, 1.0, 0.75];
 
 /**
+ * A guardian's brood (round 3, the rebalance; tools/mob-duel.ts): smaller and weaker than their wild
+ * kin (health, the bite), a moment before their first blow, and never more than `most` about at once.
+ * Before, three or four full-strength ones a call did most of the harm in the deep fights.
+ */
+export const BROOD = { hp: 0.5, power: 0.6, scale: 0.88, firstBlow: 1.2, most: 3, base: 1 };
+/** A phase-2 volley's salvos, this many seconds apart (was 0.4: one dash could not cover both). */
+export const VOLLEY = { every: 1.2 };
+
+function lesserBrood(sim: MobSim, o: SimMob): void {
+  o.maxHp = Math.max(1, Math.round((o.maxHp ?? o.def.hp) * BROOD.hp));
+  o.hp = o.maxHp;
+  o.power *= BROOD.power;
+  o.scale *= BROOD.scale;
+  o.bounds.radius = o.def.radius * o.scale;
+  o.bounds.halfHeight = o.def.halfHeight * o.scale;
+  o.cooldown = Math.max(o.cooldown, BROOD.firstBlow);
+  if (o.def.locomotion === 'walk' || o.def.locomotion === 'still') sim.placeWalker(o);
+}
+
+/**
  * One frame's nudge of a beat's phase (0..1, the lub at 0) toward the score's grid (pure): `nextIn`
  * s to the score's next beat, `beatLen` its length. Whole beats for a whole-beat period, half beats
  * for 1.5 (every other lub on the beat). Late against the score it hurries, early it waits.
@@ -237,7 +257,7 @@ function stalk(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardia
   // The next pattern: not the same twice, the close ones only when close, the brood only when thin.
   const list = def.patterns[Math.min(def.patterns.length, m.phase) - 1];
   const brood = sim.mobs.filter((o) => o.owner === m.id && !o.dying).length;
-  const ok = list.filter((p) => p !== m.lastPattern && !(CLOSE.has(p) && dp > 6) && !(p === 'summon' && brood >= 3) && !(p === 'dive' && !fly(m) && m.brain !== 'heart') && !(p === 'burrow' && fly(m)));
+  const ok = list.filter((p) => p !== m.lastPattern && !(CLOSE.has(p) && dp > 6) && !(p === 'summon' && brood >= BROOD.most) && !(p === 'dive' && !fly(m) && m.brain !== 'heart') && !(p === 'burrow' && fly(m)));
   const pool = ok.length ? ok : list.filter((p) => p !== 'summon');
   const p = pool[sim.rng.int(0, pool.length - 1)];
   begin(sim, m, ctx, def, p);
@@ -383,8 +403,9 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
       if (m.stateTime > 0.8) open(1.6);
       return;
     case 'volley': {
+      // (A second salvo comes 1.2 s after the first: past a dash's cooldown, so each can be dashed.)
       const salvos = m.phase >= 2 ? 2 : 1;
-      const every = 0.4;
+      const every = VOLLEY.every;
       const fired = Math.floor(m.run);
       if (fired < salvos && m.stateTime >= fired * every && def.shot) {
         m.run = fired + 1;
@@ -439,7 +460,8 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
     case 'summon': {
       if (!m.landed) {
         m.landed = true;
-        const n = 2 + m.phase;
+        // Its brood: two (three from its second phase), lesser than their wild kin (BROOD).
+        const n = BROOD.base + m.phase;
         for (let i = 0; i < n; i++) {
           const kind = def.brood[sim.rng.int(0, def.brood.length - 1)] as MobKind;
           const a = sim.rng.range(-Math.PI, Math.PI);
@@ -449,7 +471,10 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
           const fy = floorNear(sim.env.solid, Math.floor(x), Math.floor(foot.y), Math.floor(z), 1, 4);
           if (fy === null) continue;
           const o = sim.spawn(kind, x, fy + (sim.mobs.length >= 0 && isFlyer(kind) ? 2 : 0), z, { owner: m.id, biome: m.biome, ceiling: false });
-          if (o) sim.emit({ type: 'burst', x: o.position.x, y: o.position.y, z: o.position.z, color: def.mote, size: 0.6 });
+          if (o) {
+            lesserBrood(sim, o);
+            sim.emit({ type: 'burst', x: o.position.x, y: o.position.y, z: o.position.z, color: def.mote, size: 0.6 });
+          }
         }
       }
       settle(sim, m, dt, ctx);

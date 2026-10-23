@@ -49,8 +49,9 @@ async function boot(page: Page): Promise<void> {
 
 /**
  * Into a biome (switching stratum if needed), out of the camp, the chunks round the explorer meshed.
- * WORLD's goto can land in a guardian's lair (its first cavern) or a lake: then on to open, dry floor
- * of the same biome out of every lair, so a fight there is the creature's alone.
+ * WORLD's goto can land in a guardian's lair (its first cavern), a lake or a cramped spot: then on to
+ * open, dry floor of the same biome out of every lair with room ahead, so a fight there is the
+ * creature's alone.
  */
 async function goBiome(page: Page, biome: string): Promise<void> {
   const at = await page.evaluate((b) => (window.__DD__ as any).goto(b), biome);
@@ -61,7 +62,8 @@ async function goBiome(page: Page, biome: string): Promise<void> {
     const dd = window.__DD__ as any;
     dd.mobs.auto(false);
     dd.step(4);
-    dd.mobs.dryGround();
+    // A stage: open, dry, nearly flat floor 3-8 m ahead, out of every lair (else at least dry ground).
+    if (!dd.mobs.stage(6, 3, 8, 40)) dd.mobs.dryGround();
     dd.mobs.clear();
     dd.step(10);
   });

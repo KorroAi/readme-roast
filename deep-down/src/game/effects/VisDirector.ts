@@ -24,7 +24,7 @@ import type { PropRenderer } from '../../render/props/PropRenderer';
 import { findPockets, pocketDrop, pocketKind, pocketProps, type Pocket } from '../../render/props/pocketModels';
 import { HaloSystem, type HaloSource } from './Halos';
 import { B, SOLID } from '../../config/blocks';
-import { RiverRibbons, type RiverView } from '../../render/rivers';
+import { RiverRibbons, waterColumns, type RiverView } from '../../render/rivers';
 import { Waterfall, type FallKind } from './Waterfall';
 import type { ParticleSystem } from './Particles';
 import { Rng } from '../../core/rng';
@@ -426,6 +426,9 @@ export class VisDirector {
     this.group.add(this.ambience.group);
     // The rivers and the falls of this stratum (none in the old world: Game's landmark fall there).
     this.rivers.set(strata.rivers ?? [], lakes);
+    // The water over each column (lakes, rivers): a find under it wears no ambient rim.
+    const hl = this.o.highlight() as Partial<Pick<HighlightSystem, 'waterLevel'>> | null;
+    if (hl && 'waterLevel' in hl) hl.waterLevel = waterColumns(s.world.sx, s.world.sz, lakes, strata.rivers ?? []);
     this.setFalls(s, strata.falls ?? []);
     this.geysers.setVents(typeof strata.biomeAt === 'function' ? s.layout.props.filter((p) => p.kind === 'gasVent').map((p) => [p.x, p.y, p.z]) : []);
     this.syncLevers(null);

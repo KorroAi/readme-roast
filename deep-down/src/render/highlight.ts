@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { SOLID } from '../config/blocks';
+import { B, SOLID } from '../config/blocks';
 import { RARITIES, RARITY_CODE, RARITY_HEX, RARITY_RANK, rarityOf, type Rarity } from '../config/rarity';
 import type { PropSpec } from '../world/gen/types';
 import type { VoxelWorld } from '../world/VoxelWorld';
@@ -10,6 +10,21 @@ import type { PropRenderer } from './props/PropRenderer';
 import { RevealMarkers, type RevealCell } from './reveal';
 
 export type { RevealCell, RevealKind } from './reveal';
+
+/**
+ * The cell codes of the highlight volume: 0 open, 1 plain rock, 2..6 a find by rarity (common ..
+ * legendary), 7 open under the water, 8 a find that is a whole structure (a giant mushroom's stem and
+ * cap, the World Root, a glow-vine curtain: common finds, but an ambient rim round one is a long
+ * frame across the cavern, so they take only the pointed cell's outline).
+ */
+export const HI_WET = 7;
+export const HI_STRUCTURE = 8;
+const STRUCTURE_FINDS: readonly number[] = [B.MUSHROOM_STEM, B.MUSHROOM_CAP_TEAL, B.MUSHROOM_CAP_MAGENTA, B.THICK_ROOT, B.GLOW_VINE];
+const CELL_CODE = new Uint8Array(256);
+for (let id = 0; id < 256; id++) CELL_CODE[id] = SOLID[id] ? RARITY_CODE[id] + 1 : 0;
+for (const id of STRUCTURE_FINDS) if (SOLID[id]) CELL_CODE[id] = HI_STRUCTURE;
+/** A volume code that is rock (plain or a find): everything but the open and the wet. */
+const isRock = (k: number): boolean => k >= 1 && k !== HI_WET;
 
 /**
  * Rarity highlights and the selection (ROUND2 §0.3-§0.4, the VIS seam).
@@ -223,6 +238,13 @@ export class HighlightSystem {
   readonly group = new THREE.Group();
   /** Ambient highlights on (the player's setting, or off in captures). */
   enabled = true;
+  /**
+   * Round 3: the water's surface over each column (world x + z * sx: the surface height, -Infinity
+   * dry), from the lakes and rivers (VisDirector sets it per layout): a find under the water draws
+   * no ambient rim (seen through the surface its outline read as a box under the bog).
+   */
+  waterLevel: Float32Array | null = null;
+  private waterRef: Float32Array | null = null;
 
   private readonly opts: HighlightOptions;
   private readonly volume: Uint8Array;
@@ -369,7 +391,7 @@ export class HighlightSystem {
           for (let x = 1; x < N - 1; x++) {
             const i = x + N * (y + N * z);
             const c = v[i];
-            if (c < 2) continue;
+            if (c < 2 || c === HI_WET) continue;
             const wx = o.x + x;
             const wy = o.y + y;
             const wz = o.z + z;
@@ -377,8 +399,8 @@ export class HighlightSystem {
             const dy = wy + 0.5 - eye.y;
             const dz = wz + 0.5 - eye.z;
             if (dx * dx + dy * dy + dz * dz > r2) continue;
-            if (v[i - 1] && v[i + 1] && v[i - N] && v[i + N] && v[i - N * N] && v[i + N * N]) continue; // buried
-            out.push({ kind: 'block', x: wx, y: wy, z: wz, rarity: RARITIES[c - 2], at: { x: wx + 0.5, y: wy + 0.5, z: wz + 0.5 } });
+            if (isRock(v[i - 1]) && isRock(v[i + 1]) && isRock(v[i - N]) && isRock(v[i + N]) && isRock(v[i - N * N]) && isRock(v[i + N * N])) continue; // buried
+            out.push({ kind: 'block', x: wx, y: wy, z: wz, rarity: RARITIES[c === HI_STRUCTURE ? 0 : c - 2], at: { x: wx + 0.5, y: wy + 0.5, z: wz + 0.5 } });
           }
     }
     for (const spec of this.opts.liveProps?.() ?? []) {
@@ -474,9 +496,11 @@ export class HighlightSystem {
     const cz = Math.floor(eye.z);
     const o = this.origin;
     const moved = Number.isNaN(o.x) || Math.abs(cx - (o.x + half)) > 4 || Math.abs(cy - (o.y + half)) > 4 || Math.abs(cz - (o.z + half)) > 4;
-    if (!moved && w === this.worldRef && w.revision === this.revision) return;
+    if (!moved && w === this.worldRef && w.revision === this.revision && this.waterLevel === this.waterRef) return;
     this.worldRef = w;
     this.revision = w.revision;
+    this.waterRef = this.waterLevel;
+    const wet = this.waterLevel && this.waterLevel.length === w.sx * w.sz ? this.waterLevel : null;
     if (moved) o.set(cx - half, cy - half, cz - half);
     const v = this.volume;
     const blocks = w.blocks;
@@ -497,7 +521,8 @@ export class HighlightSystem {
             continue;
           }
           const id = blocks[base + wx];
-          v[i] = SOLID[id] ? RARITY_CODE[id] + 1 : 0;
+          // HI_WET: an open cell under the water (the shader keeps the ambient rims off faces looking into it).
+          v[i] = SOLID[id] ? CELL_CODE[id] : wet && wy < wet[wx + wz * sx] ? HI_WET : 0;
         }
       }
     }

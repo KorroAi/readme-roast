@@ -390,3 +390,36 @@ export class RiverRibbons {
     this.lava.dispose();
   }
 }
+
+/**
+ * The water's surface over each column of the world (index x + z * sx; -Infinity where it is dry):
+ * the lakes' wet columns at their level, and the rivers' ribbons (each point's surface across its
+ * width). The highlight volume reads it: a find under the water draws no ambient rim.
+ */
+export function waterColumns(sx: number, sz: number, lakes: ReadonlyArray<{ level: number; min: readonly number[]; max: readonly number[]; mask: Uint8Array }>, rivers: readonly RiverView[] = []): Float32Array {
+  const out = new Float32Array(sx * sz).fill(Number.NEGATIVE_INFINITY);
+  const raise = (x: number, z: number, level: number) => {
+    if (x < 0 || z < 0 || x >= sx || z >= sz) return;
+    const i = x + z * sx;
+    if (level > out[i]) out[i] = level;
+  };
+  for (const lake of lakes) {
+    const [x0, z0] = lake.min;
+    const [x1, z1] = lake.max;
+    const w = x1 - x0 + 1;
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (lake.mask[(z - z0) * w + (x - x0)] === 1) raise(x, z, lake.level);
+  }
+  for (const r of rivers) {
+    if (r.kind === 'lava') continue;
+    const half = Math.max(0.5, (r.width || 2) / 2);
+    for (const p of r.points) {
+      if (!p || p.length < 3) continue;
+      const [px, py, pz] = p;
+      for (let dz = -Math.ceil(half); dz <= Math.ceil(half); dz++) for (let dx = -Math.ceil(half); dx <= Math.ceil(half); dx++) {
+        if (dx * dx + dz * dz > (half + 0.5) * (half + 0.5)) continue;
+        raise(Math.floor(px + dx), Math.floor(pz + dz), py);
+      }
+    }
+  }
+  return out;
+}

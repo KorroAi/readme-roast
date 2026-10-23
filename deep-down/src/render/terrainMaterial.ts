@@ -122,6 +122,11 @@ int hiCode(ivec3 c) {
   if (uHiOrigin.w < 0.5 || any(lessThan(l, ivec3(0))) || any(greaterThan(l, ivec3(${HI_SIZE - 1})))) return 0;
   return int(texelFetch(uHiTex, l, 0).r * 255.0 + 0.5);
 }
+// Codes (render/highlight.ts): 0 open, 1 plain rock, 2..6 a find by rarity, 7 open under the water,
+// 8 a find that is a whole structure (a giant mushroom, the World Root: no ambient rim).
+bool hiSolid(int k) {
+  return k >= 1 && k != 7;
+}
 
 in vec3 vGrid;
 in vec3 vNormal;
@@ -518,7 +523,7 @@ void main() {
       ivec3 t = k == 0 ? -bT1 : k == 1 ? bT1 : k == 2 ? -bT2 : bT2;
       float d = k == 0 ? dot(blc, vec3(bT1)) : k == 1 ? 1.0 - dot(blc, vec3(bT1)) : k == 2 ? dot(blc, vec3(bT2)) : 1.0 - dot(blc, vec3(bT2));
       if (d > 0.08) continue;
-      if (hiCode(cell + t) != 0 || hiCode(cell + t + bn) != 0) continue;
+      if (hiSolid(hiCode(cell + t)) || hiSolid(hiCode(cell + t + bn))) continue;
       float r = (1.0 - smoothstep(0.0, 0.05 * (0.7 + 0.6 * chip), d)) * fade;
       nd = normalize(nd + vec3(t) * r * 0.9);
       albedo *= 1.0 - 0.2 * r * smoothstep(0.55, 0.75, chip);
@@ -709,9 +714,11 @@ void main() {
     vec3 iv = normalize(vWorldPos - cameraPosition);
     vec3 q = vWorldPos + iv * 0.8;
     float b1 = sin(q.y * 1.1 + sin(q.x * 0.31 + uTime * 0.11) * 2.0 + sin(q.z * 0.27 - uTime * 0.09) * 2.0 + uTime * 0.21);
-    float band = smoothstep(0.45, 1.0, b1) * (0.45 + 0.55 * noise3(q * 0.35 + vec3(0.0, uTime * 0.05, 0.0)));
+    // Narrow bands broken by a soft noise, kept faint: only the ice holds them, so a roof of ice
+    // blocks set among other rock showed wide bands as hard-edged green patches (frozenFalls @2).
+    float band = smoothstep(0.68, 1.0, b1) * smoothstep(0.25, 0.75, noise3(q * 0.35 + vec3(0.0, uTime * 0.05, 0.0)));
     vec3 hue = mix(vec3(0.22, 1.0, 0.62), vec3(0.55, 0.45, 1.0), 0.5 + 0.5 * sin(q.x * 0.13 + q.z * 0.11 + uTime * 0.05));
-    emissive += hue * band * 0.085;
+    emissive += hue * band * 0.06;
   }
   // Round 3 (VIS, the Obsidian Abyss's wow): its black glass holds a deep sky, faint violet-white stars
   // far behind the surface (parallax with the eye), each twinkling at its own slow pace.
@@ -730,7 +737,9 @@ void main() {
   if (shownLayer == ${MAT.cityBrick} || shownLayer == ${MAT.cityTile}) {
     vec3 dl = vWorldPos - uLanternPos;
     float wake = smoothstep(10.0, 3.0, length(vec3(dl.x, dl.y * 0.5, dl.z)));
-    emissive *= 0.55 + 1.5 * wake * (0.92 + 0.08 * sin(uTime * 1.3 - length(dl) * 0.8));
+    // Far off a faint glow only (0.3: a gilded vault 12 m up read as a busy net of gold lines at
+    // 0.55), so the wake round the lantern carries the city.
+    emissive *= 0.3 + 1.75 * wake * (0.92 + 0.08 * sin(uTime * 1.3 - length(dl) * 0.8));
   }
 
   // Round 3: the bioluminescent rock breathes (lighting.ts bioBreath: the caps, vines and glowing moss).
@@ -851,8 +860,8 @@ void main() {
       ivec3 side = cell + t;
       int cd = hiCode(diag);
       int cs = hiCode(side);
-      bool other = cd >= 1 || cs >= 1;
-      int oc = cd >= 1 ? cd : cs;
+      bool other = hiSolid(cd) || hiSolid(cs);
+      int oc = hiSolid(cd) ? cd : cs;
       // The find's own outline (the vein's, the pile's), selected or not: never the grid of cells
       // inside it. The selected cell draws its share of that outline, brighter. A selected loose
       // block (a heap, roots, a crystal, a seal) also draws its convex edges, where its surface
@@ -874,14 +883,14 @@ void main() {
       outer = max(outer, ev * smoothstep(ww * 1.0, ww * 1.4, d) * (1.0 - smoothstep(ww * 1.8, ww * 2.6, d)));
     }
     int code = hiC;
-    vec3 hc = uHiCol[clamp(code - 2, 0, 4)];
+    vec3 hc = uHiCol[clamp((code == 8 ? 2 : code) - 2, 0, 4)];
     if (hiSel && uHiFx.z > 0.5) hc = mix(vec3(dot(hc, vec3(0.2126, 0.7152, 0.0722))), vec3(1.0, 0.32, 0.26), 0.55); // too hard
     // Round 3 (lead 23:53): an ambient rim hugs a find in a wall. On a floor or a roof a vein's
     // outline is a long flat frame across the ground (and seen edge-on its line smears thick), so
     // the ambient highlight stays off horizontal faces and fades on a wall seen at a grazing angle;
     // the selected cell keeps its own outline everywhere.
     float hiFacing = abs(dot(n, normalize(cameraPosition - vWorldPos)));
-    float hiWall = hiAx == 1 ? 0.0 : smoothstep(0.22, 0.45, hiFacing);
+    float hiWall = hiAx == 1 || hiC == 8 || hiCode(cell + nI) == 7 ? 0.0 : smoothstep(0.22, 0.45, hiFacing);
     float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel) * hiWall;
     float k = amb + 2.4 * sel;
     // The inner glow gathers in a band ~10 cm inside the rim. Ambient: a soft glowing seam with a
