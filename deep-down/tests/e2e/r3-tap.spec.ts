@@ -287,55 +287,74 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
 
 test('a tap on a monster strikes it with the weapon in hand; a tap on ore still uses the pick', async ({ page }) => {
   const touch = await start(page);
-  // Out of the camp (creatures are put away inside it): open floor 20-40 m from the fire.
+  // Out of the camp (creatures are put away inside it): open floor 20-60 m from the fire, a few
+  // spots of it (the first may have no floor in sight round it).
   const f = await fire(page);
-  const away = await page.evaluate(([x, y, z]) => {
+  const spots = await page.evaluate(([x, y, z]) => {
     const dd = window.__DD__;
-    for (let d = 20; d < 60; d += 4)
-      for (let a = 0; a < 12; a++) {
+    const out: number[][] = [];
+    for (let d = 20; d < 60 && out.length < 4; d += 4)
+      for (let a = 0; a < 12 && out.length < 4; a++) {
         const s = dd.standableNear(x + Math.sin(a) * d, y, z + Math.cos(a) * d);
-        if (s && !dd.isSolid(s[0], s[1] + 2, s[2])) return s;
+        if (s && !dd.isSolid(s[0], s[1] + 2, s[2]) && !out.some((o) => Math.hypot(o[0] - s[0], o[2] - s[2]) < 8)) out.push(s);
       }
-    return null;
+    return out;
   }, f);
-  expect(away, 'open floor away from the camp').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away!);
-  expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 4)).toBe(true);
+  expect(spots.length, 'open floor away from the camp').toBeGreaterThan(0);
   // The machete in hand (LOOP's gear: owned and equipped).
   await page.evaluate(() => {
     window.__DD__.give('machete', 1);
     window.__DD__.game.loop.equip('machete');
   });
   // A crawler on the floor ahead, kept where the game's own pick finds it at its point on screen (in
-  // sight, no lip of rock between): else it goes and the next way round is tried.
+  // sight, no lip of rock between): else it goes and the next way round (then the next spot) is tried.
   let id: number | null = null;
   let pt: { x: number; y: number } | null = null;
-  for (let k = 0; k < 16 && id === null; k++) {
-    await page.evaluate((y) => window.__DD__.look(y, -0.12), (k * Math.PI) / 8);
-    // The lens eases round to the new look before the crawler's point on screen is read.
-    await waitPlay(page, 0.4);
-    const cand = await page.evaluate(() => {
-      const dd = window.__DD__ as any;
-      const fl = dd.mobs.floorAhead(2, 3.6);
-      if (!fl) return null;
-      const id = dd.mobs.spawn('crawler', fl[0], fl[1], fl[2]);
-      dd.mobs.freeze(true);
-      return id as number;
-    });
-    if (cand === null) continue;
-    await waitPlay(page, 0.15);
-    const c = await page.evaluate((i) => (window.__DD__ as any).mobs.get(i), cand);
-    const at = c ? await screenOf(page, [c.x, c.y + 0.3, c.z]) : null;
-    const picked = at
-      ? await page.evaluate(([x, y, i]) => window.__DD__.game.combat.pickMob((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2)?.id === i, [at.x, at.y, cand] as const)
-      : false;
-    if (picked) {
-      id = cand;
-      pt = at;
-      break;
+  for (const away of spots) {
+    if (id !== null) break;
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away as [number, number, number]);
+    expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 4)).toBe(true);
+    for (let k = 0; k < 16 && id === null; k++) {
+      const yaw = (k * Math.PI) / 8;
+      // Looking down a little more than at rest: the crawler stands near the middle of the view,
+      // clear of the pads at the foot of the screen.
+      await page.evaluate((y) => window.__DD__.look(y, -0.45), yaw);
+      // The lens eases round to the new look before the crawler's point on screen is read.
+      await waitPlay(page, 0.4);
+      // Level floor 1.8-2.4 m ahead (forward is (-sin yaw, -cos yaw)), within the Machete's reach (2.6 m;
+      // past it the Pick, 3.2 m, would be the weapon that reaches): no step down to hide its body
+      // behind a lip, never under water.
+      const cand = await page.evaluate((yw) => {
+        const dd = window.__DD__ as any;
+        const p = dd.game.player;
+        const y = Math.floor(p.y + 0.05);
+        const fx = -Math.sin(yw);
+        const fz = -Math.cos(yw);
+        for (const d of [1.8, 2.1, 2.4]) {
+          const x = Math.floor(p.x + fx * d);
+          const z = Math.floor(p.z + fz * d);
+          if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z) || !dd.isSolid(x, y - 1, z) || dd.mobs.underwater(x, y, z)) continue;
+          const id = dd.mobs.spawn('crawler', x + 0.5, y, z + 0.5);
+          dd.mobs.freeze(true);
+          return id as number;
+        }
+        return null;
+      }, yaw);
+      if (cand === null) continue;
+      await waitPlay(page, 0.15);
+      const c = await page.evaluate((i) => (window.__DD__ as any).mobs.get(i), cand);
+      const at = c ? await screenOf(page, [c.x, c.y + 0.3, c.z]) : null;
+      const picked = at
+        ? await page.evaluate(([x, y, i]) => window.__DD__.game.combat.pickMob((x / innerWidth) * 2 - 1, 1 - (y / innerHeight) * 2)?.id === i, [at.x, at.y, cand] as const)
+        : false;
+      if (picked) {
+        id = cand;
+        pt = at;
+        break;
+      }
+      console.log(`[e2e] the crawler at ${JSON.stringify(c && [c.x, c.y, c.z])} is out of the pick's sight (${JSON.stringify(at)}): the next way`);
+      await page.evaluate(() => (window.__DD__ as any).mobs.clear());
     }
-    console.log(`[e2e] the crawler at ${JSON.stringify(c && [c.x, c.y, c.z])} is out of the pick's sight (${JSON.stringify(at)}): the next way`);
-    await page.evaluate(() => (window.__DD__ as any).mobs.clear());
   }
   expect(id, 'a crawler on the floor ahead, in sight').not.toBeNull();
   await page.evaluate(() => {
