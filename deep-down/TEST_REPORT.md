@@ -2,17 +2,32 @@
 
 ## 2.0.0 gate — round 3 "Le Grand Gouffre": the strata world (2026-10-23)
 
-Run by the lead on a quiet machine, on the tree that ships (467c559 plus docs only):
+Run by the lead on a quiet machine, on the tree that ships (65e835e plus docs only):
 
 | Check | Result |
 |---|---|
 | `npx tsc --noEmit` | exit 0 |
 | `node tools/run-ts.mjs tools/loop-fr-sync.ts --report` | 0 English keys without French, 0 stale French lines (French table 2,314 keys) |
-| `npx vitest run`, twice | 95 files, **1346/1346** both times (67 s, 66 s) |
+| `npx vitest run`, twice | 95 files, **1352/1352** both times (about 85 s each) |
 | `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | PENDING_E2E |
 | `tools/ui-check.mjs` (every screen at portrait, landscape and desktop; the touch layer; a game smoke flow) | PENDING_UICHECK |
 | `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000) | PENDING_APKSIM |
 | Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2) | PENDING_CAPS |
+
+**What the gate itself found.** The gate's first full browser run, on ddde538, failed 4 of 28 tests. Each failure was root-caused
+before a re-run. Three were real game bugs, now fixed and covered by unit tests:
+- **Loot out of reach:**
+  - A creature killed at a long weapon's reach dropped its loot beyond the bag's 2.6 m pull. The fixed loot reaches the bag in
+    40 of 40 unit runs, up from 7.
+  - A find mined at the edge of the pick's 3.5 m reach did the same. Fixed: 40 of 40, up from 1.
+  - Both now drop on the explorer's side.
+- **A look dead zone:** a drag that started on the biome arrival card did not turn the view. In 6 of 8 new expeditions the
+  card covered the drag's start. Milestone cards and the tutorial bubble did the same. A drag that starts on any of them now
+  looks, and a thumb on one inside the stick's zone starts the stick.
+
+The other failures were tests that depended on the random world, for example standing the explorer on a cell's corner, or
+waiting in real time for a creature's attack under SwiftShader. Each such test now asks the game before it acts, and each was
+re-run on new random worlds 2–3 times.
 
 **Evidence from the specialists, re-checked by the lead** (each line's log and captures are in `docs/round3/STATUS.md`):
 - **World.** On 16 seeds × 6 strata, 96/96 plans pass on the first attempt: 0 trapped cells, every route reachable, and no
