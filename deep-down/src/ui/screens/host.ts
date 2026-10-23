@@ -26,6 +26,8 @@ export interface ScreenState {
   invSlot: number;
   loadingProgress: number;
   loadingLabel: string;
+  /** Round 3: the stratum whose own load the loading screen shows (its card), null: the boot's logo. */
+  loadingStratum: number | null;
   deathLost: ItemCounts;
   /** Round 3: the black-out's story (null: the first version's card). */
   deathInfo: import('../types').BlackoutInfo | null;

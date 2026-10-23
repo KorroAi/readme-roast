@@ -10,7 +10,8 @@
 // A target is a biome id (WORLD's `__DD__.goto`: a cavern of that biome, then for view 2 a spawn
 // point of the same biome at least 20 m away), `lair:<biome>` (the lair's entrance, facing its
 // centre), `gate:<stratum>` (the gate's stand, facing the seal) or `torch:<biome>` (a few torches
-// placed by the wall in front of the eye: the torch light) or `go:<where>[:which][@stratum]` (WORLD's
+// placed by the wall in front of the eye: the torch light), `at:x_y_z@stratum` (a given point) or
+// `go:<where>[:which][@stratum]` (WORLD's
 // structures through `__DD__.goto`: vista, vistaFloor, river, works, vault, secret, site:<name>, heart,
 // facing what they are about). Each view faces the most open direction
 // from the eye (rays through the voxels). With --sonar 1 every view also fires the sonar and captures
@@ -121,6 +122,15 @@ try {
             if (pick) at = stand(pick.p[0], pick.p[1] + 1, pick.p[2]);
           }
           if (at) D.teleport(at[0], at[1], at[2]);
+        } else if (kind === 'at') {
+          // at:x_y_z@stratum: a given point (another specialist's view, e.g. QA's goto spot), facing
+          // the most open line like any biome view (_ between the numbers: targets are comma-separated).
+          const [xyz, st] = arg.split('@');
+          if (st && g.strata.current !== Number(st)) await D.stratum(Number(st));
+          const [x, y, z] = xyz.split('_').map(Number);
+          const at = D.standableNear(x, y, z);
+          if (!at) return { err: `nothing standable near ${xyz}` };
+          D.teleport(at[0], at[1], at[2]);
         } else if (kind === 'lair') {
           // The lair's stratum first (the lair goto looks in the loaded one only).
           if (!g.strata.layout.lairs.some((a) => a.biome === arg)) await D.goto(arg);

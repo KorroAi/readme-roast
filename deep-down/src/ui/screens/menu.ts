@@ -1,9 +1,10 @@
+import { BIOMES, STRATUM_DEPTH, stratumDef } from '../../config/biomes';
 import { ITEMS, type ItemId } from '../../config/items';
 import { t } from '../../i18n';
 import { VERSION } from '../../version';
 import { logo } from '../brand/logo';
 import { h } from '../dom';
-import { formatRelativeTime } from '../format';
+import { depthText, formatRelativeTime } from '../format';
 import { iconPx, itemIconDataUrl } from '../icons';
 import type { ScreenHost } from './host';
 import { btn, header, ledger } from './widgets';
@@ -135,10 +136,12 @@ export function buildMenu(host: ScreenHost): HTMLElement {
 
 export function buildLoading(host: ScreenHost): HTMLElement {
   const p = Math.round(host.state.loadingProgress * 100);
-  return h(
+  const el = h(
     'section',
     { class: 'dd-screen dd-loading' },
     logo('loading'),
+    h('p', { class: 'dd-descent-roman', 'aria-hidden': 'true' }),
+    h('div', { class: 'dd-descent-sub' }),
     h(
       'div',
       { class: 'dd-progress', role: 'progressbar', 'aria-valuemin': 0, 'aria-valuemax': 100, 'aria-valuenow': p, 'aria-label': host.state.loadingLabel },
@@ -146,10 +149,12 @@ export function buildLoading(host: ScreenHost): HTMLElement {
     ),
     h('p', { class: 'dd-loading-label', 'aria-live': 'polite', text: host.state.loadingLabel }),
   );
+  paintStratum(el, host.state.loadingStratum);
+  return el;
 }
 
 /** Update an open loading screen in place (no rebuild while the world generates). */
-export function updateLoading(el: HTMLElement, progress: number, label: string): void {
+export function updateLoading(el: HTMLElement, progress: number, label: string, stratum: number | null = null): void {
   const bar = el.querySelector<HTMLElement>('.dd-progress');
   const fill = el.querySelector<HTMLElement>('.dd-progress-fill');
   const text = el.querySelector<HTMLElement>('.dd-loading-label');
@@ -159,6 +164,47 @@ export function updateLoading(el: HTMLElement, progress: number, label: string):
     bar.setAttribute('aria-label', label);
   }
   if (text && text.textContent !== label) text.textContent = label;
+  if ((el.dataset.stratum ?? '') !== (stratum === null ? '' : String(stratum))) paintStratum(el, stratum);
+}
+
+/** A biome's light as CSS channels ("r g b", for rgb(var(--biome-a) / alpha)); the Map tints its regions with the same. */
+const biomeRgb = (rgb: readonly number[], lift = 0): string => rgb.map((v) => Math.round((Math.max(0, Math.min(1, v)) * (1 - lift) + lift) * 255)).join(' ');
+/** Text in a biome's light is lifted a quarter toward white: every biome then reads at 5.9:1 or more. */
+const INK_LIFT = 0.25;
+
+/**
+ * Round 3 (QA 01:41): a stratum's own load (a descent, a climb back) is that stratum's moment, not
+ * the boot's: its numeral over its name (the label), its two biomes in their colours, its depth band,
+ * the gauge and the glow in the first biome's light. No stratum: the boot's logo.
+ */
+function paintStratum(el: HTMLElement, n: number | null): void {
+  el.dataset.stratum = n === null ? '' : String(n);
+  el.classList.toggle('dd-descent', n !== null);
+  const roman = el.querySelector<HTMLElement>('.dd-descent-roman');
+  const sub = el.querySelector<HTMLElement>('.dd-descent-sub');
+  if (n === null) {
+    roman?.replaceChildren();
+    sub?.replaceChildren();
+    for (const v of ['--biome-a', '--biome-b', '--biome-a-ink', '--biome-b-ink']) el.style.removeProperty(v);
+    return;
+  }
+  const def = stratumDef(n);
+  const [a, b] = def.biomes.map((id) => BIOMES[id]);
+  el.style.setProperty('--biome-a', biomeRgb(a.light));
+  el.style.setProperty('--biome-b', biomeRgb(b.light));
+  el.style.setProperty('--biome-a-ink', biomeRgb(a.light, INK_LIFT));
+  el.style.setProperty('--biome-b-ink', biomeRgb(b.light, INK_LIFT));
+  if (roman) roman.textContent = ROMAN[def.index] ?? String(def.index);
+  sub?.replaceChildren(
+    h(
+      'p',
+      { class: 'dd-descent-biomes' },
+      h('span', { class: 'dd-descent-biome a', text: t(a.name) }),
+      h('span', { class: 'dd-descent-dot', 'aria-hidden': 'true', text: ' · ' }),
+      h('span', { class: 'dd-descent-biome b', text: t(b.name) }),
+    ),
+    h('p', { class: 'dd-descent-band', text: t('menu3.descent.band', { top: def.depthTop > 0 ? depthText(def.depthTop) : t('hud.depthValue', { depth: '0' }), bottom: depthText(def.depthTop + STRATUM_DEPTH) }) }),
+  );
 }
 
 export function buildPause(host: ScreenHost): HTMLElement {

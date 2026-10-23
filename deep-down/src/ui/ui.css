@@ -1604,6 +1604,78 @@
   letter-spacing: 0.06em;
 }
 
+/* Round 3 (QA 01:41): a stratum's own load (a descent, a climb back) is that stratum's moment, not the
+   boot's: its numeral over its name, its two biomes in their light, its depth band, the gauge in the
+   biome colours. --biome-a / --biome-b hold "r g b" channels, the -ink pair the same lifted for text. */
+.dd-loading .dd-descent-roman,
+.dd-loading .dd-descent-sub {
+  display: none;
+}
+.dd-loading.dd-descent {
+  gap: 0;
+  background:
+    radial-gradient(ellipse 80% 40% at 50% 40%, rgb(var(--biome-a) / 0.17) 0%, transparent 72%),
+    radial-gradient(ellipse at 50% 42%, #121b27 0%, #070a0f 72%);
+}
+.dd-loading.dd-descent .dd-logo {
+  display: none;
+}
+.dd-loading.dd-descent .dd-descent-roman {
+  display: block;
+  order: 1;
+  margin: 0;
+  font: 400 calc(84px * var(--s)) / 1 var(--font-lintel);
+  letter-spacing: 0.04em;
+  color: rgb(var(--biome-a-ink));
+  text-shadow: 0 0 28px rgb(var(--biome-a) / 0.45), 0 2px 0 #000;
+}
+.dd-loading.dd-descent .dd-loading-label {
+  order: 2;
+  margin: 12px 0 0;
+  font: 400 calc(24px * var(--s)) / 1.1 var(--font-lintel);
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-align: center;
+}
+.dd-loading.dd-descent .dd-descent-sub {
+  display: flex;
+  order: 3;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 24px;
+  padding: 0 16px;
+  text-align: center;
+}
+.dd-descent-biomes {
+  margin: 0;
+  font-size: calc(15px * var(--s));
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.dd-descent-biome.a {
+  color: rgb(var(--biome-a-ink));
+}
+.dd-descent-biome.b {
+  color: rgb(var(--biome-b-ink));
+}
+.dd-descent-dot {
+  color: var(--ink-dim);
+}
+.dd-descent-band {
+  margin: 0;
+  font-size: calc(13px * var(--s));
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-dim);
+}
+.dd-loading.dd-descent .dd-progress {
+  order: 4;
+}
+.dd-loading.dd-descent .dd-progress-fill {
+  background: linear-gradient(90deg, rgb(var(--biome-a)), rgb(var(--biome-b)));
+}
+
 /* Pause */
 .dd-pause {
   width: min(400px, 100%);

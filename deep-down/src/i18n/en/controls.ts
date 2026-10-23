@@ -192,6 +192,8 @@ export const controls = {
   'menu3.seed': 'Seed (optional)',
   'menu3.seedHint': 'Leave empty for a new random world, or type a seed to share one.',
   'menu3.seedRandom': 'Random',
+  // The loading screen of a stratum's own load (a descent, a climb back): its depth band.
+  'menu3.descent.band': '{top} to {bottom}',
   'menu3.start': 'Start the expedition',
   'menu3.cardShards': '{n}/12 shards',
   'menu3.cardTime': '{time} played',

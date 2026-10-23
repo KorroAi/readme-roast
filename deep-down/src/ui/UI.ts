@@ -32,7 +32,8 @@ import { buildBestiary } from './screens/r3/bestiary';
 import { buildTrip } from './screens/r3/trip';
 import { MilestoneBanner, type Milestone } from './hud/Milestones';
 import { arrivalCard } from '../game/quests/Guide';
-import { hintPlace, noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
+import { descentStratum, fromTemplate, hintPlace, noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
+import { STRATA } from '../config/biomes';
 import { languageOf, type ControlPrefs } from './controlPrefs';
 import { setReducedMotion } from './brand/motion';
 import { rewardLine } from '../game/quests/Quests';
@@ -48,6 +49,8 @@ const tripOrReport: Builder = (host) => (host.state.trip ? buildTrip(host) : bui
 
 /** The strata's end card waits this long after 'quest:ending' (VIS's relighting, AUDIO's sting play first). */
 export const ENDING_DELAY_MS = 6500;
+/** Within this long, a second toast of the Gate opening is the same news (WORLD's, then LOOP's). */
+const GATE_NEWS_MS = 8000;
 
 const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   menu: buildMenu,
@@ -116,6 +119,8 @@ export class UI implements GameUi {
   /** The toast column's top (portrait: under the HUD, the guardian's bar, a bubble up there). */
   private toastTopV = '';
   private toastTopAt = 0;
+  /** When the Gate's opening was last told (WORLD and LOOP both tell it: one toast, QA 01:41). */
+  private gateToastAt = -1e9;
   /** First-time item tips waiting for a guardian fight to end (QA 00:03), and when the next may show. */
   private heldHints: Array<{ id: string; text: string; target: UiTargetId | null }> = [];
   private hintFreeAt = 0;
@@ -163,6 +168,7 @@ export class UI implements GameUi {
     invSlot: 0,
     loadingProgress: 0,
     loadingLabel: '',
+    loadingStratum: null,
     deathLost: {},
     deathInfo: null,
     treeTab: 'workbench',
@@ -434,6 +440,7 @@ export class UI implements GameUi {
     }
     // The strata's end card shows once: leaving it is free play.
     if (this.current === 'ending' && id !== 'ending' && id !== 'pause') this.state.ending = null;
+    if (id !== 'loading') this.state.loadingStratum = null;
     if (id === 'menu' || id === 'loading') {
       this.reportWaiting = null;
       this.endingWaiting = false;
@@ -563,7 +570,13 @@ export class UI implements GameUi {
   setLoading(progress01: number, label: string): void {
     this.state.loadingProgress = Math.max(0, Math.min(1, progress01));
     this.state.loadingLabel = label;
-    if (this.current === 'loading' && this.screenEl) updateLoading(this.screenEl, this.state.loadingProgress, label);
+    // A stratum's own load (WORLD labels it with the stratum's name) shows that stratum's card, not
+    // the boot's logo (QA 01:41). A depth record told on the way down is overtaken: the new
+    // stratum's own is told once the explorer stands there (Progression, on the first grounded frame).
+    const stratum = descentStratum(label, STRATA.map((s) => t(s.name)));
+    if (stratum !== null && stratum !== this.state.loadingStratum) this.toasts.drop((text) => fromTemplate(text, t('toast.depthRecord')));
+    this.state.loadingStratum = stratum;
+    if (this.current === 'loading' && this.screenEl) updateLoading(this.screenEl, this.state.loadingProgress, label, stratum);
   }
 
   showDiscovery(n: DiscoveryNotice): void {
@@ -571,6 +584,14 @@ export class UI implements GameUi {
   }
 
   toast(text: string, tone: ToastTone = 'info'): void {
+    // One toast for the Gate opening (QA 01:41): WORLD's and LOOP's both tell it; the first stands.
+    if (fromTemplate(text, t('world.gate.opened')) || fromTemplate(text, t('quest.gateOpen'))) {
+      const now = performance.now();
+      if (now - this.gateToastAt < GATE_NEWS_MS) return;
+      this.gateToastAt = now;
+    }
+    // No depth record while a stratum loads: it is told at the new stratum's real depth, on arrival.
+    if (this.current === 'loading' && this.state.loadingStratum !== null && fromTemplate(text, t('toast.depthRecord'))) return;
     this.toasts.show(text, tone);
   }
 
