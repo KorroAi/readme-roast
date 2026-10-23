@@ -185,9 +185,16 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
    * finds it under the reticle once aimed at (Combat.pickMob, what the reticle's "attack" reads):
    * else it goes and the next way round is tried (gate 05:28: a tick out of the pick's sight kept the
    * reticle on "place" for two rounds). The creatures hold still; the others are put away first, so
-   * the nearest creature is this one.
+   * the nearest creature is this one. The camp puts away every monster but the tutorial's own: one
+   * placed while the explorer stands in the camp is gone a frame later (gate run 5, 08:40: 16 placings
+   * in a row, none kept), so the explorer steps out of the camp first.
    */
   const tickInSight = async (): Promise<number | null> => {
+    if (await page.evaluate(() => window.__DD__.state().atCamp)) {
+      const out = await awayFromCamp(page);
+      if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), out);
+      await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.state().atCamp)), 2);
+    }
     for (let k = 0; k < 16; k++) {
       const id = await page.evaluate((kk) => {
         const dd = window.__DD__ as any;
