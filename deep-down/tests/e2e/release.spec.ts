@@ -254,9 +254,11 @@ test('automatic quality: a slow device steps down to Battery once, with one toas
   await page.reload();
   await waitMode(page, 'menu');
   expect(await page.evaluate(() => window.__DD__.game.settings.quality)).toBe('battery');
-  // A manual choice switches it off for good.
+  // A manual choice switches it off for good. The governor notes it on the next frame, and the first
+  // frame at High compiles its effects: under SwiftShader that frame took 28 ms to 4.7 s on a quiet
+  // machine (gate run 6, 10:00: over 5 s at the end of the full suite).
   await page.evaluate(() => window.__DD__.game.updateSettings({ quality: 'high' }));
-  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('deepdown.autoquality') ?? 'null')?.auto), { timeout: 5_000 }).toBe(false);
+  await expect.poll(() => page.evaluate(() => JSON.parse(localStorage.getItem('deepdown.autoquality') ?? 'null')?.auto), { timeout: 60_000 }).toBe(false);
 });
 
 test('a boot failure (no WebGL 2) uses the same panel with Restart, and Back exits', async ({ page }) => {
