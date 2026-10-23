@@ -281,6 +281,11 @@ export class ActionLayer {
     return { loop: g.loop ?? null, quests: g.quests ?? null, strata: g.strata ?? null };
   }
 
+  /** Action is held on the creature it struck: the blows repeat at the weapon's rate (Game → Combat). */
+  get holdsOnMob(): boolean {
+    return this.actionOnMob && this.game.input.actionHeld;
+  }
+
   /** Seconds of invulnerability left (a dash). */
   get invulnerable(): number {
     return this.dash.iframes;
@@ -394,7 +399,8 @@ export class ActionLayer {
       input.aimY = 0;
       this.actionMining = true;
     }
-    g.combat.holding = g.combat.holding || (this.actionOnMob && input.actionHeld);
+    // (Action held on the creature it struck repeats the blows: Game folds holdsOnMob into
+    // combat.holding before combat.update.)
     // Place (the button, the right mouse button).
     if (input.placePressed) this.place();
   }

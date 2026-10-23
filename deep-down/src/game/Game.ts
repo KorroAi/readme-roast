@@ -867,7 +867,9 @@ export class Game {
     // at the weapon's rate (and mines nothing behind it); a Flash Charge on its button.
     if (this.combat.tapped && input.mining) this.holdOnMob = true;
     if (!input.mining) this.holdOnMob = false;
-    this.combat.holding = this.holdOnMob;
+    // Action held after it struck a creature counts as a held finger too, folded in here before the
+    // update (QA 01:43: set after it, the next frame overwrote it and the blows never repeated).
+    this.combat.holding = this.holdOnMob || this.act.holdsOnMob;
     this.combat.update(dt, blocked || this.features.riding);
     if (!blocked && !this.features.riding && input.flashPressed) this.combat.flash();
     // FP: with the mouse, a click on a creature strikes it (the held button then mines nothing behind it).

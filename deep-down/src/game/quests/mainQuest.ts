@@ -1,5 +1,6 @@
-import type { BiomeKey } from '../../config/items';
+import type { BiomeKey, ItemId } from '../../config/items';
 import { NEXT_PICK, STRATUM_BIOMES } from '../../config/quests';
+import { RECIPES } from '../../config/recipes';
 import type { QuestTarget } from './types';
 
 /**
@@ -12,6 +13,9 @@ import type { QuestTarget } from './types';
  *   4. open the stratum's Gate with its 2 shards, then descend.
  * In stratum VI, with all 12 shards: bring them to the Heart, defeat its guardian, then free play.
  * A tutorial in progress comes first; an explorer above the deepest stratum is asked to return.
+ * Between the tutorial and the first lairs, an explorer with no weapon walks the road to the first
+ * one (QA 01:44): build a Furnace, smelt copper bars, build the Forge, a Grit Boar's hide, forge the
+ * Machete (`ArmState`; each step skipped once its result is there).
  */
 export interface LairInfo {
   id: string;
@@ -43,6 +47,74 @@ export interface MainState {
   tutorialTarget?: { x: number; y: number; z: number } | null;
   /** The lairs' rumour points the way (after a while without a lead): the arrow aims near the nearest unrevealed lair. */
   rumour?: boolean;
+  /** The road to the first weapon, when the explorer owns none (null or absent: armed). */
+  arm?: ArmState | null;
+}
+
+/** A step of the road to the first weapon. */
+export type ArmStepId = 'furnace' | 'placeFurnace' | 'bars' | 'forge' | 'placeForge' | 'hide' | 'machete';
+
+/** What the road to the first weapon reads: what is built, what is held, where the compass can point. */
+export interface ArmState {
+  /** A Furnace / a Forge set up (placed), or one crafted and still in the bag. */
+  furnace: boolean;
+  furnaceItem: boolean;
+  forge: boolean;
+  forgeItem: boolean;
+  /** Held in the bag and the bank (fuel in fuel units). */
+  counts: { stone: number; coal: number; copperOre: number; copperIngot: number; hide: number; fuel: number };
+  /** The nearest of each thing the road may send the explorer to (null: none known in range). */
+  targets: {
+    stone?: P3 | null;
+    coal?: P3 | null;
+    copper?: P3 | null;
+    boar?: P3 | null;
+    bench?: P3 | null;
+    furnaceSpot?: P3 | null;
+    forgeSpot?: P3 | null;
+    furnace?: P3 | null;
+    forge?: P3 | null;
+  };
+}
+type P3 = { x: number; y: number; z: number };
+
+/** The first recipe's inputs for an item (the road's needs, read from the recipes as written). */
+function inputsOf(item: ItemId): Array<[string, number]> {
+  const r = RECIPES.find((x) => x.id === item) ?? RECIPES.find((x) => x.output.item === item);
+  return r ? (Object.entries(r.inputs) as Array<[string, number]>) : [];
+}
+const FURNACE_NEEDS = inputsOf('furnace');
+const FORGE_NEEDS = inputsOf('forge');
+const MACHETE_NEEDS = inputsOf('machete');
+const BAR_ORE = inputsOf('copperIngot').find(([id]) => id === 'copperOre')?.[1] ?? 2;
+const barsIn = (list: Array<[string, number]>) => list.find(([id]) => id === 'copperIngot')?.[1] ?? 0;
+
+/** The road's step now, its count and where the compass points. */
+export function armStep(a: ArmState): { step: ArmStepId; progress: { have: number; need: number } | null; target: P3 | null } {
+  const have = (id: string) => (a.counts as Record<string, number>)[id] ?? 0;
+  const units = (list: Array<[string, number]>) => ({ have: list.reduce((t, [id, n]) => t + Math.min(have(id), n), 0), need: list.reduce((t, [, n]) => t + n, 0) });
+  const missing = (list: Array<[string, number]>) => list.find(([id, n]) => have(id) < n)?.[0] ?? null;
+  const source = (id: string): P3 | null => (id === 'stone' ? a.targets.stone : id === 'coal' ? a.targets.coal : id === 'hide' ? a.targets.boar : id === 'copperIngot' ? a.targets.copper : null) ?? null;
+  // Bars for the Forge (until it stands) and the Machete: a Furnace first to smelt them.
+  const barsNeed = (a.forge ? 0 : barsIn(FORGE_NEEDS)) + barsIn(MACHETE_NEEDS);
+  const bars = have('copperIngot');
+  if (bars < barsNeed) {
+    if (!a.furnace) {
+      if (a.furnaceItem) return { step: 'placeFurnace', progress: null, target: a.targets.furnaceSpot ?? a.targets.bench ?? null };
+      const m = missing(FURNACE_NEEDS);
+      return { step: 'furnace', progress: units(FURNACE_NEEDS), target: (m ? source(m) : a.targets.bench) ?? null };
+    }
+    const short = barsNeed - bars;
+    const target = have('copperOre') < short * BAR_ORE ? a.targets.copper : have('fuel') < short ? a.targets.coal : a.targets.furnace;
+    return { step: 'bars', progress: { have: bars, need: barsNeed }, target: target ?? null };
+  }
+  if (!a.forge) {
+    if (a.forgeItem) return { step: 'placeForge', progress: null, target: a.targets.forgeSpot ?? a.targets.bench ?? null };
+    const m = missing(FORGE_NEEDS);
+    return { step: 'forge', progress: units(FORGE_NEEDS), target: (m ? source(m) : a.targets.bench) ?? null };
+  }
+  if (have('hide') < 1) return { step: 'hide', progress: { have: have('hide'), need: 1 }, target: a.targets.boar ?? null };
+  return { step: 'machete', progress: units(MACHETE_NEEDS), target: a.targets.forge ?? null };
 }
 
 /** How far from its lair a rumour points (m): a direction, not the spot. */
@@ -59,6 +131,7 @@ export function rumourPoint(l: LairInfo): { x: number; y: number; z: number } {
 
 export type MainStepId =
   | 'tutorial'
+  | ArmStepId
   | 'return'
   | 'lairs'
   | 'guardian'
@@ -97,6 +170,11 @@ export function mainStep(s: MainState): MainStep {
     return { ...mk('tutorial'), id: 'main:tutorial', stratum: 1, target: tt ? { x: tt.x, y: tt.y, z: tt.z, stratum: s.stratum, kind: 'point' } : null };
   }
   if (s.bossDefeated) return mk('free');
+  // The road to the first weapon, before the lairs (an unarmed explorer would meet a guardian with a pick).
+  if (s.arm) {
+    const r = armStep(s.arm);
+    return { ...mk(r.step), stratum: 1, id: `main:arm.${r.step}`, progress: r.progress, target: r.target ? { x: r.target.x, y: r.target.y, z: r.target.z, stratum: s.stratum, kind: 'point' } : null };
+  }
   const [a, b] = STRATUM_BIOMES[n];
   const both = s.shards.has(a) && s.shards.has(b);
   if (s.stratum !== n && !(n === 6 && both)) return mk('return');

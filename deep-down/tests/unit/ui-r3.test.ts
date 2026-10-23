@@ -631,6 +631,46 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     }
   });
 
+  it('Action held on a creature strikes again at the weapon rate, melee, reach and ranged: floor(N / rate) ± 1 blows (QA 01:43)', async () => {
+    const { Combat } = await import('../../src/game/fp/Combat');
+    const { WEAPONS } = await import('../../src/config/weapons');
+    const { EventBus } = await import('../../src/core/events');
+    /** Action held `seconds` on a creature `dist` m ahead with `weapon`; `foldBefore`: holding set before each update (the fix). */
+    const run = (weapon: 'machete' | 'spear' | 'sling', dist: number, seconds: number, foldBefore: boolean): number => {
+      const bus = new EventBus();
+      const cam = new THREE.PerspectiveCamera(70, 390 / 844, 0.05, 100);
+      cam.position.set(0, 1.6, 0);
+      cam.lookAt(0, 1.2, -dist);
+      cam.updateMatrixWorld();
+      const mob = { id: 1, kind: 'gritBoar', family: 'monster', hostile: true, tappable: true, state: 'idle', position: new THREE.Vector3(0, 1.2, -dist), bounds: { radius: 0.4, halfHeight: 0.5 } };
+      const sys = { pick: () => mob, list: () => [mob], hit: () => ({ hit: true, killed: false, hitStop: 0 }), fire: () => undefined, flash: () => 0 };
+      const host = { mobs: () => sys, world: new VoxelWorld(8, 8, 8), owned: () => [weapon], weaponFor: () => WEAPONS[weapon], camera: () => cam, eye: () => cam.position, viewport: () => ({ width: 390, height: 844 }), walkNear: () => true, stopWalk: () => undefined, flashCharges: () => 0, useFlashCharge: () => false, hint: () => undefined, nudge: () => undefined };
+      const vm = { attack: () => undefined, raise: () => undefined, hitStop: () => undefined, toolWorld: (v: THREE.Vector3) => v.set(0, 1.4, -0.3), rightHand: 'pick', setRightHand: () => undefined };
+      const combat = new Combat(host as never, vm as never, bus as never);
+      let swings = 0;
+      (bus as unknown as { on(type: string, f: () => void): void }).on('weapon:swing', () => swings++);
+      expect(combat.tap(0, 0), 'Action pressed with the creature under the reticle').toBe(true);
+      const dt = 1 / 30;
+      for (let f = 0; f < Math.round(seconds / dt); f++) {
+        if (foldBefore) {
+          combat.holding = true;
+          combat.update(dt, false);
+        } else {
+          // The old order: Game set holding from the finger alone, ActionLayer folded Action in after.
+          combat.holding = false;
+          combat.update(dt, false);
+          combat.holding = true;
+        }
+      }
+      return swings;
+    };
+    for (const [w, d] of [['machete', 1.5], ['spear', 2.2], ['sling', 8]] as const) {
+      const n = run(w, d, 6, true);
+      expect(Math.abs(n - Math.floor(6 / WEAPONS[w].rate)), `${w}: ${n} blows in 6 s`).toBeLessThanOrEqual(1);
+    }
+    expect(run('machete', 1.5, 6, false), 'held Action folded in after the update: one blow (the bug)').toBe(1);
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');
