@@ -231,11 +231,29 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
     // placed in sight. Each round aims at it and holds Action while the reticle reads "attack". From
     // the second round the creatures hold still (a quick Amber Tick outruns an aim taken a slow
     // SwiftShader frame earlier).
+    // What a round that did not strike was up against (gate run 5, 08:40: a frozen tick 2.1 m away with
+    // the reticle on "attack" was never struck): the strike's own reach (eye to body), the height, the
+    // combat's target, and whether input was blocked.
+    const fightState = () =>
+      page.evaluate(() => {
+        const dd = window.__DD__ as any;
+        const g = dd.game;
+        const c = g.combat;
+        const e = g.eyePosition();
+        const f = (x: number) => x.toFixed(2);
+        const near = (g.mobs.sim.mobs as any[])
+          .filter((m) => m.family !== 'being' && !m.dying)
+          .sort((a, b) => a.position.distanceTo(e) - b.position.distanceTo(e))[0];
+        const mob = near ? `${near.kind} reach ${f(near.position.distanceTo(e) - near.bounds.radius)} m, dy ${f(near.position.y - g.player.y)}, ${near.state}/${near.mode || '-'}` : 'none';
+        return `target ${c.target ? c.target.kind : 'none'}, queued ${c.queued}, pending ${c.pending ? 'yes' : 'no'}; nearest ${mob}; blocked ${g.ui.isBlockingInput()} (${dd.state().screen}); swings ${dd.ui.events('weapon:swing').length}`;
+      });
     for (let round = 0; round < 3 && !(await struck()); round++) {
       if (round === 1) await page.evaluate(() => window.__DD__.mobs.freeze(true));
       const t = await foe();
       if (round === 1 && t) await besideFoe(t);
       if (round === 2 || !t) console.log(`[e2e] the fight: a tick placed in sight (${await tickInSight()})`);
+      let holds = 0;
+      let unseen = 0;
       await untilGame(
         page,
         async () => {
@@ -243,14 +261,22 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
           if (!f) return struck();
           // (aimAt takes a block and aims at its centre: the creature's body is passed half a cell back.)
           await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y - 0.5, z - 0.5, 0, 0), [f.x, f.y, f.z] as const);
-          if (!(await untilGame(page, async () => (await hud(page)).reticle === 'attack', 1))) return false;
+          if (!(await untilGame(page, async () => (await hud(page)).reticle === 'attack', 1))) {
+            unseen++;
+            return false;
+          }
           await holdControl(page, touch, 'action', 900);
+          holds++;
           return struck();
         },
         round === 0 ? 8 : 14,
       );
       const f = await foe();
-      console.log(`[e2e] the fight, round ${round}: ${(await struck()) ? 'struck' : 'not struck'} (${f ? `${f.kind} ${f.d.toFixed(1)} m` : 'none left'}, reticle ${(await hud(page)).reticle})`);
+      const hit = await struck();
+      console.log(
+        `[e2e] the fight, round ${round}: ${hit ? 'struck' : 'not struck'} (${f ? `${f.kind} ${f.d.toFixed(1)} m` : 'none left'}, reticle ${(await hud(page)).reticle}; ${holds} holds, ${unseen} aims without "attack")` +
+          (hit ? '' : `: ${await fightState()}`),
+      );
     }
     await page.evaluate(() => window.__DD__.mobs.freeze(false));
     expect(await struck(), 'the creature was struck').toBe(true);
