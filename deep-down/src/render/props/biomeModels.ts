@@ -681,9 +681,14 @@ const voidSpire: Build = (m, rng) => {
     const a = rng.range(0, Math.PI * 2);
     const r = 0.3 * (1 - (y / (h + 0.6)) * 0.3);
     m.glow.push().rotateY(-a).translate(r, y, 0);
-    m.glow.box(0, -0.12, -0.012, 0.02, 0.12, 0.012, OBS.glow, 0.9);
+    // Lead 00:13 (a lit focal point in the Abyss): longer, wider seams of violet light.
+    m.glow.box(0, -0.2, -0.02, 0.03, 0.2, 0.02, OBS.glow, 0.9);
     m.glow.pop();
   }
+  // A shard of violet light caught in its tip: the spire reads from across the dark.
+  m.glow.push().translate(0, h * 0.86, 0);
+  m.glow.crystal(0.07, h * 0.2, 0.4, 5, OBS.glow, OBS.edge, 0.9);
+  m.glow.pop();
   crystals(m.body, rng, 4, 0.3, 0.8, 0.5, OBS.dark, OBS.black, 0);
   m.glowScale = 1.7;
 };

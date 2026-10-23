@@ -221,7 +221,8 @@ export class HeartFinale {
   private setLit(k: number): void {
     this.lit = k;
     relightHeart(k);
-    this.glowMat.uniforms.uEmissiveScale.value = 0.4 + 2.6 * k;
+    // Dark, the core still glows enough to be the chamber's focal point (lead 00:13); lit, as before.
+    this.glowMat.uniforms.uEmissiveScale.value = 0.8 + 2.2 * k;
   }
 
   /** Kindle `n` shards (`glow`: their brightness; `flare`: the one kindling now flares). */
@@ -264,8 +265,9 @@ export class HeartFinale {
         this.glowMat.uniforms.uEmissiveScale.value = 1.2 + 0.6 * beat;
         this.setHalo(4.2 + 1.1 * beat, ROSE, 1.2 + 0.5 * beat);
       } else if (this.state === 'lit') this.setHalo(7, GOLD, 1.5 + 0.1 * Math.sin(time * 0.6));
-      // Dark, the Heart still beats, faintly and slowly, deep inside.
-      else this.setHalo(3 + 0.3 * beat, ROSE, 0.5 + 0.25 * beat);
+      // Dark, the Heart still beats, slowly, deep inside: a rose glow round the core that the eye
+      // finds first in the dark chamber.
+      else this.setHalo(4.4 + 0.5 * beat, ROSE, 0.95 + 0.35 * beat);
       return;
     }
     this.t += dt;

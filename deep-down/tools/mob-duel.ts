@@ -12,7 +12,7 @@
 import { MobSim, type MobEnv, type SimMob } from '../src/game/mobs/MobSim';
 import { SPECIES } from '../src/game/mobs/species';
 import { bodyPush } from '../src/game/mobs/bodyPush';
-import { BROOD, LANE_LOCK, VOLLEY, setLaneLock } from '../src/game/mobs/guardian';
+import { BROOD, LANE_LOCK, OPEN_FLIER, VOLLEY, setLaneLock } from '../src/game/mobs/guardian';
 import { bodyExtent, mobModel } from '../src/render/mobs/models';
 import { WEAPONS, bestWeapon, type WeaponId } from '../src/config/weapons';
 import { ROSTERS } from '../src/game/mobs/rosters';
@@ -440,12 +440,23 @@ const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math
  * these back for a measurement (the brood at full strength, 2 + phase a call; salvos 0.4 s apart;
  * the defs' numbers below), so before and after are measured by the same model.
  */
-const BEFORE_DEFS: Partial<Record<GuardianKind, { hp?: number; damage?: number; shot?: { damage?: number; count?: number } }>> = {};
+const BEFORE_DEFS: Partial<Record<GuardianKind, { hp?: number; damage?: number; shot?: { damage?: number; count?: number; splash?: number } }>> = {
+  quartzTitan: { shot: { damage: 16, count: 7 } },
+  foremanEngine: { hp: 260, shot: { damage: 16 } },
+  rimeWyrm: { shot: { damage: 18, splash: 1 } },
+  thornmother: { hp: 380, shot: { damage: 18, count: 6, splash: 0.8 } },
+  miasmaKing: { hp: 480, shot: { damage: 20, splash: 1.4 } },
+  gildedColossus: { hp: 520, shot: { damage: 20 } },
+  magmaBehemoth: { hp: 650, shot: { damage: 24, splash: 1.8 } },
+  voidHerald: { hp: 700, shot: { damage: 24, count: 6 } },
+  heartOfDark: { hp: 1100, shot: { damage: 22, count: 8 } },
+};
 function useBefore(): void {
-  Object.assign(BROOD, { hp: 1, power: 1, scale: 1, firstBlow: 0, most: 3, base: 2 });
+  Object.assign(BROOD, { hp: 1, power: 1, scale: 1, firstBlow: 0, most: 3, base: 2, addsMost: 99, lesserAdds: false });
   VOLLEY.every = 0.4;
+  OPEN_FLIER.sink = false;
   for (const [k, v] of Object.entries(BEFORE_DEFS)) {
-    const d = SPECIES[k as GuardianKind] as unknown as { hp: number; damage: number; shot?: { damage: number; count: number } };
+    const d = SPECIES[k as GuardianKind] as unknown as { hp: number; damage: number; shot?: { damage: number; count: number; splash: number } };
     if (v.hp !== undefined) d.hp = v.hp;
     if (v.damage !== undefined) d.damage = v.damage;
     if (v.shot && d.shot) Object.assign(d.shot, v.shot);

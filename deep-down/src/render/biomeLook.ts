@@ -123,9 +123,11 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     hazard: 'damp',
   },
   crystalGeode: {
-    atmosphere: air({ fog: 0x16183a, fogLow: 0x0c2032, ambient: 0x10122a, open: 0x7a78b8, density: 0.034, scatter: 0.18, lightGain: 2.1 }),
-    open: CAVERN,
-    grade: { lift: [0.0036, 0.0036, 0.0098], gain: [1.0, 1.0, 1.06], saturation: 1.16 },
+    // Lead 00:13: clear near air so the crystals pop (it read a little murky purple): a darker, more
+    // neutral fill and a thinner haze behind them, the blue lift and the saturation eased.
+    atmosphere: air({ fog: 0x181a34, fogLow: 0x10202e, ambient: 0x0e1020, open: 0x6c6c96, density: 0.026, scatter: 0.12, lightGain: 2.2 }),
+    open: { ...CAVERN, density: 0.016 },
+    grade: { lift: [0.0034, 0.0036, 0.0062], gain: [1.02, 1.02, 1.04], saturation: 1.06 },
     light: [0.42, 0.45, 1.0],
     fx: ['motes', 'drips'],
     hazard: 'none',
@@ -147,10 +149,13 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     hazard: 'cold',
   },
   glowrootJungle: {
-    atmosphere: air({ fog: 0x0f2216, fogLow: 0x0c1a0c, ambient: 0x0c1a12, open: 0x5f8a56, density: 0.036, scatter: 0.16, lightGain: 2.0 }),
-    open: CAVERN,
-    grade: { lift: [0.0018, 0.0068, 0.0028], gain: [1.0, 1.04, 0.92], saturation: 1.15 },
-    light: [0.3, 0.8, 0.26],
+    // Lead 00:13: it was drowned in one green: a lighter, greyer haze (still only past 12-18 m), a
+    // less green fill and grade (saturation under 1), so the warm lantern pool and the glowing vines
+    // read against it.
+    atmosphere: air({ fog: 0x1c2620, fogLow: 0x161e16, ambient: 0x101612, open: 0x7a8c74, density: 0.028, scatter: 0.1, lightGain: 1.8 }),
+    open: { ...CAVERN, density: 0.016 },
+    grade: { lift: [0.003, 0.0042, 0.0034], gain: [1.02, 1.0, 0.96], saturation: 0.96 },
+    light: [0.36, 0.78, 0.34],
     fx: ['fireflies', 'spores'],
     hazard: 'dark',
   },
@@ -179,17 +184,21 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     hazard: 'heat',
   },
   obsidianAbyss: {
-    atmosphere: air({ fog: 0x140e22, fogLow: 0x1e1036, ambient: 0x0c0816, open: 0x5a4a8a, density: 0.034, lightGain: 2.0, scatter: 0.16, poolDensity: 0.03 }),
+    // Lead 00:13: large areas read near-black: the darks lifted into a violet-hued 0.04-0.10 band
+    // (never crushed), a brighter violet fill, its lights carrying further.
+    atmosphere: air({ fog: 0x1e1630, fogLow: 0x281a44, ambient: 0x16102a, open: 0x6e5ea4, density: 0.028, lightGain: 2.3, scatter: 0.16, poolDensity: 0.03 }),
     open: CAVERN,
-    grade: { lift: [0.0038, 0.002, 0.009], gain: [1.02, 0.96, 1.08], saturation: 1.1 },
+    grade: { lift: [0.0078, 0.0054, 0.0148], gain: [1.02, 0.98, 1.06], saturation: 1.0 },
     light: [0.5, 0.32, 1.0],
     fx: ['voidMotes'],
     hazard: 'void',
   },
   heart: {
-    atmosphere: air({ fog: 0x1a0c14, fogLow: 0x2a0c18, ambient: 0x100810, open: 0x7a3a5a, density: 0.03, lightGain: 2.1, scatter: 0.2 }),
+    // Lead 00:13 (before the relighting): the chamber's darks lifted into a rose-violet band, never
+    // crushed; the Heart itself is the frame's lit focal point (game/effects/HeartFinale).
+    atmosphere: air({ fog: 0x26121e, fogLow: 0x341424, ambient: 0x1c0e1a, open: 0x8a4a6a, density: 0.028, lightGain: 2.2, scatter: 0.2 }),
     open: { ...CAVERN, density: 0.016 },
-    grade: { lift: [0.0058, 0.002, 0.0056], gain: [1.1, 0.98, 0.9], saturation: 1.12 },
+    grade: { lift: [0.0095, 0.0045, 0.0085], gain: [1.1, 0.98, 0.9], saturation: 1.02 },
     light: [1.0, 0.45, 0.35],
     fx: ['heartMotes', 'embers'],
     hazard: 'none',

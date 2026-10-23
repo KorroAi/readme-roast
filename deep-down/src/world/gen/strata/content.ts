@@ -339,6 +339,18 @@ export function nestKind(biome: BiomeId, h: number): MobKind | null {
 }
 
 /** Everything placed on the walkable floor (after the walk BFS). */
+/**
+ * The base radius (m, at scale 1) of VIS's prop models that reach past their own cell (measured from
+ * the models: `node tools/run-ts.mjs tools/strata-prop-footprints.ts`); the rest stand inside it.
+ */
+const FOOT: Partial<Record<string, number>> = {
+  basaltColumn: 0.81, bones: 0.7, brokenCart: 0.94, brokenColumn: 1.08, charredBones: 0.81, chest: 0.56, crate: 0.57,
+  driftwood: 0.53, frozenBones: 0.69, geodeShards: 0.47, lavaGlow: 0.65, mushroomCluster: 0.55, ropeCoil: 0.76,
+  rootKnot: 0.58, satchel: 0.56, shells: 0.54, statue: 0.57, timberProp: 0.58, waterfall: 0.75,
+};
+/** Kinds placed by rules of their own (along a wall, across a drift, round an arena, the camp's layout). */
+const OWN_RULES: ReadonlySet<string> = new Set(['rail', 'mineSet', 'lairPillar', 'lairBrazier', 'abyssMonolith', 'campfire', 'workbench', 'bedroll', 'hoistWinch']);
+
 export function placeContent(st: CarveState, stratum: StratumIndex, seed: number, seen: Uint8Array, decor: Decor, places: ReturnType<typeof buildPlaces>, extras: ContentExtras): ContentOut {
   const w = st.world;
   const plan = st.plan;
@@ -369,6 +381,13 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
       seed: rng.int(0, 1 << 30),
       ...p,
     };
+    // Decor that stands on the floor: a smaller one where the whole will not stand, none where no size does.
+    if (!p.interact && !p.minable && !p.feature && !p.anchor && !HANGING_PROPS.has(p.kind) && !OWN_RULES.has(p.kind)) {
+      let s2 = spec.scale;
+      while (s2 >= 0.6 && !footing(p.kind, s2, spec.x, Math.round(spec.y), spec.z)) s2 *= 0.85;
+      if (s2 < 0.6) return spec;
+      spec.scale = s2;
+    }
     if (light !== undefined) {
       const ey = p.kind === 'hangingLantern' ? y : y + 1;
       if (get(x, ey, z) === B.AIR) {
@@ -411,6 +430,27 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   /** No drop beside the cell (each side is rock at the feet or has rock under it): a prop wider than its cell never overhangs a ledge. */
   const steady = (x: number, y: number, z: number) =>
     (SOLID[get(x + 1, y, z)] || SOLID[get(x + 1, y - 1, z)]) && (SOLID[get(x - 1, y, z)] || SOLID[get(x - 1, y - 1, z)]) && (SOLID[get(x, y, z + 1)] || SOLID[get(x, y - 1, z + 1)]) && (SOLID[get(x, y, z - 1)] || SOLID[get(x, y - 1, z - 1)]);
+  /**
+   * A prop whose model reaches past its cell (FOOT x scale over 0.72 m) stands on rock all under it:
+   * three quarters of its base disc over rock, at most a seventh of it in rock (a column lying by a
+   * wall), so nothing floats over a drop or a lake's edge, or sinks into a wall (VIS's props probe).
+   */
+  const footing = (kind: string, scale: number, px: number, y: number, pz: number): boolean => {
+    const R = (FOOT[kind] ?? 0.5) * scale;
+    if (R <= 0.72) return true;
+    let n = 0;
+    let held = 0;
+    let inRock = 0;
+    for (let dz = -R; dz <= R + 1e-6; dz += 0.5) for (let dx = -R; dx <= R + 1e-6; dx += 0.5) {
+      if (dx * dx + dz * dz > R * R) continue;
+      const cx = Math.floor(px + dx);
+      const cz = Math.floor(pz + dz);
+      n++;
+      if (SOLID[get(cx, y, cz)]) inRock++;
+      else if (SOLID[get(cx, y - 1, cz)]) held++;
+    }
+    return held >= n * 0.75 && inRock <= n * 0.15;
+  };
   const occupied = new Set<number>();
   const free = (x: number, y: number, z: number) => !occupied.has(x + sx * (y + sy * z)) && get(x, y, z) === B.AIR && get(x, y + 1, z) === B.AIR;
   const claim = (x: number, y: number, z: number) => occupied.add(x + sx * (y + sy * z));
@@ -1136,7 +1176,7 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
         const c = cellOf(i);
         const [x, y, z] = c;
         if (y !== V.centre[1] || Math.hypot(x + 0.5 - V.centre[0], z + 0.5 - V.centre[2]) > V.radius - 2) continue;
-        if (curated(x, z) || !free(x, y, z) || !spaced('vistaDecor', c, 3.2)) continue;
+        if (curated(x, z) || !free(x, y, z) || !steady(x, y, z) || !spaced('vistaDecor', c, 3.2)) continue;
         claim(x, y, z);
         mark('vistaDecor', c, 3.2);
         addProp({ kind: kinds[rng.int(0, kinds.length - 1)] as PropKind, x: x + 0.5, y, z: z + 0.5, scale: rng.range(0.8, 1.4) });

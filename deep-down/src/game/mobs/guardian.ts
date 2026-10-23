@@ -84,7 +84,7 @@ export const HEART_BEAT: readonly number[] = [2.0, 1.5, 1.0, 0.75];
  * kin (health, the bite), a moment before their first blow, and never more than `most` about at once.
  * Before, three or four full-strength ones a call did most of the harm in the deep fights.
  */
-export const BROOD = { hp: 0.5, power: 0.6, scale: 0.88, firstBlow: 1.2, most: 3, base: 1 };
+export const BROOD = { hp: 0.5, power: 0.6, scale: 0.88, firstBlow: 1.2, most: 3, base: 1, addsMost: 3, lesserAdds: true };
 /** A phase-2 volley's salvos, this many seconds apart (was 0.4: one dash could not cover both). */
 export const VOLLEY = { every: 1.2 };
 
@@ -214,11 +214,18 @@ function settle(sim: MobSim, m: SimMob, dt: number, ctx: MobContext): void {
   if (fly(m)) {
     const def = gdef(m);
     const floor = sim.floorY(m.position.x, m.position.y, m.position.z);
-    const hy = floor + def.hover + Math.sin(sim.clock * 0.8 + m.seed * 5) * 0.35;
-    sim.flyToward(m, m.position.x, hy, m.position.z, 1.2, dt, 2);
+    // Its guard open, a flier sinks within a blade's reach, heaving (the window is a real one: before,
+    // the Void Herald and the Heart hung out of reach through most of theirs).
+    const sink = m.vulnerable && OPEN_FLIER.sink;
+    const low = sink ? Math.min(def.hover, OPEN_FLIER.hover + m.bounds.halfHeight) : def.hover;
+    const hy = floor + low + Math.sin(sim.clock * 0.8 + m.seed * 5) * (sink ? 0.12 : 0.35);
+    sim.flyToward(m, m.position.x, hy, m.position.z, sink ? 3 : 1.2, dt, sink ? 4 : 2);
     void ctx;
   } else sim.walkerSettle(m, dt);
 }
+
+/** How low (m over the floor, plus its half height) a flying guardian sinks while its guard is open. */
+export const OPEN_FLIER = { hover: 1.3, sink: true };
 
 function stalk(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: GuardianDef): void {
   if (m.state !== 'stalk') m.setState('stalk');
@@ -523,7 +530,7 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
         sim.sfx(m, 'mob.drone');
         // Its adds out of the dark: lesser brood (BROOD), never more than BROOD.most about at once.
         const alive = sim.mobs.filter((o) => o.owner === m.id && !o.dying).length;
-        for (let i = 0; i < Math.min(2 + (m.phase - 1), BROOD.most - alive); i++) {
+        for (let i = 0; i < Math.min(2 + (m.phase - 1), BROOD.addsMost - alive); i++) {
           const kind = def.brood[sim.rng.int(0, def.brood.length - 1)] as MobKind;
           const a = sim.rng.range(-Math.PI, Math.PI);
           const x = ctx.player.x + Math.sin(a) * 7;
@@ -531,7 +538,7 @@ function attack(sim: MobSim, m: SimMob, dt: number, ctx: MobContext, def: Guardi
           const fy = floorNear(sim.env.solid, Math.floor(x), Math.floor(ctx.player.y), Math.floor(z), 1, 5);
           if (fy === null) continue;
           const o = sim.spawn(kind, x, fy + (isFlyer(kind) ? 2 : 0), z, { owner: m.id, biome: m.biome });
-          if (o) lesserBrood(sim, o);
+          if (o && BROOD.lesserAdds) lesserBrood(sim, o);
         }
       }
       settle(sim, m, dt, ctx);
