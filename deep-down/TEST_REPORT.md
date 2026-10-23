@@ -1,5 +1,57 @@
 # DEEP DOWN — Test Report
 
+## 2.0.0 gate — round 3 "Le Grand Gouffre": the strata world (2026-10-23)
+
+Run by the lead on a quiet machine, on the tree that ships (467c559 plus docs only):
+
+| Check | Result |
+|---|---|
+| `npx tsc --noEmit` | exit 0 |
+| `node tools/run-ts.mjs tools/loop-fr-sync.ts --report` | 0 English keys without French, 0 stale French lines (French table 2,314 keys) |
+| `npx vitest run`, twice | 95 files, **1346/1346** both times (67 s, 66 s) |
+| `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | PENDING_E2E |
+| `tools/ui-check.mjs` (every screen at portrait, landscape and desktop; the touch layer; a game smoke flow) | PENDING_UICHECK |
+| `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000) | PENDING_APKSIM |
+| Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2) | PENDING_CAPS |
+
+**Evidence from the specialists, re-checked by the lead** (each line's log and captures are in `docs/round3/STATUS.md`):
+- **World.** On 16 seeds × 6 strata, 96/96 plans pass on the first attempt: 0 trapped cells, every route reachable, and no
+  hazard on a key place. Generation takes about 2.8 s per stratum. The vista card shows with the lake 80–95 % in view (the
+  probe covers 4 seeds × 6 strata; a unit test fails with the old placement).
+- **Creatures.** `mobs.spec` 4/4: a fight in three biomes, 36 creatures of 12 kinds drawn in 12 calls, a guardian beaten end
+  to end in the strata world, and the companion tamed with real taps. In duel simulations a properly equipped player beats
+  every guardian in a clear majority of 12 duels without consumables, and in 11–12 of 12 with them. The 37 capture sheets
+  were opened.
+- **Loop.** The economy simulator reaches the Heart in 136–142 min on 3 seeds. The whole main chain (24 steps, the ending
+  and free play) was driven in the real game. After the tutorial, the road to the first weapon (Furnace, copper bars, Forge,
+  a Grit Boar's hide, the Machete) is the tracker's main line, walked twice in the real game.
+- **Controls and menus.** Each r3 spec passed in the specialists' windows, and passes again here (above).
+- **Look.** The worst Balanced frame per stratum is 125–138 draw calls and 133k–210k triangles (budget 150 / 250k). Every
+  biome has its captures, and the lead opened the final ones.
+- **Sound.** 95/95 audio tests pass. Every score and a dense combat mix were rendered offline and measured; nobody has
+  listened to them.
+
+**The playtester** (QA, 15 sessions with real touches at 390 × 844, 19:36–02:26) filed 26 bugs, and all of them were
+re-tested fixed in the real game, except:
+- the three notice collisions and the clipped Interact chip, fixed by UI after QA's last session and covered by unit tests
+  and the ui-check scenes;
+- the vista, fixed by WORLD by rule and checked by the lead's captures.
+
+The worst bug of the round was holding Action on a creature, which struck once instead of at the weapon's rate. That made
+the first guardian unwinnable on a phone. It was fixed and verified at 9 blows in 4.8 s.
+
+**The upgrade path.** A genuine 1.1.0 save, written by the 1.1.0 build, loads in 2.0.0:
+- it shows one calm card ("The deep has changed…"), and Begin starts a new expedition with the tutorial;
+- feats, records and lifetime stats are kept;
+- the camp's gift is given once (12 torches, 5 bandages, 2 oil flasks, 2 flares, a healing draught).
+
+**Not covered here:**
+- a real Android device: frame rate, heat, touch latency, haptics and the feel of the new buttons;
+- audio by ear;
+- a person timing the run to the Heart.
+
+Known leftovers are in KNOWN_ISSUES.md → "Round 3 (2.0.0)".
+
 ## 1.1.0 gate — round 2: selective mining, rarity, creatures, weapons, a vaster world (2026-10-21)
 
 Run by the lead on a quiet machine, on the tree that ships (the APK was built from c3237aa; the only later change is the

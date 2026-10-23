@@ -24,7 +24,32 @@ Honest list of what is not done, not verified, or knowingly imperfect. Updated w
 - Governor thresholds (22 ms / 40 ms medians) are set by reasoning, not tuned on phones.
 - The store title is pending the trademark check (Capcom holds 'Deep Down'); the support email, copyright line and game licence are director decisions.
 
-## Gameplay / content
+## Round 3 (2.0.0): the strata world
+
+Leftovers known at the 2.0.0 gate (TEST_REPORT.md → "2.0.0 gate"):
+
+- **Phone feel is unverified.** The frame rate, heat, touch latency and the new action buttons (joystick sprint, Action
+  hold, Dash, Sonar, Place) were only driven with emulated touches at 390 × 844. The sound has not been listened to.
+- **Balance is simulated, not played.**
+  - Guardians are tuned with a duel simulator (a scripted player reading 80 % of the tells) and one scripted playtester.
+    Without consumables, a properly equipped player beats the Void Herald and the Dark Heart in 10 of 12 duels.
+  - The run to the Heart takes about 136–142 minutes in the economy simulator; no person has timed it.
+- **Weapon choice at the edge of reach.** With the Machete equipped, a creature 2.6–3.2 m away is struck with the pick,
+  because the pick reaches further (3.2 m against 2.6 m). The next blow uses the Machete once the creature is closer.
+- **At 390 px the hint line and the Interact chip share a band.** When both are up, the hint passes under the chip's left
+  edge.
+- **The vista balcony.** The vista's card shows at the lookout, where the lake is 80–95 % in view. From the middle of the
+  balcony, the floor's own edge still hides the steep view down.
+- **Smelting through the Craft menu at a placed Furnace** was not tapped through by the playtester. It uses the same craft
+  path as the Workbench, which the e2e taps through, and the unit tests craft the bars for real.
+- **Some creatures are hard to read in their light.** On the capture sheets the Magma Behemoth is dim against lava light,
+  the Glowroot Jungle's creatures are small in its dark, and the elite variants other than Radiant are subtle in frost light.
+
+## Gameplay / content: the 1.x hand-made world
+
+The items below describe the 1.x world (the Lantern Hollow, the hoist, the rune doors). Round 3 replaced it with the strata;
+it is kept in git history (`c692bd0`) and behind `?gen=legacy`.
+
 
 - World W2: the explorer has no climb or hold pose during the hoist and rope rides (requested from feel W5).
 - The reliquary's 6 and the gallery's 8 lamp niches are empty until content's stoneLamp prop lands.
