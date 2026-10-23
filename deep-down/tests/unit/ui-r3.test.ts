@@ -672,6 +672,36 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(run('machete', 1.5, 6, false), 'held Action folded in after the update: one blow (the bug)').toBe(1);
   });
 
+  it("knows a stratum's own load by its name; one gate toast; the record's words at any depth (QA 01:41)", async () => {
+    const { descentStratum, fromTemplate } = await import('../../src/ui/hud/noticeGate');
+    const { STRATA } = await import('../../src/config/biomes');
+    const { setLanguage, t } = await import('../../src/i18n');
+    const names = () => STRATA.map((s) => t(s.name));
+    // WORLD labels a stratum's load with the stratum's name: a descent (or a climb back), not a boot.
+    expect(descentStratum(t(STRATA[1].name), names())).toBe(2);
+    expect(descentStratum(t('menu.loading'), names())).toBeNull();
+    expect(descentStratum(t('menu.loadingMesh'), names())).toBeNull();
+    // WORLD's and LOOP's toasts of the Gate opening are the same news; the sealed Gate is not.
+    const gateNews = (text: string) => fromTemplate(text, t('world.gate.opened')) || fromTemplate(text, t('quest.gateOpen'));
+    expect(gateNews('The gate opens. The way down is clear.')).toBe(true);
+    expect(gateNews(t('quest.gateOpen', { stratum: t(STRATA[0].name) }))).toBe(true);
+    expect(gateNews(t('world.gate.sealed', { count: 2 }))).toBe(false);
+    // The depth record at any depth; a template's dots and words are literal.
+    expect(fromTemplate(t('toast.depthRecord', { depth: 70 }), t('toast.depthRecord'))).toBe(true);
+    expect(fromTemplate('New depth record: -70 m!', t('toast.depthRecord'))).toBe(false);
+    expect(fromTemplate('The gate opens! The way down is clear!', t('world.gate.opened'))).toBe(false);
+    setLanguage('fr');
+    try {
+      expect(descentStratum(t(STRATA[5].name), names())).toBe(6);
+      expect(descentStratum(t('menu.loading'), names())).toBeNull();
+      expect(gateNews(t('quest.gateOpen', { stratum: t(STRATA[0].name) }))).toBe(true);
+      expect(gateNews(t('world.gate.opened'))).toBe(true);
+      expect(fromTemplate(t('toast.depthRecord', { depth: 120 }), t('toast.depthRecord'))).toBe(true);
+    } finally {
+      setLanguage('en');
+    }
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');

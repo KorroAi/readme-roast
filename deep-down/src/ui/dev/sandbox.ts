@@ -1,6 +1,6 @@
 import { r3HudDefaults } from '../hud/hudDefaults';
 import { fixtureBestiary, fixtureDaily, fixtureEnding, fixtureLoop, fixtureMap, fixtureQuests, fixtureTrip, guardianName } from './r3fixtures';
-import { BIOMES } from '../../config/biomes';
+import { BIOMES, stratumDef } from '../../config/biomes';
 import { arrivalCard } from '../../game/quests/Guide';
 import { ITEMS, ITEM_IDS, type ItemId } from '../../config/items';
 import { NODES, type NodeId, type Place } from '../../config/recipes';
@@ -563,7 +563,9 @@ function scene(name: string): void {
       mode = 'menu';
       ui.setGameplayActive(false);
       ui.showScreen('loading');
-      ui.setLoading(0.62, t('menu.loadingLight'));
+      // "loading:descent" (or "loading:4"): a stratum's own load, labelled with its name as WORLD does.
+      if (arg) ui.setLoading(0.62, t(stratumDef(arg === 'descent' ? 2 : Number(arg) || 2).name));
+      else ui.setLoading(0.62, t('menu.loadingLight'));
       break;
     case 'hud':
       play();

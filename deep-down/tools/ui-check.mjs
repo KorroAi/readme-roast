@@ -36,8 +36,8 @@ const MIN_TARGET = 48;
 const SCENES = opt.scenes
   ? opt.scenes.split(',')
   : [
-      // The title (with the Continue card and the Daily Descent), the loading screen.
-      'menu', 'menu:nosave', 'loading',
+      // The title (with the Continue card and the Daily Descent), the loading screen (the boot's; a stratum's own: II, VI).
+      'menu', 'menu:nosave', 'loading', 'loading:descent', 'loading:6',
       // Round 3's HUD: at rest, a guardian fight in the cold, a tutorial step, the look step's ghost finger, a biome arrival card.
       'hud', 'hud:low', 'hud:tutorial', 'hud:look', 'hud:arrival', 'discovery',
       // Round 3's menus: the Bag (an item, gear, filling a hotbar slot), Craft (all stations, a Forge's own), the Map, Quests, the Bestiary.
