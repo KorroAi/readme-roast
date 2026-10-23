@@ -112,7 +112,7 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
   // (if it can) or runs out of it.
   const seenMarks = new Set<number>();
   let escape: { at: number; x: number; z: number; dash: boolean } | null = null;
-  const lanes: Array<{ mk: { id: number; x: number; z: number; dx: number; dz: number; r: number; len: number; progress: number }; read: boolean; lock: number }> = [];
+  const lanes: Array<{ mk: { id: number; x: number; z: number; dx: number; dz: number; r: number; len: number; progress: number }; kind: string; read: boolean; lock: number }> = [];
   let dodgeUntil = -1;
   let lastSpit = -1;
   let salvoDash = -1;
@@ -192,8 +192,9 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
       if (mk.owner !== g.id && !byBrood(mk.owner)) continue;
       if (mk.kind === 'line' && mk.owner === g.id && g.pattern === 'charge') continue;
       seenMarks.add(mk.id);
-      if (mk.kind === 'line') {
-        lanes.push({ mk, read: rnd() < dodge, lock: mk.owner === g.id ? LOCK : 0.66 });
+      if (mk.kind === 'line' || mk.kind === 'target') {
+        // (Lanes and dive marks follow the explorer, then lock: read once they stop.)
+        lanes.push({ mk, kind: mk.kind, read: rnd() < dodge, lock: mk.owner === g.id ? LOCK : mk.kind === 'target' ? 0.6 : 0.66 });
         continue;
       }
       const ox = c.player.x - mk.x;
@@ -226,6 +227,19 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
       const mk = ln.mk;
       const ox = c.player.x - mk.x;
       const oz = c.player.z - mk.z;
+      if (ln.kind === 'target') {
+        const dd = Math.hypot(ox, oz);
+        if (dd > mk.r + 0.6) continue;
+        let ux = ox;
+        let uz = oz;
+        if (dd < 0.3) {
+          ux = c.player.x - g.position.x;
+          uz = c.player.z - g.position.z;
+        }
+        const l = Math.max(0.01, Math.hypot(ux, uz));
+        escape = { at: sim.clock + 0.25, x: mk.x + (ux / l) * (mk.r + 1.2), z: mk.z + (uz / l) * (mk.r + 1.2), dash: true };
+        continue;
+      }
       const along = ox * mk.dx + oz * mk.dz;
       const lat = -ox * mk.dz + oz * mk.dx;
       if (along < -0.5 || along > mk.len + 0.5 || Math.abs(lat) > mk.r + 0.4) continue;
