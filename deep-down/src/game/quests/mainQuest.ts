@@ -227,7 +227,7 @@ export function mainStep(s: MainState): MainStep {
 }
 
 /** The chain's outline for the Quests screen: per stratum, its steps done or not. */
-export function chainOutline(s: Pick<MainState, 'deepest' | 'shards' | 'heartLit' | 'bossDefeated' | 'pickTier'> & { gatesOpened: ReadonlySet<number> }): Array<{ stratum: number; steps: Array<{ id: MainStepId; biome: BiomeKey | null; done: boolean }> }> {
+export function chainOutline(s: Pick<MainState, 'deepest' | 'shards' | 'heartLit' | 'bossDefeated' | 'pickTier'> & { gatesOpened: ReadonlySet<number>; armed?: boolean }): Array<{ stratum: number; steps: Array<{ id: MainStepId; biome: BiomeKey | null; done: boolean }> }> {
   const out: Array<{ stratum: number; steps: Array<{ id: MainStepId; biome: BiomeKey | null; done: boolean }> }> = [];
   for (let n = 1; n <= 6; n++) {
     const [a, b] = STRATUM_BIOMES[n];
@@ -235,6 +235,8 @@ export function chainOutline(s: Pick<MainState, 'deepest' | 'shards' | 'heartLit
       { id: 'guardian', biome: a, done: s.shards.has(a) },
       { id: 'guardian', biome: b, done: s.shards.has(b) },
     ];
+    // Stratum I opens with the road to the first weapon (when the host tells whether one is owned).
+    if (n === 1 && s.armed !== undefined) steps.unshift({ id: 'machete', biome: null, done: s.armed });
     if (n < 6) {
       steps.push({ id: 'prepare', biome: null, done: s.pickTier >= n + 1 });
       steps.push({ id: 'gate', biome: null, done: s.gatesOpened.has(n) || s.deepest > n });

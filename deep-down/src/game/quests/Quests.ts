@@ -23,7 +23,7 @@ import { hasText, t, type TextKey } from '../../i18n';
 import { rarityOf } from '../../config/rarity';
 import { ROSTERS } from '../mobs/rosters';
 import { bestiary } from '../mobs/rosters';
-import { chainOutline, mainStep, type LairInfo, type MainState, type MainStep } from './mainQuest';
+import { chainOutline, mainStep, type LairInfo, type MainState, type MainStep, type ArmState } from './mainQuest';
 import { Orders, dayNumber, type Order, type OrdersSave } from './Orders';
 import type { OrderView, QuestStepView, QuestSystem, QuestsScreenView, TutorialStepId, TutorialStepView } from './types';
 
@@ -56,6 +56,8 @@ export interface QuestWorld {
   foe?(): { x: number; y: number; z: number } | null;
   /** Does the explorer own a weapon? (false: the guardian step says to make one first) */
   armed?(): boolean;
+  /** The road to the first weapon (what is built and held, where the compass can point), null when armed. */
+  armChain?(): ArmState | null;
   /** The first weapon to make and where (the unarmed guardian step's line). */
   firstWeapon?(): { item: string; station: string };
   /** A craft the descent needs now (Loop's gear advice: a weapon, a ward, a lantern, an outpost), or null. */
@@ -671,6 +673,8 @@ export class Quests implements QuestSystem {
     return {
       tutorialTarget: tut?.id === 'mine' ? w.nearestVein?.() ?? null : tut?.id === 'fight' ? w.foe?.() ?? null : null,
       rumour: this.lairsT >= RUMOUR_AFTER && this.lairsStratum === w.deepest,
+      // The road to the first weapon, after the tutorial (QA 01:44).
+      arm: this.tutorialDone ? w.armChain?.() ?? null : null,
       tutorial: !this.tutorialDone,
       stratum: w.stratum,
       deepest: w.deepest,
@@ -722,6 +726,16 @@ export class Quests implements QuestSystem {
       }
       case 'return':
         text = t('quest.step.return', { stratum: sn });
+        break;
+      // The road to the first weapon (QA 01:44): one line each, the count beside it.
+      case 'furnace':
+      case 'placeFurnace':
+      case 'bars':
+      case 'forge':
+      case 'placeForge':
+      case 'hide':
+      case 'machete':
+        text = t(`quest.step.${m.step}` as TextKey);
         break;
       case 'lairs':
         text = t('quest.step.lairs', { stratum: sn });
@@ -863,19 +877,20 @@ export class Quests implements QuestSystem {
     const cur = this.main();
     const raw = this.mainRawStep();
     const w = this.host.world();
-    const outline = chainOutline({ deepest: w.deepest, shards: this.shards, heartLit: this.heartLit, bossDefeated: this.bossDefeated, pickTier: w.pickTier, gatesOpened: this.gatesOpened });
+    const outline = chainOutline({ deepest: w.deepest, shards: this.shards, heartLit: this.heartLit, bossDefeated: this.bossDefeated, pickTier: w.pickTier, gatesOpened: this.gatesOpened, armed: w.armed ? w.armed() : undefined });
     const main = outline.map((st) => ({
       stratum: st.stratum,
       name: stratumName(st.stratum),
       steps: st.steps.map((s) => {
         // The Quests screen has room: the chain's longer lines (what each step is for).
         let text = '';
-        if (s.id === 'guardian') text = t('quest.chain.guardian', { guardian: guardianInLine(ROSTERS[s.biome as BiomeKey]?.guardian ?? null), biome: biomeName(s.biome) });
+        if (s.id === 'machete') text = t('quest.chain.machete');
+        else if (s.id === 'guardian') text = t('quest.chain.guardian', { guardian: guardianInLine(ROSTERS[s.biome as BiomeKey]?.guardian ?? null), biome: biomeName(s.biome) });
         else if (s.id === 'prepare') text = t('quest.chain.prepare', { pick: NEXT_PICK[st.stratum] ? t(ITEMS[NEXT_PICK[st.stratum] as ItemId].name) : '' });
         else if (s.id === 'gate') text = t('quest.chain.gate', { stratum: stratumName(st.stratum) });
         else if (s.id === 'heart') text = t('quest.chain.heart');
         else text = t('quest.chain.boss');
-        const current = raw.stratum === st.stratum && raw.step === s.id && (s.id !== 'guardian' || raw.biome === s.biome);
+        const current = s.id === 'machete' ? raw.id.startsWith('main:arm.') : raw.stratum === st.stratum && raw.step === s.id && (s.id !== 'guardian' || raw.biome === s.biome);
         return { text, done: s.done, current };
       }),
     }));

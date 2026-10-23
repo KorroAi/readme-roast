@@ -32,6 +32,13 @@ const COUNTER: Partial<Record<string, TextKey>> = {
 };
 
 const STUCK: Partial<Record<MainStepId, TextKey>> = {
+  furnace: 'hint3.stuck.arm',
+  placeFurnace: 'hint3.stuck.place',
+  bars: 'hint3.stuck.arm',
+  forge: 'hint3.stuck.arm',
+  placeForge: 'hint3.stuck.place',
+  hide: 'hint3.stuck.hide',
+  machete: 'hint3.stuck.arm',
   tutorial: 'hint3.stuck.tutorial',
   lairs: 'hint3.stuck.lairs',
   guardian: 'hint3.stuck.guardian',
