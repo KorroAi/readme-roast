@@ -176,11 +176,13 @@ describe('the main tracker fits one row of the 390 px HUD', () => {
     try {
       const strata = [1, 2, 3, 4, 5, 6].map((n) => t(`stratum.${n}` as TextKey));
       const lines = [t('quest.step.tutorial'), t('quest.step.heart'), t('quest.step.boss'), t('quest.step.free')];
+      // The road to the first weapon (QA 01:44).
+      for (const k of ['furnace', 'placeFurnace', 'bars', 'forge', 'placeForge', 'hide', 'machete']) lines.push(t(`quest.step.${k}` as TextKey));
       for (const sn of strata) lines.push(t('quest.step.lairs', { stratum: sn }), t('quest.step.gate', { stratum: sn }), t('quest.step.return', { stratum: sn }));
       for (const next of strata.slice(1)) lines.push(t('quest.step.descend', { next }));
       for (const r of Object.values(ROSTERS)) lines.push(t('quest.step.guardian', { guardian: inSentence(t(`mob.${r.guardian}` as TextKey)) }));
       for (const pick of Object.values(NEXT_PICK)) if (pick) lines.push(t('quest.step.prepare', { pick: t(ITEMS[pick as ItemId].name) }));
-      expect(lines.length).toBeGreaterThan(40);
+      expect(lines.length).toBeGreaterThan(47);
       expect(lines.filter((line) => line.length > 34)).toEqual([]);
     } finally {
       setLanguage('en');

@@ -639,13 +639,14 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     const run = (weapon: 'machete' | 'spear' | 'sling', dist: number, seconds: number, foldBefore: boolean): number => {
       const bus = new EventBus();
       const cam = new THREE.PerspectiveCamera(70, 390 / 844, 0.05, 100);
-      cam.position.set(0, 1.6, 0);
-      cam.lookAt(0, 1.2, -dist);
+      // Inside an empty world (a ray out of its bounds counts as rock).
+      cam.position.set(16, 4.6, 24);
+      cam.lookAt(16, 4.2, 24 - dist);
       cam.updateMatrixWorld();
-      const mob = { id: 1, kind: 'gritBoar', family: 'monster', hostile: true, tappable: true, state: 'idle', position: new THREE.Vector3(0, 1.2, -dist), bounds: { radius: 0.4, halfHeight: 0.5 } };
+      const mob = { id: 1, kind: 'gritBoar', family: 'monster', hostile: true, tappable: true, state: 'idle', position: new THREE.Vector3(16, 4.2, 24 - dist), bounds: { radius: 0.4, halfHeight: 0.5 } };
       const sys = { pick: () => mob, list: () => [mob], hit: () => ({ hit: true, killed: false, hitStop: 0 }), fire: () => undefined, flash: () => 0 };
-      const host = { mobs: () => sys, world: new VoxelWorld(8, 8, 8), owned: () => [weapon], weaponFor: () => WEAPONS[weapon], camera: () => cam, eye: () => cam.position, viewport: () => ({ width: 390, height: 844 }), walkNear: () => true, stopWalk: () => undefined, flashCharges: () => 0, useFlashCharge: () => false, hint: () => undefined, nudge: () => undefined };
-      const vm = { attack: () => undefined, raise: () => undefined, hitStop: () => undefined, toolWorld: (v: THREE.Vector3) => v.set(0, 1.4, -0.3), rightHand: 'pick', setRightHand: () => undefined };
+      const host = { mobs: () => sys, world: new VoxelWorld(32, 16, 32), owned: () => [weapon], weaponFor: () => WEAPONS[weapon], camera: () => cam, eye: () => cam.position, viewport: () => ({ width: 390, height: 844 }), walkNear: () => true, stopWalk: () => undefined, flashCharges: () => 0, useFlashCharge: () => false, hint: () => undefined, nudge: () => undefined };
+      const vm = { attack: () => undefined, raise: () => undefined, hitStop: () => undefined, toolWorld: (v: THREE.Vector3) => v.set(16, 4.4, 23.7), rightHand: 'pick', setRightHand: () => undefined };
       const combat = new Combat(host as never, vm as never, bus as never);
       let swings = 0;
       (bus as unknown as { on(type: string, f: () => void): void }).on('weapon:swing', () => swings++);

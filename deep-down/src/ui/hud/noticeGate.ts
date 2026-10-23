@@ -69,6 +69,18 @@ export function hintPlace(h: HintScene): 'hold' | 'tip' | 'line' {
   return 'line';
 }
 
+/** A text made from a template with {placeholders} ("New depth record: -{depth} m"). */
+export function fromTemplate(text: string, template: string): boolean {
+  const body = template.replace(/[.*+?^$()|[\]\\]/g, '\\$&').replace(/\{[a-z]+\}/gi, '.+?');
+  return new RegExp(`^${body}$`, 'u').test(text);
+}
+
+/** The stratum (1-6) a loading label names (a descent's or a climb's), or null (the boot's "Loading…"). */
+export function descentStratum(label: string, names: readonly string[]): number | null {
+  const i = names.indexOf(label);
+  return i >= 0 ? i + 1 : null;
+}
+
 /** Where the toast column starts: under the top HUD block, the guardian's bar or a bubble up there. */
 export function toastTop(hudBottom: number, bubbleBottom: number, gap = 10): number {
   return Math.round(Math.max(hudBottom, bubbleBottom) + gap);

@@ -468,7 +468,8 @@ export const RECIPES: readonly Recipe[] = [
   r({ out: 'outpostKit', alt: 4, category: 'stations', station: 'workbench', inputs: { brick: 8, torch: 4, rope: 2, sunmetalIngot: 1 } }),
   r({ out: 'outpostKit', alt: 5, category: 'stations', station: 'workbench', inputs: { brick: 8, torch: 4, rope: 2, embersteelIngot: 1 } }),
   // --- Smelting at the Furnace (fuel per craft).
-  r({ out: 'copperIngot', category: 'smelting', station: 'furnace', inputs: { copperOre: 2 }, fuel: 1 }),
+  // Shown from the start like the Machete and the Forge: the road to the first weapon's bars step opens on it.
+  r({ out: 'copperIngot', category: 'smelting', station: 'furnace', inputs: { copperOre: 2 }, fuel: 1, unlock: 'start' }),
   r({ out: 'ironIngot', category: 'smelting', station: 'furnace', inputs: { ironOre: 2 }, fuel: 1 }),
   r({ out: 'ironIngot', alt: 2, category: 'smelting', station: 'furnace', inputs: { haldenScrap: 3 }, fuel: 1 }),
   r({ out: 'goldIngot', category: 'smelting', station: 'furnace', inputs: { goldOre: 2 }, fuel: 2 }),

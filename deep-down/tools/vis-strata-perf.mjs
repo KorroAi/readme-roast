@@ -8,13 +8,15 @@
 //
 // Usage: node tools/vis-strata-perf.mjs [--strata 1,2,3,4,5,6] [--seed 7] [--q balanced]
 //          [--caverns 3] [--out artifacts/r3/vis/perf.json] [--port 4175] [--prod 0]
+//          [--only vista] (spots whose name starts with it) [--calls 1] (at each spot's worst heading,
+//          the draw calls per scene group: each hidden in turn and the frame re-rendered)
 import { chromium } from '@playwright/test';
 import { createServer, preview } from 'vite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 const args = process.argv.slice(2);
-const opt = { strata: '1,2,3,4,5,6', seed: '7', q: 'balanced', caverns: '3', headings: '6', out: 'artifacts/r3/vis/perf.json', port: '4175', prod: '0', size: '390x844', dpr: '1', floor: '1' };
+const opt = { strata: '1,2,3,4,5,6', seed: '7', q: 'balanced', caverns: '3', headings: '6', out: 'artifacts/r3/vis/perf.json', port: '4175', prod: '0', size: '390x844', dpr: '1', floor: '1', only: '', calls: '0' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 
@@ -51,7 +53,7 @@ try {
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   for (const n of opt.strata.split(',').map(Number)) {
-    const r = await page.evaluate(async ({ n, caverns, headings, floor }) => {
+    const r = await page.evaluate(async ({ n, caverns, headings, floor, only, calls }) => {
       const HEADINGS = headings;
       const D = window.__DD__;
       const g = D.game;
@@ -72,6 +74,7 @@ try {
       if (L.heart) spots.push({ name: 'heart', at: L.heart.spawn });
       const out = [];
       for (const s of spots) {
+        if (only && !s.name.startsWith(only)) continue;
         const at = D.standableNear(s.at[0], s.at[1], s.at[2]);
         if (!at) continue;
         D.teleport(at[0], at[1], at[2]);
@@ -102,14 +105,66 @@ try {
           sumT += info.triangles;
           if (info.calls > worst.calls || (info.calls === worst.calls && info.triangles > worst.tris)) worst = { calls: info.calls, tris: info.triangles, yaw: +yaw.toFixed(2) };
         }
-        out.push({ name: s.name, biome: D.biomeHere(), at: at.map((v) => +v.toFixed(1)), meanCalls: Math.round(sumC / HEADINGS), meanTris: Math.round(sumT / HEADINGS), maxCalls: worst.calls, maxTris: worst.tris, worstYaw: worst.yaw });
+        let parts;
+        if (calls) {
+          // The worst heading again, its draw calls per scene group (as vis-strata-shots --calls 1).
+          g.player.yaw = worst.yaw + Math.PI;
+          D.look(worst.yaw, -0.08);
+          D.teleport(at[0], at[1], at[2]);
+          D.step(1, 0.05);
+          await D.meshIdle?.();
+          D.step(1, 0.05);
+          const rr = g.renderer;
+          const cam = g.cameraRig.camera;
+          const info = rr.gl.info;
+          const measure = () => {
+            rr.render(g.scene, cam, g.time);
+            return [info.render.calls, info.render.triangles];
+          };
+          const [c0, t0] = measure();
+          parts = { total: `${c0}/${Math.round(t0 / 1000)}k` };
+          const visit = (list, prefix) => {
+            for (const c of list) {
+              if (!c.visible) continue;
+              c.visible = false;
+              const [c1, t1] = measure();
+              c.visible = true;
+              const dc = c0 - c1;
+              if (dc <= 0) continue;
+              const key = `${prefix}${c.name || c.type}`;
+              parts[key] = `${dc}/${Math.round((t0 - t1) / 1000)}k`;
+              if (dc >= 8 && c.children.length > 1 && c.children.length <= 40 && prefix.length < 8) visit(c.children, `${key}>`);
+            }
+          };
+          visit(g.scene.children, '');
+          const pr = g.session.props;
+          const decor = pr.decor.group;
+          decor.visible = false;
+          const [c2] = measure();
+          decor.visible = true;
+          let roots = 0;
+          const kinds = {};
+          for (const ch of pr.group.children) {
+            if (ch === decor || !ch.visible) continue;
+            roots++;
+            const k = ch.name || ch.userData?.kind || 'prop';
+            kinds[k] = (kinds[k] ?? 0) + 1;
+          }
+          parts['props>decor'] = `${c0 - c2} (${pr.decor.drawnCells} cells)`;
+          parts['props>single'] = `${roots} visible ${JSON.stringify(Object.entries(kinds).sort((a, b) => b[1] - a[1]).slice(0, 12))}`;
+          parts.chunks = g.session.chunks.culledVisible;
+        }
+        out.push({ name: s.name, biome: D.biomeHere(), at: at.map((v) => +v.toFixed(1)), meanCalls: Math.round(sumC / HEADINGS), meanTris: Math.round(sumT / HEADINGS), maxCalls: worst.calls, maxTris: worst.tris, worstYaw: worst.yaw, parts });
       }
       return { stratum: n, biomes: L.biomes, spots: out };
-    }, { n, caverns: Number(opt.caverns), headings: Number(opt.headings), floor: opt.floor === '1' });
+    }, { n, caverns: Number(opt.caverns), headings: Number(opt.headings), floor: opt.floor === '1', only: opt.only, calls: opt.calls === '1' });
     const maxC = Math.max(...r.spots.map((s) => s.maxCalls));
     const maxT = Math.max(...r.spots.map((s) => s.maxTris));
     console.log(`stratum ${n} (${r.biomes.join(', ')}): ${r.spots.length} spots, worst ${maxC} calls, ${Math.round(maxT / 1000)}k tris`);
-    for (const s of r.spots) console.log(`  ${s.name.padEnd(28)} mean ${String(s.meanCalls).padStart(3)} calls ${String(Math.round(s.meanTris / 1000)).padStart(4)}k | max ${String(s.maxCalls).padStart(3)} calls ${String(Math.round(s.maxTris / 1000)).padStart(4)}k (yaw ${s.worstYaw})`);
+    for (const s of r.spots) {
+      console.log(`  ${s.name.padEnd(28)} mean ${String(s.meanCalls).padStart(3)} calls ${String(Math.round(s.meanTris / 1000)).padStart(4)}k | max ${String(s.maxCalls).padStart(3)} calls ${String(Math.round(s.maxTris / 1000)).padStart(4)}k (yaw ${s.worstYaw})`);
+      if (s.parts) console.log(`    calls: ${JSON.stringify(s.parts)}`);
+    }
     result.strata.push({ ...r, maxCalls: maxC, maxTris: maxT });
   }
   if (logs.length) console.log(logs.slice(0, 12).join('\n'));

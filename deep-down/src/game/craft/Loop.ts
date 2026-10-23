@@ -11,6 +11,7 @@ import { BONUS_DROPS } from '../../config/loot';
 import { Rng } from '../../core/rng';
 import { Hazards, type Element, type HazardProbe, type WorldHazard } from '../../gameplay/Hazards';
 import { Quests, type Advice, type QuestWorld } from '../quests/Quests';
+import type { ArmState } from '../quests/mainQuest';
 import { Guide } from '../quests/Guide';
 import type { LoopHud } from '../quests/types';
 import type { StratumLayout } from '../../world/gen/strata/types';
@@ -69,7 +70,7 @@ interface CompanionHooks {
   /** UI's chip view: null before one is tamed. */
   companion?(): unknown;
   /** Every creature about (MobDirector.list): the tutorial's fight step points the compass at the nearest monster. */
-  list?(): ReadonlyArray<{ readonly position: { x: number; y: number; z: number }; readonly hostile: boolean; readonly state: string }>;
+  list?(): ReadonlyArray<{ readonly position: { x: number; y: number; z: number }; readonly hostile: boolean; readonly state: string; readonly kind?: string }>;
 }
 
 /** Metres within which the tutorial's fight step points the compass at a monster. */
@@ -77,6 +78,19 @@ const FOE_RANGE = 40;
 
 /** Metres from a lair at which an unarmed explorer is reminded to make a weapon first. */
 const ARM_NEAR = 30;
+
+/** The card the Crafting menu opens on for each step of the road to the first weapon. */
+const ARM_FOCUS: Partial<Record<string, ItemId>> = { furnace: 'furnace' as ItemId, bars: 'copperIngot', forge: 'forge' as ItemId, machete: 'machete' };
+
+/** The road to the first weapon's compass: how far it looks for stone, coal and copper (m), and for a Grit Boar. */
+const CHAIN_RANGE = 34;
+const BOAR_RANGE = 80;
+const STONE_BLOCK = new Uint8Array(256);
+STONE_BLOCK[B.RUBBLE] = 1;
+const COAL_BLOCK = new Uint8Array(256);
+COAL_BLOCK[B.COAL_ORE] = 1;
+const COPPER_BLOCK = new Uint8Array(256);
+COPPER_BLOCK[B.COPPER_ORE] = 1;
 
 /** Is a Lampling following the explorer (MOBS' hasCompanion, else its chip view)? */
 function companionFollows(m: CompanionHooks | null): boolean {
@@ -967,6 +981,8 @@ export class Loop implements LoopActions {
     else if (!tut) {
       const m = this.quests.mainRawStep();
       if (m.step === 'prepare') item = NEXT_PICK[m.stratum] ?? null;
+      // The road to the first weapon: the card its step makes (QA 01:44).
+      else item = ARM_FOCUS[m.step] ?? null;
     }
     if (!item) return null;
     const list = cards.filter((c) => c.output.item === item);
@@ -1365,7 +1381,22 @@ export class Loop implements LoopActions {
    * still unarmed. The tracker's line says it too (Quests: 'quest.step.arm').
    */
   private armHint(main: { id: string; step: string; stratum: number; target: { x: number; z: number } | null }): void {
-    if (main.step !== 'guardian' || this.armed()) return;
+    if (this.armed()) return;
+    if (main.id.startsWith('main:arm.')) {
+      // The road to the first weapon (QA 01:44): why, once; and the warning by a lair, once per lair.
+      if (!this.armHinted.has('chain')) {
+        this.armHinted.add('chain');
+        this.host.bus.emit('guide:hint', { id: 'arm:chain', text: t('hint3.armChain'), target: null });
+      }
+      const p = this.host.player;
+      for (const l of this.host.strata?.layout?.lairs ?? []) {
+        if ((l.entrance[0] - p.x) ** 2 + (l.entrance[2] - p.z) ** 2 >= ARM_NEAR * ARM_NEAR || this.armHinted.has(`lair:${l.id}`)) continue;
+        this.armHinted.add(`lair:${l.id}`);
+        this.host.bus.emit('guide:hint', { id: `arm:near:${l.id}`, text: t('hint3.needWeapon', this.firstWeapon()), target: 'craft' });
+      }
+      return;
+    }
+    if (main.step !== 'guardian') return;
     const p = this.host.player;
     const near = main.target ? (main.target.x - p.x) ** 2 + (main.target.z - p.z) ** 2 < ARM_NEAR * ARM_NEAR : false;
     const id = near ? `near:${main.id}` : `s${main.stratum}`;
@@ -1642,6 +1673,7 @@ export class Loop implements LoopActions {
       foe: () => loop.nearestFoe(),
       armed: () => loop.armed(),
       firstWeapon: () => loop.firstWeapon(),
+      armChain: () => loop.armChain(),
       advice: () => loop.advice(),
       legacyFeats: () => {
         const f = (loop.host as { progression?: { extra?: { feats?: unknown } } }).progression?.extra?.feats;
@@ -1711,6 +1743,116 @@ export class Loop implements LoopActions {
   }
 
   private veinCache: { t: number; x: number; y: number; z: number; at: { x: number; y: number; z: number } | null } = { t: -Infinity, x: 0, y: 0, z: 0, at: null };
+
+  /**
+   * The road to the first weapon (QA 01:44; null once a weapon is owned): what is built, what is held
+   * (bag and bank) and the nearest of each thing a step may send the explorer to: loose stone, coal,
+   * copper, a Grit Boar, the camp's Workbench and its Furnace and Forge spots, the placed stations.
+   */
+  armChain(): ArmState | null {
+    if (this.armed()) return null;
+    const h = this.host;
+    const held = (id: ItemId) => h.backpack.count(id) + h.storage.count(id);
+    let fuel = 0;
+    for (const store of [h.backpack.totals(), h.storage.toJSON()] as Array<Partial<Record<ItemId, number>>>)
+      for (const [id, n] of Object.entries(store) as Array<[ItemId, number]>) if (isItem(id) && ITEMS[id].fuel) fuel += (ITEMS[id].fuel ?? 0) * n;
+    const placed = (station: StationId) => this.stations.filter((x) => x.station === station);
+    const here = (station: StationId) => {
+      const p = h.player;
+      let best: { x: number; y: number; z: number } | null = null;
+      let bd = Infinity;
+      for (const x of placed(station)) {
+        if (x.stratum !== this.stratum) continue;
+        const d = dist2(x, p);
+        if (d < bd) {
+          bd = d;
+          best = { x: x.x, y: x.y + 1, z: x.z };
+        }
+      }
+      return best;
+    };
+    const camp = (h.strata?.current ?? 1) === 1 ? h.strata?.layout?.campSite ?? null : null;
+    const spot = (station: string) => {
+      const v = camp?.stations.find((x) => x.station === station)?.p;
+      return v ? { x: v[0], y: v[1] + 1, z: v[2] } : null;
+    };
+    return {
+      furnace: placed('furnace').length > 0,
+      furnaceItem: h.backpack.count('furnace' as ItemId) > 0,
+      forge: placed('forge').length > 0,
+      forgeItem: h.backpack.count('forge' as ItemId) > 0,
+      counts: { stone: held('stone'), coal: held('coal'), copperOre: held('copperOre'), copperIngot: held('copperIngot'), hide: held('hide'), fuel },
+      targets: {
+        stone: this.nearestOf('stone', STONE_BLOCK),
+        coal: this.nearestOf('coal', COAL_BLOCK),
+        copper: this.nearestOf('copper', COPPER_BLOCK),
+        boar: this.nearestMob('gritBoar', BOAR_RANGE),
+        bench: spot('workbench'),
+        furnaceSpot: spot('furnace'),
+        forgeSpot: spot('forge'),
+        furnace: here('furnace'),
+        forge: here('forge'),
+      },
+    };
+  }
+
+  private readonly ofCache = new Map<string, { t: number; x: number; z: number; at: { x: number; y: number; z: number } | null }>();
+
+  /**
+   * The nearest open-faced block of a kind within CHAIN_RANGE m (the road's compass: loose stone, coal,
+   * copper), searched in growing shells at most every VEIN_EVERY s or after a few metres walked.
+   */
+  private nearestOf(key: string, match: Uint8Array): { x: number; y: number; z: number } | null {
+    const w = this.host.session?.world;
+    if (!w) return null;
+    const p = this.host.player;
+    let c = this.ofCache.get(key);
+    if (!c) this.ofCache.set(key, (c = { t: -Infinity, x: 0, z: 0, at: null }));
+    const gone = c.at && !match[w.get(Math.floor(c.at.x), Math.floor(c.at.y), Math.floor(c.at.z)) & 255];
+    if (!gone && this.clock - c.t < VEIN_EVERY && (p.x - c.x) ** 2 + (p.z - c.z) ** 2 < 9) return c.at;
+    c.t = this.clock;
+    c.x = p.x;
+    c.z = p.z;
+    c.at = null;
+    const cx = Math.floor(p.x);
+    const cy = Math.floor(p.y + 1);
+    const cz = Math.floor(p.z);
+    let best = Infinity;
+    for (let r = 4; r <= CHAIN_RANGE && c.at === null; r += 6) {
+      for (let dy = -Math.min(r, 6); dy <= Math.min(r, 8); dy++)
+        for (let dz = -r; dz <= r; dz++)
+          for (let dx = -r; dx <= r; dx++) {
+            const d2 = dx * dx + dy * dy * 2 + dz * dz;
+            if (d2 >= best || d2 > r * r) continue;
+            const x = cx + dx;
+            const y = cy + dy;
+            const z = cz + dz;
+            if (!match[w.get(x, y, z) & 255]) continue;
+            if (SOLID[w.get(x + 1, y, z)] && SOLID[w.get(x - 1, y, z)] && SOLID[w.get(x, y + 1, z)] && SOLID[w.get(x, y - 1, z)] && SOLID[w.get(x, y, z + 1)] && SOLID[w.get(x, y, z - 1)]) continue;
+            best = d2;
+            c.at = { x: x + 0.5, y: y + 0.5, z: z + 0.5 };
+          }
+    }
+    return c.at;
+  }
+
+  /** The nearest live creature of a kind within `range` m (MOBS' list), or null. */
+  private nearestMob(kind: string, range: number): { x: number; y: number; z: number } | null {
+    const mobs = (this.host.mobs ?? null) as CompanionHooks | null;
+    if (!mobs || typeof mobs.list !== 'function') return null;
+    const p = this.host.player;
+    let best: { x: number; y: number; z: number } | null = null;
+    let bd = range * range;
+    for (const m of mobs.list()) {
+      if (m.kind !== kind || m.state === 'dying') continue;
+      const d = (m.position.x - p.x) ** 2 + (m.position.y - p.y) ** 2 + (m.position.z - p.z) ** 2;
+      if (d < bd) {
+        bd = d;
+        best = { x: m.position.x, y: m.position.y, z: m.position.z };
+      }
+    }
+    return best;
+  }
 
   /** The nearest monster within FOE_RANGE m (MOBS' list), for the tutorial's fight step; null when none. */
   nearestFoe(): { x: number; y: number; z: number } | null {

@@ -113,15 +113,54 @@ function host(): TestHost {
   };
 }
 
-function game(tutorial = false): { h: TestHost; loop: Loop } {
+/**
+ * A new game; armed by default (a Machete owned: the road to the first weapon, which an unarmed
+ * explorer walks after the tutorial, has its own tests, with `armed` false).
+ */
+function game(tutorial = false, armed = true): { h: TestHost; loop: Loop } {
   const h = host();
   const loop = new Loop(h);
   loop.wire();
   loop.newGame(77, tutorial);
+  if (armed) loop.gear.grant('machete');
   return { h, loop };
 }
 
 const of = (h: TestHost, type: string) => h.events.filter((e) => e.type === type).map((e) => e.payload as Record<string, unknown>);
+
+/**
+ * The camp and its surroundings for the road to the first weapon: loose stone, a coal and a copper
+ * vein (each with an open face), the camp plan's Workbench, Furnace and Forge spots, a Grit Boar.
+ */
+function chainWorld(h: TestHost) {
+  const at = {
+    rubble: { x: 6.5, y: 10.5, z: 2.5 },
+    coal: { x: -6.5, y: 10.5, z: 3.5 },
+    copper: { x: 3.5, y: 10.5, z: -7.5 },
+    boar: { x: 20, y: 10, z: -10 },
+    bench: { x: 4, y: 11, z: 0 },
+    furnaceSpot: { x: -4, y: 11, z: 0 },
+    forgeSpot: { x: 0, y: 11, z: 4 },
+  };
+  const block = (p: { x: number; y: number; z: number }) => [Math.floor(p.x), Math.floor(p.y), Math.floor(p.z)].join();
+  const blocks = new Map<string, number>([[block(at.rubble), B.RUBBLE], [block(at.coal), B.COAL_ORE], [block(at.copper), B.COPPER_ORE]]);
+  (h as { session: unknown }).session = {
+    world: { get: (x: number, y: number, z: number) => blocks.get([x, y, z].join()) ?? B.AIR },
+    liveProps: new Map(), props: { add() {}, remove() {}, has: () => false, setLift() {} }, setBlock() {}, removeProp() {},
+  };
+  (h.strata.layout as unknown as { campSite: unknown }).campSite = {
+    region: { min: [-20, 0, -20], max: [20, 30, 20] },
+    fire: [0, 10, 0],
+    stations: [
+      { station: 'workbench', p: [4, 10, 0], rotY: 0 },
+      { station: 'furnace', p: [-4, 10, 0], rotY: 0 },
+      { station: 'forge', p: [0, 10, 4], rotY: 0 },
+    ],
+  };
+  (h as { mobs: unknown }).mobs = { list: () => [{ kind: 'gritBoar', position: at.boar, hostile: true, state: 'idle' }] };
+  h.inCamp = true;
+  return at;
+}
 const defeat = (h: TestHost, biome: BiomeKey | 'heart') =>
   h.bus.emit('mob:guardianDefeated', { id: 1, kind: biome === 'heart' ? 'heartOfDark' : ROSTERS[biome as keyof typeof ROSTERS].guardian, biome, shard: biome, x: 0, y: 0, z: 0 } as GameEvents['mob:guardianDefeated']);
 
@@ -201,7 +240,9 @@ describe('the main quest: Relight the Heart', () => {
     // (QA 21:01); the Quests screen's chain line adds its biome.
     expect(m.text).toBe(`Defeat ${en[`mob.${ROSTERS.amberHollows.guardian}` as keyof typeof en].replace(/^The /, 'the ')}`);
     expect(m.text.length).toBeLessThanOrEqual(34);
-    expect(q.view().main[0].steps[0].text).toBe(`${m.text} (${en['biome.amberHollows.name' as keyof typeof en]})`);
+    // Stratum I's outline opens with the first weapon (owned here), then the guardians.
+    expect(q.view().main[0].steps[0]).toMatchObject({ text: en['quest.chain.machete'], done: true });
+    expect(q.view().main[0].steps[1].text).toBe(`${m.text} (${en['biome.amberHollows.name' as keyof typeof en]})`);
     expect(of(h, 'quest:step').some((e) => e.id === 'main:s1.guardian.amberHollows')).toBe(true);
     // The compass points at it.
     h.player = { x: 52, y: 20, z: 80 };
@@ -293,7 +334,8 @@ describe('the main quest: Relight the Heart', () => {
     const { loop } = game();
     const v = loop.quests.view();
     expect(v.main.map((s) => s.stratum)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(v.main[0].steps.map((s) => s.done)).toEqual([false, false, false, false]);
+    // Stratum I: the first weapon (owned), the two guardians, the pick, the Gate.
+    expect(v.main[0].steps.map((s) => s.done)).toEqual([true, false, false, false, false]);
     expect(v.biomes).toHaveLength(12);
     expect(v.orders.length).toBe(4);
     expect(v.orders.filter((o) => o.daily)).toHaveLength(1);
@@ -836,25 +878,109 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     for (const s of TUTORIAL) expect(s.timeout, s.id).toBeGreaterThan(0);
   });
 
-  it('a guardian step with no weapon says to make one first, with a hint by Craft, again near the lair; a weapon found in the bag is worn (QA 22:10)', () => {
-    const { h, loop } = game();
+  it('after the tutorial an unarmed explorer walks the road to the first weapon, in order, each step with its count and compass (QA 01:44)', () => {
+    const { h, loop } = game(true, false);
+    const at = chainWorld(h);
+    loop.quests.skipTutorial();
+    const q = loop.quests;
+    const seen: string[] = [];
+    const step = () => {
+      loop.update(0.3);
+      const m = q.mainRawStep();
+      if (seen[seen.length - 1] !== m.id) seen.push(m.id);
+      return q.main();
+    };
+    const near = (p: { x: number; y: number; z: number }) => ({ x: p.x, y: p.y, z: p.z, kind: 'point' });
+    // 1. Build a Furnace (12 stone, 2 coal): the materials' count, the compass on the nearest loose stone, then coal, then the bench.
+    expect(step()).toMatchObject({ text: en['quest.step.furnace'], progress: { have: 0, need: 14 }, target: near(at.rubble) });
+    expect(loop.craftView().focus).toMatchObject({ recipe: 'furnace' });
+    h.storage.add('stone', 12);
+    expect(step()).toMatchObject({ progress: { have: 12, need: 14 }, target: near(at.coal) });
+    h.storage.add('coal', 2);
+    expect(step()).toMatchObject({ progress: { have: 14, need: 14 }, target: near(at.bench) });
+    // Made at the Workbench, it waits in the bag: place it (its camp spot).
+    h.backpack.add('furnace' as ItemId, 1);
+    expect(step()).toMatchObject({ text: en['quest.step.placeFurnace'], progress: null, target: near(at.furnaceSpot) });
+    h.backpack.remove('furnace' as ItemId, 1);
+    loop.placeStation('furnace', { x: 9, y: 10, z: 9 });
+    // 2. Smelt 7 copper bars (4 for the Forge, 3 for the Machete): the compass on copper, then on the Furnace.
+    expect(step()).toMatchObject({ text: en['quest.step.bars'], progress: { have: 0, need: 7 }, target: near(at.copper) });
+    expect(loop.craftView().focus).toMatchObject({ recipe: 'copperIngot' });
+    h.storage.add('copperOre', 14);
+    expect(step()).toMatchObject({ progress: { have: 0, need: 7 }, target: near(at.furnaceSpot) });
+    h.storage.add('copperIngot', 7);
+    // 3. Build the Forge (10 stone, 4 bars, 2 coal), place it.
+    expect(step()).toMatchObject({ text: en['quest.step.forge'], progress: { have: 16, need: 16 }, target: near(at.bench) });
+    h.backpack.add('forge' as ItemId, 1);
+    expect(step()).toMatchObject({ text: en['quest.step.placeForge'], target: near(at.forgeSpot) });
+    h.backpack.remove('forge' as ItemId, 1);
+    loop.placeStation('forge', { x: 9, y: 10, z: 9 });
+    // 4. A Grit Boar's hide: the compass on the nearest boar.
+    expect(step()).toMatchObject({ text: en['quest.step.hide'], progress: { have: 0, need: 1 }, target: near(at.boar) });
+    h.backpack.add('hide', 1);
+    // 5. Forge the Machete at the Forge.
+    expect(step()).toMatchObject({ text: en['quest.step.machete'], progress: { have: 4, need: 4 }, target: near(at.forgeSpot) });
+    expect(loop.craftView().focus).toMatchObject({ recipe: 'machete' });
+    loop.gear.grant('machete');
+    expect(step()).toMatchObject({ id: 'main:s1.lairs', text: en['quest.step.lairs'].replace('{stratum}', en['stratum.1']) });
+    expect(seen).toEqual(['main:arm.furnace', 'main:arm.placeFurnace', 'main:arm.bars', 'main:arm.forge', 'main:arm.placeForge', 'main:arm.hide', 'main:arm.machete', 'main:s1.lairs']);
+    expect(of(h, 'quest:step').map((e) => e.id)).toEqual(expect.arrayContaining(seen));
+    // Why, once, as the road begins.
+    expect(of(h, 'guide:hint').filter((e) => e.id === 'arm:chain')).toHaveLength(1);
+    // Stratum I's outline opens with it, now done.
+    expect(q.view().main[0].steps[0]).toMatchObject({ text: en['quest.chain.machete'], done: true });
+  });
+
+  it('a step whose result is already there is skipped at once, never shown; a save in the middle of the road resumes at its step', () => {
+    const { h, loop } = game(false, false);
+    chainWorld(h);
+    // Seven bars from a chest: no Furnace is needed for now, the Forge is next.
+    h.storage.add('copperIngot', 7);
+    loop.update(0.3);
+    expect(loop.quests.mainRawStep().id).toBe('main:arm.forge');
+    loop.placeStation('forge', { x: 1, y: 10, z: 1 });
+    h.storage.add('hide', 1);
+    loop.update(0.3);
+    expect(loop.quests.mainRawStep().id).toBe('main:arm.machete');
+    const shown = of(h, 'quest:step').map((e) => e.id);
+    expect(shown).not.toContain('main:arm.furnace');
+    expect(shown).not.toContain('main:arm.bars');
+    expect(shown).not.toContain('main:arm.hide');
+    // The save keeps the Forge: a reload (the bank as the game restores it) resumes at the Machete.
+    const save = JSON.parse(JSON.stringify(loop.toSave()));
+    const h2 = host();
+    chainWorld(h2);
+    h2.storage.add('copperIngot', 7);
+    h2.storage.add('hide', 1);
+    const l2 = new Loop(h2);
+    l2.wire();
+    l2.fromSave(save);
+    l2.update(0.3);
+    expect(l2.quests.mainRawStep().id).toBe('main:arm.machete');
+    // A Forge standing but its bars spent: 3 more (a Furnace first if there is none).
+    h2.storage.remove('copperIngot', 6);
+    l2.update(0.3);
+    expect(l2.quests.main()).toMatchObject({ id: 'main:arm.furnace' });
+    l2.placeStation('furnace', { x: 2, y: 10, z: 2 });
+    l2.update(0.3);
+    expect(l2.quests.main()).toMatchObject({ id: 'main:arm.bars', progress: { have: 1, need: 3 } });
+  });
+
+  it('by a lair on the road, the warning comes once per lair; a weapon found in the bag ends the road (QA 22:10)', () => {
+    const { h, loop } = game(false, false);
     h.inCamp = false;
     h.strata.reveal('lair_amberHollows');
     loop.update(0.5);
     const q = loop.quests;
-    expect(q.mainRawStep().step).toBe('guardian');
-    expect(q.main()).toMatchObject({ text: en['quest.step.arm'].replace('{item}', en['item.machete' as keyof typeof en]), target: null });
-    expect(q.main().text.length).toBeLessThanOrEqual(34);
+    expect(q.mainRawStep().id).toMatch(/^main:arm\./);
     const hints = () => of(h, 'guide:hint').filter((e) => String(e.id).startsWith('arm:'));
-    expect(hints()).toHaveLength(1);
-    expect(hints()[0]).toMatchObject({ id: 'arm:s1', target: 'craft' });
-    for (let i = 0; i < 5; i++) loop.update(1);
-    expect(hints()).toHaveLength(1);
-    // Walking up to the lair unarmed: once more.
-    h.player = { x: 52, y: 20, z: 75 };
-    loop.update(0.5);
-    expect(hints().map((e) => e.id)).toEqual(['arm:s1', 'arm:near:main:s1.guardian.amberHollows']);
-    // A Machete picked up from a chest goes to the locker and is worn: the line is the guardian's again.
+    expect(hints().map((e) => e.id)).toEqual(['arm:chain']);
+    // Walking up to the lair unarmed: the warning, by the Craft button, once.
+    h.player = { x: 52, y: 20, z: 62 };
+    for (let i = 0; i < 4; i++) loop.update(0.5);
+    expect(hints().map((e) => e.id)).toEqual(['arm:chain', 'arm:near:lair_amberHollows']);
+    expect(hints()[1]).toMatchObject({ target: 'craft' });
+    // A Machete picked up from a chest goes to the locker and is worn: the road ends, the guardian is next.
     h.backpack.add('machete', 1);
     h.bus.emit('inventory:changed', {});
     loop.update(0.5);
@@ -961,20 +1087,12 @@ describe('the side tracker\'s suggested craft (what the descent needs next)', ()
   });
 
   it('a weapon before the guardians, the ward of a hazard stratum, a brighter lantern, an outpost', () => {
-    const { h, loop } = game();
-    // Stratum I, the lairs step, no weapon: nothing visible yet (no copper bar or hide known).
-    expect(loop.advice()).toBeNull();
+    const { h, loop } = game(false, false);
+    // Stratum I with no weapon: the main line walks the road to the Machete (QA 01:44), so no side
+    // line repeats it, even once its materials are known.
     for (const id of ['copperIngot', 'hide', 'fungalWood', 'gel', 'fang'] as ItemId[]) loop.learn(id);
-    const a = loop.advice();
-    expect(a?.why).toBe('weapon');
-    expect(['machete', 'spear', 'sling']).toContain(a?.item);
-    loop.update(0.3);
-    const side = loop.quests.side();
-    expect(side).toMatchObject({ id: `advice:${a!.item}`, kind: 'side', title: en['advice.title'] });
-    // A tracked task wins.
-    loop.quests.track('task:amberHollows.mine');
-    expect(loop.quests.side()?.id).toBe('task:amberHollows.mine');
-    loop.quests.track(null);
+    expect(loop.quests.mainRawStep().id).toMatch(/^main:arm\./);
+    expect(loop.advice()).toBeNull();
     loop.gear.grant('machete');
     expect(loop.advice()).toBeNull();
     loop.update(0.3);
@@ -988,6 +1106,11 @@ describe('the side tracker\'s suggested craft (what the descent needs next)', ()
     expect(loop.advice()).toMatchObject({ why: 'armour', item: 'furCoat', hazard: en['hazard.noun.cold'] });
     loop.update(0.3);
     expect(loop.quests.side()?.text).toBe(en['advice.armour'].replace('{item}', en['item.furCoat']).replace('{hazard}', en['hazard.noun.cold']));
+    expect(loop.quests.side()).toMatchObject({ id: 'advice:furCoat', kind: 'side', title: en['advice.title'] });
+    // A tracked task wins.
+    loop.quests.track('task:frostCaverns.mine');
+    expect(loop.quests.side()?.id).toBe('task:frostCaverns.mine');
+    loop.quests.track(null);
     for (const id of ['furCoat', 'furHood', 'furBoots'] as ItemId[]) loop.gear.grant(id);
     // A lantern three tiers behind (the copper one is known: glass, amber, copper bars).
     for (const id of ['glass', 'amber'] as ItemId[]) loop.learn(id);

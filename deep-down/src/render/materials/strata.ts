@@ -67,11 +67,14 @@ const R = {
   snow: [0x3a4656, 0x45526a, 0x505e76, 0x5b6a82, 0x67778e, 0x73839a, 0x7f8fa5],
   frostIron: [0x1c2430, 0x283444, 0x364658, 0x46596e, 0x5a6f86, 0x70879e],
   iceCrystal: [0x0a2030, 0x0f2b3e, 0x15384e, 0x1d4760, 0x275873, 0x336a86, 0x417d99, 0x5191ac],
-  jungle: [0x0d120d, 0x121812, 0x181f17, 0x1e271d, 0x252f23, 0x2d382a, 0x354232, 0x3f4d3b],
-  jungleLoam: [0x13120a, 0x19180d, 0x201e11, 0x272515, 0x2f2c19, 0x37341e],
+  // Lead 01:17 (the Glowroot too dark, median 0.10): its rock, loam and moss a fifth lighter, the same
+  // olive hue and saturation (the fill and the lantern's reach alone moved the median 0.104 -> 0.112:
+  // under the glowroot light these albedos were the darkest in the deep).
+  jungle: [0x101610, 0x161d16, 0x1d251c, 0x242f23, 0x2c382a, 0x364332, 0x404f3c, 0x4c5c47],
+  jungleLoam: [0x17160c, 0x1e1d10, 0x262414, 0x2f2c19, 0x38351e, 0x423e24],
   // Round 3 (lead 00:13): an olive moss, less saturated (the floor's green read as one green haze);
   // its glowing specks stay green.
-  jungleMoss: [0x14160e, 0x1a1d12, 0x212616, 0x28301b, 0x303a20, 0x384325, 0x414d2a],
+  jungleMoss: [0x181a11, 0x1f2316, 0x282e1a, 0x303a20, 0x3a4626, 0x43502c, 0x4e5c32],
   verdite: [0x03140a, 0x051c0e, 0x082714, 0x0c331a, 0x114122, 0x18502b, 0x206036, 0x2a7242],
   sap: [0x2a1404, 0x3e1d06, 0x562a08, 0x72390b, 0x904a10, 0xae5e18, 0xc87622],
   vine: [0x0a1408, 0x0f1c0c, 0x152610, 0x1b3014, 0x223b19, 0x2a471e],
@@ -988,8 +991,8 @@ export const STRATA_LAYERS = {
   geodeTop: { painter: top('geode', 'deep', R.geode, 0x04030a), glow: 0, biomes: ['crystalGeode'] },
   calciteSide: { painter: side('calcite'), glow: 0, biomes: ['crystalGeode'] },
   geodeFloor: { painter: recolour(gravel, R.geodeFloor), glow: 0, biomes: ['crystalGeode'] },
-  // Lead 01:17 (the geode's crystals pop): 1.0 -> 1.3.
-  amethyst: { painter: (c, rng) => druse(c, rng, R.amethyst, 0xc08cff, 0xf0dcff, R.geode, 1.1), glow: 1.3, biomes: ['crystalGeode'] },
+  // Lead 01:17 (the geode's crystals pop): 1.0 -> 1.5.
+  amethyst: { painter: (c, rng) => druse(c, rng, R.amethyst, 0xc08cff, 0xf0dcff, R.geode, 1.1), glow: 1.5, biomes: ['crystalGeode'] },
   // III-B Old Halden Mines
   mineSide: { painter: side('mine'), glow: 0, biomes: ['haldenMines'] },
   mineTop: { painter: top('mine', 'weathered', R.mine, 0x080604), glow: 0, biomes: ['haldenMines'] },

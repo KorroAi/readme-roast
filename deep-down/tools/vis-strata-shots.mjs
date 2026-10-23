@@ -230,6 +230,52 @@ try {
               const lift = { grandCap: 8, worldRoot: 6, frozenFalls: 6, colonnade: 4, crystalChoir: 3, lanternVault: 3, glassGarden: 2 }[site.name] ?? 1;
               look = [c[0], c[1] + lift, c[2]];
               tall = lift > 1;
+              // The Glass Garden's focal point (lead 01:17): one of its spires with its glowing tip,
+              // 5-12 m off and up in the frame, the garden beyond it (more tips farther in the cone).
+              if (site.name === 'glassGarden') {
+                const { B } = await import('/src/config/blocks.ts');
+                const w = g.session.world;
+                const R = Math.ceil(site.radius) + 1;
+                const tips = [];
+                for (let z = Math.floor(c[2]) - R; z <= c[2] + R; z++) for (let x = Math.floor(c[0]) - R; x <= c[0] + R; x++) for (let y = Math.floor(c[1]) + 3; y <= c[1] + 14; y++) {
+                  if (w.get(x, y, z) !== B.VOIDSHARD || w.get(x, y + 1, z) !== B.AIR || w.get(x, y - 1, z) !== B.OBSIDIAN || w.get(x, y - 2, z) !== B.OBSIDIAN) continue;
+                  tips.push([x + 0.5, y + 0.5, z + 0.5]);
+                }
+                let pick = null;
+                for (const t of tips) {
+                  for (let k = 0; k < 16; k++) {
+                    const a = (k / 16) * Math.PI * 2;
+                    for (const d of [7, 8.5, 10]) {
+                      const at = D.standableNear(t[0] + Math.cos(a) * d, c[1], t[2] + Math.sin(a) * d);
+                      if (!at || L.biomeAt(at[0], at[1], at[2]) !== site.biome) continue;
+                      const ex = at[0], ey = at[1] + 1.62, ez = at[2];
+                      const dx = t[0] - ex, dy = t[1] - ey, dz = t[2] - ez;
+                      const hd = Math.hypot(dx, dz);
+                      const tp = Math.atan2(dy, hd);
+                      if (hd < 5 || hd > 12 || tp < 0.12 || tp > 0.75) continue;
+                      const len = Math.hypot(dx, dy, dz);
+                      let blocked = false;
+                      for (let q = 0.6; q < len - 0.8 && !blocked; q += 0.4) blocked = D.isSolid(Math.floor(ex + (dx / len) * q), Math.floor(ey + (dy / len) * q), Math.floor(ez + (dz / len) * q));
+                      if (blocked) continue;
+                      let room = 0;
+                      for (let ox = -2; ox <= 2; ox++) for (let oz = -2; oz <= 2; oz++) if (!D.isSolid(Math.floor(at[0]) + ox, Math.floor(at[1]) + 1, Math.floor(at[2]) + oz)) room++;
+                      const yawT = Math.atan2(dx, dz);
+                      const wrap = (v) => Math.atan2(Math.sin(v), Math.cos(v));
+                      const dc = wrap(Math.atan2(c[0] - ex, c[2] - ez) - yawT);
+                      let depth = 0;
+                      for (const o of tips) if (o !== t && Math.abs(wrap(Math.atan2(o[0] - ex, o[2] - ez) - yawT)) < 0.3 && Math.hypot(o[0] - ex, o[2] - ez) > hd + 3) depth++;
+                      const score = room * 0.3 + depth * 1.5 + Math.max(0, 0.6 - Math.abs(dc)) * 4 - Math.abs(d - 8.5) * 0.3;
+                      if (!pick || score > pick.score) pick = { at, t, hd, tp, score };
+                    }
+                  }
+                }
+                if (pick) {
+                  D.teleport(pick.at[0], pick.at[1], pick.at[2]);
+                  // The tip a quarter of the frame above its centre (the pitch below adds 1 m).
+                  look = [pick.t[0], pick.at[1] + 1.62 - 1 + Math.tan(Math.max(-0.05, pick.tp - 0.25)) * pick.hd, pick.t[2]];
+                  tall = true;
+                }
+              }
             }
           }
           if (look && view > 1 && !['site', 'vista', 'river'].includes(where)) {

@@ -404,8 +404,8 @@ const crystalSpire: Build = (m, rng, o) => {
   for (let i = 0; i < 6; i++) m.body.cube(rng.range(-0.25, 0.25) + i * 0.0031, 0.05 + i * 0.004, rng.range(-0.25, 0.25) - i * 0.0027, rng.range(0.12, 0.22) + i * 0.0043, 0.1 + i * 0.006, rng.range(0.12, 0.22) + i * 0.0037, STONE[rng.int(0, 2)]);
   crystals(m.glow, rng, rng.int(5, 8), 0.3, rng.range(1.6, 2.8), 0.32, violet ? 0x9a6aff : 0x6ae0f0, violet ? 0x4a2a9a : 0x1a6a8a, 0.55);
   m.anim = 'crystal';
-  // Lead 01:17 (the geode's crystals pop): 1.6 -> 1.9.
-  m.glowScale = 1.9;
+  // Lead 01:17 (the geode's crystals pop): 1.6 -> 2.4.
+  m.glowScale = 2.4;
 };
 
 const geodeShards: Build = (m, rng) => {
@@ -416,7 +416,8 @@ const geodeShards: Build = (m, rng) => {
     m.glow.crystal(rng.range(0.02, 0.05), rng.range(0.06, 0.22), 0.05, 4, 0x9a6aff, 0x4a2a9a, 0.5);
     m.glow.pop();
   }
-  m.glowScale = 1.8;
+  // Lead 01:17 (the geode's crystals pop): 1.5 -> 2.3.
+  m.glowScale = 2.3;
 };
 
 const rail: Build = (m, rng) => {
