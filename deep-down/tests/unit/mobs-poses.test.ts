@@ -119,25 +119,28 @@ describe("the Dark Heart's three phases read apart", () => {
     const { sac, veins, core } = model.index;
     expect(veins, 'its veins on a bone of their own').toBeDefined();
     expect(core, 'its core on a bone of their own').toBeDefined();
-    const seen: Record<number, { veinsOut: number; coreOut: number; glow: number }> = {};
+    const seen: Record<number, { veinsOut: number; coreShows: number; glow: number }> = {};
     for (const ph of [1, 2, 3]) {
       m.phase = ph;
       pose(m, model, rig, 4, out);
       rig.update();
       const shell = radiiOf(sac);
       const median = shell[Math.floor(shell.length / 2)];
-      const dents = shell[Math.floor(shell.length * 0.1)];
       const v = radiiOf(veins);
       const c = radiiOf(core);
-      seen[ph] = { veinsOut: v.filter((r) => r > median).length / v.length, coreOut: c.filter((r) => r > dents).length / c.length, glow: out.glow };
+      const coreR = c[Math.floor(c.length / 2)];
+      // The share of its veins out beyond the shell, and of the shell the core shows through (its dents).
+      seen[ph] = { veinsOut: v.filter((r) => r > median).length / v.length, coreShows: shell.filter((r) => r < coreR).length / shell.length, glow: out.glow };
     }
     // Phase 1: a closed shell (a vein tip at most here and there, no core).
     expect(seen[1].veinsOut).toBeLessThan(0.1);
-    expect(seen[1].coreOut).toBe(0);
-    // Phase 2: the veins split it.
+    expect(seen[1].coreShows).toBe(0);
+    // Phase 2: the veins split it; the core still within.
     expect(seen[2].veinsOut).toBeGreaterThan(0.3);
-    // Phase 3: the core shows through its dents, and it burns brightest.
-    expect(seen[3].coreOut).toBeGreaterThan(0.3);
+    expect(seen[2].coreShows).toBe(0);
+    // Phase 3: the core blazes through its dents (the shell still there), and it burns brightest.
+    expect(seen[3].coreShows).toBeGreaterThan(0.15);
+    expect(seen[3].coreShows).toBeLessThan(0.6);
     expect(seen[3].glow).toBeGreaterThan(seen[2].glow);
     expect(seen[2].glow).toBeGreaterThan(seen[1].glow);
   });

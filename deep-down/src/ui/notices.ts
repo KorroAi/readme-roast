@@ -1,6 +1,6 @@
 import { ITEMS, type ItemId } from '../config/items';
 import { discoveryDef } from '../gameplay/discoveries';
-import { t } from '../i18n';
+import { hasText, t, type TextKey } from '../i18n';
 import type { DiscoveryNotice, PickupNotice } from './types';
 import { h, icon } from './dom';
 import { rarityLegend } from './rarityLegend';
@@ -110,6 +110,12 @@ export class Toasts {
     leave(entry.el);
   }
 
+  /** The language changed: toasts are a few seconds' words already said in the old one; they go. */
+  relanguage(): void {
+    for (const text of [...this.live.keys()]) this.dismiss(text);
+    this.waiting = [];
+  }
+
   dispose(): void {
     for (const e of this.live.values()) window.clearTimeout(e.timer);
     this.live.clear();
@@ -152,6 +158,11 @@ export class PickupFeed {
     return t('toast.picked', { count, item: t(ITEMS[item].name) });
   }
 
+  /** The language changed: each line up is written again ("+2 Minerai de cuivre"). */
+  relanguage(): void {
+    for (const [item, e] of this.live) e.label.textContent = this.text(item, e.count);
+  }
+
   private dismiss(item: ItemId): void {
     const entry = this.live.get(item);
     if (!entry) return;
@@ -164,6 +175,24 @@ export class PickupFeed {
     for (const e of this.live.values()) window.clearTimeout(e.timer);
     this.live.clear();
   }
+}
+
+/**
+ * A discovery's title and body in the language now set (QA 00:32): from the keys it carries, else
+ * from the keys its id names (the rarity legend, a journal page, a rune, a discovery), else the words
+ * it came with.
+ */
+export function discoveryText(n: DiscoveryNotice): { title: string; body: string } {
+  const keys = (title: string, body: string) => (hasText(title) ? { title: t(title as TextKey), body: hasText(body) ? t(body as TextKey) : n.body } : null);
+  const page = /^note\.page_(\d+)$/.exec(n.id);
+  const rune = /^rune\.(.+)$/.exec(n.id);
+  return (
+    (n.titleKey ? keys(n.titleKey, n.bodyKey ?? '') : null) ??
+    (n.id === 'rarityLegend' ? keys('rarity.legend.title', 'rarity.legend.body') : null) ??
+    (page ? keys(`page.${page[1]}.title`, `page.${page[1]}.body`) : null) ??
+    (rune ? keys(`item.${rune[1]}`, `item.${rune[1]}.line`) : null) ??
+    keys(`discovery.${n.id}.title`, `discovery.${n.id}.body`) ?? { title: n.title, body: n.body }
+  );
 }
 
 /**
@@ -183,8 +212,17 @@ export class DiscoveryBanner {
   private showing = false;
   private timer = 0;
 
-  /** `waits`: another notice card has the turn (ui/hud/noticeGate); the next discovery waits for it. */
-  constructor(private readonly waits: () => boolean = () => false) {
+  /** The notice on screen (written again on a language switch). */
+  private shown: DiscoveryNotice | null = null;
+
+  /**
+   * `waits`: another notice card has the turn (ui/hud/noticeGate); the next discovery waits for it.
+   * `text`: its title and body in the language now set (discoveryText).
+   */
+  constructor(
+    private readonly waits: () => boolean = () => false,
+    private readonly text: (n: DiscoveryNotice) => { title: string; body: string } = (n) => n,
+  ) {
     this.title = h('h2', { class: 'dd-discovery-title' });
     this.body = h('p', { class: 'dd-discovery-body' });
     this.count = h('span', { class: 'dd-discovery-count' });
@@ -234,8 +272,30 @@ export class DiscoveryBanner {
     }
     const n = this.queue.shift()!;
     this.showing = true;
-    this.title.textContent = n.title;
-    this.body.textContent = n.body;
+    this.shown = n;
+    this.render(n);
+    this.el.classList.remove('out');
+    this.el.classList.add('on');
+    const hold = this.queue.length > 0 ? DISCOVERY_QUEUED_MS : DISCOVERY_MS;
+    this.timer = window.setTimeout(() => {
+      this.el.classList.add('out');
+      this.timer = window.setTimeout(() => {
+        this.el.classList.remove('on', 'out');
+        this.shown = null;
+        this.next();
+      }, 700);
+    }, hold);
+  }
+
+  /** The language changed: the band up is written again where it stands (the waiting ones are at show). */
+  relanguage(): void {
+    if (this.showing && this.shown) this.render(this.shown);
+  }
+
+  private render(n: DiscoveryNotice): void {
+    const words = this.text(n);
+    this.title.textContent = words.title;
+    this.body.textContent = words.body;
     // The rarity legend's first-time card carries the five colours under its line.
     this.legendEl?.remove();
     this.legendEl = n.legend ? rarityLegend(true) : null;
@@ -248,16 +308,6 @@ export class DiscoveryBanner {
     this.count.textContent = counted ? t('brand.discoveryCount', { index: n.index, total: n.total }) : '';
     this.count.hidden = !counted;
     this.el.classList.toggle('major', n.major === true);
-    this.el.classList.remove('out');
-    this.el.classList.add('on');
-    const hold = this.queue.length > 0 ? DISCOVERY_QUEUED_MS : DISCOVERY_MS;
-    this.timer = window.setTimeout(() => {
-      this.el.classList.add('out');
-      this.timer = window.setTimeout(() => {
-        this.el.classList.remove('on', 'out');
-        this.next();
-      }, 700);
-    }, hold);
   }
 
   dispose(): void {

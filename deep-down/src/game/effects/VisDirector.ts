@@ -137,14 +137,14 @@ interface StrataView {
   sites?: ReadonlyArray<{ name?: string; centre: readonly number[]; radius: number }>;
 }
 
+const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
+
 /**
  * Lead 01:17 (the Glass Garden's focal points): the garden's spires of black glass are tipped with
  * voidshard (WORLD's structures.ts glassGarden); each tip wears a soft violet glow, so the garden
  * reads as lit points across the dark rather than black on black. Tips: a voidshard cell with open
  * air over it and round it, on at least two cells of obsidian (a spire, not an ore in the floor).
  */
-const SIDES = [[1, 0], [-1, 0], [0, 1], [0, -1]] as const;
-
 export function spireTipHalos(w: Pick<VoxelWorld, 'get'>, sites: ReadonlyArray<{ name?: string; centre: readonly number[]; radius: number }>): HaloSource[] {
   const out: HaloSource[] = [];
   for (const site of sites) {

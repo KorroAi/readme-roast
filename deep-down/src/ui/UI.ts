@@ -7,7 +7,7 @@ import type { InputState } from '../input/types';
 import type { ItemCounts, Settings } from '../save/types';
 import { focusables, h } from './dom';
 import { Hud } from './hud/Hud';
-import { DiscoveryBanner, PickupFeed, Toasts, type ToastTone } from './notices';
+import { DiscoveryBanner, PickupFeed, Toasts, discoveryText, type ToastTone } from './notices';
 import { installLintelFont } from './brand/lintelFont';
 import { DURATION, playDuration } from './brand/motion';
 import { buildAbout } from './screens/about';
@@ -30,7 +30,8 @@ import { buildMap } from './screens/r3/map';
 import { buildQuests } from './screens/r3/quests';
 import { buildBestiary } from './screens/r3/bestiary';
 import { buildTrip } from './screens/r3/trip';
-import { MilestoneBanner } from './hud/Milestones';
+import { MilestoneBanner, type Milestone } from './hud/Milestones';
+import { arrivalCard } from '../game/quests/Guide';
 import { hintPlace, noticeTurns, toastTop, type NoticeTurns } from './hud/noticeGate';
 import { languageOf, type ControlPrefs } from './controlPrefs';
 import { setReducedMotion } from './brand/motion';
@@ -107,7 +108,9 @@ export class UI implements GameUi {
   private readonly toasts = new Toasts();
   private readonly pickups = new PickupFeed();
   /** A discovery waits while another notice card has the turn (ui/hud/noticeGate). */
-  private readonly discovery = new DiscoveryBanner(() => !this.noticeTurns().discovery);
+  private readonly discovery = new DiscoveryBanner(() => !this.noticeTurns().discovery, discoveryText);
+  /** The arrival card shown or waiting last (written again after a language switch). */
+  private lastArrival: ArrivalCard | null = null;
   /** A biome arrival card waiting for its turn (one notice card at a time, QA 22:10). */
   private arrivalWaiting: ArrivalCard | null = null;
   /** The toast column's top (portrait: under the HUD, the guardian's bar, a bubble up there). */
@@ -254,16 +257,25 @@ export class UI implements GameUi {
         const reward = this.lastFeatReward;
         this.lastFeatReward = null;
         this.skipToast = hasText('feat3.earned') ? t('feat3.earned', { name }) : null;
-        this.milestones.push({ kind: 'feat', name, line: hasText(text) ? t(text) : '', reward: reward ? rewardLine(reward) : '' });
+        // Each card can be written again in another language while it waits or shows (QA 00:32).
+        const make = (): Milestone => ({ kind: 'feat', name: t(key as TextKey), line: hasText(text) ? t(text as TextKey) : '', reward: reward ? rewardLine(reward) : '', remake: make });
+        this.milestones.push(make());
       }),
       bus.on('quest:shard', ({ biome, count }) => {
-        const bname = hasText(`biome.${biome}.name`) ? t(`biome.${biome}.name` as TextKey) : biome;
-        this.milestones.push({ kind: 'shard', name: t('ms3.shardName', { biome: bname }), line: t('ms3.shardLine', { have: count, total: 12 }), reward: '' });
+        const make = (): Milestone => {
+          const bname = hasText(`biome.${biome}.name`) ? t(`biome.${biome}.name` as TextKey) : biome;
+          return { kind: 'shard', name: t('ms3.shardName', { biome: bname }), line: t('ms3.shardLine', { have: count, total: 12 }), reward: '', remake: make };
+        };
+        this.milestones.push(make());
       }),
       bus.on('mob:bestiary', ({ kind, page }) => {
         if (page !== 'complete') return;
-        const e = this.actions.getBestiary()?.entries.find((x) => x.kind === kind);
-        if (e) this.milestones.push({ kind: 'bestiary', name: e.name, line: e.bonus ?? '', reward: '' });
+        const make = (): Milestone | null => {
+          const e = this.actions.getBestiary()?.entries.find((x) => x.kind === kind);
+          return e ? { kind: 'bestiary', name: e.name, line: e.bonus ?? '', reward: '', remake: () => make() ?? { kind: 'bestiary', name: e.name, line: e.bonus ?? '', reward: '' } } : null;
+        };
+        const m = make();
+        if (m) this.milestones.push(m);
       }),
       bus.on('inventory:changed', () => {
         if (this.current === 'inventory' || this.current === 'crafting') this.refresh();
@@ -319,8 +331,11 @@ export class UI implements GameUi {
       bus.on('companion:zap', () => this.hud.companionPing('zap')),
       bus.on('companion:level', ({ level }) => {
         this.hud.companionPing('level');
-        const name = this.actions.getBestiary()?.entries.find((e) => e.kind === 'lampling')?.name ?? '';
-        this.milestones.push({ kind: 'companion', name: t('ms3.petLevel', { name, level }), line: t('ms3.petLevelLine'), reward: '' });
+        const make = (): Milestone => {
+          const name = this.actions.getBestiary()?.entries.find((e) => e.kind === 'lampling')?.name ?? '';
+          return { kind: 'companion', name: t('ms3.petLevel', { name, level }), line: t('ms3.petLevelLine'), reward: '', remake: make };
+        };
+        this.milestones.push(make());
       }),
       bus.on('craft:made', () => {
         if (this.current === 'crafting' || this.current === 'inventory') this.refresh();
@@ -364,6 +379,14 @@ export class UI implements GameUi {
    */
   private relanguage(): void {
     document.documentElement.lang = language();
+    // Every notice up or waiting is written again in the new language (QA 00:32): the arrival card (the
+    // HUD holding it is built again: it shows again, whole), the discovery band and its legend, the
+    // milestone cards, the pickups' lines; the toasts, a few seconds' words already said, go.
+    const arrivalAgain = this.lastArrival && (this.hud.arrivalUp || this.arrivalWaiting) ? arrivalCard(this.lastArrival.biome as Parameters<typeof arrivalCard>[0], this.lastArrival.first) : null;
+    this.discovery.relanguage();
+    this.milestones.relanguage();
+    this.pickups.relanguage();
+    this.toasts.relanguage();
     const hud = this.makeHud();
     this.hud.el.replaceWith(hud.el);
     this.hud.tutorialEl.replaceWith(hud.tutorialEl);
@@ -377,6 +400,10 @@ export class UI implements GameUi {
     this.touchLayer = touch;
     if (this.lastPrefs) touch.setPrefs(this.lastPrefs);
     touch.setLeftHanded(this.lastLeftHanded);
+    if (arrivalAgain) {
+      this.lastArrival = arrivalAgain;
+      this.arrivalWaiting = arrivalAgain;
+    }
     this.updateTouch();
     if (this.current !== 'none') this.rerender();
   }
@@ -558,6 +585,7 @@ export class UI implements GameUi {
   /** Round 3: a biome arrival card (LOOP's 'guide:arrival', or WORLD's arrivalCard). */
   arrival(card: ArrivalCard): void {
     if (!this.gameplay) return;
+    this.lastArrival = card;
     // It shows now unless a discovery is up or a menu is open (then when its turn comes).
     this.arrivalWaiting = card;
     this.pumpNotices();

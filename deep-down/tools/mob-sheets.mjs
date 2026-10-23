@@ -2,7 +2,8 @@
 // in its own lair, in the real game (WebGL 2 through SwiftShader, the real camera and lighting).
 //
 // Usage: node tools/mob-sheets.mjs [--out artifacts/r3/mobs] [--size 1280x720]
-//          [--only rosters,guardians,extras,fight,heart,worm (a list) | all] [--biomes amberHollows,mushroomForest]
+//          [--only rosters,guardians,extras,fight,heart,worm (a list; extras = elites,telegraphs,companion) | all]
+//          [--biomes amberHollows,mushroomForest]
 //          [--seed 12345] [--port 4177]
 // Writes roster-<biome>.png and guardian-<kind>.png (no --only: both), and with --only: extras (elites,
 // telegraphs, the companion), fight (a blow landing, deaths collapsing, a guardian's open guard and its
@@ -271,7 +272,8 @@ try {
         });
     }
   }
-  if (want('extras')) {
+  const part = (p) => want('extras') || only.has(p);
+  if (part('elites')) {
     // Elites: one of each affix, side by side (radiant, armoured, swift, splitting).
     await page.evaluate(() => window.__DD__.goto('frostCaverns'));
     await arrive();
@@ -292,7 +294,8 @@ try {
       window.__DD__.mobs.clear();
       window.__DD__.mobs.freeze(false);
     });
-
+  }
+  if (part('telegraphs')) {
     // Telegraphs: real wind-ups and their ground markers (a charger's lane, a brute's slam circle, a dive's mark).
     for (const [biome, kinds] of [['rootGalleries', ['thornback', 'rootWeevil']], ['floodedGrottoes', ['clatterclaw', 'mistwing']]]) {
       await page.evaluate((b) => window.__DD__.goto(b), biome);
@@ -315,7 +318,29 @@ try {
         found = mk.find((x) => x.progress > 0.45 && x.kind !== 'wave') ?? null;
       }
       await page.evaluate(() => window.__DD__.mobs.freeze(true));
-      if (found) await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y + 0.6, z, -0.25), [found.x, found.y, found.z]);
+      // A mark on the explorer's own spot (a dive's) is framed from a few steps back, the foes beyond it.
+      if (found) {
+        const back = await page.evaluate(([f, ids]) => {
+          const dd = window.__DD__;
+          const p = dd.game.player;
+          if (Math.hypot(f[0] - p.x, f[2] - p.z) > 2.5) return null;
+          const ms = dd.mobs.list().filter((m) => ids.includes(m.id));
+          if (!ms.length) return null;
+          const mx = ms.reduce((a, m) => a + m.x, 0) / ms.length;
+          const mz = ms.reduce((a, m) => a + m.z, 0) / ms.length;
+          const l = Math.max(0.01, Math.hypot(f[0] - mx, f[2] - mz));
+          for (const d of [4.5, 3.5, 2.5]) {
+            const s = dd.standableNear(Math.floor(f[0] + ((f[0] - mx) / l) * d), Math.floor(f[1]), Math.floor(f[2] + ((f[2] - mz) / l) * d));
+            if (s) {
+              dd.teleport(s[0] + 0.5, s[1], s[2] + 0.5);
+              return d;
+            }
+          }
+          return null;
+        }, [[found.x, found.y, found.z], tids]);
+        if (back) log(`telegraph-${biome}: framed from ${back} m back of its mark`);
+        await page.evaluate(([x, y, z, b]) => window.__DD__.mobs.lookAt(x, y + (b ? 0.9 : 0.6), z, b ? -0.12 : -0.25), [found.x, found.y, found.z, back]);
+      }
       await settle(2);
       await shoot(`${opt.out}/telegraph-${biome}.png`);
       log(`telegraph-${biome}: ${found ? `${found.kind} marker at progress ${found.progress.toFixed(2)}` : 'no marker caught'}`);
@@ -324,7 +349,8 @@ try {
         window.__DD__.mobs.freeze(false);
       });
     }
-
+  }
+  if (part('companion')) {
     // The companion: a tame Lampling at level 3 beside the explorer.
     await page.evaluate(() => window.__DD__.goto('mushroomForest'));
     await arrive();
@@ -444,7 +470,11 @@ try {
       const at = await page.evaluate(() => window.__DD__.goto('vista'));
       if (!at) continue;
       await arrive();
-      await page.evaluate(() => window.__DD__.mobs.clear());
+      // (Unfrozen: the Heart's shots before it leave the creatures held still.)
+      await page.evaluate(() => {
+        window.__DD__.mobs.clear();
+        window.__DD__.mobs.freeze(false);
+      });
       const v = await page.evaluate(() => window.__DD__.strata().vista);
       const c = [v.centre[0], v.centre[1] + Math.min(10, v.radius * 0.3), v.centre[2]];
       await page.evaluate(([x, y, z]) => window.__DD__.mobs.lookAt(x, y, z, 0), c);

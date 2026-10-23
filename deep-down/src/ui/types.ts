@@ -630,6 +630,9 @@ export interface DiscoveryNotice {
   major: boolean;
   /** Round 2: the first-time card of the rarity colours (the banner shows the legend under the body). */
   legend?: boolean;
+  /** The text keys of its title and body: the banner writes them again on a language switch. */
+  titleKey?: string;
+  bodyKey?: string;
 }
 
 export interface PickupNotice {

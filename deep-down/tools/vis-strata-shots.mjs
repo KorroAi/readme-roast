@@ -225,8 +225,9 @@ try {
                 }
               }
               if (best) D.teleport(best.at[0], best.at[1], best.at[2]);
-              // Tall pieces are looked up at (the Grand Cap's gills, the World Root, the frozen fall).
-              const lift = { grandCap: 8, worldRoot: 6, frozenFalls: 6, colonnade: 4, crystalChoir: 3, lanternVault: 3 }[site.name] ?? 1;
+              // Tall pieces are looked up at (the Grand Cap's gills, the World Root, the frozen fall; the
+              // Glass Garden's spire tips a little).
+              const lift = { grandCap: 8, worldRoot: 6, frozenFalls: 6, colonnade: 4, crystalChoir: 3, lanternVault: 3, glassGarden: 2 }[site.name] ?? 1;
               look = [c[0], c[1] + lift, c[2]];
               tall = lift > 1;
             }

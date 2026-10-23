@@ -230,6 +230,8 @@ export interface StructureSite {
    * time the explorer comes within their radius (StratumManager: a discovery banner).
    */
   name?: string;
+  /** A second place that announces it too (the vista: its hall's floor, as well as its lookout). */
+  alsoAt?: { centre: V3; radius: number };
 }
 
 export interface CampSite {

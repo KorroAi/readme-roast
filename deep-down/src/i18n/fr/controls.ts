@@ -124,6 +124,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'm3.map.m.outpost': 'Avant-poste',
   'm3.map.m.lair': 'Repaire de gardien',
   'm3.map.m.gate': 'Porte',
+  'm3.map.gateOpen': 'La Porte · ouverte',
   'm3.map.m.page': 'Page de Halden',
   'm3.map.m.chest': 'Coffre',
   'm3.map.m.objective': 'Objectif',

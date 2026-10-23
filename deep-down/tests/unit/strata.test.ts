@@ -253,6 +253,49 @@ describe('the strata generator (round 3)', () => {
     expect(springs).toBeGreaterThanOrEqual(4);
   });
 
+  it.each([1, 2, 3, 4, 5, 6])('stratum %i: the vista\'s card shows with the hall in view: from where it fires on the way in, the lake and the island\'s tip are in sight (QA 01:19)', (n) => {
+    const l = L(n);
+    const V = l.vista!;
+    const w = l.world;
+    const site = l.sites.find((x) => x.kind === 'vista')!;
+    // The lake's surface cells: the water mask, or the lava under the floor in the fire stratum.
+    const cells: Array<[number, number, number]> = [];
+    const lake = l.features?.lakes?.find((k) => k.id.startsWith('vista_lake_'));
+    if (lake) {
+      const wd = lake.max[0] - lake.min[0] + 1;
+      for (let z = lake.min[1]; z <= lake.max[1]; z++) for (let x = lake.min[0]; x <= lake.max[0]; x++) if (lake.mask[(z - lake.min[1]) * wd + (x - lake.min[0])]) cells.push([x + 0.5, lake.level + 0.05, z + 0.5]);
+    } else {
+      const R = Math.ceil(V.radius);
+      for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+        const x = Math.floor(V.centre[0]) + dx;
+        const z = Math.floor(V.centre[2]) + dz;
+        for (const y of [V.centre[1] - 2, V.centre[1] - 1]) if (w.get(x, y, z) === B.LAVA && !SOLID[w.get(x, y + 1, z)]) {
+          cells.push([x + 0.5, y + 1.02, z + 0.5]);
+          break;
+        }
+      }
+    }
+    expect(cells.length).toBeGreaterThan(50);
+    const clear = (e: readonly number[], p: readonly number[]) => {
+      const d = [p[0] - e[0], p[1] - e[1], p[2] - e[2]];
+      const len = Math.hypot(d[0], d[1], d[2]);
+      for (let s2 = 0.3; s2 < len - 0.6; s2 += 0.25) if (SOLID[w.get(Math.floor(e[0] + (d[0] / len) * s2), Math.floor(e[1] + (d[1] / len) * s2), Math.floor(e[2] + (d[2] / len) * s2))]) return false;
+      return true;
+    };
+    // Where the card fires on the way in from the balcony's middle: its radius back toward it.
+    const bx = V.balcony[0] - site.centre[0];
+    const bz = V.balcony[2] - site.centre[2];
+    const bl = Math.hypot(bx, bz) || 1;
+    const r = Math.max(0, Math.min(site.radius, bl) - 0.05);
+    const eye = [site.centre[0] + (bx / bl) * r, site.centre[1] + 1.62, site.centre[2] + (bz / bl) * r];
+    let seen = 0;
+    for (const c of cells) if (clear(eye, c)) seen++;
+    expect(seen / cells.length, 'lake in sight where the card shows').toBeGreaterThanOrEqual(0.4);
+    expect(clear(eye, [V.island![0], V.island![1] + 0.5, V.island![2]]), 'the island\'s tip in sight').toBe(true);
+    // And on the hall's floor too (a ramp walker who never stood at the lookout).
+    expect(site.alsoAt && Math.hypot(site.alsoAt.centre[0] - V.centre[0], site.alsoAt.centre[2] - V.centre[2]) < 1 && site.alsoAt.radius >= 6).toBe(true);
+  });
+
   it('stands its big props on rock (VIS\'s props probe): the gate\'s monolith whole and in reach of its stand, wide decor never over a drop', () => {
     for (let n = 1; n <= 6; n++) {
       const l = L(n);

@@ -310,8 +310,9 @@ export class StratumManager {
     const l = this.layout;
     if (!l) return;
     const named = this.namedSites();
+    const within = (c: readonly number[], r: number) => Math.hypot(c[0] - x, c[2] - z) <= r && Math.abs(c[1] - y) <= 6;
     for (const site of named) {
-      if (Math.hypot(site.centre[0] - x, site.centre[2] - z) > site.radius || Math.abs(site.centre[1] - y) > 6) continue;
+      if (!within(site.centre, site.radius) && !(site.alsoAt && within(site.alsoAt.centre, site.alsoAt.radius))) continue;
       const slice = this.slices.get(this.current) ?? emptySlice();
       const found = (slice.found ??= []);
       if (found.includes(site.id)) continue;

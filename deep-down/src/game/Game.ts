@@ -426,7 +426,7 @@ export class Game {
     bus.on('camp:left', () => {
       if (this.progression.hintsShown.has('rarityLegend')) return;
       this.progression.hintsShown.add('rarityLegend');
-      this.ui.showDiscovery({ id: 'rarityLegend', title: t('rarity.legend.title'), body: t('rarity.legend.body'), index: NaN, total: NaN, major: false, legend: true });
+      this.ui.showDiscovery({ id: 'rarityLegend', title: t('rarity.legend.title'), body: t('rarity.legend.body'), titleKey: 'rarity.legend.title', bodyKey: 'rarity.legend.body', index: NaN, total: NaN, major: false, legend: true });
     });
     bus.on('block:tooHard', ({ block }) => {
       if (block === B.IRON_ORE) this.discover('ironVein');
@@ -1238,7 +1238,7 @@ export class Game {
     const titleKey = `discovery.${id}.title` as TextKey;
     const bodyKey = `discovery.${id}.body` as TextKey;
     const n = this.progression.onDiscovery(id);
-    this.ui.showDiscovery({ id, title: t(titleKey), body: t(bodyKey), index: n.index, total: n.total, major: n.major });
+    this.ui.showDiscovery({ id, title: t(titleKey), body: t(bodyKey), titleKey, bodyKey, index: n.index, total: n.total, major: n.major });
     this.bus.emit('discovery', { id });
     this.renderer.post.params.flash = 0.08;
     this.renderer.post.params.flashColor.setRGB(0.25, 0.75, 0.9);

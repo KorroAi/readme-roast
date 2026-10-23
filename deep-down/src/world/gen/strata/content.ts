@@ -354,6 +354,37 @@ export const FOOT: Partial<Record<string, number>> = {
 /** Kinds placed by rules of their own (along a wall, across a drift, round an arena, the camp's layout). */
 export const OWN_RULES: ReadonlySet<string> = new Set(['rail', 'mineSet', 'lairPillar', 'lairBrazier', 'abyssMonolith', 'campfire', 'workbench', 'bedroll', 'hoistWinch']);
 
+/** The vista's lake surface cells (x, y, z): its lake (the water mask), or the lava under its floor in VI. */
+export function vistaLake(w: { get(x: number, y: number, z: number): number }, V: VistaOut): Array<[number, number, number]> {
+  const out: Array<[number, number, number]> = [];
+  const lake = V.lakes.find((k) => k.id.startsWith('vista_lake_'));
+  if (lake) {
+    const wd = lake.max[0] - lake.min[0] + 1;
+    for (let z = lake.min[1]; z <= lake.max[1]; z++) for (let x = lake.min[0]; x <= lake.max[0]; x++) if (lake.mask[(z - lake.min[1]) * wd + (x - lake.min[0])]) out.push([x + 0.5, lake.level + 0.05, z + 0.5]);
+    return out;
+  }
+  const R = Math.ceil(V.radius);
+  for (let dz = -R; dz <= R; dz++) for (let dx = -R; dx <= R; dx++) {
+    const x = Math.floor(V.centre[0]) + dx;
+    const z = Math.floor(V.centre[2]) + dz;
+    for (const y of [V.centre[1] - 2, V.centre[1] - 1]) if (w.get(x, y, z) === B.LAVA && !SOLID[w.get(x, y + 1, z)]) {
+      out.push([x + 0.5, y + 1.02, z + 0.5]);
+      break;
+    }
+  }
+  return out;
+}
+
+/** No voxel on the line from e to p (p's own cell aside). */
+export function clearLine(w: { get(x: number, y: number, z: number): number }, e: readonly number[], p: readonly number[]): boolean {
+  const dx = p[0] - e[0];
+  const dy = p[1] - e[1];
+  const dz = p[2] - e[2];
+  const len = Math.hypot(dx, dy, dz);
+  for (let s = 0.3; s < len - 0.6; s += 0.25) if (SOLID[w.get(Math.floor(e[0] + (dx / len) * s), Math.floor(e[1] + (dy / len) * s), Math.floor(e[2] + (dz / len) * s))]) return false;
+  return true;
+}
+
 export function placeContent(st: CarveState, stratum: StratumIndex, seed: number, seen: Uint8Array, decor: Decor, places: ReturnType<typeof buildPlaces>, extras: ContentExtras): ContentOut {
   const w = st.world;
   const plan = st.plan;
@@ -1186,9 +1217,25 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
   let dungeon: DungeonSite | null = null;
   const V = extras.vista;
   if (V) {
-    // Its card shows at the lookout (the balcony's lip on the view line, its parapet open), the hall in
-    // view below: 3 m round it (from the balcony's middle, the 1 m parapet hid the lake: QA 01:19).
-    sites.push({ id: V.id, kind: 'vista', biome: V.biome, centre: V.lookout, radius: 3, name: V.name });
+    // Its card shows where the hall is in view (QA 01:19: from the balcony's middle its 1 m parapet hid
+    // the lake): at the lookout (the balcony's lip on the view line, the parapet open there), within the
+    // radius from which, on the way in, at least 40 % of the lake is in clear sight; and on the hall's floor.
+    const lakeCells = vistaLake(w, V);
+    const sight = (f: readonly number[]) => {
+      let seen = 0;
+      const e = [f[0], f[1] + 1.62, f[2]];
+      for (const c of lakeCells) if (clearLine(w, e, c)) seen++;
+      return lakeCells.length ? seen / lakeCells.length : 1;
+    };
+    const bx = V.balcony[0] - V.lookout[0];
+    const bz = V.balcony[2] - V.lookout[2];
+    const bl = Math.hypot(bx, bz) || 1;
+    let lookR = 1;
+    for (const r of [3, 2.5, 2, 1.5, 1.25]) if (sight([V.lookout[0] + (bx / bl) * r, V.lookout[1], V.lookout[2] + (bz / bl) * r]) >= 0.4) {
+      lookR = r;
+      break;
+    }
+    sites.push({ id: V.id, kind: 'vista', biome: V.biome, centre: V.lookout, radius: lookR, name: V.name, alsoAt: { centre: [V.centre[0], V.centre[1], V.centre[2]], radius: Math.max(6, V.radius - 3) } });
     landmarks.vista = V.balcony;
     for (const l of V.lights) {
       lights.push(l);

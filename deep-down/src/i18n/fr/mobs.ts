@@ -320,6 +320,7 @@ export const mobs: Partial<Record<TextKey, string>> = {
   'mob.guardianPhase': 'La colère monte : plus vite, désormais.',
   'mob.guardianReset': 'Le gardien se soigne et se rendort.',
   'mob.guardianOpen': 'Sa garde est ouverte : frappez !',
+  'mob.guardianGuarded': 'Sa garde est levée : vos coups ricochent. Frappez quand elle s’ouvre, juste après son attaque.',
   // La nouvelle phase d’un gardien : ce qu’il fait désormais, une ligne chacun.
   'mob.phaseLine.amberMatriarch.2': 'La Matriarche se cabre et martèle le sol. Sortez du cercle, puis frappez.',
   'mob.phaseLine.mycelord.2': 'Le Mycéliarque martèle le sol. Sortez de son cercle.',

@@ -1,6 +1,6 @@
 // WORLD proof (round 3, QA 01:19): what the explorer sees of the vista's hall where its card shows.
 // From the eye (feet + 1.62) at the lookout (the card's centre), at the card's edge on the way in
-// (3 m back toward the balcony), and at the balcony's middle (the card's old centre): the share of
+// (its radius back toward the balcony), and at the balcony's middle (the card's old centre): the share of
 // the lake's surface (the lava lake in the fire stratum) in clear sight (no voxel on the line), and
 // whether the island's lit tip shows.
 // Usage: node tools/run-ts.mjs tools/strata-vista-view.ts [seeds e.g. 12345,7,777] [strata e.g. 1,2,3]
@@ -54,14 +54,16 @@ export function vistaSight(l: StratumLayout, f: readonly number[]): { lake: numb
   return { lake: cells.length ? seen / cells.length : 0, island: !!isl && clearLine(l, e, [isl[0], isl[1] + 0.5, isl[2]]) };
 }
 
-/** The card's edge on the way in: 3 m from the lookout back toward the balcony's middle. */
+/** The card's edge on the way in: its radius from the lookout back toward the balcony's middle. */
 export function cardEdge(l: StratumLayout): [number, number, number] {
   const V = l.vista!;
-  const lo = V.lookout ?? V.balcony;
+  const site = l.sites.find((x) => x.kind === 'vista')!;
+  const lo = site.centre;
   const ux = V.balcony[0] - lo[0];
   const uz = V.balcony[2] - lo[2];
   const n = Math.hypot(ux, uz) || 1;
-  return [lo[0] + (ux / n) * 3, lo[1], lo[2] + (uz / n) * 3];
+  const r = Math.max(0, site.radius - 0.05);
+  return [lo[0] + (ux / n) * r, lo[1], lo[2] + (uz / n) * r];
 }
 
 export default function view(args: string[]): void {

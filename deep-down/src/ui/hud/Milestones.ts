@@ -20,6 +20,13 @@ export interface Milestone {
   line: string;
   /** What it paid, already written out ("+3 Copper Bar"), or ''. */
   reward: string;
+  /** The same milestone written again in the language now set (a language switch, QA 00:32). */
+  remake?: () => Milestone;
+}
+
+/** A queue written again in the language now set (each by its own remake; one without keeps its words). */
+export function remakeAll(queue: readonly Milestone[]): Milestone[] {
+  return queue.map((m) => m.remake?.() ?? m);
 }
 
 /** How long a card stays up (ms) and how many may wait. */
@@ -95,6 +102,23 @@ export class MilestoneBanner {
     if (!this.live || this.current || !this.queue.length) return;
     const m = this.queue.shift()!;
     this.current = m;
+    this.render(m);
+    this.el.classList.remove('on');
+    void this.el.offsetWidth;
+    this.el.classList.add('on');
+    window.clearTimeout(this.timer);
+    this.timer = window.setTimeout(() => this.hide(), MILESTONE_MS);
+  }
+
+  /** The language changed: the card up and the waiting ones are written again (kept where they stand). */
+  relanguage(): void {
+    this.queue = remakeAll(this.queue);
+    if (!this.current) return;
+    this.current = this.current.remake?.() ?? this.current;
+    this.render(this.current);
+  }
+
+  private render(m: Milestone): void {
     this.el.dataset.kind = m.kind;
     this.glyph.innerHTML = iconSvg(GLYPH[m.kind]);
     this.kicker.textContent = t(`ms3.${m.kind}` as 'ms3.feat');
@@ -104,11 +128,6 @@ export class MilestoneBanner {
     this.reward.textContent = m.reward ? t('ms3.reward', { reward: m.reward }) : '';
     this.reward.hidden = !m.reward;
     this.el.setAttribute('aria-label', `${this.kicker.textContent}: ${m.name}`);
-    this.el.classList.remove('on');
-    void this.el.offsetWidth;
-    this.el.classList.add('on');
-    window.clearTimeout(this.timer);
-    this.timer = window.setTimeout(() => this.hide(), MILESTONE_MS);
   }
 
   private hide(advance = true): void {

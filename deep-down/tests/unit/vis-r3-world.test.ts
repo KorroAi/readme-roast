@@ -349,3 +349,53 @@ describe('the arenas wear their biome (VIS round 3)', () => {
     }
   });
 });
+
+describe('the last look pass (VIS round 3, lead 01:17)', () => {
+  it('glows on the Glass Garden\'s spire tips only, and never on a voidshard vein in the floor', async () => {
+    const { spireTipHalos } = await import('../../src/game/effects/VisDirector');
+    const cells = new Map<string, number>();
+    const set = (x: number, y: number, z: number, id: number) => cells.set(`${x},${y},${z}`, id);
+    const w = { get: (x: number, y: number, z: number) => cells.get(`${x},${y},${z}`) ?? (y < 10 ? B.OBSIDIAN : B.AIR) };
+    // A spire on the floor (y 10..11 obsidian, its voidshard tip at 12, open air round and over it).
+    set(20, 10, 20, B.OBSIDIAN);
+    set(20, 11, 20, B.OBSIDIAN);
+    set(20, 12, 20, B.VOIDSHARD);
+    // A vein in the floor: voidshard at the floor's top with air over it but rock round it.
+    set(24, 9, 20, B.VOIDSHARD);
+    const garden = { name: 'glassGarden', centre: [22, 10, 20], radius: 8 };
+    const tips = spireTipHalos(w, [garden]);
+    expect(tips.map((t) => [t.x, t.y, t.z])).toEqual([[20, 12, 20]]);
+    expect(tips[0].id).toBe(B.LIGHT_ABYSS);
+    expect(tips[0].color![2]).toBeGreaterThan(tips[0].color![0]);
+    // Another site, or the garden out of reach: none.
+    expect(spireTipHalos(w, [{ ...garden, name: 'emberDeep' }])).toEqual([]);
+    expect(spireTipHalos(w, [{ ...garden, centre: [60, 10, 60] }])).toEqual([]);
+  });
+
+  it('carries the Glowroot\'s lantern pool further (reach), the field with it, and gameplay keeps the radius', async () => {
+    const THREE = await import('three');
+    const { LanternLight } = await import('../../src/render/lanternLight');
+    const { BIOME_LOOKS } = await import('../../src/render/biomeLook');
+    const { LIGHTING_GLSL } = await import('../../src/render/lighting');
+    const jungle = BIOME_LOOKS.glowrootJungle;
+    expect(jungle.atmosphere.reach).toBeGreaterThan(1);
+    // Brighter by its fill and its pool, not its saturation (0.9 since the 00:13 pass).
+    expect(jungle.grade.saturation).toBeLessThanOrEqual(0.9);
+    expect(LIGHTING_GLSL).toContain('uLanternRadius * reach');
+    const u = { uLanternRadius: { value: 0 }, uLanternIntensity: { value: 0 }, uLanternColor: { value: new THREE.Color() }, uLanternReach: { value: 1.25 } } as never;
+    const field = new LanternLight().update(u, { dt: 1 / 30, time: 0, fuel: 1, lit: true, tier: 1, radius: 11, intensity: 1, ember: 0.3 });
+    expect((u as { uLanternRadius: { value: number } }).uLanternRadius.value).toBeCloseTo(11, 5);
+    expect(field).toBeCloseTo(11 * 1.25, 5);
+    // A uniform set without the reach (unit tests, the lab): the radius as before.
+    const plain = { uLanternRadius: { value: 0 }, uLanternIntensity: { value: 0 }, uLanternColor: { value: new THREE.Color() } } as never;
+    expect(new LanternLight().update(plain, { dt: 1 / 30, time: 0, fuel: 1, lit: true, tier: 1, radius: 11, intensity: 1, ember: 0.3 })).toBeCloseTo(11, 5);
+  });
+
+  it('lights the glass shard cluster from within', () => {
+    const m = buildPropModel('glassShard' as PropKind, { variant: 0 });
+    expect(m.glow).not.toBeNull();
+    // The lit core: a five-sided shard (5 quads + 5 tip triangles) besides the three glints.
+    expect(m.glow!.getAttribute('position').count).toBeGreaterThanOrEqual(3 * 24 + 5 * 4 + 5 * 3);
+    expect(m.glowScale).toBeGreaterThan(1.5);
+  });
+});
