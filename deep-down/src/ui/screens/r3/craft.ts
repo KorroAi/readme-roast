@@ -6,6 +6,9 @@ import type { ScreenHost } from '../host';
 import { btn } from '../widgets';
 import { costChip, empty, menuShell, tabRow } from './shell';
 
+/** How long a card says what it just made (through the rebuilds that follow a craft). */
+const CRAFT_MADE_MS = 3000;
+
 /** Which category tab opens: the remembered one if it has cards, else the first with a ready card, else the first. */
 export function pickCategory(v: Pick<CraftMenuView, 'categories'>, remembered: string | null): string {
   if (remembered && v.categories.some((c) => c.id === remembered && c.total > 0)) return remembered;
@@ -99,6 +102,11 @@ function card(host: ScreenHost, c: RecipeCardView): HTMLElement {
   };
   const flash = host.state.craftFlash === c.id;
   if (flash) host.state.craftFlash = null;
+  // The card just made says what it made ("Crafted 4 Plank") for a moment (QA 02:26: no toast over
+  // the buttons while Craft is open); it stays through the rebuilds of the next 3 s, on this card.
+  const m = host.state.craftMade;
+  if (flash && m && m.id === undefined) m.id = c.id;
+  const made = m && m.id === c.id && performance.now() - m.at < CRAFT_MADE_MS ? m.text : null;
   return h(
     'article',
     { class: `dd-m3-card g-${c.output.grade} s-${c.state}${flash ? ' made' : ''}`, 'data-recipe': c.id },
@@ -120,7 +128,7 @@ function card(host: ScreenHost, c: RecipeCardView): HTMLElement {
       c.fuel ? costChip(null, t('craft3.fuel'), c.fuel.have, c.fuel.need) : null,
       h('span', { class: `dd-m3-at${c.state === 'station' ? ' short' : ''}`, text: t('m3.craft.at', { station: c.stationName }) }),
     ),
-    c.reason && !ok ? h('p', { class: 'dd-m3-reason', text: c.reason }) : null,
+    made ? h('p', { class: 'dd-m3-made', role: 'status', text: made }) : c.reason && !ok ? h('p', { class: 'dd-m3-reason', text: c.reason }) : null,
     h(
       'div',
       { class: 'dd-m3-actions' },

@@ -106,8 +106,9 @@ export function armStep(a: ArmState): { step: ArmStepId; progress: { have: numbe
     }
     return short ? null : a.targets.bench ?? null;
   };
-  // Bars for the Forge (until it stands) and the Machete: a Furnace first to smelt them.
-  const barsNeed = (a.forge ? 0 : barsIn(FORGE_NEEDS)) + barsIn(MACHETE_NEEDS);
+  // Bars for the Forge (until it is made: one waiting in the bag has had its bars) and the
+  // Machete: a Furnace first to smelt them.
+  const barsNeed = (a.forge || a.forgeItem ? 0 : barsIn(FORGE_NEEDS)) + barsIn(MACHETE_NEEDS);
   const bars = have('copperIngot');
   if (bars < barsNeed) {
     if (!a.furnace) {

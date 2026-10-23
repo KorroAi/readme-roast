@@ -92,11 +92,12 @@ const CHAIN_RANGE = 34;
 const BOAR_RANGE = 80;
 /**
  * With no Grit Boar in sight, the hide step points at its ground: the nearest dark spot of its biome
- * (MOBS' roster: the Amber Hollows) at least BOAR_OUT m from the camp fire, where creatures spawn
- * round an explorer (never in the camp or in the light).
+ * (MOBS' roster: the Amber Hollows) at least BOAR_OUT m from the camp fire and BOAR_AHEAD m ahead,
+ * where creatures spawn round an explorer (never in the camp or in the light).
  */
 const BOAR_BIOME: BiomeId = 'amberHollows';
 const BOAR_OUT = 24;
+const BOAR_AHEAD = 12;
 const STONE_BLOCK = new Uint8Array(256);
 for (const [id, d] of BONUS_DROPS) {
   const b = blockDef(id);
@@ -1796,9 +1797,10 @@ export class Loop implements LoopActions {
     };
     return {
       furnace: placed('furnace').length > 0,
-      furnaceItem: h.backpack.count('furnace' as ItemId) > 0,
+      // Made and waiting to be placed: in the bag (a full bag sends it to the bank).
+      furnaceItem: held('furnace' as ItemId) > 0,
       forge: placed('forge').length > 0,
-      forgeItem: h.backpack.count('forge' as ItemId) > 0,
+      forgeItem: held('forge' as ItemId) > 0,
       counts: { stone: held('stone'), coal: held('coal'), copperOre: held('copperOre'), copperIngot: held('copperIngot'), hide: held('hide'), fuel },
       // The block searches run only for the target the step reads (getters), at most every VEIN_EVERY s.
       targets: {
@@ -1877,7 +1879,8 @@ export class Loop implements LoopActions {
       const [x, y, z] = sp.p;
       if (fire && (x - fire[0]) ** 2 + (z - fire[2]) ** 2 < BOAR_OUT * BOAR_OUT) continue;
       const d = (x - p.x) ** 2 + (y - p.y) ** 2 + (z - p.z) ** 2;
-      if (d < bd) {
+      // A little ahead, never underfoot: the arrow leads on into the dark until a boar shows.
+      if (d < bd && d >= BOAR_AHEAD * BOAR_AHEAD) {
         bd = d;
         best = { x, y, z };
       }

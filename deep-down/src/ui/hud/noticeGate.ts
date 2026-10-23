@@ -12,6 +12,11 @@ export interface NoticeScene {
   live: boolean;
   /** A card screen is up (a trip's card, the black-out, the end card): toasts wait for it too. */
   cardScreen?: boolean;
+  /**
+   * A menu is open in play (the Bag, Craft, the Map...): toasts wait for it to close, never over its
+   * buttons (QA 02:26: "Banked 2 items" on the Map's Travel row); a craft result stays in its card.
+   */
+  menuUp?: boolean;
   /** A guardian's bar is up. */
   fight: boolean;
   /** The tutorial's bubble stands in the top part of the view. */
@@ -43,7 +48,7 @@ export function noticeTurns(s: NoticeScene): NoticeTurns {
   // A discovery about to start goes first (it is rarer); a milestone card already up keeps its turn
   // against one (the discovery then waits for it).
   const milestones = s.live && !arrivalSlot && !s.discoveryUp && !(s.discoveryWaiting && discovery && !s.milestoneUp) && !s.fight && !s.bubbleUp;
-  const holdToasts = (s.live && (s.arrivalUp || arrival || s.discoveryUp || s.milestoneUp)) || s.cardScreen === true;
+  const holdToasts = (s.live && (s.arrivalUp || arrival || s.discoveryUp || s.milestoneUp)) || s.cardScreen === true || s.menuUp === true;
   return { arrival, discovery, milestones, holdToasts };
 }
 

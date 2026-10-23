@@ -5,7 +5,7 @@
 // wall time (SwiftShader may draw a frame a second under load).
 
 import { expect, type Locator, type Page } from '@playwright/test';
-import { LOADED_CEILING_MS, untilGame } from './dd';
+import { LOADED_CEILING_MS, untilGame, waitPlay } from './dd';
 import { Touch } from './touch';
 import './dd';
 
@@ -180,25 +180,19 @@ export async function awayFromCamp(page: Page): Promise<[number, number, number]
 /**
  * Turn the explorer to the longest open run of floor round it (a walk, then a sprint, needs room:
  * a vein's wall right ahead keeps the speed at nought whatever the stick does). Returns the run (m).
+ * The ways are read from the look direction (CameraRig: forward is (-sin yaw, 0, -cos yaw)), not
+ * the lens, which eases round after a look.
  */
 export async function faceOpen(page: Page, metres = 12): Promise<number> {
-  let best = { yaw: 0, run: -1 };
-  for (let k = 0; k < 16 && best.run < metres; k++) {
-    const yaw = (k * Math.PI) / 8;
-    await page.evaluate((y) => window.__DD__.look(y, 0), yaw);
-    // The view turns on the next frames: the way ahead is read from where it then looks.
-    await untilGame(page, async () => true, 0.1);
-    const run = await page.evaluate((max) => {
-      const dd = window.__DD__;
-      const g = dd.game;
-      const cam = g.cameraRig.camera;
-      cam.updateMatrixWorld();
-      const e = cam.matrixWorld.elements;
-      const l = Math.hypot(e[8], e[10]) || 1;
-      const fx = -e[8] / l;
-      const fz = -e[10] / l;
-      const p = g.player;
-      const y = Math.floor(p.y + 0.05);
+  const best = await page.evaluate((max) => {
+    const dd = window.__DD__;
+    const p = dd.game.player;
+    const y = Math.floor(p.y + 0.05);
+    let top = { yaw: 0, run: -1 };
+    for (let k = 0; k < 16 && top.run < max; k++) {
+      const yaw = (k * Math.PI) / 8;
+      const fx = -Math.sin(yaw);
+      const fz = -Math.cos(yaw);
       let d = 0;
       for (; d < max; d += 0.5) {
         const x = Math.floor(p.x + fx * (d + 0.6));
@@ -206,12 +200,13 @@ export async function faceOpen(page: Page, metres = 12): Promise<number> {
         if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z)) break;
         if (!dd.isSolid(x, y - 1, z) && !dd.isSolid(x, y - 2, z)) break;
       }
-      return d;
-    }, metres);
-    if (run > best.run) best = { yaw, run };
-  }
-  await page.evaluate((y) => window.__DD__.look(y, 0), best.yaw);
-  await untilGame(page, async () => true, 0.1);
+      if (d > top.run) top = { yaw, run: d };
+    }
+    dd.look(top.yaw, 0);
+    return top;
+  }, metres);
+  // The lens eases round to it.
+  await waitPlay(page, 0.4);
   return best.run;
 }
 

@@ -52,6 +52,8 @@ export interface ScreenState {
   craftStation: string | null;
   /** The recipe just made (its card flashes once). */
   craftFlash: string | null;
+  /** What the last craft made, in words (its card says it, QA 02:26), when (performance.now()), and on which card. */
+  craftMade: { text: string; at: number; id?: string } | null;
   questsTab: import('./r3/quests').QuestsTab;
   bestiaryBiome: string | null;
   /** The menu whose "?" help card is open (null: none). */

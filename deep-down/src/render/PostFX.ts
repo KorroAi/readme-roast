@@ -227,10 +227,11 @@ void main() {
       if (de < reach) {
         vec2 fp = vUv * fr;
         float lines = (frostFeather(fp, vec2(vUv.x < 0.5 ? 1.0 : -1.0, 0.0)) * wx + frostFeather(fp, vec2(0.0, vUv.y < 0.5 ? 1.0 : -1.0)) * wy) / max(wx + wy, 1e-30);
-        float front = reach * (0.55 + 0.45 * frostNoise(fp * 26.0 + 11.0));
-        float m = 1.0 - smoothstep(front * 0.35, front, de);
+        // Its front in broad lobes (further in here, less there), its crystals thinning out toward it.
+        float front = reach * (0.4 + 0.6 * frostNoise(fp * 9.0 + 11.0));
+        float m = 1.0 - smoothstep(0.0, front, de);
         vec3 ice = mix(vec3(0.62, 0.76, 0.88), vec3(0.9, 0.96, 1.0), lines);
-        c = mix(c, ice, m * (0.06 + 0.78 * lines) * min(1.0, uHazard.x * 1.5));
+        c = mix(c, ice, m * (0.04 + 0.62 * lines * m) * min(1.0, uHazard.x * 1.5));
       }
       c = mix(c, c * vec3(0.94, 0.98, 1.05), uHazard.x * 0.35);
     }

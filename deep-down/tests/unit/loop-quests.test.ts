@@ -900,8 +900,9 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     expect(step()).toMatchObject({ progress: { have: 12, need: 14 }, target: near(at.coal) });
     h.storage.add('coal', 2);
     expect(step()).toMatchObject({ progress: { have: 14, need: 14 }, target: near(at.bench) });
-    // Made at the Workbench, it waits in the bag: place it (its camp spot).
-    h.backpack.add('furnace' as ItemId, 1);
+    // Made at the Workbench (the real craft: its stone and coal spent), it waits in the bag: place it (its camp spot).
+    expect(loop.craft('furnace').ok).toBe(true);
+    expect(h.backpack.count('furnace' as ItemId)).toBe(1);
     expect(step()).toMatchObject({ text: en['quest.step.placeFurnace'], progress: null, target: near(at.furnaceSpot) });
     h.backpack.remove('furnace' as ItemId, 1);
     loop.placeStation('furnace', { x: 9, y: 10, z: 9 });
@@ -909,13 +910,26 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     expect(step()).toMatchObject({ text: en['quest.step.bars'], progress: { have: 0, need: 7 }, target: near(at.copper) });
     expect(loop.craftView().focus).toMatchObject({ recipe: 'copperIngot' });
     h.storage.add('copperOre', 14);
+    // The Furnace took the 2 coal: fuel next (the nearest coal), then the Furnace.
+    expect(step()).toMatchObject({ progress: { have: 0, need: 7 }, target: near(at.coal) });
+    h.storage.add('coal', 2);
     expect(step()).toMatchObject({ progress: { have: 0, need: 7 }, target: near(at.furnaceSpot) });
     h.storage.add('copperIngot', 7);
     // 3. Build the Forge (10 stone, 4 bars, 2 coal), place it.
+    // The Furnace took the stone: 10 more (the nearest loose stone), then the bench.
+    expect(step()).toMatchObject({ text: en['quest.step.forge'], progress: { have: 6, need: 16 }, target: near(at.rubble) });
+    h.storage.add('stone', 10);
     expect(step()).toMatchObject({ text: en['quest.step.forge'], progress: { have: 16, need: 16 }, target: near(at.bench) });
-    h.backpack.add('forge' as ItemId, 1);
+    // The real craft spends 4 of the 7 bars: the 3 left are the Machete's, so the next step is to
+    // place the Forge, not to smelt again (the real-game check found "Smelt copper bars 3/7" here).
+    expect(loop.craft('forge').ok).toBe(true);
+    expect(h.backpack.count('copperIngot') + h.storage.count('copperIngot')).toBe(3);
     expect(step()).toMatchObject({ text: en['quest.step.placeForge'], target: near(at.forgeSpot) });
+    // Sent to the bank by a full bag, it still waits to be placed.
     h.backpack.remove('forge' as ItemId, 1);
+    h.storage.add('forge' as ItemId, 1);
+    expect(step()).toMatchObject({ text: en['quest.step.placeForge'] });
+    h.storage.remove('forge' as ItemId, 1);
     loop.placeStation('forge', { x: 9, y: 10, z: 9 });
     // 4. A Grit Boar's hide: the compass on the nearest boar.
     expect(step()).toMatchObject({ text: en['quest.step.hide'], progress: { have: 0, need: 1 }, target: near(at.boar) });
@@ -953,6 +967,32 @@ describe('guidance (2): the tutorial points and waits for no one; rumours of the
     (bare.h as unknown as { session: { world: { get: () => number } } }).session.world.get = () => B.AIR;
     bare.loop.update(0.3);
     expect(bare.loop.quests.main()).toMatchObject({ id: 'main:arm.furnace', progress: { have: 0, need: 14 }, target: null });
+  });
+
+  it('with no Grit Boar in sight, the hide step points at its ground: the nearest dark Amber Hollows spot out of the camp, a little ahead', () => {
+    const { h, loop } = game(false, false);
+    chainWorld(h);
+    (h as { mobs: unknown }).mobs = { list: () => [] };
+    const sp = (x: number, z: number, biome: string, dark = true) => ({ p: [x, 10, z], biome, dark, open: true, ceiling: false });
+    (h.strata.layout as unknown as { spawnPoints: unknown[] }).spawnPoints = [
+      sp(6, 6, 'amberHollows'), // in the camp (the fire at 0,0)
+      sp(30, 0, 'amberHollows', false), // lit
+      sp(-28, 0, 'glimmerCaves'), // another biome
+      sp(0, -40, 'amberHollows'),
+      sp(0, 50, 'amberHollows'),
+    ];
+    loop.placeStation('furnace', { x: 9, y: 10, z: 9 });
+    loop.placeStation('forge', { x: 9, y: 10, z: 7 });
+    h.storage.add('copperIngot', 3);
+    loop.update(0.3);
+    expect(loop.quests.main()).toMatchObject({ id: 'main:arm.hide', progress: { have: 0, need: 1 }, target: { x: 0, y: 10, z: -40, kind: 'point' } });
+    // Out there, the arrow leads on (never underfoot), and snaps to a boar once one shows.
+    h.player = { x: 0, y: 10, z: -38 };
+    loop.update(0.3);
+    expect(loop.quests.main().target).toMatchObject({ x: 0, z: 50 });
+    (h as { mobs: unknown }).mobs = { list: () => [{ kind: 'gritBoar', position: { x: 5, y: 10, z: -45 }, hostile: true, state: 'idle' }] };
+    loop.update(0.3);
+    expect(loop.quests.main().target).toMatchObject({ x: 5, y: 10, z: -45 });
   });
 
   it('a step whose result is already there is skipped at once, never shown; a save in the middle of the road resumes at its step', () => {

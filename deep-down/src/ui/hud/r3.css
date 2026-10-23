@@ -866,19 +866,24 @@
   border-color: rgba(143, 227, 238, 0.75);
   color: var(--rune-200);
 }
-/* The Interact chip: right side, above the pads, with the target's icon and verb. */
+/* The Interact chip: right side, above the pads, with the target's icon and verb. A row: the icon
+   beside its two lines (the verb, the target's name), never ui.css's column, which pushed the name
+   half out of the chip at 390 px (QA 01:31); it grows with Large text instead of clipping. */
 .dd-touch.dd-r3 .dd-use {
   position: absolute;
   right: calc(14px + var(--safe-right));
   bottom: calc(var(--pad-bottom) + 176px * var(--btn-scale));
   left: auto;
   display: flex;
+  flex-direction: row;
   align-items: center;
+  justify-content: flex-start;
   gap: 8px;
   min-width: 132px;
   max-width: 220px;
-  height: 52px;
-  padding: 0 14px 0 10px;
+  height: auto;
+  min-height: 52px;
+  padding: 6px 14px 6px 10px;
   --cut: var(--cut-chip);
   --fill: rgba(16, 40, 30, 0.84);
   --rim: #7ef0c0;

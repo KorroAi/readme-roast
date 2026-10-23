@@ -64,6 +64,18 @@ export function bubblePlacement(
 
 type Box = { left: number; top: number; width: number; height: number };
 
+/** After a tutorial bubble goes, a tip waits this long: the next step's bubble often comes at once. */
+export const TIP_AFTER_BUBBLE_MS = 1500;
+
+/**
+ * Whose turn a first-use tip has (QA 01:31: the Place tip drawn under the step 7 bubble): one notice
+ * at a time, a tutorial bubble first. 'wait': it waits (shown once the bubble has gone a moment);
+ * 'show': now.
+ */
+export function tipTurn(s: { bubbleUp: boolean; held: boolean; tipUp: boolean; sinceBubbleMs: number }): 'wait' | 'show' {
+  return s.bubbleUp || s.held || s.tipUp || s.sinceBubbleMs < TIP_AFTER_BUBBLE_MS ? 'wait' : 'show';
+}
+
 /**
  * bubblePlacement that also keeps clear of `avoid`, a control the bubble must not cover: the
  * Interact chip shares the band above the pads (QA 01:43: the Place tip sat on "Craft / Workbench").
@@ -113,6 +125,13 @@ export class TutorialOverlay implements UiHighlighter {
   private placedAt = 0;
   private tipTimer = 0;
   private tipFor: string | null = null;
+  private tipTarget: UiTargetId = 'action';
+  private tipMs = 4200;
+  /** First-use tips waiting their turn (a bubble or another tip was up), oldest first. */
+  private pendingTips: Array<{ id: string; target: UiTargetId; text: string; ms: number }> = [];
+  /** When the bubble last went (performance.now()); the tips' pump was tried. */
+  private bubbleOffAt = -1e9;
+  private tipPumpAt = 0;
   private readonly tips = loadTips();
   /** The ghost finger that shows a gesture with no control of its own (look: drag on the view). */
   private readonly swipe: HTMLElement;
@@ -169,6 +188,7 @@ export class TutorialOverlay implements UiHighlighter {
   /** The tutorial step to show (from the HUD snapshot), or null. Cheap when unchanged. */
   show(v: TutorialView | null): void {
     this.updateHeld();
+    this.pumpTips();
     const key = v ? `${v.target}|${v.line}|${v.step}|${v.total}` : '';
     if (key === this.stepKey) {
       // The target can move (a button appears, the layout mirrors): re-measure 4 times a second.
@@ -184,7 +204,11 @@ export class TutorialOverlay implements UiHighlighter {
     this.ringedEl?.classList.remove('dd-tut-on');
     this.ringedEl = null;
     this.target = v?.target ?? null;
+    const wasOn = this.el.classList.contains('on');
     this.el.classList.toggle('on', !!v);
+    if (wasOn && !v) this.bubbleOffAt = performance.now();
+    // A bubble over a tip: the tip steps aside and comes back once the bubble has gone.
+    if (v) this.stashTip();
     // The look step has no button: a ghost finger drags across the view instead.
     this.swipe.classList.toggle('on', v?.target === 'look');
     // A step done (the next one comes): the new bubble opens with a check (the "done" beat).
@@ -261,13 +285,54 @@ export class TutorialOverlay implements UiHighlighter {
    * control it points at. @returns true when it showed.
    */
   tip(id: string, target: UiTargetId, text: string, ms = 4200): boolean {
-    if (this.tips.has(id) || this.el.classList.contains('on') || this.tipFor || this.held) return false;
+    if (this.tips.has(id)) return false;
+    if (this.tipTurnNow() === 'wait') {
+      // Its turn comes after the bubble (or the tip) up now: it waits, at most a few of them.
+      if (!this.pendingTips.some((p) => p.id === id) && this.tipFor !== id) this.pendingTips.push({ id, target, text, ms });
+      if (this.pendingTips.length > 4) this.pendingTips.shift();
+      return true;
+    }
+    return this.showTip(id, target, text, ms);
+  }
+
+  private tipTurnNow(): 'wait' | 'show' {
+    return tipTurn({ bubbleUp: this.el.classList.contains('on'), held: this.held, tipUp: this.tipFor !== null, sinceBubbleMs: performance.now() - this.bubbleOffAt });
+  }
+
+  /** The waiting tips, one at a time, once it is their turn (tried a few times a second). */
+  private pumpTips(): void {
+    if (!this.pendingTips.length) return;
+    const now = performance.now();
+    if (now - this.tipPumpAt < 400 || this.tipTurnNow() === 'wait') return;
+    this.tipPumpAt = now;
+    // The first whose control is on screen now (a tip for a control gone from view waits for it).
+    for (let i = 0; i < this.pendingTips.length; i++) {
+      const p = this.pendingTips[i];
+      if (this.showTip(p.id, p.target, p.text, p.ms)) {
+        this.pendingTips.splice(i, 1);
+        return;
+      }
+    }
+  }
+
+  /** A tip up when a bubble comes: hidden, back at the front of the queue. */
+  private stashTip(): void {
+    if (this.tipFor === null) return;
+    window.clearTimeout(this.tipTimer);
+    this.tipEl.classList.remove('on');
+    this.pendingTips.unshift({ id: this.tipFor, target: this.tipTarget, text: this.tipEl.textContent ?? '', ms: this.tipMs });
+    this.tipFor = null;
+  }
+
+  private showTip(id: string, target: UiTargetId, text: string, ms: number): boolean {
     const el = this.targetEl(target);
     const r = el?.getBoundingClientRect();
     if (!r || r.width <= 0) return false;
     this.tips.add(id);
     saveTips(this.tips);
     this.tipFor = id;
+    this.tipTarget = target;
+    this.tipMs = ms;
     this.tipEl.textContent = text;
     this.tipEl.classList.add('on');
     const bw = Math.min(240, window.innerWidth - 24);

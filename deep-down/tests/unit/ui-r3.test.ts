@@ -523,8 +523,10 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(noticeTurns({ ...quiet, arrivalWaiting: true })).toEqual({ arrival: true, discovery: false, milestones: false, holdToasts: true });
     // A discovery already up: the arrival waits for it, so does a milestone.
     expect(noticeTurns({ ...quiet, arrivalWaiting: true, discoveryUp: true })).toMatchObject({ arrival: false, milestones: false, holdToasts: true });
-    // Behind a menu nothing shows and the toasts are not held (they show over the menu)...
+    // Behind a screen with no buttons at its foot (a stratum's load) nothing shows and the toasts flow...
     expect(noticeTurns({ ...quiet, live: false, arrivalWaiting: true, discoveryWaiting: true })).toEqual({ arrival: false, discovery: false, milestones: false, holdToasts: false });
+    // ...behind a menu they wait for it to close, never over its buttons (QA 02:26: the Map's Travel row).
+    expect(noticeTurns({ ...quiet, live: false, menuUp: true })).toEqual({ arrival: false, discovery: false, milestones: false, holdToasts: true });
     // ...but they wait for a card screen (the trip's card: LOOP 22:47, they sat over its title).
     expect(noticeTurns({ ...quiet, live: false, cardScreen: true }).holdToasts).toBe(true);
     // A milestone card up keeps its turn: a discovery waits for it.
@@ -724,6 +726,20 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     } finally {
       setLanguage('en');
     }
+  });
+
+  it('holds a first-use tip while a tutorial bubble is up, and a moment after it goes (QA 01:31)', async () => {
+    const { tipTurn, TIP_AFTER_BUBBLE_MS } = await import('../../src/ui/hud/Tutorial');
+    const free = { bubbleUp: false, held: false, tipUp: false, sinceBubbleMs: 1e9 };
+    expect(tipTurn(free)).toBe('show');
+    // The step 7 bubble up (the Place tip came as the torch was placed): the tip waits.
+    expect(tipTurn({ ...free, bubbleUp: true })).toBe('wait');
+    // Between two steps (the next bubble comes at once): it still waits; then its turn.
+    expect(tipTurn({ ...free, sinceBubbleMs: 200 })).toBe('wait');
+    expect(tipTurn({ ...free, sinceBubbleMs: TIP_AFTER_BUBBLE_MS + 1 })).toBe('show');
+    // Another tip up, or the bubbles held by an arrival card: one at a time.
+    expect(tipTurn({ ...free, tipUp: true })).toBe('wait');
+    expect(tipTurn({ ...free, held: true })).toBe('wait');
   });
 
   it('puts a first-time tip clear of the Interact chip when they would share a band (QA 01:43)', async () => {

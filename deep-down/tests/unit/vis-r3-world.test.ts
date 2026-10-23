@@ -420,6 +420,21 @@ describe('the last look pass (VIS round 3, lead 01:17)', () => {
     expect(new LanternLight().update(plain, { dt: 1 / 30, time: 0, fuel: 1, lit: true, tier: 1, radius: 11, intensity: 1, ember: 0.3 })).toBeCloseTo(11, 5);
   });
 
+  it('lets the geode\'s crystals bloom sooner, only in the geode', async () => {
+    const THREE = await import('three');
+    const { BiomeLook } = await import('../../src/render/biomeLook');
+    const grade = { lift: new THREE.Color(), gain: new THREE.Color(1, 1, 1), saturation: 1, threshold: 1.6 };
+    const look = new BiomeLook({ setBiomeTargets: () => undefined } as never, grade);
+    look.applyBiomeLook('crystalGeode', 1);
+    look.update(0, 10, 10, 10, () => 'crystalGeode');
+    expect(grade.threshold).toBeCloseTo(1.6 * 0.7, 5);
+    look.applyBiomeLook('frostCaverns', 1);
+    look.update(0, 40, 10, 40, () => 'frostCaverns');
+    expect(grade.threshold).toBeCloseTo(1.6, 5);
+    look.detach();
+    expect(grade.threshold).toBeCloseTo(1.6, 5);
+  });
+
   it('lights the glass shard cluster from within', () => {
     const m = buildPropModel('glassShard' as PropKind, { variant: 0 });
     expect(m.glow).not.toBeNull();

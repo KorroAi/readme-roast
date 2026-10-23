@@ -51,6 +51,8 @@ const tripOrReport: Builder = (host) => (host.state.trip ? buildTrip(host) : bui
 export const ENDING_DELAY_MS = 6500;
 /** Within this long, a second toast of the Gate opening is the same news (WORLD's, then LOOP's). */
 const GATE_NEWS_MS = 8000;
+/** The toasts of a craft (LOOP's and the first version's): with Craft open, its card tells them. */
+const CRAFT_RESULTS: readonly TextKey[] = ['craft3.made', 'craft3.madeGear', 'gear3.kept', 'toast.crafted', 'toast.built'];
 
 const BUILDERS: Partial<Record<ScreenId, Builder>> = {
   menu: buildMenu,
@@ -184,6 +186,7 @@ export class UI implements GameUi {
     craftTab: null,
     craftStation: null,
     craftFlash: null,
+    craftMade: null,
     questsTab: 'main',
     bestiaryBiome: null,
     help: null,
@@ -528,6 +531,8 @@ export class UI implements GameUi {
     return noticeTurns({
       live: this.gameplay && this.current === 'none' && !this.ceremony,
       cardScreen: this.gameplay && (this.current === 'summary' || this.current === 'death' || this.current === 'ending'),
+      // Any other screen over play but a stratum's load (its foot is free: the gate's toast shows there).
+      menuUp: this.gameplay && this.current !== 'none' && this.current !== 'loading',
       fight: this.hud.fighting,
       bubbleUp: this.hud.tutorial.bandBottom() > 0,
       arrivalUp: this.hud.arrivalUp,
@@ -592,6 +597,11 @@ export class UI implements GameUi {
     }
     // No depth record while a stratum loads: it is told at the new stratum's real depth, on arrival.
     if (this.current === 'loading' && this.state.loadingStratum !== null && fromTemplate(text, t('toast.depthRecord'))) return;
+    // A craft result while Craft is open is told in the card just made (QA 02:26), not over its buttons.
+    if (this.current === 'crafting' && CRAFT_RESULTS.some((k) => fromTemplate(text, t(k)))) {
+      this.state.craftMade = { text, at: performance.now() };
+      return;
+    }
     this.toasts.show(text, tone);
   }
 

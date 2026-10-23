@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { untilGame } from './dd';
+import { untilGame, waitPlay } from './dd';
 import { PHONE, aimAtOre, boot, newExpedition, quiet } from './r3';
 import type { Touch } from './touch';
 
@@ -312,8 +312,8 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
   let pt: { x: number; y: number } | null = null;
   for (let k = 0; k < 16 && id === null; k++) {
     await page.evaluate((y) => window.__DD__.look(y, -0.12), (k * Math.PI) / 8);
-    // The view turns on the next frames: the floor ahead is read from where it then looks.
-    await untilGame(page, async () => true, 0.12);
+    // The lens eases round to the new look before the crawler's point on screen is read.
+    await waitPlay(page, 0.4);
     const cand = await page.evaluate(() => {
       const dd = window.__DD__ as any;
       const fl = dd.mobs.floorAhead(2, 3.6);
@@ -323,7 +323,7 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
       return id as number;
     });
     if (cand === null) continue;
-    await untilGame(page, async () => true, 0.12);
+    await waitPlay(page, 0.15);
     const c = await page.evaluate((i) => (window.__DD__ as any).mobs.get(i), cand);
     const at = c ? await screenOf(page, [c.x, c.y + 0.3, c.z]) : null;
     const picked = at

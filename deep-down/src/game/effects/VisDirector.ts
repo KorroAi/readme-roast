@@ -160,7 +160,7 @@ export function spireTipHalos(w: Pick<VoxelWorld, 'get'>, sites: ReadonlyArray<{
           let open = 0;
           for (const [dx, dz] of SIDES) if (!SOLID[w.get(x + dx, y, z + dz)]) open++;
           if (open < 3) continue;
-          out.push({ x, y, z, id: B.LIGHT_ABYSS, color: [0.5, 0.28, 1.25], size: 0.95, lift: 0.75 });
+          out.push({ x, y, z, id: B.LIGHT_ABYSS, color: [0.5, 0.28, 1.25], size: 1.25, lift: 0.85 });
         }
       }
     }

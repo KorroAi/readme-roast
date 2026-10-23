@@ -47,8 +47,11 @@ export interface BiomeLookDef {
   atmosphere: AtmospherePreset;
   /** Its caverns: overrides on the passage air (clearer, a wider fill), blended by openness. */
   open: Partial<AtmospherePreset>;
-  /** Post grade (display-linear): lift of the darks, gain of the highlights, saturation. */
-  grade: { lift: [number, number, number]; gain: [number, number, number]; saturation: number };
+  /**
+   * Post grade (display-linear): lift of the darks, gain of the highlights, saturation; `bloom`
+   * scales the bloom threshold (1 by default; under 1 its glowing things bloom sooner).
+   */
+  grade: { lift: [number, number, number]; gain: [number, number, number]; saturation: number; bloom?: number };
   /** The colour of its light pockets and glowing things (linear rgb, 0..1). */
   light: [number, number, number];
   fx: readonly BiomeFx[];
@@ -130,7 +133,9 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     // wash: materials/strata.ts geodeFloor), the crystals' own glow raised instead.
     atmosphere: air({ fog: 0x141c2c, fogLow: 0x0e1a26, ambient: 0x0c1016, open: 0x52627a, density: 0.016, scatter: 0.07, lightGain: 2.0, exposure: 1.04 }),
     open: { ...CAVERN, density: 0.011 },
-    grade: { lift: [0.003, 0.0035, 0.0044], gain: [1.03, 1.03, 1.03], saturation: 1.0 },
+    // Its crystals glow past the tone curve's shoulder: raising their light alone barely showed (the
+    // brightest spire read 0.83 before and after), so in the geode they bloom sooner (1.6 -> 1.1).
+    grade: { lift: [0.003, 0.0035, 0.0044], gain: [1.03, 1.03, 1.03], saturation: 1.0, bloom: 0.7 },
     light: [0.42, 0.45, 1.0],
     fx: ['motes', 'drips'],
     hazard: 'none',
@@ -156,11 +161,14 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     // less green fill and grade (saturation under 1), so the warm lantern pool and the glowing vines
     // read against it.
     // Lead 01:17: the olive is right but too dark (median 0.10): more fill (a greyer, brighter
-    // ambient and open fill, the haze a step lighter) and a lantern pool that carries further (reach,
-    // bounce), the saturation unchanged; the vine curtain stays the brightest glow.
-    atmosphere: air({ fog: 0x2a332e, fogLow: 0x222a22, ambient: 0x151a15, open: 0x6e786a, density: 0.024, scatter: 0.1, lightGain: 1.8, ambientGain: 0.85, openGain: 0.95, bounce: 0.18, reach: 1.25, exposure: 1.06 }),
+    // ambient and open fill, the haze a step lighter), a lantern pool that carries further (reach,
+    // bounce) and lighter rock (materials/strata.ts) moved it only to 0.12: its light is mostly the
+    // glowroot's own, so the zone's light gain carries the rest (1.8 -> 3.2, measured 0.157), and the
+    // saturation eases a little (0.9 -> 0.82) so the brighter green does not return; the vine curtain
+    // stays the brightest glow.
+    atmosphere: air({ fog: 0x2a332e, fogLow: 0x222a22, ambient: 0x151a15, open: 0x6e786a, density: 0.024, scatter: 0.1, lightGain: 3.2, ambientGain: 0.85, openGain: 0.95, bounce: 0.18, reach: 1.25, exposure: 1.12 }),
     open: { ...CAVERN, density: 0.014, openGain: 1.15 },
-    grade: { lift: [0.0034, 0.0042, 0.0036], gain: [1.04, 1.02, 0.98], saturation: 0.9 },
+    grade: { lift: [0.0034, 0.0042, 0.0036], gain: [1.04, 1.02, 0.98], saturation: 0.82 },
     light: [0.36, 0.78, 0.34],
     fx: ['fireflies', 'spores'],
     hazard: 'dark',
@@ -332,6 +340,8 @@ export interface GradeTarget {
   lift: THREE.Color;
   gain: THREE.Color;
   saturation: number;
+  /** The bloom threshold (scene-linear luminance), when the target has one. */
+  threshold?: number;
 }
 
 /** A biome sampler (WORLD's StratumLayout.biomeAt); null where nothing is known. */
@@ -369,7 +379,7 @@ export class BiomeLook {
   private forced: { biome: LookBiomeId; blend: number } | null = null;
   private readonly targets = new Map<string, number>();
   private readonly rigTargets = new Map<string, number>();
-  private readonly base: { lift: THREE.Color; gain: THREE.Color; saturation: number } | null;
+  private readonly base: { lift: THREE.Color; gain: THREE.Color; saturation: number; threshold: number | null } | null;
   private init = false;
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
@@ -378,7 +388,7 @@ export class BiomeLook {
     private readonly rig: LightingRig,
     private readonly grade: GradeTarget | null = null,
   ) {
-    this.base = grade ? { lift: grade.lift.clone(), gain: grade.gain.clone(), saturation: grade.saturation } : null;
+    this.base = grade ? { lift: grade.lift.clone(), gain: grade.gain.clone(), saturation: grade.saturation, threshold: typeof grade.threshold === 'number' ? grade.threshold : null } : null;
     active = this;
   }
 
@@ -451,6 +461,7 @@ export class BiomeLook {
       this.grade.lift.copy(this.base.lift);
       this.grade.gain.copy(this.base.gain);
       this.grade.saturation = this.base.saturation;
+      if (this.base.threshold !== null) this.grade.threshold = this.base.threshold;
     }
     if (active === this) active = null;
   }
@@ -470,9 +481,10 @@ export class BiomeLook {
       g.lift.copy(this.base.lift);
       g.gain.copy(this.base.gain);
       g.saturation = this.base.saturation;
+      if (this.base.threshold !== null) g.threshold = this.base.threshold;
       return;
     }
-    let lr = 0, lg = 0, lb = 0, gr = 0, gg = 0, gb = 0, sat = 0;
+    let lr = 0, lg = 0, lb = 0, gr = 0, gg = 0, gb = 0, sat = 0, bloom = 0;
     for (const [b, w0] of this.weights) {
       const d = BiomeLook.def(b);
       if (!d) continue;
@@ -484,9 +496,11 @@ export class BiomeLook {
       gg += d.grade.gain[1] * w;
       gb += d.grade.gain[2] * w;
       sat += d.grade.saturation * w;
+      bloom += (d.grade.bloom ?? 1) * w;
     }
     g.lift.setRGB(lr, lg, lb);
     g.gain.setRGB(gr, gg, gb);
     g.saturation = sat;
+    if (this.base.threshold !== null) g.threshold = this.base.threshold * bloom;
   }
 }
