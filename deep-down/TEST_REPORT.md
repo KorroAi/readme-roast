@@ -10,7 +10,7 @@ config) is the same from e4db249, which built the APK, to the final commit; afte
 | `npx tsc --noEmit` | exit 0 |
 | `node tools/run-ts.mjs tools/loop-fr-sync.ts --report` | 0 English keys without French, 0 stale French lines (French table 2,314 keys) |
 | `npx vitest run`, twice | 95 files, **1352/1352** both times (about 85 s each) |
-| `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | Four full runs on the final game code (runs 4–7): **27/28** each, in 29–33 min. Each run failed a different test, every time in the test's own setup or timing on a new random world, never in the game. Each failure was root-caused, fixed and re-run (run by run, below). An eighth full run on the final tree is under way; its result is added here. |
+| `npx playwright test` (touch specs at 390 × 844 with real CDP touches; one worker; no retries) | Four full runs on the final game code (runs 4–7): **27/28** each, in 29–33 min. Each run failed a different test, every time in the test's own setup or timing on a new random world, never in the game. Each failure was root-caused, fixed and re-run (run by run, below). Run 8 on 38d892f, the final tree: **28/28** (31.1 min). |
 | `tools/ui-check.mjs` (every screen at portrait, landscape and desktop; the touch layer; a game smoke flow) | `--vp port,land --no-touch`: **0 layout problems, 0 console problems**. `--vp desk --game`: **124/124**. The lead's first run gave 119/121; both failures were in the tool, not the game. One check counted a second, legitimately held toast. The game flow tapped Craft's Building tab while it was scrolled off screen. Both were fixed. UI's repeat and the lead's final runs on aa98d52 both give the numbers above. |
 | `tools/apk-sim.mjs` on the 2.0.0 APK (shared debug key 47facb26…, versionCode 2000000, built from e4db249) | **15/15 PASS**: boots from the APK files and reports 2.0.0, generates in the worker, New Expedition plays, the action HUD is up, the save survives a reload (Continue), privacy and licences render offline, the crash panel, Back and Restart work, 0 refused requests, 0 page errors |
 | Lead's captures of the built game (`tools/play.mjs`, 390 × 844 at DPR 2, real touches) | 19 shots opened by the lead: the title (v2.0.0, seed field), arrival, tutorial, Craft ("make this next: Furnace"), Bag, Map, Quests, Bestiary, HUD, Settings, companion, black-out, the road after the tutorial, a lair, a vista, the descent's own loading screen (Stratum II, its two biomes, -90 m to -180 m), and the arrival in stratum II |
@@ -48,6 +48,7 @@ re-run on new random worlds 2–3 times.
   the finger. The spec now asks the game where a tap would only look (TapController.intentAt, over 3 pitches, 16 ways and 3
   points, else from the vista's balcony). Its tap beside a vein now passes over a vein seen too close to leave plain rock
   beside it. r3-tap: **20/20** over 4 runs; 3 of them looked out from the vista.
+- **Run 8 (38d892f, the final tree).** **28/28** in 31.1 min: every spec passed in one run, the four fixed ones included.
 
 **Evidence from the specialists, re-checked by the lead** (each line's log and captures are in `docs/round3/STATUS.md`):
 - **World.** On 16 seeds × 6 strata, 96/96 plans pass on the first attempt: 0 trapped cells, every route reachable, and no
