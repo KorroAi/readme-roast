@@ -5,6 +5,7 @@
 //          [--targets amberHollows,mushroomForest,lair:amberHollows,gate:1,torch:amberHollows,go:vista@2]
 //          [--views 2] [--size 390x844] [--dpr 2] [--port 4175] [--hud 1] [--sonar 0] [--prod 0]
 //          [--eval "<js run in the page after each view; its JSON result is printed>"]
+//          [--pre "<js run once before the first view>" | --pre @file.js]
 //
 // A target is a biome id (WORLD's `__DD__.goto`: a cavern of that biome, then for view 2 a spawn
 // point of the same biome at least 20 m away), `lair:<biome>` (the lair's entrance, facing its
@@ -16,10 +17,10 @@
 // mid-sweep.
 import { chromium } from '@playwright/test';
 import { createServer, preview } from 'vite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 
 const args = process.argv.slice(2);
-const opt = { eval: '', blockmap: '0', calls: '0', out: 'artifacts/r3/vis', seed: '7', q: 'balanced', targets: 'amberHollows,mushroomForest,rootGalleries,floodedGrottoes', views: '2', size: '390x844', dpr: '2', port: '4175', hud: '1', sonar: '0', prod: '0', wait: '1500' };
+const opt = { eval: '', pre: '', blockmap: '0', calls: '0', out: 'artifacts/r3/vis', seed: '7', q: 'balanced', targets: 'amberHollows,mushroomForest,rootGalleries,floodedGrottoes', views: '2', size: '390x844', dpr: '2', port: '4175', hud: '1', sonar: '0', prod: '0', wait: '1500' };
 for (let i = 0; i < args.length; i += 2) opt[args[i].replace(/^--/, '')] = args[i + 1];
 const [width, height] = opt.size.split('x').map(Number);
 mkdirSync(opt.out, { recursive: true });
@@ -62,6 +63,13 @@ try {
   }, { q: opt.q, hud: opt.hud, seed: opt.seed });
   await page.waitForFunction(() => window.__DD__.state().mode === 'playing', null, { timeout: 180000 });
   console.log(`booted seed ${opt.seed} in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+  // --pre "<js expression>" (or --pre @file.js): run once in the page before the first view, e.g. to
+  // try look values without a rebuild (an async IIFE importing /src/render/lighting.ts and
+  // re-registering a biome's atmosphere). Its JSON result is printed.
+  if (opt.pre) {
+    const src = opt.pre.startsWith('@') ? readFileSync(opt.pre.slice(1), 'utf8') : opt.pre;
+    console.log(`pre: ${await page.evaluate(async (src) => { try { return JSON.stringify(await (0, eval)(src)); } catch (e) { return 'error ' + e.message; } }, src)}`);
+  }
 
   // A target may carry its own view count: `amberHollows*2`.
   const targets = opt.targets.split(',').filter(Boolean);

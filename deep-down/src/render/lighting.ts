@@ -56,6 +56,8 @@ export interface LightingUniforms {
   //   uFogPool vec4  x: pool level (world y), y: 1 / pool thickness, z: pool density (1/m)
   //   uAtmos   vec4  x: light-volume in-scatter, y: lantern bounce, z: emission absorbed by fog,
   //                  w: the zone's light gain (terrain and prop emission take it)
+  //   uLanternReach float  the zone's lantern pool reach (x uLanternRadius in the shading only;
+  //                  a missing uniform's 0 reads as 1)
 }
 
 export const LIGHTING_GLSL = /* glsl */ `
@@ -67,6 +69,7 @@ uniform vec3 uLanternPos;
 uniform vec3 uLanternColor;
 uniform float uLanternRadius;
 uniform float uLanternIntensity;
+uniform float uLanternReach;
 uniform vec3 uAmbient;
 uniform vec3 uOpenAmbient;
 uniform float uEmitGain;
@@ -207,7 +210,9 @@ vec3 lanternLight(vec3 samplePos, vec3 fragPos, vec3 n, float open, float minDis
   vec3 d = uLanternPos - fragPos;
   float dist = length(d);
   vec3 l = d / max(dist, 1e-3);
-  float x = max(dist, minDist) / max(uLanternRadius, 0.5);
+  // The zone's reach (AtmospherePreset.reach): a dark-floored biome carries its pool further.
+  float reach = uLanternReach > 0.0 ? uLanternReach : 1.0;
+  float x = max(dist, minDist) / max(uLanternRadius * reach, 0.5);
   float win = clamp(1.0 - x * x * x * x, 0.0, 1.0);
   float att = win * win / (1.0 + LANTERN_K * x * x);
   // Arm's length: a wall right in front of the flame would wash to cream; the near field rolls off
@@ -430,6 +435,12 @@ export interface AtmospherePreset {
    * is about 1.2-2x what an exposure of 1 alone would show.
    */
   lightGain: number;
+  /**
+   * Reach of the lantern's pool in this zone (x the lantern's radius in the shading; the lantern
+   * field follows it, gameplay keeps the radius): 1 by default. A biome with dark ground (the
+   * Glowroot's moss) carries the pool further so the way ahead reads.
+   */
+  reach?: number;
 }
 
 export type AtmosphereZone = 'camp' | 'tunnel' | 'hollow' | 'rift' | 'glowroot' | 'ember' | 'vault';
@@ -463,7 +474,7 @@ interface AtmosphereMix {
   fogLow: THREE.Color;
   ambient: THREE.Color;
   open: THREE.Color;
-  /** density, poolLevel, 1/poolThickness, poolDensity, scatter, bounce, absorb, exposure, lightGain */
+  /** density, poolLevel, 1/poolThickness, poolDensity, scatter, bounce, absorb, exposure, lightGain, reach */
   k: number[];
   /** poolLevel is relative to the explorer (AtmospherePreset.poolRelative). */
   rel?: boolean;
@@ -477,7 +488,7 @@ function linearPreset(p: AtmospherePreset): AtmosphereMix {
     fogLow: c(p.fogLow),
     ambient: c(p.ambient, p.ambientGain),
     open: c(p.open, p.openGain),
-    k: [p.density, p.poolLevel, 1 / p.poolThickness, p.poolDensity, p.scatter, p.bounce, p.absorb, p.exposure, p.lightGain],
+    k: [p.density, p.poolLevel, 1 / p.poolThickness, p.poolDensity, p.scatter, p.bounce, p.absorb, p.exposure, p.lightGain, p.reach ?? 1],
     rel: !!p.poolRelative,
   };
 }
@@ -597,6 +608,7 @@ export class LightingRig {
       uLanternColor: { value: new THREE.Color().setRGB(...hexToLinear(0xffb878)).multiplyScalar(1.1) },
       uLanternRadius: { value: 11 },
       uLanternIntensity: { value: 1 },
+      uLanternReach: { value: 1 },
       uAmbient: { value: new THREE.Color() },
       uOpenAmbient: { value: new THREE.Color() },
       uEmitGain: { value: EMIT_GAIN },
@@ -804,6 +816,7 @@ export class LightingRig {
     this.exposure = m.k[7];
     this.lightGain = m.k[8];
     u.uEmitGain.value = EMIT_GAIN * m.k[8];
+    u.uLanternReach.value = m.k[9] > 0 ? m.k[9] : 1;
   }
 
   /** Queue a sub-region of the world light texture for upload. */

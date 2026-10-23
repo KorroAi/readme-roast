@@ -76,7 +76,10 @@ export class LanternLight {
   private readonly tmp = new THREE.Color();
   private shownFuel = -1;
 
-  /** Compute the light for this frame and write uLanternRadius, uLanternIntensity, uLanternColor. */
+  /**
+   * Compute the light for this frame and write uLanternRadius, uLanternIntensity, uLanternColor.
+   * Returns the radius the lantern's line-of-sight field must cover (the radius x the zone's reach).
+   */
   update(u: LightingUniforms, inp: LanternLightInput): number {
     const t = inp.time;
     const menu = !!inp.menu;
@@ -113,6 +116,10 @@ export class LanternLight {
     u.uLanternRadius.value = radius;
     u.uLanternIntensity.value = intensity;
     u.uLanternColor.value.copy(this.color);
-    return radius;
+    // The line-of-sight field (the return value) covers the zone's reach too (lighting.ts
+    // uLanternReach: the shading carries the pool further in some biomes); the radius itself, which
+    // the creatures read, stays the lantern's.
+    const reach = u.uLanternReach?.value;
+    return typeof reach === 'number' && reach > 1 ? radius * reach : radius;
   }
 }

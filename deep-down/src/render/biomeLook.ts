@@ -125,9 +125,12 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
   crystalGeode: {
     // Lead 00:13: clear near air so the crystals pop (it read a little murky purple): a darker, more
     // neutral fill and a thinner haze behind them, the blue lift and the saturation eased.
-    atmosphere: air({ fog: 0x181a30, fogLow: 0x10202c, ambient: 0x0c0e18, open: 0x56587a, density: 0.02, scatter: 0.1, lightGain: 2.2 }),
-    open: { ...CAVERN, density: 0.014 },
-    grade: { lift: [0.0032, 0.0034, 0.0042], gain: [1.03, 1.03, 1.03], saturation: 1.0 },
+    // Lead 01:17: the crystals pop: cooler, clearer air (slate blue, not violet; thinner, less
+    // in-scatter), less placed light (the violet pockets as accents on a pale calcite floor, not a
+    // wash: materials/strata.ts geodeFloor), the crystals' own glow raised instead.
+    atmosphere: air({ fog: 0x141c2c, fogLow: 0x0e1a26, ambient: 0x0c1016, open: 0x52627a, density: 0.016, scatter: 0.07, lightGain: 1.9, exposure: 1.04 }),
+    open: { ...CAVERN, density: 0.011 },
+    grade: { lift: [0.003, 0.0035, 0.0044], gain: [1.03, 1.03, 1.03], saturation: 1.0 },
     light: [0.42, 0.45, 1.0],
     fx: ['motes', 'drips'],
     hazard: 'none',
@@ -152,8 +155,11 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     // Lead 00:13: it was drowned in one green: a lighter, greyer haze (still only past 12-18 m), a
     // less green fill and grade (saturation under 1), so the warm lantern pool and the glowing vines
     // read against it.
-    atmosphere: air({ fog: 0x222c26, fogLow: 0x1a221a, ambient: 0x0e120e, open: 0x5e6a5a, density: 0.024, scatter: 0.1, lightGain: 1.75 }),
-    open: { ...CAVERN, density: 0.014 },
+    // Lead 01:17: the olive is right but too dark (median 0.10): more fill (a greyer, brighter
+    // ambient and open fill, the haze a step lighter) and a lantern pool that carries further (reach,
+    // bounce), the saturation unchanged; the vine curtain stays the brightest glow.
+    atmosphere: air({ fog: 0x2a332e, fogLow: 0x222a22, ambient: 0x151a15, open: 0x6e786a, density: 0.024, scatter: 0.1, lightGain: 1.8, ambientGain: 0.85, openGain: 0.95, bounce: 0.18, reach: 1.25, exposure: 1.06 }),
+    open: { ...CAVERN, density: 0.014, openGain: 1.15 },
     grade: { lift: [0.0034, 0.0042, 0.0036], gain: [1.04, 1.02, 0.98], saturation: 0.9 },
     light: [0.36, 0.78, 0.34],
     fx: ['fireflies', 'spores'],
