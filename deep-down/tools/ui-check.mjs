@@ -513,8 +513,12 @@ if (opt.touch) {
   check('pickups of one item merge into one line', iron.length === 1 && iron[0].includes('+3 Iron Ore'), iron);
   check('discovery banner shows the first', (await page.locator('.dd-discovery-title').textContent()) === 'First Discovery');
   check('discovery banner counts index/total', (await page.locator('.dd-discovery-count').textContent()) === '3/9');
-  // One notice at a time (QA 22:10): the toast shown just before stands aside while the cards are up.
-  check('a toast steps aside while a notice card is up', (await page.locator('.dd-toast.held').count()) === 1);
+  // One notice at a time (QA 22:10): the toast shown just before stands aside while the cards are up,
+  // and so does every other fresh one: toasts that waited out the menus just closed (QA 02:26: never
+  // over a menu's buttons) show as it closes and step aside with it (gate 06:44: two were held, the
+  // old count of one failed). None stays out over the card.
+  const toastsNow = await page.locator('.dd-toast').evaluateAll((els) => els.map((e) => ({ text: e.textContent, held: e.classList.contains('held') })));
+  check('a toast steps aside while a notice card is up', toastsNow.some((x) => x.held && /check-toast/.test(x.text ?? '')) && !toastsNow.some((x) => !x.held), toastsNow);
   await wait(4000);
   const second = await page
     .waitForFunction(() => document.querySelector('.dd-discovery-title')?.textContent === 'Second Discovery', null, { timeout: 4000 })
@@ -749,6 +753,9 @@ async function gameFlow(page, st, until, shot) {
   const cdp = await page.context().newCDPSession(page);
   const tapLoc = async (loc) => {
     await loc.waitFor({ state: 'visible', timeout: 180_000 });
+    // Into view first, as a finger would bring it (gate 06:44: Craft opened on the Stations tab, its
+    // strip scrolled so, and a tap at Building's box fell outside the strip).
+    await loc.scrollIntoViewIfNeeded({ timeout: 30_000 });
     const b = await loc.boundingBox();
     const p = { x: Math.round(b.x + b.width / 2), y: Math.round(b.y + b.height / 2), id: 1, radiusX: 8, radiusY: 8, force: 1 };
     await Promise.all([cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [p] }), cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] })]);
@@ -825,10 +832,11 @@ async function gameFlow(page, st, until, shot) {
   for (const [dx, dz] of bench ? [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]] : []) {
     const stand = await page.evaluate(([x, y, z, ox, oz]) => {
       const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
-      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+      return s && Math.hypot(s[0] - x, s[2] - z) < 3 ? s : null;
     }, [...bench, dx, dz]);
     if (!stand) continue;
-    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    // (standableNear gives the cell's centre: stood there as it is, not on a corner.)
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), stand);
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench);
     if (await use.waitFor({ state: 'visible', timeout: 6000 }).then(() => true, () => false)) break;
   }
