@@ -605,6 +605,32 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(markerStateKey([{ id: 'x', stratum: 2 }], 1, [], () => false, false)).toBe(markerStateKey([], 1, [], () => false, false));
   });
 
+  it('writes the notices up or waiting again in the language now set (QA 00:32)', async () => {
+    const { discoveryText } = await import('../../src/ui/notices');
+    const { remakeAll } = await import('../../src/ui/hud/Milestones');
+    type Milestone = import('../../src/ui/hud/Milestones').Milestone;
+    const { setLanguage, t } = await import('../../src/i18n');
+    // Built in English, as the game did before the switch.
+    const legend = { id: 'rarityLegend', title: t('rarity.legend.title'), body: t('rarity.legend.body'), titleKey: 'rarity.legend.title', bodyKey: 'rarity.legend.body', index: NaN, total: NaN, major: false, legend: true };
+    const page = { id: 'note.page_3', title: t('page.3.title'), body: t('page.3.body'), index: 3, total: 24, major: false };
+    const make = (): Milestone => ({ kind: 'feat', name: t('feat3.firstTorch'), line: '', reward: '', remake: make });
+    const queue = [make(), { kind: 'shard', name: 'kept as given', line: '', reward: '' } as Milestone];
+    expect(legend.title).toBe('What glows can be taken');
+    setLanguage('fr');
+    try {
+      // The "What glows" card: title and body follow the tier lines into French.
+      expect(discoveryText(legend)).toEqual({ title: 'Ce qui luit peut se prendre', body: t('rarity.legend.body') });
+      // A journal page: no keys carried, its id names them.
+      expect(discoveryText(page).title).toBe('Page 3 · Le rayon de miel');
+      // An unknown one keeps the words it came with.
+      expect(discoveryText({ id: 'nowhere', title: 'As given', body: 'Body', index: 1, total: 1, major: false }).title).toBe('As given');
+      // Milestone cards waiting (or up) are written again; one without a remake keeps its words.
+      expect(remakeAll(queue).map((m) => m.name)).toEqual(['Porteur de lumière', 'kept as given']);
+    } finally {
+      setLanguage('en');
+    }
+  });
+
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {
     const { menuEnter } = await import('../../src/ui/UI');
     expect(menuEnter('none', 'map')).toBe('play');

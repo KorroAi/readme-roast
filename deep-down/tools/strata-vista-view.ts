@@ -13,7 +13,7 @@ import type { StratumLayout } from '../src/world/gen/strata/types';
 export function vistaLakeCells(l: StratumLayout): Array<[number, number, number]> {
   const V = l.vista!;
   const out: Array<[number, number, number]> = [];
-  const lake = l.features.lakes.find((k) => k.id.startsWith('vista_lake_'));
+  const lake = l.features?.lakes?.find((k) => k.id.startsWith('vista_lake_'));
   if (lake) {
     const w = lake.max[0] - lake.min[0] + 1;
     for (let z = lake.min[1]; z <= lake.max[1]; z++) for (let x = lake.min[0]; x <= lake.max[0]; x++) if (lake.mask[(z - lake.min[1]) * w + (x - lake.min[0])]) out.push([x + 0.5, lake.level + 0.05, z + 0.5]);

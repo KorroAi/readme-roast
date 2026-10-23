@@ -104,6 +104,17 @@ try {
         // Across the hall to the island's spire (its lit tip), the lake and the fall below.
         look = L.vista.island ? [L.vista.island[0], L.vista.island[1] - 3, L.vista.island[2]] : [c[0], c[1] + 2, c[2]];
         note = L.vista.name;
+      } else if (what === 'card' && L.vista) {
+        // Where the vista's card shows on the way in (its radius from the lookout, back toward the
+        // balcony's middle), looking down at the lake round the island (QA 01:19).
+        const site = L.sites.find((x) => x.kind === 'vista');
+        const c = site.centre, b = L.vista.balcony;
+        const bx = b[0] - c[0], bz = b[2] - c[2], bl = Math.hypot(bx, bz) || 1;
+        const r = Math.max(0, Math.min(site.radius, bl) - 0.05);
+        at = [c[0] + (bx / bl) * r, c[1], c[2] + (bz / bl) * r];
+        const isl = L.vista.island ?? L.vista.centre;
+        look = [isl[0], L.vista.centre[1] + 1, isl[2]];
+        note = `${L.vista.name} card r ${site.radius}`;
       } else if (what === 'island' && L.vista) {
         // From the ramp's foot on the shore, up at the island's spire over the lake.
         const isl = L.vista.island ?? L.vista.centre;
