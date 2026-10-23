@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { untilGame } from './dd';
-import { PHONE, mark, aimAtOre, awayFromCamp, boot, centreOf, faceOpen, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
+import { PHONE, mark, aimAtOre, awayFromCamp, boot, centreOf, closeTripCard, faceOpen, hud, newExpedition, quiet, tapControl, uiEvents, waitEvent, waitScreen, tapEl } from './r3';
 
 // Round 3 (UI): the mobile action layout's controls with real touches at 390 x 844 (BRIEF §0.6):
 // - a tap on a vein mines it until it breaks (the tap-to-act accelerator stays);
@@ -60,12 +60,15 @@ test('touch: a tap mines a vein; a drag looks; the stick walks and sprints at it
   expect(await untilGame(page, async () => Math.abs((await page.evaluate(() => window.__DD__.game.cameraRig.yaw as number)) - yaw0) > 0.25, 4), 'the drag looked round').toBe(true);
 
   // The stick: a short push walks, a push to the edge sprints (its ring lights). First the view
-  // turns to open floor (the mined vein's wall can fill the way ahead), out of the camp if need be.
+  // turns to open floor (the mined vein's wall can fill the way ahead), out of the camp if need be,
+  // never back into the camp from out of it (the trip would end: its card over play let the stick
+  // go, gate 05:28). A trip card already up (the step to the vein crossed the camp's edge) is closed.
+  await closeTripCard(page, touch, 1);
   let room = await faceOpen(page, 12);
   if (room < 8) {
     const open = await awayFromCamp(page);
     if (open) {
-      await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), open);
+      await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), open);
       room = await faceOpen(page, 12);
     }
   }
@@ -119,10 +122,11 @@ test('touch: the Interact chip at the Workbench opens Craft; a bomb thrown from 
   for (const [dx, dz] of [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) {
     const stand = await page.evaluate(([x, y, z, ox, oz]) => {
       const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
-      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+      return s && Math.hypot(s[0] - x, s[2] - z) < 3 ? s : null;
     }, [...bench!, dx, dz] as const);
     if (!stand) continue;
-    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    // (standableNear gives the cell's centre: stood there as it is, not on a corner.)
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), stand);
     // (aimAt takes a block and aims at its centre: a point target is passed half a cell back.)
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench!);
     chip = await untilGame(page, async () => (await hud(page)).interact?.icon === 'station', 3);

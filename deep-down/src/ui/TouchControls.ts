@@ -10,9 +10,9 @@ import {
   clampBase,
   followBase,
   HOLD_TO_MINE_MS,
-  isTap,
   joystick,
   joystickRadiusFor,
+  releaseStick,
   releaseTouch,
   toNdc,
   touchSide,
@@ -30,6 +30,8 @@ interface StickTouch {
   startY: number;
   startT: number;
   maxOff: number;
+  /** It landed on a notice card ([data-touch-look]): it moves as any stick touch, its tap is the card's. */
+  card: boolean;
 }
 
 interface LookTouch {
@@ -346,12 +348,13 @@ export class TouchControls {
     if (e.pointerType === 'touch') this.noteTouch();
     const w = window.innerWidth;
     const hgt = window.innerHeight;
-    // (A card's touch is a look one wherever it lands: never the stick under a card.)
-    if (!card && touchSide(e.clientX, w, this.leftHanded, e.clientY, hgt) === 'move') {
+    // The stick starts wherever the thumb lands in its zone, a card there too (the tutorial's bubble
+    // over the move step): a thumb that came to move moves; a still tap on the card stays the card's.
+    if (touchSide(e.clientX, w, this.leftHanded, e.clientY, hgt) === 'move') {
       if (this.stick) return;
       this.sizeStick(w, hgt);
       const [bx, by] = clampBase(e.clientX, e.clientY, w, hgt, this.radius);
-      this.stick = { id: e.pointerId, baseX: bx, baseY: by, startX: e.clientX, startY: e.clientY, startT: e.timeStamp, maxOff: 0 };
+      this.stick = { id: e.pointerId, baseX: bx, baseY: by, startX: e.clientX, startY: e.clientY, startT: e.timeStamp, maxOff: 0, card };
       this.base.classList.remove('idle');
       this.placeBase();
       this.updateStick(e.clientX, e.clientY);
@@ -396,8 +399,8 @@ export class TouchControls {
     if (this.stick && e.pointerId === this.stick.id) {
       const s = this.stick;
       this.endStick();
-      // A quick still press where the joystick starts is still a tap on the world.
-      if (e.type !== 'pointercancel' && isTap(e.timeStamp - s.startT, s.maxOff)) this.emitTap(s.startX, s.startY);
+      // A quick still press where the joystick starts is still a tap on the world (on a card: the card's).
+      if (e.type !== 'pointercancel' && releaseStick(e.timeStamp - s.startT, s.maxOff, s.card) === 'tap') this.emitTap(s.startX, s.startY);
       return;
     }
     const look = this.look;

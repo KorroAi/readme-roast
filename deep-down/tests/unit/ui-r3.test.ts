@@ -784,6 +784,12 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(advanceTouchPhase('pending', 0, 0, HOLD_TO_MINE_MS + 400, false)).toBe('mine');
     // A card's touch that moved after a long press still looks (no mining at the finger).
     expect(advanceTouchPhase('pending', -far, 0, HOLD_TO_MINE_MS + 400, true)).toBe('look');
+    // In the stick's zone a card's touch moves the stick (gate 05:28: the stick must never die under a
+    // card); let go as a still tap, it is the card's tap, not the world's.
+    const { releaseStick } = await import('../../src/ui/touchMath');
+    expect(releaseStick(90, 2, false)).toBe('tap');
+    expect(releaseStick(90, 2, true)).toBe('none');
+    expect(releaseStick(900, 60, false)).toBe('none');
   });
 
   it('holds a first-use tip while a tutorial bubble is up, and a moment after it goes (QA 01:31)', async () => {

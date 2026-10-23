@@ -173,30 +173,53 @@ test('the first five minutes: the tutorial, step by step on its controls, to the
       for (const back of [1.8, 2.4, 1.3, 3]) {
         const s = dd.standableNear(Math.floor(x - ((x - p.x) / d) * back), Math.floor(y), Math.floor(z - ((z - p.z) / d) * back));
         if (s) {
-          dd.teleport(s[0] + 0.5, s[1], s[2] + 0.5);
+          // (standableNear gives the cell's centre: stood there as it is, not on a corner by the rock.)
+          dd.teleport(s[0], s[1], s[2]);
           return true;
         }
       }
       return false;
     }, [t.x, t.y, t.z] as const);
-  /** One Amber Tick 2.2 m ahead, turned to open floor (the creatures' debug hook). */
-  const tickInSight = () =>
-    page.evaluate(() => {
-      const dd = window.__DD__;
-      const g = dd.game;
-      const p = g.player;
-      const yaw0 = g.cameraRig.yaw;
-      for (let k = 0; k < 8; k++) {
-        const yaw = yaw0 + (k * Math.PI) / 4;
-        dd.aimAt(p.x - Math.sin(yaw) * 2.2, p.y + 0.4, p.z - Math.cos(yaw) * 2.2, 0, 0);
-        if (!dd.ui.ray(0, 0, 2.6)) return dd.mobs.spawnAhead('amberTick', 2.2, 0, { asleep: false });
-      }
-      return dd.mobs.spawnAhead('amberTick', 2.2, 0, { asleep: false });
-    });
+  /**
+   * One Amber Tick on level floor 1.8-2.4 m from the explorer, kept only where the game's own pick
+   * finds it under the reticle once aimed at (Combat.pickMob, what the reticle's "attack" reads):
+   * else it goes and the next way round is tried (gate 05:28: a tick out of the pick's sight kept the
+   * reticle on "place" for two rounds). The creatures hold still; the others are put away first, so
+   * the nearest creature is this one.
+   */
+  const tickInSight = async (): Promise<number | null> => {
+    for (let k = 0; k < 16; k++) {
+      const id = await page.evaluate((kk) => {
+        const dd = window.__DD__ as any;
+        const g = dd.game;
+        const p = g.player;
+        const yaw = g.cameraRig.yaw + (kk * Math.PI) / 8;
+        const y = Math.floor(p.y + 0.05);
+        for (const d of [1.8, 2.1, 2.4]) {
+          const x = Math.floor(p.x - Math.sin(yaw) * d);
+          const z = Math.floor(p.z - Math.cos(yaw) * d);
+          if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z) || !dd.isSolid(x, y - 1, z) || dd.mobs.underwater(x, y, z)) continue;
+          dd.mobs.clear();
+          const id = dd.mobs.spawn('amberTick', x + 0.5, y, z + 0.5, { asleep: false });
+          dd.mobs.freeze(true);
+          return id as number | null;
+        }
+        return null;
+      }, k);
+      if (id === null) continue;
+      // It fades in (its pick waits for that), then the view is turned onto its body.
+      await untilGame(page, async () => false, 0.6);
+      const t = await foe();
+      if (!t || t.id !== id) continue;
+      await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y - 0.5, z - 0.5, 0, 0), [t.x, t.y, t.z] as const);
+      if (await page.evaluate((i) => window.__DD__.game.combat.pickMob(0, 0)?.id === i, id)) return id;
+    }
+    return null;
+  };
   let came = await untilGame(page, async () => (await foe()) !== null, 5);
   if (!came) {
     const out = await awayFromCamp(page);
-    if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), out);
+    if (out) await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), out);
     came = await untilGame(page, async () => (await foe()) !== null || (await step(page)) !== 'fight', 6);
     // Still none (MOBS's first fight did not find a spot in time): the strike itself is still tested.
     if ((await foe()) === null && (await step(page)) === 'fight') console.log(`[e2e] no creature came for the fight step: a tick placed in sight (${await tickInSight()})`);

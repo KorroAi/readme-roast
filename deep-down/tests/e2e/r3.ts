@@ -196,13 +196,17 @@ export async function awayFromCamp(page: Page): Promise<[number, number, number]
  * Turn the explorer to the longest open run of floor round it (a walk, then a sprint, needs room:
  * a vein's wall right ahead keeps the speed at nought whatever the stick does). Returns the run (m).
  * The ways are read from the look direction (CameraRig: forward is (-sin yaw, 0, -cos yaw)), not
- * the lens, which eases round after a look.
+ * the lens, which eases round after a look. Out of the camp, the camp counts as a wall: walking back
+ * into it ends the trip, and the trip's card comes up over play (gate 05:28, the stick let go).
  */
 export async function faceOpen(page: Page, metres = 12): Promise<number> {
   const best = await page.evaluate((max) => {
     const dd = window.__DD__;
     const p = dd.game.player;
     const y = Math.floor(p.y + 0.05);
+    const c = dd.game.session.layout.camp as { min: number[]; max: number[] } | undefined;
+    const inCamp = (x: number, yy: number, z: number) => !!c && x >= c.min[0] && x <= c.max[0] && yy >= c.min[1] && yy <= c.max[1] && z >= c.min[2] && z <= c.max[2];
+    const outside = !dd.game.inCamp;
     let top = { yaw: 0, run: -1 };
     for (let k = 0; k < 16 && top.run < max; k++) {
       const yaw = (k * Math.PI) / 8;
@@ -214,6 +218,7 @@ export async function faceOpen(page: Page, metres = 12): Promise<number> {
         const z = Math.floor(p.z + fz * (d + 0.6));
         if (dd.isSolid(x, y, z) || dd.isSolid(x, y + 1, z)) break;
         if (!dd.isSolid(x, y - 1, z) && !dd.isSolid(x, y - 2, z)) break;
+        if (outside && inCamp(p.x + fx * (d + 0.6), p.y, p.z + fz * (d + 0.6))) break;
       }
       if (d > top.run) top = { yaw, run: d };
     }

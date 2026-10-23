@@ -106,8 +106,8 @@ async function startExpedition(page: Page): Promise<void> {
 const canvasAt = (page: Page, x: number, y: number) => page.evaluate(([px, py]) => document.elementFromPoint(px, py)?.id ?? '', [x, y]);
 
 /** A trip card may open on a return to camp: close it (a captured mouse cannot aim, so dispatch the click). */
-async function closeTripCard(page: Page): Promise<boolean> {
-  const opened = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', 4);
+async function closeTripCard(page: Page, gameSeconds = 4): Promise<boolean> {
+  const opened = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.state().screen)) === 'summary', gameSeconds);
   if (!opened) return false;
   await page.locator('[data-key="trip:close"], [data-key="summary-close"]').first().dispatchEvent('click');
   await waitScreen(page, 'none');
@@ -310,20 +310,26 @@ test('desktop controls in the strata: keyboard and mouse drive movement, look, m
   // Face it from a step away (the camp's Workbench is a prop: its prompt comes with it in focus; `p`
   // is its base centre), from the side where no other prop takes the focus first. (aimAt takes a
   // block and aims at its centre: the bench's middle is passed half a cell back.)
+  // Back in the camp from the mining step's trip (its vein can lie out of the camp): the trip ends and
+  // its card comes up over play, which holds the focus off (gate 05:28). It is closed first, then the
+  // explorer stands on the standable cell's centre (standableNear gives the centre: an extra +0.5
+  // stood it on a cell corner) and faces the bench.
+  let reported = false;
   let focused = false;
   for (const [dx, dz] of [[1.6, 0], [0, 1.6], [-1.6, 0], [0, -1.6], [1.2, 1.2], [-1.2, -1.2], [1.2, -1.2], [-1.2, 1.2]]) {
     const stand = await page.evaluate(([x, y, z, ox, oz]) => {
       const s = window.__DD__.standableNear(Math.floor(x + ox), Math.floor(y), Math.floor(z + oz));
-      return s && Math.hypot(s[0] + 0.5 - x, s[2] + 0.5 - z) < 3 ? s : null;
+      return s && Math.hypot(s[0] - x, s[2] - z) < 3 ? s : null;
     }, [...bench, dx, dz] as const);
     if (!stand) continue;
-    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), stand);
+    if (await closeTripCard(page, 1.5)) reported = true;
     await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y + 0.1, z - 0.5, 0, 0), bench);
     focused = await untilGame(page, async () => (await page.evaluate(() => window.__DD__.ui.hud().interact?.icon)) === 'station', 3);
     if (focused) break;
   }
   expect(focused, 'the Workbench in focus').toBe(true);
-  const reported = await closeTripCard(page);
+  if (await closeTripCard(page, 1)) reported = true;
   await expect(page.locator('.dd-use')).toBeVisible({ timeout: LOADED_CEILING_MS });
   await expect(page.locator('.dd-use')).toContainText(/Workbench/i);
   if (!reported) expect(await page.evaluate(() => document.pointerLockElement === document.getElementById('game'))).toBe(mined.locked);
