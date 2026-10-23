@@ -143,5 +143,14 @@ describe("the Dark Heart's three phases read apart", () => {
     expect(seen[3].coreShows).toBeLessThan(0.6);
     expect(seen[3].glow).toBeGreaterThan(seen[2].glow);
     expect(seen[2].glow).toBeGreaterThan(seen[1].glow);
+    // On the beat itself (its lub: the shell swells) the shell still shows over most of it (the first
+    // capture of phase 3, held on a lub, showed one blazing ball).
+    m.beat = 0;
+    pose(m, model, rig, 4, out);
+    rig.update();
+    const shell = radiiOf(sac);
+    const c = radiiOf(core);
+    const coreR = c[Math.floor(c.length / 2)];
+    expect(shell.filter((r) => r < coreR).length / shell.length).toBeLessThan(0.6);
   });
 });

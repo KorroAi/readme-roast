@@ -236,7 +236,8 @@ function heartPhases(m: SimMob, model: MobModel, rig: Rig, t: number, out: PoseO
   const veins = model.index['veins'];
   const core = model.index['core'];
   if (veins !== undefined) rig.scl[veins].setScalar(HEART_VEINS[ph]);
-  if (core !== undefined) rig.scl[core].setScalar(HEART_CORE[ph] * (1 + pulse * 0.03 * ph));
+  // (The core swells with the shell on each beat, never past it: the shell stays over two thirds of it.)
+  if (core !== undefined) rig.scl[core].setScalar(HEART_CORE[ph]);
   // Its light: dim in its shell, bleeding through the cracks, then a flickering blaze.
   out.glow = [0.35, 0.6, 1.0, 1.45][ph] + pulse * (0.35 + 0.2 * ph) + (ph === 3 ? Math.sin(t * 23) * 0.12 : 0);
   out.sx *= 1 + pulse * amp * 0.4;
