@@ -335,11 +335,11 @@ export class TapController {
   }
 
   /**
-   * What a tap at (ndcX, ndcY) would do now, without doing it (tests, debug): use a thing or mine a
-   * find under the finger or near it (the snap), walk to the ground there, or something else (rock,
-   * a look). Creatures are not asked (Combat's pick answers them first).
+   * What a tap at (ndcX, ndcY) would do now, without doing it (tests, debug), as onTap decides it: use
+   * a thing or mine a find under the finger or near it (the snap), walk to the ground there, tunk on
+   * ordinary rock in reach, or look that way. Creatures are not asked (Combat's pick answers first).
    */
-  intentAt(ndcX: number, ndcY: number): 'use' | 'mine' | 'walk' | 'other' {
+  intentAt(ndcX: number, ndcY: number): 'use' | 'mine' | 'walk' | 'tunk' | 'look' {
     const hand = this.host.hand();
     const r = this.mining.pick(ndcX, ndcY, hand.x, hand.y, hand.z, TAP_RANGE);
     const act = this.actionOf(r) ?? this.snap(ndcX, ndcY)?.act ?? null;
@@ -349,7 +349,9 @@ export class TapController {
       const p = this.host.player();
       if (Math.hypot(hit.x + 0.5 - p.x, hit.z + 0.5 - p.z) > 0.9 || Math.abs(hit.y + 1 - p.y) > 0.5) return 'walk';
     }
-    return 'other';
+    const tg = r.target;
+    if (tg && tg.kind === 'block' && tg.inReach && BLOCKS[tg.block]?.visible && !isBreakable(tg.block)) return 'tunk';
+    return 'look';
   }
 
   /** The way the current walk goes (world x, z unit vector), or null when not walking. */

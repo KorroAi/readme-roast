@@ -230,12 +230,16 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
     face = await faceAt(n);
     if (!face) break;
     await untilGame(page, async () => true, 0.3);
+    // Slate in reach under the finger, and the game's own answer that a tap there tunks
+    // (TapController.intentAt): a find near the finger would take the tap instead (the snap, by
+    // design; gate rerun 04:23: a find beside the slate was mined and nothing tunked).
     plain = await page.evaluate(([ny]) => {
       const g = window.__DD__.game;
       const e = g.cameraRig.eye;
       const r = g.mining.pick(0, ny, e.x, e.y, e.z, 48);
-      return !!r.target && r.target.kind === 'block' && r.target.inReach && r.target.block === 1;
+      return !!r.target && r.target.kind === 'block' && r.target.inReach && r.target.block === 1 && g.tap.intentAt(0, ny) === 'tunk';
     }, [ay] as const);
+    if (!plain) console.log(`[e2e] the slate at ${JSON.stringify(face.block)}: a tap would not tunk there, the next wall`);
   }
   expect(face, 'a rock face near the camp').not.toBeNull();
   expect(plain, 'slate in reach under the finger').toBe(true);
