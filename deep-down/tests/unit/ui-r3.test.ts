@@ -728,6 +728,41 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     }
   });
 
+  it('tells what a tap would do without doing it: walk on open floor, mine a find near the finger (gate rerun 04:05)', async () => {
+    const { TapController } = await import('../../src/game/TapController');
+    const { EventBus } = await import('../../src/core/events');
+    const w = floorWorld();
+    const floor = { x: 12, y: 4, z: 5, nx: 0, ny: 1, nz: 0, distance: 7, block: B.SLATE };
+    // A coal seam a little off the finger: only the snap's samples (off the centre) meet it.
+    const vein = { kind: 'block', key: 'b:13,4,6', x: 13, y: 4, z: 6, nx: 0, ny: 1, nz: 0, point: new THREE.Vector3(13.5, 5, 6.5), block: B.COAL_ORE, prop: null, name: 'Coal', hardness: 1, tier: 1, protectedReason: null, inReach: false };
+    const make = (veinNear: boolean) => {
+      let pings = 0;
+      const host = {
+        world: w,
+        player: () => ({ x: 5.5, y: 5, z: 5.5 }),
+        hand: () => ({ x: 5.5, y: 6.62, z: 5.5 }),
+        cameraYaw: () => 0,
+        focusedPropId: () => null,
+        propById: () => null,
+        usable: () => true,
+        viewport: () => ({ width: 390, height: 844 }),
+        hint: () => undefined,
+        ping: () => void pings++,
+        nudge: () => undefined,
+      };
+      const mining = { pick: (x: number, y: number) => (veinNear && (x !== 0 || y !== 0) ? { target: vein, prop: null, hit: floor } : { target: null, prop: null, hit: floor }), target: null };
+      const tap = new TapController(host as never, mining as never, new EventBus() as never);
+      return { tap, pings: () => pings };
+    };
+    const open = make(false);
+    expect(open.tap.intentAt(0, 0)).toBe('walk');
+    // Asking does nothing: no walk, no ping.
+    expect(open.tap.walking).toBe(false);
+    expect(open.pings()).toBe(0);
+    // Floor beside a find: the tap would mine the find (the snap), so a spec that wants a walk looks elsewhere.
+    expect(make(true).tap.intentAt(0, 0)).toBe('mine');
+  });
+
   it('lets a drag that starts on a notice card look, and keeps its tap and hold for the card (gate 03:32)', async () => {
     const { touchStart, advanceTouchPhase, releaseTouch, HOLD_SLOP_PX, HOLD_TO_MINE_MS } = await import('../../src/ui/touchMath');
     // Where it lands: a control keeps it; a notice card (the arrival card, a milestone, the bubble) is a card; the rest is the world's.
