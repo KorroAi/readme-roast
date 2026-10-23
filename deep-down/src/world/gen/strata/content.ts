@@ -543,7 +543,43 @@ export function placeContent(st: CarveState, stratum: StratumIndex, seed: number
 
   // ---- The gate.
   const gn = plan.nodes[plan.gate];
-  addProp({ kind: 'abyssMonolith', x: places.gateStand[0], y: places.gateStand[1], z: places.gateStand[2] + (plan.heart === null ? 1.5 : 0), rotY: 0, scale: 0.35, interact: 'feature', feature: { kind: 'gate', id: `gate_${stratum}` }, id: `gate_${stratum}` }, B.LIGHT_RUNE);
+  // Its monolith (VIS's abyssMonolith: at scale s a square base 15 s across and 2.5 s high, a stone up
+  // to 25 s tall within 5.7 s of its axis): on the floor nearest its spot where the base stands on rock
+  // and none of it is in the rock (a little smaller where the hall is tight).
+  const monolithFits = (x: number, y: number, z: number, sc: number) => {
+    const half = 7.52 * sc;
+    let n = 0;
+    let held = 0;
+    let inRock = 0;
+    for (let dz = -half; dz <= half + 1e-6; dz += 0.5) for (let dx = -half; dx <= half + 1e-6; dx += 0.5) {
+      n++;
+      const cx = Math.floor(x + dx);
+      const cz = Math.floor(z + dz);
+      if (SOLID[get(cx, y, cz)]) inRock++;
+      else if (SOLID[get(cx, y - 1, cz)]) held++;
+    }
+    let up = 0;
+    let upRock = 0;
+    const r = 5.7 * sc;
+    for (let yy = y + 1; yy < y + Math.ceil(25.2 * sc); yy++) for (let dz = -r; dz <= r + 1e-6; dz += 0.75) for (let dx = -r; dx <= r + 1e-6; dx += 0.75) {
+      if (dx * dx + dz * dz > r * r) continue;
+      up++;
+      if (SOLID[get(Math.floor(x + dx), yy, Math.floor(z + dz))]) upRock++;
+    }
+    return held >= n * 0.8 && inRock <= n * 0.08 && upRock <= up * 0.05;
+  };
+  const mono: V3 = [places.gateStand[0], places.gateStand[1], places.gateStand[2] + (plan.heart === null ? 1.5 : 0)];
+  let monoAt: V3 = mono;
+  let monoScale = 0.25;
+  search: for (const sc of [0.35, 0.3, 0.25]) for (let r = 0; r <= 4; r++) for (let dz = -r; dz <= r; dz++) for (let dx = -r; dx <= r; dx++) {
+    if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+    for (const dy of [0, 1, -1]) if (monolithFits(mono[0] + dx, mono[1] + dy, mono[2] + dz, sc)) {
+      monoAt = [mono[0] + dx, mono[1] + dy, mono[2] + dz];
+      monoScale = sc;
+      break search;
+    }
+  }
+  addProp({ kind: 'abyssMonolith', x: monoAt[0], y: monoAt[1], z: monoAt[2], rotY: 0, scale: monoScale, interact: 'feature', feature: { kind: 'gate', id: `gate_${stratum}` }, id: `gate_${stratum}` }, B.LIGHT_RUNE);
   const gate: GateSite = {
     id: `gate_${stratum}`,
     stratum,
