@@ -6,6 +6,13 @@ import { generateStratum } from '../../src/world/gen/strata/generateStratum';
 import { MobSim, type MobEnv, type SimMob } from '../../src/game/mobs/MobSim';
 import { linkStrata, underLake, type LakeView } from '../../src/game/mobs/strataLink';
 import type { MobContext } from '../../src/game/mobs/types';
+import { B } from '../../src/config/blocks';
+import { WEAPONS } from '../../src/config/weapons';
+import { SPECIES } from '../../src/game/mobs/species';
+import { DropSystem } from '../../src/game/Drops';
+import { Rng } from '../../src/core/rng';
+import { lootPoint } from '../../src/game/mobs/lootPoint';
+import type { VoxelWorld } from '../../src/world/VoxelWorld';
 
 // MOBS (round 3): WORLD's biome table and lairs name only the creatures that live there (WORLD mirrors
 // MOBS' rosters): the arrival cards, the map and the bestiary never promise a creature a biome lacks,
@@ -184,5 +191,55 @@ describe('a blow never knocks a monster into the camp (QA 22:25: the Tick faded 
     for (let t = 0; t < 1; t += 1 / 30) sim.update(1 / 30, c);
     expect(inCamp(m.foot.x, m.foot.y + 0.5, m.foot.z), 'not knocked in').toBe(false);
     expect(sim.mobs.includes(m) && !m.dying, 'not put away').toBe(true);
+  });
+});
+
+describe("a kill's loot reaches the bag (the lead's gate, 03:11)", () => {
+  // The Silver Sword reaches 2.8 m from the eye to a creature's body (game/fp/Combat distanceTo), so a
+  // Grit Boar falls with its centre ~3.1 m off; the bag pulls a drop in only within 2.6 m of the chest
+  // (game/Drops, PLAYER.pickupRadius). From where the boar fell most of its loot stayed on the floor;
+  // from lootPoint every drop flies to the bag. The real DropSystem, on a flat floor (y < 10 rock).
+  const rock = (_x: number, y: number) => y < 10;
+  const world = { get: (x: number, y: number) => (rock(x, y) ? B.SLATE : B.AIR) } as unknown as VoxelWorld;
+  const solid = (x: number, y: number, z: number) => rock(x, y) || (wall ? wall(x, y, z) : false);
+  let wall: ((x: number, y: number, z: number) => boolean) | null = null;
+  const player = { x: 0.5, y: 10, z: 0.5 };
+  const collected = (start: { x: number; y: number; z: number }, seed: number): boolean => {
+    const drops = new DropSystem(world, {} as never, {} as never);
+    drops.spawn('hide', 1, start.x, start.y, start.z, new Rng(seed));
+    let got = 0;
+    for (let t = 0; t < 4; t += 1 / 30) drops.update(1 / 30, t, player.x, player.y, player.z, () => true, (_i, n) => ((got += n), n), () => undefined);
+    return got > 0;
+  };
+
+  it("a Grit Boar felled at the sword's reach: its hide flies to the bag", () => {
+    const r = SPECIES.gritBoar.radius;
+    const lift = SPECIES.gritBoar.lift ?? 0.44;
+    const h = Math.sqrt((WEAPONS.sword.reach + r) ** 2 - (1.62 - lift) ** 2);
+    expect(h, 'struck dead this far off').toBeGreaterThan(2.9);
+    const fell = { x: player.x + h, y: player.y + lift, z: player.z };
+    let before = 0;
+    let after = 0;
+    const N = 40;
+    for (let s = 1; s <= N; s++) {
+      if (collected({ x: fell.x, y: fell.y + 0.3, z: fell.z }, s)) before++;
+      if (collected(lootPoint(fell, player, solid), s)) after++;
+    }
+    console.log(`[mobs] a Grit Boar felled ${h.toFixed(2)} m off: its hide reached the bag ${before}/${N} from where it fell, ${after}/${N} from lootPoint`);
+    expect(before, 'from where it fell (the old start)').toBeLessThan(N * 0.6);
+    expect(after, 'from lootPoint').toBe(N);
+    // A close kill keeps its loot where it fell; so does a ranged one (a sling's, a crossbow's).
+    expect(lootPoint({ x: 1.2, y: 10.5, z: 0.5 }, player, solid)).toEqual({ x: 1.2, y: 10.8, z: 0.5 });
+    expect(lootPoint({ x: 12.5, y: 10.5, z: 0.5 }, player, solid)).toEqual({ x: 12.5, y: 10.8, z: 0.5 });
+  });
+
+  it('never starts a drop in rock: a pillar between, it starts on the open side nearest the explorer', () => {
+    // A pillar at x = 2 between the explorer (x 0.5) and a boar fallen at x 3.6.
+    wall = (x) => x === 2;
+    const o = lootPoint({ x: 3.6, y: 10.5, z: 0.5 }, player, solid);
+    wall = null;
+    expect(Math.floor(o.x)).not.toBe(2);
+    expect(o.x).toBeGreaterThan(2.9);
+    expect(o.x).toBeLessThanOrEqual(3.6);
   });
 });

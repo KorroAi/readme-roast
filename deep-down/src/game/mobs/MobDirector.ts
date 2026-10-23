@@ -13,6 +13,7 @@ import { BestiaryLog, type BestiarySave } from './bestiary';
 import { HEART_BEAT, beatNudge, guardianState } from './guardian';
 import { ROSTERS } from './rosters';
 import { spawnFirstFight, type Lair } from './spawner';
+import { lootPoint } from './lootPoint';
 import { darkTide, linkStrata, type StrataLayout } from './strataLink';
 import { SPECIES } from './species';
 import { ELITE_BONUS, RADIANT_OIL, eliteName } from './elites';
@@ -1086,7 +1087,10 @@ export class MobDirector implements MobSystem {
     const g = this.game;
     const table = m.brain === 'thief' && m.treasure ? TREASURE_DROPS : MOB_DROPS[m.kind];
     const rng = g.rng;
-    const at = (item: ItemId, n: number) => g.drops.spawn(item, n, m.position.x, m.position.y + 0.3, m.position.z, rng);
+    // (Felled in melee range, its loot spills on the explorer's side, within the bag's pull: a kill at a
+    // long weapon's reach left it stranded just out of it; game/mobs/lootPoint.)
+    const o = lootPoint(m.position, g.player, this.sim.env.solid);
+    const at = (item: ItemId, n: number) => g.drops.spawn(item, n, o.x, o.y, o.z, rng);
     if (table) {
       const list = only !== undefined ? table.slice(0, only) : table;
       // Brood called by a guardian (and a splitting elite's children) leave little: no farming them.

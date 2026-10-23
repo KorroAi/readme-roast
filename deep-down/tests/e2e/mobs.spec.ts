@@ -239,11 +239,18 @@ test('a guardian beaten end to end with real taps: asleep in its lair, its bar, 
   const id = g0.id;
   // Its open guard is told (the window's share runs 1 → 0 on the HUD's state).
   await page.waitForFunction(() => ((window.__DD__ as any).mobs.guardian()?.window ?? 0) > 0.5, null, { timeout: 60_000, polling: 100 });
-  // Strike only while its guard is open (after each attack), with real taps, until it falls.
-  const open = async () => {
-    const m = await mob(page, id);
-    return !!m && (m.state === 'recoil' || m.state === 'stunned');
-  };
+  // Strike only while its guard is open (after each attack), with real taps, until it falls: one tap
+  // at a time, while the window still has time for a Great Axe blow (its 0.6 s swing, 0.22 s wind-up).
+  // Combat buffers taps made while a swing is under way (up to two) and swings them at the weapon's
+  // rate, so a tap late in the window, or stacked behind the last one, lands on the shut guard (the
+  // game's rule, and the lead's gate at 03:11: 2 of 4 or more blows in the open guard).
+  const open = async () =>
+    page.evaluate((i) => {
+      const dd = window.__DD__ as any;
+      const m = dd.mobs.get(i);
+      if (!m || (m.state !== 'recoil' && m.state !== 'stunned')) return false;
+      return !dd.game.combat.busy && (dd.mobs.guardian()?.window ?? 0) > 0.6;
+    }, id);
   // Through the fight, how near the explorer ever stands to its centre (QA 22:10: the lens ended up
   // inside its body; now the explorer is kept out of its bulk, ~2.1 m round the Matriarch).
   await page.evaluate((i) => {
@@ -271,15 +278,17 @@ test('a guardian beaten end to end with real taps: asleep in its lair, its bar, 
   expect(def.payload.shard).toBe('amberHollows');
   // (Round 3's rebalance: 75 hp, so three great-axe blows in its open guard can fell it.)
   expect(hits.length, 'struck by taps').toBeGreaterThanOrEqual(3);
-  // Struck in its open guard: those blows found the weak spot.
-  expect(hits.filter((e) => e.payload.weak).length, 'blows in its open guard').toBeGreaterThanOrEqual(Math.min(3, hits.length - 1));
+  // Struck in its open guard: those blows found the weak spot (most of them; three at least).
+  const weak = hits.filter((e) => e.payload.weak).length;
+  expect(weak, 'blows in its open guard').toBeGreaterThanOrEqual(3);
+  expect(weak / hits.length, 'most blows in its open guard').toBeGreaterThanOrEqual(0.6);
   // No debug blow: every hit came from a tap (the weapon's swing).
   expect(log.filter((e) => e.type === 'weapon:hit' && e.payload.mob === id).length, 'every blow a swing').toBe(hits.length);
   // LOOP pays the shard on 'mob:guardianDefeated' (its quest counts it, and its loot bundle).
   const shard = await page
     .waitForFunction(() => (window.__DD__ as any).game.quests.shards.has('amberHollows'), null, { timeout: 15_000, polling: 250 })
     .then(() => true, () => false);
-  console.log(`[mobs] the Amber Matriarch beaten: ${taps} taps, ${phases.length} phase change(s), shard ${shard}, nearest the explorer stood ${nearest.toFixed(2)} m`);
+  console.log(`[mobs] the Amber Matriarch beaten: ${taps} taps, ${hits.length} blows (${weak} in her open guard), ${phases.length} phase change(s), shard ${shard}, nearest the explorer stood ${nearest.toFixed(2)} m`);
   expect(shard, "LOOP's quest holds the Amber Hollows shard").toBe(true);
   // The bar goes.
   await expect(page.locator('.dd-guardian.on')).toHaveCount(0, { timeout: 15_000 });
