@@ -226,7 +226,7 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
     }, [p0.x, p0.y, p0.z, skip, ay] as const);
   let face: Awaited<ReturnType<typeof faceAt>> = null;
   let plain = false;
-  for (let n = 0; n < 6 && !plain; n++) {
+  for (let n = 0; n < 12 && !plain; n++) {
     face = await faceAt(n);
     if (!face) break;
     await untilGame(page, async () => true, 0.3);
