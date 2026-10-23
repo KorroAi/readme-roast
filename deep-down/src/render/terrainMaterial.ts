@@ -890,7 +890,17 @@ void main() {
     // the ambient highlight stays off horizontal faces and fades on a wall seen at a grazing angle;
     // the selected cell keeps its own outline everywhere.
     float hiFacing = abs(dot(n, normalize(cameraPosition - vWorldPos)));
-    float hiWall = hiAx == 1 || hiC == 8 || hiCode(cell + nI) == 7 ? 0.0 : smoothstep(0.22, 0.45, hiFacing);
+    // A find three cells or more across on this face (a whole patch of ore in the wall): its outline
+    // would frame the patch, so it wears no ambient rim either (its own texture carries it); a
+    // small find (one or two cells) keeps its rim hugging it.
+    bool hiBig = false;
+    for (int k = 0; k < 2; k++) {
+      ivec3 t = k == 0 ? hiT1 : hiT2;
+      bool a1 = hiCode(cell + t) == hiC;
+      bool b1 = hiCode(cell - t) == hiC;
+      if ((a1 && b1) || (a1 && hiCode(cell + 2 * t) == hiC) || (b1 && hiCode(cell - 2 * t) == hiC)) hiBig = true;
+    }
+    float hiWall = hiAx == 1 || hiC == 8 || hiBig || hiCode(cell + nI) == 7 ? 0.0 : smoothstep(0.22, 0.45, hiFacing);
     float amb = (1.0 - smoothstep(10.0, 14.0, vDepth)) * (0.84 + 0.16 * sin(uHiFx.x * 2.0944)) * uHiFx.w * (1.0 - sel) * hiWall;
     float k = amb + 2.4 * sel;
     // The inner glow gathers in a band ~10 cm inside the rim. Ambient: a soft glowing seam with a

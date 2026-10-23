@@ -192,6 +192,7 @@ export const controls: Partial<Record<TextKey, string>> = {
   'set3.seed': 'Graine du monde : {seed}',
   'menu3.seed': 'Graine (facultatif)',
   'menu3.seedHint': 'Laissez vide pour un nouveau monde au hasard, ou tapez une graine pour en partager un.',
+  'menu3.seedRandom': 'Aléatoire',
   'menu3.start': 'Partir en expédition',
   'menu3.cardShards': '{n}/12 éclats',
   'menu3.cardTime': '{time} de jeu',
@@ -217,6 +218,8 @@ export const controls: Partial<Record<TextKey, string>> = {
   // La carte d'évanouissement
   'bo3.title': 'La lanterne s’est éteinte',
   'bo3.cause.mob': 'Coup fatal : {name}',
+  'bo3.cause.mobAn': 'Coup fatal : {name}',
+  'bo3.cause.named': 'Coup fatal : {name}',
   'bo3.cause.creature': 'Une créature a eu le dessus',
   'bo3.cause.fall': 'Une chute de trop',
   'bo3.cause.cold': 'Le froid a pris la dernière chaleur',
