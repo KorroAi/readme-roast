@@ -51,7 +51,9 @@ const R = {
   pearl: [0x3c4450, 0x525c6a, 0x6a7686, 0x8492a2, 0xa0acba, 0xbcc6d2],
   geode: [0x100b17, 0x160f20, 0x1d1429, 0x251a34, 0x2e2040, 0x38284d, 0x43305b, 0x503a6b],
   calcite: [0x26222c, 0x322d3a, 0x3e3948, 0x4b4557, 0x595267, 0x676077, 0x766e87, 0x857c97],
-  geodeFloor: [0x120d19, 0x181221, 0x1f172a, 0x271d34, 0x2f233e, 0x382a49],
+  // Round 3 (lead 00:13): calcite grit, grey with a breath of lavender (the violet floor drank the
+  // lantern's pool and read as murk; the crystals pop against a neutral floor).
+  geodeFloor: [0x221f2a, 0x2a2633, 0x322d3c, 0x3b3546, 0x453e51, 0x50485d],
   amethyst: [0x0e0618, 0x150a24, 0x1f0f33, 0x2a1545, 0x381c5a, 0x48256f, 0x5a2f86, 0x6e3a9e],
   mine: [0x18120e, 0x201812, 0x292017, 0x33281c, 0x3e3022, 0x4a3a29, 0x574430, 0x655038],
   mineShale: [0x131315, 0x19191c, 0x1f1f23, 0x26262b, 0x2e2e33, 0x37373d, 0x414148, 0x4c4c54],
@@ -65,7 +67,9 @@ const R = {
   iceCrystal: [0x0a2030, 0x0f2b3e, 0x15384e, 0x1d4760, 0x275873, 0x336a86, 0x417d99, 0x5191ac],
   jungle: [0x0d120d, 0x121812, 0x181f17, 0x1e271d, 0x252f23, 0x2d382a, 0x354232, 0x3f4d3b],
   jungleLoam: [0x13120a, 0x19180d, 0x201e11, 0x272515, 0x2f2c19, 0x37341e],
-  jungleMoss: [0x0c1a0a, 0x10220d, 0x152b11, 0x1b3515, 0x22401a, 0x2a4b1f, 0x335725],
+  // Round 3 (lead 00:13): an olive moss, less saturated (the floor's green read as one green haze);
+  // its glowing specks stay green.
+  jungleMoss: [0x14160e, 0x1a1d12, 0x212616, 0x28301b, 0x303a20, 0x384325, 0x414d2a],
   verdite: [0x03140a, 0x051c0e, 0x082714, 0x0c331a, 0x114122, 0x18502b, 0x206036, 0x2a7242],
   sap: [0x2a1404, 0x3e1d06, 0x562a08, 0x72390b, 0x904a10, 0xae5e18, 0xc87622],
   vine: [0x0a1408, 0x0f1c0c, 0x152610, 0x1b3014, 0x223b19, 0x2a471e],
@@ -84,7 +88,8 @@ const R = {
   scoria: [0x1c0e0a, 0x26130d, 0x311911, 0x3d1f15, 0x4a261a, 0x582e20, 0x663626],
   ash: [0x1c1a1a, 0x232121, 0x2b2828, 0x333030, 0x3c3838, 0x464141, 0x504a4a],
   emberite: [0x1c0602, 0x2c0a03, 0x420f04, 0x5c1606, 0x7a2009, 0x9a2c0e, 0xbc3c14],
-  obsidian: [0x07060b, 0x0b0910, 0x0f0c16, 0x14101d, 0x1a1525, 0x211b2f, 0x2a223b],
+  // Round 3 (lead 00:13): black glass, never crushed: the darkest steps lifted toward violet.
+  obsidian: [0x0c0a12, 0x100d18, 0x14101d, 0x191424, 0x1f192c, 0x261f35, 0x2e2640],
   voidStone: [0x0c0a12, 0x110e19, 0x161221, 0x1c172a, 0x231d34, 0x2b243f, 0x342b4b],
   voidshard: [0x0c0418, 0x130725, 0x1c0b35, 0x271048, 0x34175e, 0x431f76, 0x552990, 0x6834aa],
   starsteel: [0x24242e, 0x363646, 0x4c4c60, 0x64647c, 0x80809a, 0x9e9eb8],
@@ -1030,7 +1035,8 @@ export const STRATA_LAYERS = {
   obsidian: { painter: obsidian, glow: 0.5, biomes: ['obsidianAbyss'] },
   voidStoneSide: { painter: side('voidStone'), glow: 0, biomes: ['obsidianAbyss', 'sunkenCity', 'heart'] },
   obsidianFloor: { painter: (c, rng) => { obsidian(c, rng); for (let i = 0; i < S * S; i++) c.a[i] *= 0.5; }, glow: 0.4, biomes: ['obsidianAbyss'] },
-  voidshard: { painter: (c, rng) => druse(c, rng, R.voidshard, 0xa070ff, 0xeadcff, R.voidStone, 1.1), glow: 1.1, biomes: ['obsidianAbyss'] },
+  // The glass garden's spire tips and the Abyss's finds: a beacon in the dark (glow 1.1 -> 1.6).
+  voidshard: { painter: (c, rng) => druse(c, rng, R.voidshard, 0xa070ff, 0xeadcff, R.voidStone, 1.1), glow: 1.6, biomes: ['obsidianAbyss'] },
   starsteel: { painter: ore('voidStone', 'band', R.starsteel, 0xffffff), glow: 0, biomes: ['obsidianAbyss'] },
   heartStone: { painter: heartStone, glow: 1.2, biomes: ['heart', 'obsidianAbyss'] },
   // Built things (every stratum)

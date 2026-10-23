@@ -125,7 +125,7 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
   crystalGeode: {
     // Lead 00:13: clear near air so the crystals pop (it read a little murky purple): a darker, more
     // neutral fill and a thinner haze behind them, the blue lift and the saturation eased.
-    atmosphere: air({ fog: 0x181a30, fogLow: 0x10202c, ambient: 0x0c0e18, open: 0x56587a, density: 0.02, scatter: 0.1, lightGain: 2.45 }),
+    atmosphere: air({ fog: 0x181a30, fogLow: 0x10202c, ambient: 0x0c0e18, open: 0x56587a, density: 0.02, scatter: 0.1, lightGain: 2.2 }),
     open: { ...CAVERN, density: 0.014 },
     grade: { lift: [0.0032, 0.0034, 0.0042], gain: [1.03, 1.03, 1.03], saturation: 1.0 },
     light: [0.42, 0.45, 1.0],
@@ -152,7 +152,7 @@ export const BIOME_LOOKS: Record<LookBiomeId, BiomeLookDef> = {
     // Lead 00:13: it was drowned in one green: a lighter, greyer haze (still only past 12-18 m), a
     // less green fill and grade (saturation under 1), so the warm lantern pool and the glowing vines
     // read against it.
-    atmosphere: air({ fog: 0x222c26, fogLow: 0x1a221a, ambient: 0x141a16, open: 0x8c9a86, density: 0.024, scatter: 0.1, lightGain: 1.95 }),
+    atmosphere: air({ fog: 0x222c26, fogLow: 0x1a221a, ambient: 0x0e120e, open: 0x5e6a5a, density: 0.024, scatter: 0.1, lightGain: 1.75 }),
     open: { ...CAVERN, density: 0.014 },
     grade: { lift: [0.0034, 0.0042, 0.0036], gain: [1.04, 1.02, 0.98], saturation: 0.9 },
     light: [0.36, 0.78, 0.34],
