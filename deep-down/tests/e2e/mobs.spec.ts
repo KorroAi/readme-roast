@@ -347,6 +347,12 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
       if (id === 'glowcap') w.__capsFed += n;
       return remove(id, n, ...rest);
     };
+    // (Counted when it chooses the explorer: under load a tap is handled a frame late, so the next
+    // try's tap may land on it tamed, and a tamed one is fed a glowcap for experience, as meant.)
+    w.__capsAtTame = -1;
+    dd.game.bus.on('companion:tamed', () => {
+      w.__capsAtTame = w.__capsFed;
+    });
   });
   const lid = await page.evaluate(() => (window.__DD__ as any).mobs.spawnAhead('lampling', 2.2, 1.4));
   expect(lid, 'a wild lampling ahead').not.toBeNull();
@@ -380,7 +386,7 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
   expect(items).toEqual({ has: true, lure: false, fed: true, gained: 3 });
   // Three glowcaps fed, one per trust (the Glow Treat spends none of them).
   expect((await events(page, 'companion:trust')).map((e) => e.payload.trust), 'trust 1, 2, 3').toEqual([1, 2, 3]);
-  expect(await page.evaluate(() => (window as any).__capsFed), 'glowcaps fed').toBe(3);
+  expect(await page.evaluate(() => (window as any).__capsAtTame), 'glowcaps fed to tame it').toBe(3);
   // It follows the explorer a few metres on (or, as it may, flies off to tell an ore it sensed: its
   // scout hovers by the vein, within its sense range of the explorer; e2e-4 caught it 5.1 m off there).
   const follow = await page.evaluate(() => {
