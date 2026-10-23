@@ -15,7 +15,8 @@ export type DD = {
   aimAt(x: number, y: number, z: number, ndcX?: number, ndcY?: number): boolean;
   teleport(x: number, y: number, z: number, yaw?: number): void;
   landmarks(): Record<string, Vec3i>;
-  standableNear(x: number, y: number, z: number): Vec3i | null;
+  /** The nearest standable cell's centre: [x + 0.5, feet y, z + 0.5] (teleport there as it is). */
+  standableNear(x: number, y: number, z: number): [number, number, number] | null;
   block(x: number, y: number, z: number): number;
   give(item: string, n: number): number;
   isSolid(x: number, y: number, z: number): boolean;

@@ -96,7 +96,7 @@ test('a tap on far floor walks there; a tap on the camp Workbench walks up to it
   // Stand by the fire and look at a stretch of open floor a few metres away.
   const spot = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x - 2, y, z + 3), f);
   expect(spot, 'floor by the fire').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), spot!);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), spot!);
   let goal: [number, number, number] | null = null;
   for (const [dx, dz] of [[-2, 9], [2, 9], [-6, 6], [6, 6], [0, -8], [-8, 0], [8, 0]]) {
     goal = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), [f[0] + dx, f[1], f[2] + dz]);
@@ -123,7 +123,7 @@ test('a tap on far floor walks there; a tap on the camp Workbench walks up to it
     if (near && Math.hypot(near[0] + 0.5 - bench[0], near[2] + 0.5 - bench[2]) > 2.6) break;
   }
   expect(near, 'floor a few metres from the Workbench').not.toBeNull();
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), near!);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), near!);
   await page.evaluate(([x, y, z]) => window.__DD__.aimAt(Math.floor(x), Math.floor(y), Math.floor(z), 0, 0), bench);
   const bp = await screenOf(page, [bench[0], bench[1] + 0.6, bench[2]]);
   expect(bp, 'the Workbench is on screen').not.toBeNull();
@@ -188,7 +188,7 @@ test('a tap on plain rock is a soft tunk; a tap a little off a vein still mines 
           const stand = dd.standableNear(wx + Math.sign(x - wx) * 1.5, y, wz + Math.sign(z - wz) * 1.5);
           if (!stand || k++ < n) continue;
           dd.setBlock(wx, wy, wz, 1);
-          dd.teleport(stand[0] + 0.5, stand[1], stand[2] + 0.5);
+          dd.teleport(stand[0], stand[1], stand[2]);
           if (!dd.aimAt(wx, wy, wz, 0, ny)) continue;
           return { block: [wx, wy, wz] as [number, number, number], stand };
         }
@@ -312,7 +312,7 @@ test('a tap on a monster strikes it with the weapon in hand; a tap on ore still 
   let pt: { x: number; y: number } | null = null;
   for (const away of spots) {
     if (id !== null) break;
-    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away as [number, number, number]);
+    await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), away as [number, number, number]);
     expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 4)).toBe(true);
     for (let k = 0; k < 16 && id === null; k++) {
       const yaw = (k * Math.PI) / 8;

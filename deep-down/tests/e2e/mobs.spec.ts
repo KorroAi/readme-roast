@@ -160,17 +160,26 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
     let marked = false;
     let decalsDrawn = false;
     await page.waitForFunction((i) => (window.__DD__ as any).mobs.events('mob:attack').some((e: Ev) => e.payload.id === i), id, { timeout: 60_000, polling: 250 });
+    const trail: string[] = [];
     for (let k = 0; k < 40 && !(marked && decalsDrawn); k++) {
       const seen = await page.evaluate((i) => {
         const dd = window.__DD__ as any;
         const own = dd.mobs.markers().some((mk: { owner: number }) => mk.owner === i);
         const mesh = dd.game.mobs.group.getObjectByName('mobTelegraphs');
-        return { own, drawn: own && !!mesh?.visible && mesh.geometry.instanceCount > 0 };
+        // (Its own clock, for the log when no marker comes.)
+        const sim = dd.game.mobs.sim;
+        const m = sim.mobs.find((x: { id: number }) => x.id === i);
+        const p = dd.game.player;
+        const r = (v: number) => Math.round(v * 100) / 100;
+        const at = m ? `${r(sim.clock)}:${m.state}/cd${r(m.cooldown)}/dp${r(Math.hypot(m.position.x - p.x, m.position.z - p.z))}/${sim.brains ? 'b' : 'nb'}/${dd.game.mode}` : `${r(sim.clock)}:gone`;
+        return { own, drawn: own && !!mesh?.visible && mesh.geometry.instanceCount > 0, at };
       }, id);
       marked ||= seen.own;
       decalsDrawn ||= seen.drawn;
+      trail.push(seen.at);
       if (!(marked && decalsDrawn)) await page.waitForTimeout(250);
     }
+    if (!marked) console.log(`[mobs] ${kind}: its clock through the wait: ${trail.filter((_, j) => j % 3 === 0).join(' ')}`);
     if (!marked) {
       // What it is doing when no wind-up came (for the log: its state, how far, how high, the others).
       const why = await page.evaluate((i) => {
