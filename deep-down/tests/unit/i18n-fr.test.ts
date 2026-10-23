@@ -71,9 +71,10 @@ describe('languages (English, French)', () => {
     }
     const plain = /\bStrat(?:um|e) (?=[IVX]+\b|\{[a-z]+\})/;
     expect(Object.keys(F).filter((k) => plain.test(F[k]))).toEqual([]);
-    // English: every section but UI's controls and MOBS's creatures (theirs to space; asked in STATUS).
+    // English: every section but MOBS's creatures (theirs to space; asked in STATUS). UI's controls
+    // joined at 01:4x (lead: hud3.stratum, hud3.arrival.kicker, m3.map.campName, m3.map.inStratum, bo3.where).
     const enBad = Object.entries(EN_SECTIONS)
-      .filter(([name]) => name !== 'controls' && name !== 'mobs')
+      .filter(([name]) => name !== 'mobs')
       .flatMap(([, sec]) => Object.keys(sec).filter((k) => plain.test(E[k])));
     expect(enBad).toEqual([]);
     expect(frenchSpacing('Ouvrez la Porte de la Strate I')).toBe('Ouvrez la Porte de la Strate\u00a0I');

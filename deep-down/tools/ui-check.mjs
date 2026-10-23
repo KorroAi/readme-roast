@@ -557,7 +557,7 @@ if (opt.touch) {
     await page.evaluate(() => window.__UI__.scene('death'));
     await page.evaluate(() => window.__UI__.bus.emit('trip:summary', { summary: { n: 3, outcome: 'blackout', seconds: 200, deepest: 62, stratum: 1, biomes: [], finds: {}, rarest: null, kills: 0, crafted: 0, torches: 0, shards: [], orders: 0, pages: 0, bestiary: 0, banked: 0, records: [], next: 'Go back for the pack', lines: [{ label: 'Time out', value: '3 min' }], title: 'Woke at camp' } }));
     check('a black-out trip card never opens over the black-out screen', (await screen()) === 'death');
-    check('the black-out card names what did it and where', /Struck down/.test(await page.locator('.dd-bo-cause').innerText().catch(() => '')) && /Stratum I/.test(await page.locator('.dd-bo-where').innerText().catch(() => '')));
+    check('the black-out card names what did it and where', /Struck down/.test(await page.locator('.dd-bo-cause').innerText().catch(() => '')) && /Stratum\sI/.test(await page.locator('.dd-bo-where').innerText().catch(() => '')));
     await page.locator('[data-key="respawn"]').tap();
     await wait(80);
     await page.evaluate(() => window.__UI__.bus.emit('player:respawned', {}));

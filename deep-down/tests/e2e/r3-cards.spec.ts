@@ -65,7 +65,8 @@ test('a trip ends at camp with its card; a black-out tells its story, then the t
   await waitMode(page, 'dead');
   await expect(page.locator('.dd-death.dd-bo')).toBeVisible();
   await expect(page.locator('.dd-death-title')).toHaveText(/lantern went out/i);
-  await expect(page.locator('.dd-bo-where')).toContainText(/Stratum I/);
+  // (A no-break space holds the numeral to its word.)
+  await expect(page.locator('.dd-bo-where')).toContainText(/Stratum\sI/);
   await expect(page.locator('.dd-bo-wake')).toContainText(/wake/i);
   await tapEl(page, touch, page.locator('[data-key="respawn"]'));
   await waitMode(page, 'playing');
