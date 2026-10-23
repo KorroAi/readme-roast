@@ -949,7 +949,9 @@ export const STRATA_LAYERS = {
   amberLimeTop: { painter: top('amberLime', 'weathered', R.amberLime, 0x0a0705), glow: 0, biomes: ['amberHollows'] },
   amberSandSide: { painter: side('amberSand'), glow: 0, biomes: ['amberHollows'] },
   amberSandTop: { painter: top('amberSand', 'stone', R.amberSand, 0x0a0604), glow: 0, biomes: ['amberHollows'] },
-  amberFloor: { painter: recolour(gravel, R.amberFloor), glow: 0, biomes: ['amberHollows'] },
+  // Round 3 (lead 23:53): packed sandy dust with its dry cracks and a few set stones (the soil
+  // painter), not loose gravel: the pebbles' dark matrix read as coarse pixel noise past the planks.
+  amberFloor: { painter: recolour(soil, R.amberFloor), glow: 0, biomes: ['amberHollows'] },
   // Amber holds the light: its nuggets glow softly (the Honeycomb's cells, the starter biome's first ore).
   amberOre: { painter: ore('amberLime', 'nugget', R.amberOre, 0xffd890), glow: 0.35, biomes: ['amberHollows'] },
   // I-B Mushroom Forest

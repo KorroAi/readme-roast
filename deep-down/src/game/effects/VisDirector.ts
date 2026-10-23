@@ -542,8 +542,11 @@ export class VisDirector {
       const kind = pocketKind(p.biome, p.id) ?? '';
       const onLine = /^(glowCaps|mineLamp|runeLamp)/.test(kind);
       const floating = p.roof === null || (!onLine && pocketDrop(p) > 1.5);
-      const k = floating ? 0.5 : 0.3;
-      halos.push({ x: p.x, y: p.y, z: p.z, id: B.LIGHT_EMBER, color: [r * k, g * k, b * k], size: floating ? 0.85 : 1.7, lift: floating ? 0.5 : 0.25 });
+      // In the darkest biomes (the Abyss, the Heart's chamber) its lights are the frame's lit focal
+      // points (lead 00:13): a brighter, wider glow.
+      const dark = p.biome === 'obsidianAbyss' || p.biome === 'heart' ? 1.8 : 1;
+      const k = (floating ? 0.5 : 0.3) * dark;
+      halos.push({ x: p.x, y: p.y, z: p.z, id: B.LIGHT_EMBER, color: [r * k, g * k, b * k], size: (floating ? 0.85 : 1.7) * (dark > 1 ? 1.4 : 1), lift: floating ? 0.5 : 0.25 });
     }
     this.pocketHalos.setSources(halos);
     // The high lights of the shaft biomes fall in soft shafts to the floor (a few, spaced apart).
