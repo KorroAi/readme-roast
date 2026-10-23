@@ -318,6 +318,7 @@ export const mobs = {
   'mob.guardianPhase': 'It grows angry: faster now.',
   'mob.guardianReset': 'The guardian heals and sleeps again.',
   'mob.guardianOpen': 'Its guard is open: strike now!',
+  'mob.guardianGuarded': 'Its guard is up: your blows glance off. Strike when it opens, right after its attack.',
   // A guardian's new phase: what it does now (the added pattern), one line each.
   'mob.phaseLine.amberMatriarch.2': 'The Matriarch rears up: now she slams. Out of the circle, then strike.',
   'mob.phaseLine.mycelord.2': 'The Mycelord stamps the ground now. Step out of its circle.',

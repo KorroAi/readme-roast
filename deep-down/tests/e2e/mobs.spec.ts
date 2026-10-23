@@ -104,7 +104,7 @@ async function closeIn(page: Page, m: MobView, dist: number): Promise<void> {
       const s = dd.standableNear(Math.floor(mx + (dx / l) * d), Math.floor(my), Math.floor(mz + (dz / l) * d));
       if (s) dd.teleport(s[0] + 0.5, s[1], s[2] + 0.5);
     }
-  }, [m.x, m.foot.y, m.z, dist] as const);
+  }, [m.x, m.foot.y > 0 ? m.foot.y : m.y - 1.6, m.z, dist] as const);
   await page.evaluate(([x, y, z]) => (window.__DD__ as any).mobs.lookAt(x, y, z, 0), [m.x, m.y, m.z] as const);
 }
 
@@ -173,8 +173,11 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
     }
     expect(marked, `${kind}: its blow marked on the ground`).toBe(true);
     expect(decalsDrawn, `${kind}: the telegraph decals drawn`).toBe(true);
+    const dropsBefore = await page.evaluate(() => (window.__DD__ as any).game.drops.count as number);
     const taps = await tapUntilDead(page, touch, id as number, 40);
     await page.waitForFunction((i) => (window.__DD__ as any).mobs.events('mob:died').some((e: Ev) => e.payload.id === i), id, { timeout: 30_000, polling: 250 });
+    // (Its loot is rolled: most kinds always leave something, some by chance, e.g. the Icefang 9 in 10.)
+    const dropped = (await page.evaluate(() => (window.__DD__ as any).game.drops.count as number)) > dropsBefore || (await events(page, 'item:picked')).length > 0;
     const log = await events(page);
     const own = log.filter((e) => e.payload?.id === id);
     const firstTell = own.findIndex((e) => e.type === 'mob:telegraph');
@@ -183,10 +186,10 @@ test('a fight in three biomes (real taps): every blow is told first, the explore
     expect(firstTell, `${kind}: told before its first blow`).toBeLessThan(firstBlow);
     expect(own.filter((e) => e.type === 'mob:hit').length, `${kind}: struck by taps`).toBeGreaterThan(0);
     expect(log.some((e) => e.type === 'mob:sfx'), `${kind}: heard`).toBe(true);
-    // The loot flies to the bag.
-    const picked = await page.waitForFunction(() => (window.__DD__ as any).mobs.events('item:picked').length > 0, null, { timeout: 20_000, polling: 250 }).then(() => true, () => false);
-    console.log(`[mobs] ${biome}: ${kind} beaten in ${taps} taps, ${own.filter((e) => e.type === 'mob:attack').length} blows at the explorer, loot ${picked}`);
-    expect(picked, `${kind}: its loot reached the bag`).toBe(true);
+    // The loot flies to the bag (when it left any).
+    const picked = dropped ? await page.waitForFunction(() => (window.__DD__ as any).mobs.events('item:picked').length > 0, null, { timeout: 20_000, polling: 250 }).then(() => true, () => false) : null;
+    console.log(`[mobs] ${biome}: ${kind} beaten in ${taps} taps, ${own.filter((e) => e.type === 'mob:attack').length} blows at the explorer, loot ${picked === null ? 'none rolled' : picked}`);
+    if (dropped) expect(picked, `${kind}: its loot reached the bag`).toBe(true);
   }
   expect(shaderErrors(page), 'every creature shader compiled').toEqual([]);
 });
@@ -336,15 +339,17 @@ test('the companion: three glowcaps tame a Lampling (real taps), it follows; an 
   });
   const lid = await page.evaluate(() => (window.__DD__ as any).mobs.spawnAhead('lampling', 2.2, 1.4));
   expect(lid, 'a wild lampling ahead').not.toBeNull();
-  for (let i = 0; i < 6; i++) {
+  // Up to 14 tries (under load a tap can land while it flutters off its spot), each re-aimed.
+  for (let i = 0; i < 14; i++) {
     const tamed = await page.evaluate(() => (window.__DD__ as any).mobs.events('companion:tamed').length > 0);
     if (tamed) break;
     const m = await mob(page, lid as number);
     if (!m) break;
-    await page.evaluate(([x, y, z]) => (window.__DD__ as any).mobs.lookAt(x, y, z, 0), [m.x, m.y, m.z] as const);
+    // (A wild one flutters about: step back within a hand's reach of it first.)
+    await closeIn(page, m, 1.8);
     const pt = await screenOf(page, [m.x, m.y, m.z]);
     if (pt) await touch.tap({ x: Math.round(pt.x), y: Math.round(pt.y) });
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(700);
   }
   const trust = await events(page, 'companion:trust');
   expect(trust.length, 'fed glowcaps').toBeGreaterThanOrEqual(2);

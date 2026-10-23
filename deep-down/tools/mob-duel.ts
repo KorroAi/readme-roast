@@ -26,6 +26,8 @@ if (process.env.MOB_LOCK) setLaneLock(Number(process.env.MOB_LOCK));
 const LOCK = LANE_LOCK;
 /** MOB_NODASH=1: the explorer walks off a locked lane instead of dashing (a phone player's dodge). */
 const NODASH = process.env.MOB_NODASH === '1';
+/** MOB_MASH=1: a player who stays close and swings whenever in reach, open guard or not (QA's phone player). */
+const MASH = process.env.MOB_MASH === '1';
 /** The explorer's health and armour (config/armour: the set's share of creature damage taken away). */
 const HP = Number(process.env.MOB_HP ?? 100);
 const ARMOUR = Number(process.env.MOB_ARMOUR ?? 0);
@@ -347,7 +349,7 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
       tz = fuse.position.z + (fz / fl) * want;
     } else {
       dodgeTo = null;
-      const want = open ? Math.max(1.2, g.body.side + 0.6) : 4.5;
+      const want = open || MASH ? Math.max(1.2, g.body.side + 0.6) : 4.5;
       tx = gx + (dx / d) * want;
       tz = gz + (dz / d) * want;
     }
@@ -396,7 +398,7 @@ function duel(kind: GuardianKind, gear: Gear, dodge: number, seed: number): Duel
       // A fusing one in reach first (before it pops), then the open guard, then a minion at hand.
       const f = fuses.find((m) => reachOf(m) <= w.reach);
       if (f) target = f;
-      else if (open && reachOf(g) <= w.reach) target = g;
+      else if ((open || MASH) && reachOf(g) <= w.reach) target = g;
       else if (!open) for (const m of sim.mobs) if (m !== g && m.hostile && !m.dying && reachOf(m) <= w.reach) target = m;
       if (target) {
         sim.hit(target, w.damage, { weapon, from: { x: c.eye.x, y: c.eye.y, z: c.eye.z } });
@@ -440,7 +442,9 @@ const median = (xs: number[]) => (xs.length ? [...xs].sort((a, b) => a - b)[Math
  * these back for a measurement (the brood at full strength, 2 + phase a call; salvos 0.4 s apart;
  * the defs' numbers below), so before and after are measured by the same model.
  */
-const BEFORE_DEFS: Partial<Record<GuardianKind, { hp?: number; damage?: number; shot?: { damage?: number; count?: number; splash?: number } }>> = {
+const BEFORE_DEFS: Partial<Record<GuardianKind, { hp?: number; damage?: number; armour?: number; shot?: { damage?: number; count?: number; splash?: number } }>> = {
+  amberMatriarch: { hp: 90, damage: 14, armour: 0.55 },
+  mycelord: { hp: 100, damage: 14, armour: 0.55 },
   quartzTitan: { shot: { damage: 16, count: 7 } },
   foremanEngine: { hp: 260, shot: { damage: 16 } },
   rimeWyrm: { shot: { damage: 18, splash: 1 } },
@@ -456,9 +460,10 @@ function useBefore(): void {
   VOLLEY.every = 0.4;
   OPEN_FLIER.sink = false;
   for (const [k, v] of Object.entries(BEFORE_DEFS)) {
-    const d = SPECIES[k as GuardianKind] as unknown as { hp: number; damage: number; shot?: { damage: number; count: number; splash: number } };
+    const d = SPECIES[k as GuardianKind] as unknown as { hp: number; damage: number; armour: number; shot?: { damage: number; count: number; splash: number } };
     if (v.hp !== undefined) d.hp = v.hp;
     if (v.damage !== undefined) d.damage = v.damage;
+    if (v.armour !== undefined) d.armour = v.armour;
     if (v.shot && d.shot) Object.assign(d.shot, v.shot);
   }
 }
@@ -496,6 +501,10 @@ async function planTable(args: string[]): Promise<void> {
 
 export default async function main(args: string[]): Promise<void> {
   if (args[0] === '--plan') return planTable(args.slice(1));
+  if (process.env.MOB_BEFORE === '1') {
+    useBefore();
+    console.log('(the guardians as they were before the rebalance)');
+  }
   const kind = (args[0] ?? 'amberMatriarch') as GuardianKind;
   const weapons = (args[1] ?? 'pick,machete,sword').split(',') as WeaponId[];
   const dodges = (args[2] ?? '0.5,0.8').split(',').map(Number);

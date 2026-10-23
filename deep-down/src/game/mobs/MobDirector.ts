@@ -89,8 +89,11 @@ export class MobDirector implements MobSystem {
   private fightWanted = false;
   private fightTry = 0;
   private fightMob = 0;
-  /** Open-guard hints shown this game (the first one only). */
+  /** Open-guard hints shown this session (until the explorer has struck an open guard once). */
   private openHints = 0;
+  /** The explorer has struck a guardian's open guard this session; blows on a shut guard before that. */
+  private openStruck = false;
+  private guardedHits = 0;
   /** The Dark Heart whose beat was started on the score's grid (its id and asleep/awake). */
   private heartStart = '';
 
@@ -858,6 +861,13 @@ export class MobDirector implements MobSystem {
         bus.emit('mob:hit', { id: e.mob.id, kind: e.mob.kind, damage: e.damage, killed: e.killed, armoured: e.armoured, weak: e.weak, x: p.x, y: p.y, z: p.z, ...s });
         this.sfxAt(e.armoured ? 'mob.hit.armour' : e.mob.def.voice.hit, p, e.weak ? 1.15 : 1);
         this.impactOf(e.mob, e.armoured, !!e.weak);
+        // Teaching the open guard (QA 00:32): a guardian struck through its shut guard glances (the
+        // clank, steel sparks); after a few such blows, before the explorer has ever struck it open,
+        // a word says when to strike.
+        if (e.mob.guardian) {
+          if (e.weak) this.openStruck = true;
+          else if (e.armoured && !this.openStruck && ++this.guardedHits === 3) this.game.ui.hint(t('mob.guardianGuarded'), 3200);
+        }
         break;
       }
       case 'die': {
@@ -955,11 +965,12 @@ export class MobDirector implements MobSystem {
           g.cameraRig.addTrauma(0.16);
         } else if (e.phase === 'open') {
           bus.emit('mob:guardianOpen', { id: m.id, kind: m.kind as GuardianState['kind'], biome, seconds: m.openFor });
-          // The first open guard of a game gets a word (then its sound, its body and the bar's chip tell it).
-          if (this.openHints < 1 && !g.progression.hintsShown.has('mob.guardianOpen')) {
+          // Its open guard gets a word until the explorer has struck one (at most three times a session;
+          // then its sound, its sagging body and the bar's chip tell it).
+          if (this.openHints < 3 && !this.openStruck) {
             this.openHints++;
             g.progression.hintsShown.add('mob.guardianOpen');
-            g.ui.hint(t('mob.guardianOpen'), 1800);
+            g.ui.hint(t('mob.guardianOpen'), 2600);
           }
         } else {
           if (this.fighting === m) this.fighting = null;
