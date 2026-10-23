@@ -428,7 +428,7 @@ export class Hud {
   }
 
   /** A small damage number at a screen point (0..1 from the top left); at most DMG_MAX at once. */
-  damageNumber(sx: number, sy: number, amount: number, kind: 'hit' | 'weak' | 'hurt' = 'hit'): void {
+  damageNumber(sx: number, sy: number, amount: number, kind: 'hit' | 'weak' | 'hurt' | 'guard' = 'hit'): void {
     if (!(amount > 0) || this.reduceMotion) return;
     while (this.dmgLayer.childElementCount >= DMG_MAX) this.dmgLayer.firstElementChild?.remove();
     const el = h('span', { class: `dd-dmg ${kind}`, text: String(Math.max(1, Math.round(amount))) });

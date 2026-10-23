@@ -62,6 +62,24 @@ export function bubblePlacement(
   return { x, y: Math.min(view.height - bubble.height - margin, a.top + a.height + margin), side: 'below', tip: tipX };
 }
 
+type Box = { left: number; top: number; width: number; height: number };
+
+/**
+ * bubblePlacement that also keeps clear of `avoid`, a control the bubble must not cover: the
+ * Interact chip shares the band above the pads (QA 01:43: the Place tip sat on "Craft / Workbench").
+ * A bubble that would cover it clears both, the control it points at and the one it avoids.
+ */
+export function bubbleClear(rect: Box, bubble: { width: number; height: number }, view: { width: number; height: number }, margin: number, avoid: Box | null): ReturnType<typeof bubblePlacement> {
+  const p = bubblePlacement(rect, bubble, view, margin);
+  if (!avoid || avoid.width <= 0 || avoid.height <= 0) return p;
+  const covers = p.x < avoid.left + avoid.width && p.x + bubble.width > avoid.left && p.y < avoid.top + avoid.height && p.y + bubble.height > avoid.top;
+  if (!covers) return p;
+  const left = Math.min(rect.left, avoid.left);
+  const top = Math.min(rect.top, avoid.top);
+  const both = { left, top, width: Math.max(rect.left + rect.width, avoid.left + avoid.width) - left, height: Math.max(rect.top + rect.height, avoid.top + avoid.height) - top };
+  return bubblePlacement(rect, bubble, view, margin, both);
+}
+
 /** The bounds of the visible action pads (Action, Jump, Dash, Sonar, Place), or null. */
 function padCluster(scope: ParentNode): { left: number; top: number; width: number; height: number } | null {
   let l = Infinity;
@@ -254,7 +272,9 @@ export class TutorialOverlay implements UiHighlighter {
     this.tipEl.classList.add('on');
     const bw = Math.min(240, window.innerWidth - 24);
     this.tipEl.style.width = `${bw}px`;
-    const p = bubblePlacement(r, { width: bw, height: this.tipEl.offsetHeight || 44 }, { width: window.innerWidth, height: window.innerHeight }, 8);
+    // The Interact chip, when it is up, keeps its band: the bubble clears it (QA 01:43).
+    const chip = target === 'interact' ? null : this.shownEl('interact');
+    const p = bubbleClear(r, { width: bw, height: this.tipEl.offsetHeight || 44 }, { width: window.innerWidth, height: window.innerHeight }, 8, chip?.getBoundingClientRect() ?? null);
     this.tipEl.style.transform = `translate3d(${p.x}px, ${p.y}px, 0)`;
     window.clearTimeout(this.tipTimer);
     this.tipTimer = window.setTimeout(() => {
@@ -273,6 +293,12 @@ export class TutorialOverlay implements UiHighlighter {
   dispose(): void {
     window.clearTimeout(this.tipTimer);
     window.clearTimeout(this.passTimer);
+  }
+
+  /** The control shown now for `id` (no stand-in), or null. */
+  private shownEl(id: UiTargetId): HTMLElement | null {
+    for (const el of this.scope.querySelectorAll<HTMLElement>(`[data-ui-target="${id}"]`)) if (!el.hidden && el.offsetParent !== null) return el;
+    return null;
   }
 
   private targetEl(id: UiTargetId): HTMLElement | null {

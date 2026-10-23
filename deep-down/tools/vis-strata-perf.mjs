@@ -59,6 +59,12 @@ try {
       const g = D.game;
       if (g.strata.current !== n) await D.stratum(n);
       D.mobs?.clear?.();
+      // The cave culler learns each chunk's connectivity a few milliseconds a frame after a stratum
+      // switch (an unknown chunk is drawn as if open): in play it knows them all within the first
+      // seconds, so measure steady play, not the arrival's first frames (the first spot read up to
+      // ~30 calls high).
+      await D.meshIdle?.();
+      g.session.chunks.culler?.compute?.(20000);
       const L = g.strata.layout;
       const spots = [];
       if (L.vista) {
@@ -82,6 +88,7 @@ try {
         // built (meshIdle), the cull and the biome look follow in a frame or two.
         D.step(2, 0.1);
         await D.meshIdle?.();
+        g.session.chunks.culler?.compute?.(20000);
         // The decor round the spot baked as in steady play (two cells a frame there).
         g.session.props.flushDecor?.(g.cameraRig.camera.position, 120);
         D.step(1, 0.1);

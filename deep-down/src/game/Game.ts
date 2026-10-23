@@ -442,7 +442,8 @@ export class Game {
     bus.on('mob:hit', (e) => {
       if (e.x === undefined || e.y === undefined || e.z === undefined || this.mode !== 'playing') return;
       const at = this.screenPoint(e.x, e.y + 0.4, e.z);
-      this.ui.damageNumber?.(at[0], at[1], e.damage, e.weak ? 'weak' : 'hit');
+      // A blow on an armoured part reads grey: the guard soaked it (MOBS).
+      this.ui.damageNumber?.(at[0], at[1], e.damage, e.armoured ? 'guard' : e.weak ? 'weak' : 'hit');
     });
     bus.on('ui:opened', () => undefined);
   }

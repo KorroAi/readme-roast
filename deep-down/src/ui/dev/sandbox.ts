@@ -595,6 +595,7 @@ function scene(name: string): void {
         });
         ui.damageNumber(0.56, 0.42, 12, 'hit');
         ui.damageNumber(0.6, 0.38, 24, 'weak');
+        ui.damageNumber(0.5, 0.47, 3, 'guard');
       } else if (arg === 'tutorial') {
         hud.tutorial = { target: 'action', line: t('tut.mine' as TextKey), step: 3, total: 11 };
       } else if (arg === 'look') {

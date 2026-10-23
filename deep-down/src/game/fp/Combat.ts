@@ -123,8 +123,10 @@ export class Combat {
       if (p.z > 1 || p.z < -1) continue;
       const dist = m.position.distanceTo(o);
       if (dist > 30) continue;
-      // Its radius on screen: a big creature is easy to hit anywhere on its body.
-      const rPx = (m.bounds.radius / Math.max(0.3, dist)) * (height / 2) / Math.tan((cam.fov * Math.PI) / 360);
+      // Its radius on screen: a big creature is easy to hit anywhere on its body, as wide as it is
+      // drawn (MOBS: `body.side`, the drawn bulk of the guardians and big kinds, can exceed `bounds`).
+      const radius = m.body ? Math.max(m.bounds.radius, m.body.side) : m.bounds.radius;
+      const rPx = (radius / Math.max(0.3, dist)) * (height / 2) / Math.tan((cam.fov * Math.PI) / 360);
       const px = Math.hypot(((p.x - ndcX) * width) / 2, ((p.y - ndcY) * height) / 2) - rPx;
       // Monsters a little ahead of beings when both are near the finger.
       const score = px + (m.hostile ? 0 : 6);

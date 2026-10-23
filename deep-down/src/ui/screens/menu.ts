@@ -164,7 +164,7 @@ export function updateLoading(el: HTMLElement, progress: number, label: string, 
     bar.setAttribute('aria-label', label);
   }
   if (text && text.textContent !== label) text.textContent = label;
-  if ((el.dataset.stratum ?? '') !== (stratum === null ? '' : String(stratum))) paintStratum(el, stratum);
+  if ((el.dataset.stratum ?? '') !== (typeof stratum === 'number' && stratum >= 1 ? String(stratum) : '')) paintStratum(el, stratum);
 }
 
 /** A biome's light as CSS channels ("r g b", for rgb(var(--biome-a) / alpha)); the Map tints its regions with the same. */
@@ -177,7 +177,9 @@ const INK_LIFT = 0.25;
  * the boot's: its numeral over its name (the label), its two biomes in their colours, its depth band,
  * the gauge and the glow in the first biome's light. No stratum: the boot's logo.
  */
-function paintStratum(el: HTMLElement, n: number | null): void {
+function paintStratum(el: HTMLElement, stratum: number | null | undefined): void {
+  // Anything but a stratum's number (a state without the field: a stub, an older host) is the boot's.
+  const n = typeof stratum === 'number' && stratum >= 1 ? stratum : null;
   el.dataset.stratum = n === null ? '' : String(n);
   el.classList.toggle('dd-descent', n !== null);
   const roman = el.querySelector<HTMLElement>('.dd-descent-roman');

@@ -30,7 +30,7 @@ export interface GameUi {
   readonly player?: PlayerActions;
   arrival?(card: ArrivalCard): void;
   setMap?(src: MapSource | null): void;
-  damageNumber?(sx: number, sy: number, amount: number, kind?: 'hit' | 'weak' | 'hurt'): void;
+  damageNumber?(sx: number, sy: number, amount: number, kind?: 'hit' | 'weak' | 'hurt' | 'guard'): void;
   tip?(id: string, target: UiTargetId, text: string): boolean;
   setControlPrefs?(p: import('../ui/controlPrefs').ControlPrefs): void;
   /** Round 3: forget the first-time tips shown (they show again). */

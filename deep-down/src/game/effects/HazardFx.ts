@@ -94,10 +94,12 @@ out float vAlpha;
 out vec3 vWorldPos;
 void main() {
   float age = max(0.0, uAge - aPuff.y);
-  // Out of the mouth and up a little, widening as it thins.
-  vec3 c = uOrigin + uFwd * (0.06 + age * 0.22) + uSide * aPuff.x * (1.0 + age) + vec3(0.0, age * 0.1, 0.0);
-  float size = (0.09 + age * 0.2) * aPuff.z;
-  vAlpha = smoothstep(0.0, 0.3, age) * (1.0 - smoothstep(0.5, 1.7, age)) * 0.16;
+  // Out of the mouth and up a little, widening as it thins. QA 01:50: a faint wisp low in the view
+  // that the cave shows through (it was a lantern-lit white cloud over the middle third): smaller,
+  // fainter, from lower down, and gone sooner.
+  vec3 c = uOrigin + uFwd * (0.1 + age * 0.24) + uSide * aPuff.x * (1.0 + age) + vec3(0.0, age * 0.08, 0.0);
+  float size = (0.05 + age * 0.11) * aPuff.z;
+  vAlpha = smoothstep(0.0, 0.3, age) * (1.0 - smoothstep(0.4, 1.4, age)) * 0.07;
   vec4 mv = viewMatrix * vec4(c, 1.0);
   mv.xy += aCorner * size;
   vWorldPos = c;
@@ -119,7 +121,8 @@ void main() {
   float a = exp(-r2 * 3.0) * (1.0 - r2) * vAlpha;
   vec4 ls = lightSample(vWorldPos);
   vec3 lit = ambientFrom(ls) + lanternLight(vWorldPos, vWorldPos, normalize(uLanternPos - vWorldPos), 0.5, 0.6) * 0.6;
-  vec3 col = vec3(0.85, 0.9, 0.95) * (lit * 0.8 + vec3(0.04));
+  // The flame is a hand's breadth away: its light on the wisp is capped (no white cloud).
+  vec3 col = vec3(0.85, 0.9, 0.95) * min(lit * 0.8 + vec3(0.04), vec3(0.3));
   fragColor = vec4(sceneOut(col) * a, a);
 }
 `;
@@ -254,7 +257,7 @@ export class HazardFx {
       const u = this.breath.material.uniforms;
       camera.getWorldDirection(this.fwd);
       this.side.set(-this.fwd.z, 0, this.fwd.x).normalize();
-      (u.uOrigin.value as THREE.Vector3).copy(p).addScaledVector(this.fwd, 0.32).add(new THREE.Vector3(0, -0.14, 0));
+      (u.uOrigin.value as THREE.Vector3).copy(p).addScaledVector(this.fwd, 0.34).add(new THREE.Vector3(0, -0.2, 0));
       (u.uFwd.value as THREE.Vector3).copy(this.fwd);
       (u.uSide.value as THREE.Vector3).copy(this.side);
       u.uAge.value = this.breathT;

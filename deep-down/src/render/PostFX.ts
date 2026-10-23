@@ -152,22 +152,30 @@ float ign(vec2 p) {
   return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
-// Crystalline rime: the edges of a cell pattern, sharper where it is thick.
-float rimeCells(vec2 p) {
+// Frost on the lens (lead, the Rime Wyrm fight: the old rime drew big flat pale cells, a mosaic):
+// fine feathered ice grows in from the edges, more in the corners; mostly clear, its crystal lines
+// bright and thin over a faint veil, fading toward the centre.
+float frostHash(vec2 p) {
+  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+  p3 += dot(p3, p3.yzx + 33.33);
+  return fract((p3.x + p3.y) * p3.z);
+}
+float frostNoise(vec2 p) {
   vec2 i = floor(p);
   vec2 f = fract(p);
-  float d1 = 8.0;
-  float d2 = 8.0;
-  for (int y = -1; y <= 1; y++) for (int x = -1; x <= 1; x++) {
-    vec2 g = vec2(float(x), float(y));
-    vec2 o = fract(sin(vec2(dot(i + g, vec2(127.1, 311.7)), dot(i + g, vec2(269.5, 183.3)))) * 43758.5453);
-    float d = length(g + o - f);
-    if (d < d1) {
-      d2 = d1;
-      d1 = d;
-    } else if (d < d2) d2 = d;
-  }
-  return d2 - d1;
+  vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(frostHash(i), frostHash(i + vec2(1.0, 0.0)), u.x), mix(frostHash(i + vec2(0.0, 1.0)), frostHash(i + vec2(1.0, 1.0)), u.x), u.y);
+}
+// Thin ridges of a noise stretched along grow (needles growing in from the edge) and finer ones at
+// sixty degrees to it (ice branches in sixties). p in short sides of the frame.
+float frostFeather(vec2 p, vec2 grow) {
+  vec2 side = vec2(-grow.y, grow.x);
+  float r1 = 1.0 - abs(2.0 * frostNoise(vec2(dot(p, side) * 70.0, dot(p, grow) * 9.0)) - 1.0);
+  vec2 g2 = grow * 0.5 + side * 0.866;
+  vec2 g3 = grow * 0.5 - side * 0.866;
+  float r2 = 1.0 - abs(2.0 * frostNoise(vec2(dot(p, vec2(-g2.y, g2.x)) * 120.0, dot(p, g2) * 16.0) + 7.1) - 1.0);
+  float r3 = 1.0 - abs(2.0 * frostNoise(vec2(dot(p, vec2(-g3.y, g3.x)) * 120.0, dot(p, g3) * 16.0) + 3.7) - 1.0);
+  return max(pow(r1, 10.0), 0.7 * max(pow(r2, 14.0), pow(r3, 14.0)));
 }
 
 void main() {
@@ -204,14 +212,27 @@ void main() {
   c *= 1.0 - 0.2 * smoothstep(0.62, 1.0, vUv.y);
   if (dot(uHazard, vec4(1.0)) > 0.001) {
     float er = length(qa * vec2(1.25, 0.95));
-    // Frost: a pale blue rime grows in from the edges and the corners, crystal-edged.
+    // Frost: feathered ice grows in from the edges and the corners (frostFeather), as far as a tenth
+    // of the frame's short side at a full meter, its front ragged; the cave stays seen through it.
     if (uHazard.x > 0.001) {
-      float cells = rimeCells(qa * 9.0 + 3.7);
-      float reach = mix(0.95, 0.52, uHazard.x);
-      float frost = smoothstep(reach, reach + 0.25, er + (cells - 0.25) * 0.22);
-      vec3 rime = mix(vec3(0.55, 0.7, 0.82), vec3(0.88, 0.95, 1.0), smoothstep(0.0, 0.18, cells));
-      c = mix(c, rime, frost * 0.62 * min(1.0, uHazard.x * 1.4));
-      c = mix(c, c * vec3(0.92, 0.98, 1.06), uHazard.x * 0.5);
+      float side = min(uResolution.x, uResolution.y);
+      vec2 fr = uResolution / max(side, 1.0);
+      // Distance to the nearest edge (short sides of the frame), and both edges at once in a corner.
+      float ex = min(vUv.x, 1.0 - vUv.x) * fr.x;
+      float ey = min(vUv.y, 1.0 - vUv.y) * fr.y;
+      float wx = exp(-ex / 0.03);
+      float wy = exp(-ey / 0.03);
+      float de = -0.03 * log(max(wx + wy, 1e-30));
+      float reach = 0.1 * uHazard.x;
+      if (de < reach) {
+        vec2 fp = vUv * fr;
+        float lines = (frostFeather(fp, vec2(vUv.x < 0.5 ? 1.0 : -1.0, 0.0)) * wx + frostFeather(fp, vec2(0.0, vUv.y < 0.5 ? 1.0 : -1.0)) * wy) / max(wx + wy, 1e-30);
+        float front = reach * (0.55 + 0.45 * frostNoise(fp * 26.0 + 11.0));
+        float m = 1.0 - smoothstep(front * 0.35, front, de);
+        vec3 ice = mix(vec3(0.62, 0.76, 0.88), vec3(0.9, 0.96, 1.0), lines);
+        c = mix(c, ice, m * (0.06 + 0.78 * lines) * min(1.0, uHazard.x * 1.5));
+      }
+      c = mix(c, c * vec3(0.94, 0.98, 1.05), uHazard.x * 0.35);
     }
     // Gas: a green-yellow cast that breathes, and a soft haze at the edges.
     if (uHazard.y > 0.001) {

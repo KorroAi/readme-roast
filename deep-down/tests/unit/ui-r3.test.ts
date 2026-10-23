@@ -672,6 +672,30 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     expect(run('machete', 1.5, 6, false), 'held Action folded in after the update: one blow (the bug)').toBe(1);
   });
 
+  it('snaps a tap to a big creature as wide as it is drawn, by its body where it has one (MOBS)', async () => {
+    const { Combat } = await import('../../src/game/fp/Combat');
+    const { WEAPONS } = await import('../../src/config/weapons');
+    const { EventBus } = await import('../../src/core/events');
+    const cam = new THREE.PerspectiveCamera(70, 390 / 844, 0.05, 100);
+    cam.position.set(16, 4.6, 24);
+    cam.lookAt(16, 4.6, 18);
+    cam.updateMatrixWorld();
+    // A big creature 6 m ahead, its centre 1.6 m right of the finger (about 160 px on a 390 px screen).
+    const mob = { id: 1, kind: 'amberMatriarch', family: 'monster', hostile: true, tappable: true, state: 'idle', position: new THREE.Vector3(17.6, 4.6, 18), bounds: { radius: 0.5, halfHeight: 0.8 }, body: null as null | { front: number; back: number; side: number } };
+    const sys = { pick: () => null, list: () => [mob], hit: () => ({ hit: true, killed: false, hitStop: 0 }), fire: () => undefined, flash: () => 0 };
+    const host = { mobs: () => sys, world: new VoxelWorld(32, 16, 32), owned: () => ['machete'], weaponFor: () => WEAPONS.machete, camera: () => cam, eye: () => cam.position, viewport: () => ({ width: 390, height: 844 }), walkNear: () => true, stopWalk: () => undefined, flashCharges: () => 0, useFlashCharge: () => false, hint: () => undefined, nudge: () => undefined };
+    const vm = { attack: () => undefined, raise: () => undefined, hitStop: () => undefined, toolWorld: (v: THREE.Vector3) => v.set(16, 4.4, 23.7), rightHand: 'pick', setRightHand: () => undefined };
+    const combat = new Combat(host as never, vm as never, new EventBus() as never);
+    expect(combat.pickMob(0, 0), 'its capsule alone is too far from the finger').toBeNull();
+    // Its drawn bulk, 2 m each side: the finger is on its body.
+    mob.body = { front: 2.4, back: 2.4, side: 2 };
+    expect(combat.pickMob(0, 0)).toBe(mob);
+    // A body narrower than its capsule never shrinks the snap.
+    mob.body = { front: 0.3, back: 0.3, side: 0.2 };
+    mob.position.set(16.75, 4.6, 18);
+    expect(combat.pickMob(0, 0), 'within its capsule radius of the snap').toBe(mob);
+  });
+
   it("knows a stratum's own load by its name; one gate toast; the record's words at any depth (QA 01:41)", async () => {
     const { descentStratum, fromTemplate } = await import('../../src/ui/hud/noticeGate');
     const { STRATA } = await import('../../src/config/biomes');
@@ -700,6 +724,31 @@ describe('round 3 UI, the second instance (map places, relief, cards)', () => {
     } finally {
       setLanguage('en');
     }
+  });
+
+  it('puts a first-time tip clear of the Interact chip when they would share a band (QA 01:43)', async () => {
+    const { bubbleClear } = await import('../../src/ui/hud/Tutorial');
+    const size = { width: 240, height: 62 };
+    const clear = (p: { x: number; y: number }, c: { left: number; top: number; width: number; height: number }) =>
+      p.x >= c.left + c.width || p.x + size.width <= c.left || p.y >= c.top + c.height || p.y + size.height <= c.top;
+    // Portrait, at the Workbench with a Furnace in hand: the Place pad under the "Craft / Workbench" chip.
+    const view = { width: 390, height: 844 };
+    const place = { left: 300, top: 600, width: 64, height: 64 };
+    const chip = { left: 245, top: 538, width: 130, height: 54 };
+    const plain = bubbleClear(place, size, view, 8, null);
+    expect(plain.y).toBe(600 - 62 - 8);
+    expect(clear(plain, chip), 'the old place covers the chip').toBe(false);
+    const p = bubbleClear(place, size, view, 8, chip);
+    expect(clear(p, chip)).toBe(true);
+    expect(p.y + size.height).toBeLessThanOrEqual(chip.top);
+    // A chip elsewhere moves nothing.
+    expect(bubbleClear(place, size, view, 8, { left: 10, top: 100, width: 100, height: 40 })).toEqual(plain);
+    // Landscape: still clear of the chip, on screen.
+    const land = { width: 915, height: 412 };
+    const lp = bubbleClear({ left: 760, top: 250, width: 56, height: 56 }, size, land, 8, { left: 700, top: 196, width: 130, height: 48 });
+    expect(clear(lp, { left: 700, top: 196, width: 130, height: 48 })).toBe(true);
+    expect(lp.y).toBeGreaterThanOrEqual(8);
+    expect(lp.x + size.width).toBeLessThanOrEqual(915 - 8);
   });
 
   it('opens a round 3 menu rising from play, and slides along the rail', async () => {

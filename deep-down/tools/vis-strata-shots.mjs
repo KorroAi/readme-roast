@@ -305,6 +305,19 @@ try {
             const at = D.standableNear(h.centre[0] + h.radius * (view > 1 ? -0.55 : 0.6), h.centre[1], h.centre[2] + h.radius * 0.25);
             if (at) D.teleport(at[0], at[1], at[2]);
             look = [h.centre[0], h.centre[1] + 6, h.centre[2]];
+          } else if (rest === 'cold') {
+            // The cold's frost on the lens at a full meter (lead, the Rime Wyrm capture): WORLD's
+            // goto spot in the Frost Caverns, the meter held full (LOOP's Hazards), the look eased in.
+            const p = await D.goto('frostCaverns');
+            if (!p) return { err: 'no frostCaverns' };
+            const at = D.standableNear(p[0], p[1], p[2]);
+            if (at) D.teleport(at[0], at[1], at[2]);
+            const hz = g.loop?.hazards;
+            if (hz) {
+              hz.level = 1;
+              hz.kind = 'cold';
+            }
+            g.vis?.hazards?.levels?.set?.(1, 0, 0, 0);
           } else if (rest === 'geyser') {
             const vents = L.props.filter((p) => p.kind === 'gasVent');
             const v = vents[(view * 7) % Math.max(1, vents.length)];

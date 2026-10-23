@@ -573,6 +573,11 @@
 .dd-hud.dd-r3 .dd-dmg.hurt {
   color: #ff8a7a;
 }
+/* A blow on an armoured part: grey, the guard soaked it (MOBS). */
+.dd-hud.dd-r3 .dd-dmg.guard {
+  color: #a3a7ad;
+  text-shadow: 0 1px 2px #000;
+}
 @keyframes dd-r3-dmg {
   0% {
     opacity: 0;

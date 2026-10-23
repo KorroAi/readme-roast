@@ -619,7 +619,7 @@ export class UI implements GameUi {
   }
 
   /** Round 3: a small damage number at a screen point (0..1 from the top left). */
-  damageNumber(sx: number, sy: number, amount: number, kind: 'hit' | 'weak' | 'hurt' = 'hit'): void {
+  damageNumber(sx: number, sy: number, amount: number, kind: 'hit' | 'weak' | 'hurt' | 'guard' = 'hit'): void {
     if (this.gameplay && this.current === 'none') this.hud.damageNumber(sx, sy, amount, kind);
   }
 
