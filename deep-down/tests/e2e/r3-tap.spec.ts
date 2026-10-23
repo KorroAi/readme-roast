@@ -135,7 +135,7 @@ test('a tap on far floor walks there; a tap on the camp Workbench walks up to it
   let near: [number, number, number] | null = null;
   for (const [dx, dz] of [[-1, 4], [1, 4], [4, 1], [-4, 1], [0, -4]]) {
     near = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x, y, z), [bench[0] + dx, bench[1], bench[2] + dz]);
-    if (near && Math.hypot(near[0] + 0.5 - bench[0], near[2] + 0.5 - bench[2]) > 2.6) break;
+    if (near && Math.hypot(near[0] - bench[0], near[2] - bench[2]) > 2.6) break;
   }
   expect(near, 'floor a few metres from the Workbench').not.toBeNull();
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), near!);

@@ -16,27 +16,72 @@ const LADDER = 113;
 
 const count = (page: Page, item: string) => page.evaluate((i) => window.__DD__.game.backpack.count(i) + window.__DD__.game.storage.count(i), item);
 
-/** Stand in the open near the camp fire, facing a wall a couple of metres away (null: none found). */
-async function faceAWall(page: Page): Promise<{ wall: [number, number, number]; stand: [number, number, number] } | null> {
+/** Faces of a wall the build steps use: where the explorer stands, the torch's face, the ladder's. */
+interface BuildSpot {
+  stand: [number, number, number];
+  /** The torch's wall cell (at chest height) and the point on its face toward the stand. */
+  wall: [number, number, number];
+  torchAim: [number, number, number];
+  /** The ladder's wall column (its foot cell) beside the torch, and the point on its foot face. */
+  ladderWall: [number, number, number];
+  ladderAim: [number, number, number];
+}
+
+/**
+ * A stand near the camp fire facing a wall 2-3 m away, where Place itself (ActionLayer.placeCells,
+ * asked before committing) takes a torch on the wall at chest height and, on the column beside it, a
+ * ladder of three cells or more (gate run 3: the reticle never read "place" for the ladder; the stand
+ * then came from standableNear + 0.5, a cell corner, and aimAt chose whichever face it saw first).
+ * The aims are points on the faces toward the stand (aimAt adds half a cell: they are passed back by
+ * it). Walls are taken along the stand's main axis, so their faces look straight at it.
+ */
+async function buildSpot(page: Page): Promise<BuildSpot | null> {
   return page.evaluate(() => {
     const dd = window.__DD__;
     const g = dd.game;
     const fire = g.session.layout.campSite?.fire ?? [g.player.x, g.player.y, g.player.z];
-    // Walk out from the fire in 16 directions and take the first wall 2.5 to 4 m from a standable cell.
+    const air = (x: number, y: number, z: number) => dd.block(x, y, z) === 0;
+    const solid = (x: number, y: number, z: number) => dd.isSolid(x, y, z);
+    const ask = (kind: string, p: number[]) => {
+      dd.aimAt(p[0] - 0.5, p[1] - 0.5, p[2] - 0.5, 0, 0);
+      return g.act.placeCells(kind) as Array<[number, number, number]> | null;
+    };
     for (let a = 0; a < 16; a++) {
       const dx = Math.sin((a / 16) * Math.PI * 2);
       const dz = Math.cos((a / 16) * Math.PI * 2);
+      const ax = Math.abs(dx) >= Math.abs(dz) ? Math.sign(dx) : 0;
+      const az = ax === 0 ? Math.sign(dz) : 0;
       for (let d = 3; d < 14; d++) {
-        const sx = Math.floor(fire[0] + dx * d);
-        const sz = Math.floor(fire[2] + dz * d);
-        const stand = dd.standableNear(sx, fire[1], sz);
-        if (!stand) continue;
-        const wx = Math.floor(stand[0] + 0.5 + dx * 2.5);
-        const wz = Math.floor(stand[2] + 0.5 + dz * 2.5);
-        const wy = stand[1];
-        const wallSolid = dd.isSolid(wx, wy, wz) && dd.isSolid(wx, wy + 1, wz) && dd.isSolid(wx, wy + 2, wz);
-        const between = !dd.isSolid(Math.floor(stand[0] + 0.5 + dx * 1.4), wy, Math.floor(stand[2] + 0.5 + dz * 1.4)) && !dd.isSolid(Math.floor(stand[0] + 0.5 + dx * 1.4), wy + 1, Math.floor(stand[2] + 0.5 + dz * 1.4));
-        if (wallSolid && between) return { wall: [wx, wy, wz] as [number, number, number], stand: stand as [number, number, number] };
+        const st = dd.standableNear(fire[0] + dx * d, fire[1], fire[2] + dz * d);
+        if (!st) continue;
+        const y = st[1];
+        for (const k of [2, 3]) {
+          const wx = Math.floor(st[0]) + ax * k;
+          const wz = Math.floor(st[2]) + az * k;
+          // Rock at chest height with air in front of it (and the way there open).
+          if (!solid(wx, y + 1, wz) || !air(wx - ax, y + 1, wz - az) || !air(wx - ax, y, wz - az)) continue;
+          for (const side of [1, -1, 2, -2]) {
+            const lx = wx + az * side;
+            const lz = wz + ax * side;
+            if (![0, 1, 2].every((h) => solid(lx, y + h, lz) && air(lx - ax, y + h, lz - az))) continue;
+            dd.teleport(st[0], st[1], st[2]);
+            // (A hair into the rock past the face, so the ray meets that face.)
+            const torchAim = [wx + 0.5 - ax * 0.48, y + 1.5, wz + 0.5 - az * 0.48];
+            const ladderAim = [lx + 0.5 - ax * 0.48, y + 0.5, lz + 0.5 - az * 0.48];
+            const torch = ask('torch', torchAim);
+            const ladder = ask('ladder', ladderAim);
+            const torchOk = !!torch && torch[0][0] === wx - ax && torch[0][1] === y + 1 && torch[0][2] === wz - az;
+            const ladderOk = !!ladder && ladder.length >= 3 && ladder[0][0] === lx - ax && ladder[0][1] === y && ladder[0][2] === lz - az;
+            if (torchOk && ladderOk)
+              return { stand: st, wall: [wx, y, wz], torchAim, ladderWall: [lx, y, lz], ladderAim } as {
+                stand: [number, number, number];
+                wall: [number, number, number];
+                torchAim: [number, number, number];
+                ladderWall: [number, number, number];
+                ladderAim: [number, number, number];
+              };
+          }
+        }
       }
     }
     return null;
@@ -61,7 +106,8 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   const bench = await page.evaluate(() => window.__DD__.game.session.layout.campSite?.stations.find((s: { station: string }) => s.station === 'workbench')?.p ?? null);
   expect(bench, 'the camp has a Workbench').not.toBeNull();
   const byBench = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), bench!);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), byBench!);
+  // (standableNear gives the cell's centre: stood there as it is.)
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), byBench!);
   await page.evaluate(() => {
     window.__DD__.give('fungalWood', 8);
     window.__DD__.give('coal', 2);
@@ -99,14 +145,13 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
 
   await mark(page, 'build torch');
   // A torch on a wall: stand facing it, pick the torches, aim at the wall, tap Place.
-  const spot = await faceAWall(page);
-  expect(spot, 'a wall near the camp').not.toBeNull();
-  const { wall, stand } = spot!;
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), stand);
+  const spot = await buildSpot(page);
+  expect(spot, 'a wall near the camp that takes a torch and a ladder (Place\'s own rule)').not.toBeNull();
+  const { wall, stand, torchAim, ladderWall, ladderAim } = spot!;
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), stand);
   await selectItem(page, touch, 'torch');
   await expect(page.locator('.dd-pad-place')).toBeVisible();
-  // (aimAt takes a block: the wall's cell above the foot one, on the face the eye sees.)
-  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 1, z, 0, 0), wall);
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y - 0.5, z - 0.5, 0, 0), torchAim);
   expect(await untilGame(page, async () => (await hud(page)).reticle === 'place', 4), 'the reticle reads "place" on the wall').toBe(true);
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'place');
@@ -121,24 +166,9 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
   // A ladder on the wall at the feet: one ladder item climbs four cells up.
   const ladders0 = await count(page, 'ladder');
   await selectItem(page, touch, 'ladder');
-  // At the foot of the wall, a cell to the side of the torch (its column holds the torch now),
-  // turning until the reticle reads "place".
-  let ladderAim = false;
-  let ladderWall: [number, number, number] = [wall[0], wall[1], wall[2]];
-  // The wall's face toward the stand (its main axis): the ladder goes in the cells in front of it.
-  const nx = Math.abs(stand[0] - wall[0]) >= Math.abs(stand[2] - wall[2]) ? Math.sign(stand[0] - wall[0]) : 0;
-  const nz = nx === 0 ? Math.sign(stand[2] - wall[2]) : 0;
-  for (const [ox, oz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2], [0, 0]]) {
-    ladderWall = [wall[0] + ox, wall[1], wall[2] + oz];
-    // A wall three cells tall with room in front of it (the ladder climbs while both hold; the
-    // torch's column has the torch in front).
-    const tall = await page.evaluate(([x, y, z, fx, fz]) => [0, 1, 2].every((k) => window.__DD__.isSolid(x, y + k, z) && !window.__DD__.isSolid(x + fx, y + k, z + fz) && window.__DD__.block(x + fx, y + k, z + fz) === 0), [...ladderWall, nx, nz] as const);
-    if (!tall) continue;
-    await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y, z, 0, 0), ladderWall);
-    ladderAim = await untilGame(page, async () => (await hud(page)).reticle === 'place', 2);
-    if (ladderAim) break;
-  }
-  expect(ladderAim, 'the reticle reads "place" for the ladder').toBe(true);
+  // At the foot of the wall, on the column beside the torch that Place took for a ladder (buildSpot).
+  await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x - 0.5, y - 0.5, z - 0.5, 0, 0), ladderAim);
+  expect(await untilGame(page, async () => (await hud(page)).reticle === 'place', 4), 'the reticle reads "place" for the ladder').toBe(true);
   await page.evaluate(() => window.__DD__.ui.clear());
   await tapControl(page, touch, 'place');
   expect(await waitEvent(page, 'player:placed', 6), 'the ladder was placed').toBe(true);
@@ -150,6 +180,7 @@ test('craft once and five times, place a torch on a wall, then a ladder that cli
 
   await mark(page, 'build climb');
   // Climb it: step into the ladder and push the stick forward; the explorer goes up.
+  // (The placed ladder's cell, an index: its centre is + 0.5.)
   await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), [l.x, l.y, l.z]);
   const y0 = await page.evaluate(() => window.__DD__.game.player.y);
   await page.evaluate(([x, y, z]) => window.__DD__.aimAt(x, y + 2, z, 0, 0), ladderWall);

@@ -16,15 +16,23 @@ test.describe.configure({ timeout: 1_200_000 });
 
 const player = (page: Page) => page.evaluate(() => ({ x: window.__DD__.game.player.x as number, y: window.__DD__.game.player.y as number, z: window.__DD__.game.player.z as number }));
 
-/** Open floor 18-50 m from the camp fire (out of the camp). */
+/**
+ * Open floor out of the camp: 18-50 m from the fire and 2 m clear of the camp's box (the region the
+ * game's own camp test uses: Game.inRegion on layout.camp). The box is 26 x 22 m round the fire, so
+ * a spot 18 m away along its long axis can still be in it (gate run 3: "left the camp" never came,
+ * 5 of 40 seeds in a node probe). The cell's centre, as standableNear gives it.
+ */
 async function awayFromCamp(page: Page): Promise<[number, number, number]> {
   const spot = await page.evaluate(() => {
     const dd = window.__DD__;
-    const f = dd.game.session.layout.campSite.fire as [number, number, number];
+    const l = dd.game.session.layout;
+    const f = l.campSite.fire as [number, number, number];
+    const c = l.camp as { min: number[]; max: number[] };
+    const clear = (s: number[]) => s[0] < c.min[0] - 2 || s[0] > c.max[0] + 2 || s[2] < c.min[2] - 2 || s[2] > c.max[2] + 2 || s[1] < c.min[1] - 2 || s[1] > c.max[1] + 2;
     for (let d = 18; d < 50; d += 4)
-      for (let a = 0; a < 12; a++) {
-        const s = dd.standableNear(f[0] + Math.sin(a) * d, f[1], f[2] + Math.cos(a) * d);
-        if (s) return s;
+      for (let a = 0; a < 16; a++) {
+        const s = dd.standableNear(f[0] + Math.sin((a * Math.PI) / 8) * d, f[1], f[2] + Math.cos((a * Math.PI) / 8) * d);
+        if (s && clear(s)) return s;
       }
     return null;
   });
@@ -40,12 +48,12 @@ test('a trip ends at camp with its card; a black-out tells its story, then the t
   // Out of the camp and back: the trip card opens once play has no screen up. (LOOP keeps no card
   // for a trip under 20 s that found nothing: this one stays out a little longer.)
   const away = await awayFromCamp(page);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), away);
   expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 6), 'left the camp').toBe(true);
   await untilGame(page, async () => false, 21);
   const fire = await page.evaluate(() => window.__DD__.game.session.layout.campSite.fire as [number, number, number]);
   const home = await page.evaluate(([x, y, z]) => window.__DD__.standableNear(x + 1, y, z + 1), fire);
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), home!);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), home!);
   expect(await waitScreen(page, 'summary', 15), 'the trip card opened back at camp').toBe(true);
   await expect(page.locator('.dd-trip3-card')).toBeVisible();
   await expect(page.locator('.dd-trip3-title')).toHaveText(/Back at camp/i);
@@ -55,7 +63,7 @@ test('a trip ends at camp with its card; a black-out tells its story, then the t
 
   await mark(page, 'cards blackout');
   // A black-out out there: the card names what did it and where; the pack waits on the Map.
-  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x + 0.5, y, z + 0.5), away);
+  await page.evaluate(([x, y, z]) => window.__DD__.teleport(x, y, z), away);
   expect(await untilGame(page, async () => !(await page.evaluate(() => window.__DD__.game.inCamp)), 6)).toBe(true);
   await untilGame(page, async () => false, 21);
   await page.evaluate(() => {
