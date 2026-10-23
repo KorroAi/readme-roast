@@ -6,6 +6,7 @@ import { OUTPOST, STATIONS, STATION_IDS, stationOfItem, type StationId } from '.
 import { WEAPONS, bestWeapon, type Weapon, type WeaponId } from '../../config/weapons';
 import { BIOMES, allOres, type BiomeId } from '../../config/biomes';
 import { B, BLOCKS, SOLID, blockDef } from '../../config/blocks';
+import { findPoint } from '../mobs/lootPoint';
 import { NEXT_PICK, PAGE_COUNT, type Reward } from '../../config/quests';
 import { BONUS_DROPS } from '../../config/loot';
 import { Rng } from '../../core/rng';
@@ -708,10 +709,14 @@ export class Loop implements LoopActions {
     // The daily's rich veins: half the ores give one more of their own.
     const rich = this.dailyFactor('dropBonus');
     const main = BLOCKS[block]?.drop?.item ?? null;
-    if (rich > 0 && main && main !== 'stone' && this.dropRng.next() < rich) drops.spawn(main, 1, x + 0.5, y + 0.5, z + 0.5, this.dropRng);
+    // (Where the vein's own drop starts: within the bag's pull when it was broken near the pick's
+    // reach, else at its centre as before: MOBS' findPoint, at the lead's request after the gate.)
+    const w = this.host.session?.world;
+    const o = findPoint({ x: x + 0.5, y: y + 0.5, z: z + 0.5 }, this.host.player, w ? (cx, cy, cz) => SOLID[w.get(cx, cy, cz)] === 1 : null);
+    if (rich > 0 && main && main !== 'stone' && this.dropRng.next() < rich) drops.spawn(main, 1, o.x, o.y, o.z, this.dropRng);
     if (this.dropRng.next() >= b.chance) return;
     const n = this.dropRng.int(b.min, b.max);
-    if (n > 0) drops.spawn(b.item, n, x + 0.5, y + 0.5, z + 0.5, this.dropRng);
+    if (n > 0) drops.spawn(b.item, n, o.x, o.y, o.z, this.dropRng);
   }
   /** The bonus drops' own stream (the shared game rng stays aligned for everything else). */
   private dropRng = new Rng(0x5eed ^ 0xb0b);

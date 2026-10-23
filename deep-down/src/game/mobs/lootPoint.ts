@@ -42,3 +42,44 @@ export function lootPoint(
   }
   return { x: m.x, y, z: m.z };
 }
+
+/** Metres from the explorer's chest within which a mined find's drop still starts where the find was. */
+export const FIND_NEAR = 2.2;
+
+/**
+ * Where a mined find's drop starts: a vein's ore, its bonus drop, a crystal's shards (round 3, MOBS,
+ * at the lead's request after the gate). The pick reaches 3.5 m from the hand to a block's centre
+ * (game/fp/constants REACH), so a vein broken at the edge of that reach drops its ore ~3.5 m from the
+ * chest, outside the bag's 2.6 m pull, and it scatters from there: it could stay on the floor and fade.
+ * Within FIND_NEAR of the chest the drop starts where the find was, as it always has; farther, on the
+ * explorer's side through open space, LOOT_NEAR along the floor and at the explorer's own height
+ * (from the knees to the head: a floor vein's or a pit's ore starts above it), so it flies to the bag
+ * as a close vein's does. Pure (tests/unit/mobs-world.test.ts); the drop's item and count are the
+ * caller's, unchanged.
+ * @param f where the find's drop started until now (a block's centre, a prop's)
+ * @param p the explorer's feet
+ * @param solid the world's rock test (cells); without one the drop starts where the find was
+ */
+export function findPoint(
+  f: { x: number; y: number; z: number },
+  p: { x: number; y: number; z: number },
+  solid?: ((x: number, y: number, z: number) => boolean) | null,
+): { x: number; y: number; z: number } {
+  // (The chest, where game/Drops pulls a drop to: the feet + 1 m.)
+  if (!solid || Math.hypot(f.x - p.x, f.y - (p.y + 1), f.z - p.z) <= FIND_NEAR) return { x: f.x, y: f.y, z: f.z };
+  const dx = p.x - f.x;
+  const dz = p.z - f.z;
+  const h = Math.hypot(dx, dz);
+  const f0 = h > LOOT_NEAR ? (h - LOOT_NEAR) / h : 0;
+  const y0 = Math.min(p.y + 1.5, Math.max(p.y + 0.5, f.y));
+  // From the point on the explorer's side back toward the find (its own cell is open now), the first
+  // open one; the height eases back to the find's on the way.
+  for (let k = 0; k <= 8; k++) {
+    const t = f0 * (1 - k / 8);
+    const x = f.x + dx * t;
+    const z = f.z + dz * t;
+    const y = y0 + (f.y - y0) * (k / 8);
+    if (!solid(Math.floor(x), Math.floor(y), Math.floor(z))) return { x, y, z };
+  }
+  return { x: f.x, y: f.y, z: f.z };
+}

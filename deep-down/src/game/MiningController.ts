@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { B, BLOCKS, blockDef, isEmitter, SOLID, UNBREAKABLE_TIER } from '../config/blocks';
 import type { PickaxeDef } from '../config/balance';
-import { REACH } from './fp/constants';
+import { EYE_HEIGHT, REACH } from './fp/constants';
+import { findPoint } from './mobs/lootPoint';
 import { PlainRockHint } from './fp/plainRockHint';
 import { isBreakable, rarityOf, RARITY_HEX, RARITY_RANK } from '../config/rarity';
 import { VeinCombo } from './fp/abilities';
@@ -269,6 +270,15 @@ export class MiningController {
     };
   }
 
+  /** The explorer's feet, from the eye (first person: the camera is the eye). */
+  private feet(): { x: number; y: number; z: number } {
+    const e = this.cameraRig.camera.position;
+    return { x: e.x, y: e.y - EYE_HEIGHT, z: e.z };
+  }
+
+  /** Rock at a cell (findPoint's open-space test). */
+  private readonly solidAt = (x: number, y: number, z: number): boolean => SOLID[this.world.get(x, y, z)] === 1;
+
   /** What the aim ray (crosshair, or the pointer when aiming from it) hits. */
   private rayTarget(input: InputState, handX: number, handY: number, handZ: number): MiningTarget | null {
     const ndcX = input.aimFromPointer ? input.aimX : 0;
@@ -418,7 +428,9 @@ export class MiningController {
         const count = m.min + Math.floor(this.rng.next() * (m.max - m.min + 1));
         this.particles.sparkle(spec.x, spec.y + 0.5, spec.z, 0x8ff6ff, 8, this.rng, 2);
         this.debris.burst(spec.x, spec.y + 0.4, spec.z, [0x52e8f5, 0x9ff6ff, 0x1b8aa8], this.rng, { count: 8, speed: 1.6, size: [0.05, 0.12], glow: true, spread: 0.3, dir: [0, -0.7, 0], life: [0.7, 1.2] });
-        this.drops.spawn(m.drop, count, spec.x, spec.y + 0.5, spec.z, this.rng);
+        // (Broken near the pick's reach, its shards start within the bag's pull: MOBS' findPoint, at the lead's request.)
+        const o = findPoint({ x: spec.x, y: spec.y + 0.5, z: spec.z }, this.feet(), this.solidAt);
+        this.drops.spawn(m.drop, count, o.x, o.y, o.z, this.rng);
         this.bus.emit('prop:broken', { propId: spec.id, x: spec.x, y: spec.y, z: spec.z });
         this.hooks.propBroken(spec);
       }
@@ -445,7 +457,12 @@ export class MiningController {
     }
     if (def.drop) {
       const count = this.hooks.rollDrop(def.drop);
-      if (count > 0) this.drops.spawn(def.drop.item, count, cx, cy, cz, this.rng);
+      // (A vein broken near the pick's reach drops its find within the bag's pull, else at its centre
+      // as before: MOBS' findPoint, at the lead's request after the gate.)
+      if (count > 0) {
+        const o = findPoint({ x: cx, y: cy, z: cz }, this.feet(), this.solidAt);
+        this.drops.spawn(def.drop.item, count, o.x, o.y, o.z, this.rng);
+      }
     }
     // Round 3: a loot burst in the find's rarity colour (uncommon and up), and the vein combo.
     const rarity = rarityOf(oldId);

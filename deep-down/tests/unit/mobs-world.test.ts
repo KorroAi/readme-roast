@@ -11,7 +11,7 @@ import { WEAPONS } from '../../src/config/weapons';
 import { SPECIES } from '../../src/game/mobs/species';
 import { DropSystem } from '../../src/game/Drops';
 import { Rng } from '../../src/core/rng';
-import { lootPoint } from '../../src/game/mobs/lootPoint';
+import { findPoint, lootPoint } from '../../src/game/mobs/lootPoint';
 import type { VoxelWorld } from '../../src/world/VoxelWorld';
 
 // MOBS (round 3): WORLD's biome table and lairs name only the creatures that live there (WORLD mirrors
@@ -241,5 +241,55 @@ describe("a kill's loot reaches the bag (the lead's gate, 03:11)", () => {
     expect(Math.floor(o.x)).not.toBe(2);
     expect(o.x).toBeGreaterThan(2.9);
     expect(o.x).toBeLessThanOrEqual(3.6);
+  });
+});
+
+describe("a mined find's drop reaches the bag (the lead, after the gate)", () => {
+  // The pick reaches 3.5 m from the hand to a block's centre (game/fp/constants REACH); the bag pulls a
+  // drop in within 2.6 m of the chest (game/Drops). The real DropSystem; the explorer never moves.
+  const player = { x: 0.1, y: 10, z: 0.5 };
+  const worldWith = (rock: (x: number, y: number, z: number) => boolean) => ({
+    world: { get: (x: number, y: number, z: number) => (rock(x, y, z) ? B.SLATE : B.AIR) } as unknown as VoxelWorld,
+    solid: rock,
+  });
+  const reached = (w: VoxelWorld, start: { x: number; y: number; z: number }, seed: number): boolean => {
+    const drops = new DropSystem(w, {} as never, {} as never);
+    // (A gem: its model needs no tile atlas; the flight is the same for every item.)
+    drops.spawn('glimmerShard', 2, start.x, start.y, start.z, new Rng(seed));
+    let got = 0;
+    for (let t = 0; t < 4; t += 1 / 30) drops.update(1 / 30, t, player.x, player.y, player.z, () => true, (_i, n) => ((got += n), n), () => undefined);
+    return got > 0;
+  };
+  const N = 40;
+  const runs = (w: VoxelWorld, start: { x: number; y: number; z: number }) => {
+    let n = 0;
+    for (let s = 1; s <= N; s++) if (reached(w, start, s)) n++;
+    return n;
+  };
+
+  it('a vein broken 3.4 m from the chest: its find flies to the bag, 40 times in 40', () => {
+    // A wall of rock from x = 3, the floor below y = 10; the vein at the wall's foot (cell 3,10,0), broken.
+    const { world, solid } = worldWith((x, y, z) => y < 10 || (x >= 3 && !(x === 3 && y === 10 && z === 0)));
+    const vein = { x: 3.5, y: 10.5, z: 0.5 };
+    const d = Math.hypot(vein.x - player.x, vein.y - (player.y + 1), vein.z - player.z);
+    expect(d, 'from the chest').toBeGreaterThan(3.4);
+    expect(d).toBeLessThan(3.5);
+    const before = runs(world, vein);
+    const after = runs(world, findPoint(vein, player, solid));
+    console.log(`[mobs] a vein broken ${d.toFixed(2)} m from the chest: its find reached the bag ${before}/${N} from the block, ${after}/${N} from findPoint`);
+    expect(before, 'from the block (as it was)').toBeLessThan(N);
+    expect(after, 'from findPoint').toBe(N);
+  });
+
+  it('a floor vein 2.8 m off (its pit left open) too; one 1.5 m off still starts at the block; without a world, as before', () => {
+    const { world, solid } = worldWith((x, y, z) => y < 10 && !(x === 2 && y === 9 && z === 0));
+    const vein = { x: 2.5, y: 9.5, z: 0.5 };
+    expect(Math.hypot(vein.x - player.x, vein.y - (player.y + 1), vein.z - player.z)).toBeGreaterThan(2.8);
+    expect(runs(world, findPoint(vein, player, solid)), 'from findPoint').toBe(N);
+    // Close mining looks as it always has: the drop starts at the block's centre.
+    const near = { x: 1.5, y: 10.5, z: 0.5 };
+    expect(Math.hypot(near.x - player.x, near.y - (player.y + 1), near.z - player.z)).toBeLessThan(1.55);
+    expect(findPoint(near, player, solid)).toEqual(near);
+    expect(findPoint(vein, player, null)).toEqual(vein);
   });
 });
